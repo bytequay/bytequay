@@ -15,7 +15,9 @@ package com.bytequay.app.flow.gate;
 
 import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
+import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedInitialPublish;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateAction;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateConsentRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
@@ -26,6 +28,8 @@ import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateState;
 import com.bytequay.app.flow.gate.UserGateRecords.GateSubject;
 import com.bytequay.app.flow.gate.UserGateRecords.GateTransition;
+import com.bytequay.app.flow.gate.UserGateRecords.InitialPublishAction;
+import com.bytequay.app.flow.gate.UserGateRecords.InitialPublishSubject;
 import com.bytequay.app.flow.gate.UserGateRecords.LocalCheckBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.LocalReviewBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
@@ -40,10 +44,19 @@ import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderFailure;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderFailureKind;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderObservation;
 import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.flow.github.GitHubEffects.ActivatedInitialAttempt;
+import com.bytequay.app.flow.github.GitHubEffects.InitialRecoveryKind;
 import com.bytequay.app.flow.github.GitHubEffects.PreparedCiUpdatePlan;
+import com.bytequay.app.flow.github.GitHubEffects.PreparedInitialPublishPlan;
+import com.bytequay.app.flow.github.GitHubInitialPublishExecutor.SettlementRequired;
+import com.bytequay.app.flow.github.InitialPublishRecords;
+import com.bytequay.app.flow.github.InitialPublishRecords.Plan;
+import com.bytequay.app.flow.github.InitialPublishRecords.Settlement;
+import com.bytequay.app.flow.github.InitialPublishRecords.TargetSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntime.PublishExecutionHandle;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
@@ -57,6 +70,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReadyForReviewRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
@@ -229,6 +243,55 @@ public final class UserGates
         RETRY
     }
 
+    public enum InitialPublishDispositionKind
+    {
+        DIVERGED,
+        UNKNOWN,
+        ATTEMPT_LIMIT,
+        ABSENT_RETRY,
+        DIVERGENCE_LOCKED
+    }
+
+    public record InitialPublishEffectActivation(
+            String planId, boolean mutationAllowed)
+    {
+        public InitialPublishEffectActivation
+        {
+            requireNonNull(planId, "planId is null");
+        }
+    }
+
+    /** Nonconstructible proof that User Gates locked a post-branch stop. */
+    public static final class InitialBranchStaleDisposition
+    {
+        private final Claim claim;
+        private final String planId;
+        private final String branchReceiptId;
+        private final String reasonCode;
+        private final String detail;
+
+        private InitialBranchStaleDisposition(
+                Claim claim, String planId, String branchReceiptId,
+                String reasonCode, String detail)
+        {
+            this.claim = requireNonNull(claim, "claim is null");
+            requireText(planId, "planId");
+            requireText(branchReceiptId, "branchReceiptId");
+            requireText(reasonCode, "reasonCode");
+            requireText(detail, "detail");
+            this.planId = planId;
+            this.branchReceiptId = branchReceiptId;
+            this.reasonCode = reasonCode;
+            this.detail = detail;
+        }
+
+        public Claim claim() { return claim; }
+        public String planId() { return planId; }
+        public String branchReceiptId() { return branchReceiptId; }
+        public String reasonCode() { return reasonCode; }
+        public String detail() { return detail; }
+    }
+
     /** Owner-minted runtime settlement after its durable graph mutation. */
     public static final class PublishDisposition
     {
@@ -319,11 +382,27 @@ public final class UserGates
     private record AuthorityInspection(
             Inspection inspection, String blockerCode) {}
 
+    private record InitialAuthorityInspection(
+            Inspection inspection, String blockerCode, boolean required) {}
+
     private record AuthorizationOutcome(
             AuthorizedCiUpdate authorized, String blockerCode) {}
 
+    private record AuthorizationOutcomeInitial(
+            AuthorizedInitialPublish authorized, String blockerCode) {}
+
+    private record InitialGateBundle(
+            LocalReviewBinding localReviewBinding,
+            InitialPublishSubject subject,
+            InitialPublishAction action) {}
+
     private record BeginOutcome(
             CiUpdateEffectActivation activation,
+            String blockerCode,
+            boolean probeRequired) {}
+
+    private record InitialBeginOutcome(
+            InitialPublishEffectActivation activation,
             String blockerCode,
             boolean probeRequired) {}
 
@@ -864,6 +943,219 @@ public final class UserGates
                 "authorization result is null");
     }
 
+    /**
+     * Opens the manual-only first-publication gate from durable Task evidence.
+     * It replays first; otherwise one provider-sealed repository read occurs
+     * outside the owner transaction. No subject, target, or action field is
+     * model supplied.
+     */
+    public GateRevision openInitialPublish(
+            String runId,
+            Supplier<InitialPublishRecords.RepositoryObservation> observation)
+    {
+        requireText(runId, "runId");
+        requireNonNull(observation, "observation is null");
+        Optional<GateRevision> existingReplay = inTransaction(() ->
+                initialPublishReplay(runId));
+        if (existingReplay.isPresent()) {
+            return existingReplay.orElseThrow();
+        }
+        InitialPublishRecords.RepositoryObservation observed = requireNonNull(
+                observation.get(), "repository observation is null");
+        return inTransaction(() -> {
+            Optional<GateRevision> replay = initialPublishReplay(runId);
+            if (replay.isPresent()) {
+                return replay.orElseThrow();
+            }
+            InitialGateBundle bundle = deriveInitialPublish(runId, observed);
+            insertLocalReviewBinding(bundle.localReviewBinding());
+            insertInitialSubject(bundle.subject());
+            insertInitialAction(bundle.action());
+            Optional<UserGate> existing = initialGate(bundle.subject().prId());
+            String gateId = existing.map(UserGate::gateId).orElseGet(() ->
+                    stableId("user-gate", bundle.subject().prId(),
+                            GateKind.INITIAL_PUBLISH.name()));
+            long revision = existing.map(UserGate::currentRevision).orElse(0L) + 1;
+            Instant now = clock.instant();
+            if (existing.isEmpty()) {
+                jdbc.update(
+                        """
+                        INSERT INTO flow_user_gate (
+                            gate_id, task_id, pr_id, kind,
+                            current_revision, created_at
+                        ) VALUES (?, ?, ?, 'INITIAL_PUBLISH', 1, ?)
+                        """,
+                        gateId, bundle.subject().taskId(),
+                        bundle.subject().prId(), now.toEpochMilli());
+            }
+            else {
+                UserGate gate = existing.orElseThrow();
+                GateState state = currentState(gate.gateId(),
+                        gate.currentRevision());
+                if (state != GateState.OPEN && state != GateState.STALE
+                        && state != GateState.CONSUMED) {
+                    throw new IllegalStateException(
+                            "authorized initial gate may not be revised");
+                }
+                if (state == GateState.OPEN) {
+                    appendTransition(gateId, gate.currentRevision(),
+                            nextTransitionSequence(gateId), GateState.OPEN,
+                            GateState.STALE, "SUPERSEDED_BY_READY",
+                            "initial-subject:" + bundle.subject().subjectId(),
+                            now);
+                }
+                int advanced = jdbc.update(
+                        "UPDATE flow_user_gate SET current_revision = ? "
+                                + "WHERE gate_id = ? AND current_revision = ?",
+                        revision, gateId, gate.currentRevision());
+                if (advanced != 1) {
+                    throw new FlowRuntime.StaleOwnerRevisionException(
+                            "initial gate changed during revision");
+                }
+            }
+            jdbc.update(
+                    """
+                    INSERT INTO flow_user_gate_revision (
+                        gate_id, kind, revision, subject_manifest_ref,
+                        subject_digest, action_manifest_ref, action_digest,
+                        readiness_evidence_ref, created_by_run_id, created_at
+                    ) VALUES (?, 'INITIAL_PUBLISH', ?, ?, ?, ?, ?, NULL, ?, ?)
+                    """,
+                    gateId, revision, bundle.subject().subjectId(),
+                    bundle.subject().subjectDigest(), bundle.action().actionRef(),
+                    bundle.action().actionDigest(), runId, now.toEpochMilli());
+            appendTransition(gateId, revision, nextTransitionSequence(gateId),
+                    null, GateState.OPEN, "READY", null, now);
+            GateRevision opened = requireRevision(gateId, revision);
+            assertInitialRevisionGraph(opened);
+            return opened;
+        });
+    }
+
+    private Optional<GateRevision> initialPublishReplay(String runId)
+    {
+        Optional<GateRevision> replay = revisionForRun(runId);
+        if (replay.isEmpty()) {
+            return replay;
+        }
+        GateRevision stored = replay.orElseThrow();
+        UserGate gate = requireGate(stored.gateId());
+        if (gate.kind() != GateKind.INITIAL_PUBLISH
+                || stored.readinessEvidenceRef() != null) {
+            throw new IllegalStateException(
+                    "initial publication replay is corrupt");
+        }
+        assertInitialRevisionGraph(stored);
+        return replay;
+    }
+
+    /** Authorizes exactly one displayed INITIAL_PUBLISH revision, manually. */
+    public AuthorizedInitialPublish authorizeInitialPublish(
+            String gateId,
+            long gateRevision,
+            String expectedSubjectDigest,
+            String expectedActionDigest,
+            String idempotencyKey)
+    {
+        requireText(gateId, "gateId");
+        requireText(expectedSubjectDigest, "expectedSubjectDigest");
+        requireText(expectedActionDigest, "expectedActionDigest");
+        requireText(idempotencyKey, "idempotencyKey");
+        if (gateRevision < 1 || idempotencyKey.length() > 256) {
+            throw new IllegalArgumentException(
+                    "gate revision/idempotency key is invalid");
+        }
+        Optional<GateAuthorization> replay = authorizationByKey(
+                MANUAL_ACTOR, idempotencyKey);
+        if (replay.isPresent()) {
+            requireManualAuthorization(replay.orElseThrow());
+            return assertInitialAuthorizationGraph(replay.orElseThrow(),
+                    gateId, gateRevision, expectedSubjectDigest,
+                    expectedActionDigest, idempotencyKey);
+        }
+        Optional<GateAuthorization> revisionReplay = authorizationForRevision(
+                gateId, gateRevision);
+        if (revisionReplay.isPresent()) {
+            GateAuthorization existing = revisionReplay.orElseThrow();
+            requireManualAuthorization(existing);
+            if (!existing.idempotencyKey().equals(idempotencyKey)) {
+                throw new AuthorizationRejectedException(
+                        "IDEMPOTENCY_KEY_CONFLICT");
+            }
+            return assertInitialAuthorizationGraph(existing, gateId,
+                    gateRevision, expectedSubjectDigest,
+                    expectedActionDigest, idempotencyKey);
+        }
+        GateRevision revision = requireRevision(gateId, gateRevision);
+        if (currentState(gateId, gateRevision) != GateState.OPEN) {
+            throw new AuthorizationRejectedException(
+                    terminalAuthorizationBlocker(gateId, gateRevision));
+        }
+        if (!revision.subjectDigest().equals(expectedSubjectDigest)
+                || !revision.actionDigest().equals(expectedActionDigest)) {
+            throw new AuthorizationRejectedException(
+                    "DISPLAYED_GATE_DIGEST_CHANGED");
+        }
+        InitialPublishSubject inspectedSubject = requireInitialSubject(
+                revision.subjectManifestRef());
+        InitialAuthorityInspection inspected = inspectInitialAuthority(
+                runtime.task(inspectedSubject.taskId()).orElseThrow(),
+                inspectedSubject);
+        AuthorizationOutcomeInitial outcome = inTransaction(() -> {
+            lockCurrentGateRevision(gateId, gateRevision);
+            Optional<GateAuthorization> keyed = authorizationByKey(
+                    MANUAL_ACTOR, idempotencyKey);
+            if (keyed.isPresent()) {
+                requireManualAuthorization(keyed.orElseThrow());
+                return new AuthorizationOutcomeInitial(
+                        assertInitialAuthorizationGraph(keyed.orElseThrow(),
+                                gateId, gateRevision, expectedSubjectDigest,
+                                expectedActionDigest, idempotencyKey), null);
+            }
+            Optional<GateAuthorization> revisionMatch = authorizationForRevision(
+                    gateId, gateRevision);
+            if (revisionMatch.isPresent()) {
+                GateAuthorization existing = revisionMatch.orElseThrow();
+                requireManualAuthorization(existing);
+                if (!existing.idempotencyKey().equals(idempotencyKey)) {
+                    throw new AuthorizationRejectedException(
+                            "IDEMPOTENCY_KEY_CONFLICT");
+                }
+                return new AuthorizationOutcomeInitial(
+                        assertInitialAuthorizationGraph(existing, gateId,
+                                gateRevision, expectedSubjectDigest,
+                                expectedActionDigest, idempotencyKey), null);
+            }
+            if (currentState(gateId, gateRevision) != GateState.OPEN) {
+                return new AuthorizationOutcomeInitial(null,
+                        terminalAuthorizationBlocker(gateId, gateRevision));
+            }
+            GateRevision lockedRevision = requireRevision(gateId, gateRevision);
+            String blocker = inspected.blockerCode();
+            if (blocker == null) {
+                blocker = initialAuthorizationBlocker(
+                        gateId, gateRevision, lockedRevision,
+                        inspected.inspection());
+            }
+            if (blocker != null) {
+                staleOpenAuthorization(gateId, gateRevision, blocker);
+                return new AuthorizationOutcomeInitial(null, blocker);
+            }
+            InitialPublishSubject subject = requireInitialSubject(
+                    lockedRevision.subjectManifestRef());
+            InitialPublishAction action = requireInitialAction(
+                    lockedRevision.actionManifestRef());
+            return new AuthorizationOutcomeInitial(
+                    createInitialAuthorizationLocked(gateId, gateRevision,
+                            subject, action, idempotencyKey), null);
+        });
+        if (outcome.blockerCode() != null) {
+            throw new AuthorizationRejectedException(outcome.blockerCode());
+        }
+        return requireNonNull(outcome.authorized(),
+                "initial authorization result is null");
+    }
+
     /** Replays a committed publication without recreating live attempt authority. */
     public Optional<ExternalEffectReceipt> terminalCiUpdateReceipt(
             Claim claim)
@@ -913,6 +1205,503 @@ public final class UserGates
                     "publication receipt is not the terminal gate result");
         }
         return Optional.of(receipt);
+    }
+
+    /** Returns only an exact historical INITIAL terminal graph. */
+    public Optional<Settlement> terminalInitialPublishSettlement(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        Optional<Settlement> stored = githubEffects.initialSettlement(
+                claim.operationId());
+        if (stored.isEmpty()) {
+            return Optional.empty();
+        }
+        Settlement settlement = stored.orElseThrow();
+        GateAuthorization authorization = authorizationForOperation(
+                claim.operationId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "initial authorization is missing"));
+        assertInitialAuthorizationGraph(
+                authorization, authorization.gateId(),
+                authorization.gateRevision(), authorization.subjectDigest(),
+                authorization.actionDigest(), authorization.idempotencyKey());
+        runtime.assertInitialSettlementReplay(claim, settlement);
+        GateState expected = settlement.succeeded()
+                ? GateState.CONSUMED : GateState.STALE;
+        Integer exactTransition = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition t
+                WHERE t.gate_id = ? AND t.gate_revision = ?
+                  AND t.to_state = ? AND t.actor_type = 'PROGRAM'
+                  AND t.actor_id = ? AND t.detail_ref = ?
+                  AND t.reason_code = ?
+                  AND t.sequence = (
+                      SELECT MAX(x.sequence) FROM flow_user_gate_transition x
+                      WHERE x.gate_id = t.gate_id
+                        AND x.gate_revision = t.gate_revision)
+                """,
+                Integer.class, authorization.gateId(),
+                authorization.gateRevision(), expected.name(),
+                claim.operationId(), settlement.resultId(),
+                settlement.succeeded()
+                        ? "EFFECT_APPLIED" : "EFFECT_STALE");
+        if (requireNonNull(exactTransition,
+                "initial terminal transition count is null") != 1) {
+            throw new IllegalStateException(
+                    "initial terminal gate replay is inconsistent");
+        }
+        return Optional.of(settlement);
+    }
+
+    /** One outer transaction settles all INITIAL owners from sealed evidence. */
+    public Settlement settleInitialPublish(
+            Claim claim, SettlementRequired handoff)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(handoff, "handoff is null");
+        return inTransaction(() -> {
+            if (githubEffects.initialSettlement(
+                    claim.operationId()).isPresent()) {
+                Settlement replay = githubEffects.storeInitialSettlement(
+                        claim, handoff, clock.instant());
+                Settlement terminal = terminalInitialPublishSettlement(claim)
+                        .orElseThrow();
+                if (replay != terminal
+                        && !replay.resultId().equals(terminal.resultId())) {
+                    throw new IllegalStateException(
+                            "initial settlement replay changed result");
+                }
+                return terminal;
+            }
+            GateAuthorization authorization = authorizationForOperation(
+                    claim.operationId()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "initial authorization is missing"));
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            assertInitialAuthorizationGraph(
+                    authorization, authorization.gateId(),
+                    authorization.gateRevision(),
+                    authorization.subjectDigest(),
+                    authorization.actionDigest(),
+                    authorization.idempotencyKey());
+            GateState state = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            if (state != GateState.EXECUTING
+                    && state != GateState.NEEDS_ATTENTION) {
+                throw new IllegalStateException(
+                        "initial publication is not awaiting settlement");
+            }
+            Settlement settlement = githubEffects.storeInitialSettlement(
+                    claim, handoff, clock.instant());
+            GateState next = settlement.succeeded()
+                    ? GateState.CONSUMED : GateState.STALE;
+            appendTransition(
+                    authorization.gateId(), authorization.gateRevision(),
+                    nextTransitionSequence(authorization.gateId()),
+                    state, next, "PROGRAM", claim.operationId(),
+                    settlement.succeeded()
+                            ? "EFFECT_APPLIED" : "EFFECT_STALE",
+                    settlement.resultId(), clock.instant());
+            runtime.applyInitialSettlement(claim, settlement);
+            return settlement;
+        });
+    }
+
+    /** Revalidates and activates INITIAL_PUBLISH before any provider read. */
+    public InitialPublishEffectActivation beginInitialPublishEffect(
+            Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        Optional<String> canceled = runtime.canceledPublishResult(claim);
+        if (canceled.isPresent()) {
+            throw new DurableStaleEffectException(canceled.orElseThrow());
+        }
+        InitialAuthorityInspection inspected =
+                inspectInitialAuthorityIfRequired(claim);
+        InitialBeginOutcome outcome = inTransaction(() -> {
+            var operation = runtime.assertPublishClaim(claim);
+            Plan plan = githubEffects.initialPublishPlan(operation.inputRef())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "initial publication plan is missing"));
+            GateAuthorization authorization = authorization(
+                    plan.authorizationId()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "initial authorization is missing"));
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            assertInitialAuthorizationGraph(
+                    authorization, authorization.gateId(),
+                    authorization.gateRevision(),
+                    authorization.subjectDigest(),
+                    authorization.actionDigest(),
+                    authorization.idempotencyKey());
+            GateState state = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            if (state != GateState.AUTHORIZED
+                    && state != GateState.EXECUTING
+                    && state != GateState.NEEDS_ATTENTION) {
+                throw new IllegalStateException(
+                        "initial authorization is not claim-activatable");
+            }
+            List<InitialPublishRecords.Step> steps =
+                    githubEffects.initialPublishSteps(plan.planId());
+            int currentOrdinal = githubEffects
+                    .initialPublishStepReceipts(plan.planId()).size();
+            if (currentOrdinal == steps.size()) {
+                if (state != GateState.EXECUTING
+                        && state != GateState.NEEDS_ATTENTION) {
+                    throw new IllegalStateException(
+                            "complete initial publication is not awaiting settlement");
+                }
+                return new InitialBeginOutcome(
+                        new InitialPublishEffectActivation(
+                                plan.planId(), false), null, false);
+            }
+            boolean attemptBacked = currentOrdinal < steps.size()
+                    && githubEffects.initialPublishAttempts(
+                            plan.planId()).stream()
+                            .anyMatch(value -> value.stepId().equals(
+                                    steps.get(currentOrdinal).stepId()));
+            if (attemptBacked) {
+                if (state != GateState.AUTHORIZED) {
+                    return new InitialBeginOutcome(
+                            new InitialPublishEffectActivation(
+                                    plan.planId(), false), null, false);
+                }
+            }
+            GateRevision revision = requireRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            String blocker = inspected.required()
+                    ? inspected.blockerCode()
+                    : "INITIAL_AUTHORITY_INSPECTION_MISSING";
+            if (blocker == null) {
+                blocker = initialAuthorizationBlocker(
+                        authorization.gateId(),
+                        authorization.gateRevision(), revision,
+                        inspected.inspection());
+            }
+            if (blocker != null) {
+                if (currentOrdinal == 1 && !attemptBacked) {
+                    Settlement settlement = settleInitialBranchOnlyStale(
+                            claim, authorization, state, blocker, false);
+                    return new InitialBeginOutcome(
+                            null, settlement.resultId(), false);
+                }
+                GateState next = attemptBacked
+                        ? GateState.NEEDS_ATTENTION : GateState.STALE;
+                appendTransition(
+                        authorization.gateId(),
+                        authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        state, next,
+                        "PROGRAM", claim.operationId(),
+                        attemptBacked
+                                ? "EFFECT_AUTHORITY_UNPROVEN"
+                                : "EFFECT_STALE",
+                        blocker, clock.instant());
+                runtime.settleClaimedPublish(
+                        claim, null, null, null,
+                        disposition(
+                                claim,
+                                attemptBacked
+                                        ? PublishDispositionKind.RETRY
+                                        : PublishDispositionKind.CANCELED,
+                                attemptBacked
+                                        ? "INITIAL_PUBLISH_PROBE_REQUIRED:"
+                                                + blocker
+                                        : "INITIAL_PUBLISH_STALE:" + blocker,
+                                attemptBacked
+                                        ? clock.instant().plus(
+                                                Duration.ofSeconds(5))
+                                        : null));
+                return new InitialBeginOutcome(
+                        null, blocker, attemptBacked);
+            }
+            if (state == GateState.NEEDS_ATTENTION) {
+                appendTransition(
+                        authorization.gateId(), authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        GateState.NEEDS_ATTENTION, GateState.AUTHORIZED,
+                        "PROGRAM", claim.operationId(), "EFFECT_RETRY",
+                        claim.operationId(), clock.instant());
+                state = GateState.AUTHORIZED;
+            }
+            if (state == GateState.AUTHORIZED) {
+                appendTransition(
+                        authorization.gateId(), authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        GateState.AUTHORIZED, GateState.EXECUTING,
+                        "PROGRAM", claim.operationId(), "EFFECT_BEGIN",
+                        claim.operationId(), clock.instant());
+            }
+            return new InitialBeginOutcome(
+                    new InitialPublishEffectActivation(
+                            plan.planId(), true), null, false);
+        });
+        if (outcome.blockerCode() != null) {
+            if (outcome.probeRequired()) {
+                throw new DurableProbeRequiredException(
+                        outcome.blockerCode());
+            }
+            throw new DurableStaleEffectException(outcome.blockerCode());
+        }
+        return requireNonNull(
+                outcome.activation(), "initial activation is null");
+    }
+
+    /** Persists a non-success INITIAL disposition without adopting a remote. */
+    @SuppressWarnings("StringConcatToTextBlock")
+    public void applyInitialPublishDisposition(
+            Claim claim,
+            ActivatedInitialAttempt activated,
+            InitialPublishRecords.Probe suppliedProbe,
+            InitialPublishDispositionKind kind)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(kind, "kind is null");
+        applyInitialPublishDisposition(
+                claim, activated, suppliedProbe, kind, null);
+    }
+
+    /** Consumes provider-minted evidence for one exact INITIAL failure. */
+    public Optional<Settlement> applyInitialPublishFailure(
+            Claim claim,
+            ActivatedInitialAttempt activated,
+            InitialPublishRecords.ProviderFailure failure)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(failure, "failure is null");
+        return applyInitialPublishDisposition(
+                claim, activated, null, null, failure);
+    }
+
+    @SuppressWarnings("StringConcatToTextBlock")
+    private Optional<Settlement> applyInitialPublishDisposition(
+            Claim claim,
+            ActivatedInitialAttempt activated,
+            InitialPublishRecords.Probe suppliedProbe,
+            InitialPublishDispositionKind kind,
+            InitialPublishRecords.ProviderFailure failure)
+    {
+        return inTransaction(() -> {
+            GateAuthorization authorization = authorizationForOperation(
+                    claim.operationId()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "initial authorization is missing"));
+            Plan plan = githubEffects.initialPublishPlan(
+                    authorization.effectPlanRef()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "initial publication plan is missing"));
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            assertInitialAuthorizationGraph(
+                    authorization, authorization.gateId(),
+                    authorization.gateRevision(),
+                    authorization.subjectDigest(),
+                    authorization.actionDigest(),
+                    authorization.idempotencyKey());
+            if (activated == null) {
+                runtime.assertPublishClaim(claim);
+            }
+            else {
+                runtime.assertPublishAttemptResult(
+                        activated.executionHandle(), claim,
+                        activated.attempt().attemptId(),
+                        activated.attempt().executionTokenDigest());
+            }
+            List<InitialPublishRecords.Step> steps =
+                    githubEffects.initialPublishSteps(plan.planId());
+            List<InitialPublishRecords.StepReceipt> receipts =
+                    githubEffects.initialPublishStepReceipts(plan.planId());
+            if (receipts.size() >= steps.size()) {
+                throw new IllegalStateException(
+                        "fully receipted initial publication cannot defer");
+            }
+            InitialPublishRecords.Step step = steps.get(receipts.size());
+            List<InitialPublishRecords.Attempt> currentAttempts =
+                    githubEffects.initialPublishAttempts(plan.planId()).stream()
+                            .filter(value -> value.stepId().equals(step.stepId()))
+                            .toList();
+            String latestAttemptId = currentAttempts.isEmpty()
+                    ? null : currentAttempts.getLast().attemptId();
+            if (failure != null && !failure.matches(
+                    claim, plan.planId(), step.stepId(), latestAttemptId)) {
+                throw new IllegalStateException(
+                        "initial provider failure is stale or substituted");
+            }
+            if (failure != null && failure.baseDrift()) {
+                if (!currentAttempts.isEmpty() || receipts.size() != 1) {
+                    throw new IllegalStateException(
+                            "base drift is not branch-only");
+                }
+                GateState state = currentState(
+                        authorization.gateId(), authorization.gateRevision());
+                if (state != GateState.EXECUTING
+                        && state != GateState.NEEDS_ATTENTION) {
+                    throw new IllegalStateException(
+                            "initial publication gate is not executing");
+                }
+                Settlement settlement =
+                        githubEffects.storeInitialBranchOnlyBaseDrift(
+                                claim, failure, clock.instant());
+                appendTransition(
+                        authorization.gateId(), authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        state, GateState.STALE, "PROGRAM", claim.operationId(),
+                        "EFFECT_STALE", settlement.resultId(),
+                        clock.instant());
+                runtime.applyInitialSettlement(claim, settlement);
+                return Optional.of(settlement);
+            }
+            String evidenceRef = plan.planId();
+            if (suppliedProbe != null) {
+                InitialPublishRecords.Probe stored = githubEffects
+                        .initialPublishProbes(plan.planId()).stream()
+                        .filter(value -> value.probeId().equals(
+                                suppliedProbe.probeId()))
+                        .findFirst().orElseThrow(() ->
+                                new IllegalStateException(
+                                        "initial disposition probe is missing"));
+                if (!stored.equals(suppliedProbe)
+                        || !stored.operationId().equals(claim.operationId())
+                        || !stored.stepId().equals(step.stepId())
+                        || stored.claimGeneration() != claim.generation()
+                        || kind == InitialPublishDispositionKind.DIVERGED
+                                && stored.outcome()
+                                    != InitialPublishRecords.Outcome.DIVERGED
+                        || kind == InitialPublishDispositionKind.UNKNOWN
+                                && stored.outcome()
+                                    != InitialPublishRecords.Outcome.UNKNOWN
+                        || kind == InitialPublishDispositionKind.ATTEMPT_LIMIT
+                                && stored.outcome()
+                                    != InitialPublishRecords.Outcome.ABSENT
+                        || kind == InitialPublishDispositionKind.ABSENT_RETRY
+                                && stored.outcome()
+                                    != InitialPublishRecords.Outcome.ABSENT
+                        || kind
+                                == InitialPublishDispositionKind.DIVERGENCE_LOCKED
+                                && stored.outcome()
+                                    != InitialPublishRecords.Outcome.ABSENT) {
+                    throw new IllegalStateException(
+                            "initial disposition probe is inconsistent");
+                }
+                evidenceRef = stored.probeId();
+            }
+            else if (failure == null) {
+                throw new IllegalArgumentException(
+                        "initial disposition requires a provider probe");
+            }
+            if (kind == InitialPublishDispositionKind.DIVERGENCE_LOCKED
+                    && githubEffects.initialPublishProbes(plan.planId())
+                            .stream().noneMatch(value ->
+                                    value.stepId().equals(step.stepId())
+                                    && value.outcome()
+                                        == InitialPublishRecords.Outcome.DIVERGED)
+                    || kind == InitialPublishDispositionKind.ATTEMPT_LIMIT
+                            && currentAttempts.size()
+                                < GitHubEffects.MAX_MUTATION_ATTEMPTS
+                    || kind == InitialPublishDispositionKind.ABSENT_RETRY
+                            && currentAttempts.isEmpty()) {
+                throw new IllegalStateException(
+                        "initial disposition predicate is not proven");
+            }
+            boolean stable = kind == InitialPublishDispositionKind.DIVERGED
+                    || failure != null && failure.invalid()
+                    || kind
+                        == InitialPublishDispositionKind.DIVERGENCE_LOCKED;
+            boolean cancel = stable && currentAttempts.isEmpty();
+            GateState state = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            if (state != GateState.EXECUTING
+                    && state != GateState.NEEDS_ATTENTION) {
+                throw new IllegalStateException(
+                        "initial publication gate is not executing");
+            }
+            if (cancel && receipts.size() == 1) {
+                String detail = failure != null
+                        ? "PROVIDER_INVALID:" + evidenceRef
+                        : kind.name() + ":" + evidenceRef;
+                return Optional.of(settleInitialBranchOnlyStale(
+                        claim, authorization, state, detail, true));
+            }
+            GateState next = cancel
+                    ? GateState.STALE
+                    : kind == InitialPublishDispositionKind.ABSENT_RETRY
+                            ? GateState.AUTHORIZED
+                            : GateState.NEEDS_ATTENTION;
+            if (state != next) {
+                appendTransition(
+                        authorization.gateId(),
+                        authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        state, next, "PROGRAM", claim.operationId(),
+                        failure != null
+                                ? failure.invalid()
+                                        ? "EFFECT_PREPARATION_INVALID"
+                                        : currentAttempts.isEmpty()
+                                                ? "EFFECT_PREPARATION_UNAVAILABLE"
+                                                : "EFFECT_PROBE_UNAVAILABLE"
+                                : switch (kind) {
+                                    case DIVERGED -> "EFFECT_DIVERGED";
+                                    case UNKNOWN -> "EFFECT_UNKNOWN";
+                                    case ATTEMPT_LIMIT ->
+                                            "EFFECT_ATTEMPT_LIMIT";
+                                    case ABSENT_RETRY -> "EFFECT_RETRY";
+                                    case DIVERGENCE_LOCKED ->
+                                            "EFFECT_DIVERGED";
+                                },
+                        evidenceRef, clock.instant());
+            }
+            String resultKind = failure == null
+                    ? kind.name()
+                    : failure.invalid() ? "INVALID" : "UNAVAILABLE";
+            String resultRef = "INITIAL_PUBLISH_" + resultKind
+                    + ":" + evidenceRef;
+            runtime.settleClaimedPublish(
+                    claim,
+                    activated == null ? null : activated.executionHandle(),
+                    activated == null ? null
+                            : activated.attempt().attemptId(),
+                    activated == null ? null
+                            : activated.attempt().executionTokenDigest(),
+                    disposition(
+                            claim,
+                            cancel ? PublishDispositionKind.CANCELED
+                                    : PublishDispositionKind.RETRY,
+                            resultRef,
+                            cancel ? null : clock.instant().plus(
+                                    Duration.ofSeconds(5))));
+            return Optional.<Settlement>empty();
+        });
+    }
+
+    private Settlement settleInitialBranchOnlyStale(
+            Claim claim, GateAuthorization authorization, GateState state,
+            String detail, boolean providerInvalid)
+    {
+        List<InitialPublishRecords.StepReceipt> receipts = githubEffects
+                .initialPublishStepReceipts(authorization.effectPlanRef());
+        if (receipts.size() != 1) {
+            throw new IllegalStateException(
+                    "branch-only stale disposition is not exact");
+        }
+        InitialBranchStaleDisposition disposition =
+                new InitialBranchStaleDisposition(
+                        claim, authorization.effectPlanRef(),
+                        receipts.getFirst().receiptId(),
+                        providerInvalid ? "REMOTE_STEP_INVALID"
+                                : "LOCAL_AUTHORITY_DRIFT",
+                        detail);
+        Settlement settlement = githubEffects.storeInitialBranchOnlyStale(
+                disposition, clock.instant());
+        appendTransition(
+                authorization.gateId(), authorization.gateRevision(),
+                nextTransitionSequence(authorization.gateId()),
+                state, GateState.STALE, "PROGRAM", claim.operationId(),
+                "EFFECT_STALE", settlement.resultId(), clock.instant());
+        runtime.applyInitialSettlement(claim, settlement);
+        return settlement;
     }
 
     /** Revalidates and activates one claimed CI_UPDATE without an external call. */
@@ -1567,6 +2356,79 @@ public final class UserGates
         });
     }
 
+    /** Recovers an expired INITIAL_PUBLISH from its exact current-step evidence. */
+    public void recoverExpiredInitialPublish(
+            String operationId, long generation)
+    {
+        requireText(operationId, "operationId");
+        inTransaction(() -> {
+            GateAuthorization authorization = authorizationForOperation(
+                    operationId).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "publication authorization is missing"));
+            Plan plan = githubEffects.initialPublishPlan(
+                    authorization.effectPlanRef()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "initial publication plan is missing"));
+            if (!plan.operationId().equals(operationId)) {
+                throw new IllegalStateException(
+                        "initial publication recovery graph is invalid");
+            }
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            assertInitialAuthorizationGraph(authorization,
+                    authorization.gateId(), authorization.gateRevision(),
+                    authorization.subjectDigest(), authorization.actionDigest(),
+                    authorization.idempotencyKey());
+            InitialRecoveryKind recovery =
+                    githubEffects.initialPublishRecoveryKind(
+                            plan.planId(), operationId);
+            if (recovery == InitialRecoveryKind.COMPLETE) {
+                GateState completeState = currentState(
+                        authorization.gateId(), authorization.gateRevision());
+                if (completeState != GateState.EXECUTING
+                        && completeState != GateState.NEEDS_ATTENTION) {
+                    throw new IllegalStateException(
+                            "fully receipted publication is not settleable");
+                }
+                runtime.redriveExpiredPublish(operationId, generation);
+                return Boolean.TRUE;
+            }
+            GateState state = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            GateState expected = recovery == InitialRecoveryKind.PROBE_ONLY
+                    ? GateState.NEEDS_ATTENTION : GateState.AUTHORIZED;
+            boolean mayTransition = state == GateState.EXECUTING
+                    || recovery == InitialRecoveryKind.PROBE_ONLY
+                            && state == GateState.AUTHORIZED;
+            if (mayTransition && state != expected) {
+                appendTransition(
+                        authorization.gateId(), authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        state, expected, "PROGRAM", operationId,
+                        recovery == InitialRecoveryKind.PROBE_ONLY
+                                ? state == GateState.AUTHORIZED
+                                        ? "EFFECT_AUTHORITY_UNPROVEN"
+                                        : "EFFECT_UNKNOWN"
+                                : "NEVER_STARTED_REDRIVE",
+                        operationId, clock.instant());
+            }
+            else if (state != expected) {
+                throw new IllegalStateException(
+                        "expired initial publication gate is not recoverable");
+            }
+            if (recovery == InitialRecoveryKind.PROBE_ONLY) {
+                runtime.redriveExpiredPublishProbeOnly(
+                        operationId, generation,
+                        clock.instant().plus(Duration.ofSeconds(5)));
+            }
+            else {
+                runtime.redriveExpiredPublish(operationId, generation);
+            }
+            return Boolean.TRUE;
+        });
+    }
+
     public Optional<UserGate> gate(String prId)
     {
         requireText(prId, "prId");
@@ -1574,6 +2436,21 @@ public final class UserGates
                 "SELECT * FROM flow_user_gate WHERE pr_id = ? AND kind = 'CI_UPDATE'",
                 (result, row) -> readGate(result),
                 prId).stream().findFirst();
+    }
+
+    public Optional<UserGate> initialGate(String prId)
+    {
+        requireText(prId, "prId");
+        return jdbc.query("SELECT * FROM flow_user_gate WHERE pr_id = ? "
+                        + "AND kind = 'INITIAL_PUBLISH'", (result, row) ->
+                        readGate(result), prId).stream().findFirst();
+    }
+
+    private UserGate requireGate(String gateId)
+    {
+        return jdbc.query("SELECT * FROM flow_user_gate WHERE gate_id = ?",
+                (result, row) -> readGate(result), gateId).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("gate is missing"));
     }
 
     public Optional<GateRevision> revisionForRun(String runId)
@@ -1921,6 +2798,145 @@ public final class UserGates
                         createdAt));
     }
 
+    private InitialGateBundle deriveInitialPublish(
+            String runId,
+            InitialPublishRecords.RepositoryObservation observation)
+    {
+        AgentRun run = runtime.run(runId).orElseThrow(() ->
+                new ReadyRejectedException(List.of("INITIAL_RUN_MISSING")));
+        Operation operation = runtime.operation(run.operationId()).orElseThrow();
+        Task task = runtime.task(operation.taskId()).orElseThrow();
+        if (!observation.consumeMatches(
+                runId, task.taskId(), task.repositoryId(),
+                task.launchDigest(), task.repositoryOwner(),
+                task.repositoryName())
+                || !observation.repositoryExternalId().matches(
+                        "[1-9][0-9]*")) {
+            throw rejected("INITIAL_REPOSITORY_IDENTITY_STALE");
+        }
+        PullRequestSubject pr = task.prId() == null ? null
+                : runtime.pullRequest(task.prId()).orElse(null);
+        ChangeSetRevision changeSet = runtime.currentChangeSet(task.taskId())
+                .orElse(null);
+        TaskBaseRevision base = runtime.currentBaseRevision(task.taskId())
+                .orElse(null);
+        ReviewerRequest review = runtime.reviewerRequestForParentRun(runId)
+                .orElse(null);
+        if (pr == null || changeSet == null || base == null || review == null
+                || task.status() != TaskStatus.ACTIVE || pr.published()
+                || run.role() != AgentRole.TASK_AGENT
+                || run.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || !review.intendedGateKind().equals(GateIntent.INITIAL_PUBLISH)
+                || !review.taskId().equals(task.taskId())
+                || !review.parentRunId().equals(runId)
+                || !review.changeSetRevisionId().equals(
+                        changeSet.changeSetRevisionId())
+                || !review.reviewedHeadSha().equals(changeSet.headSha())
+                || !review.baseHeadSha().equals(base.baseSha())
+                || !review.headTreeDigest().equals(changeSet.headTreeDigest())
+                || !review.diffDigest().equals(changeSet.diffDigest())
+                || !changeSet.differsFromBase()) {
+            throw rejected("INITIAL_SUBJECT_STALE");
+        }
+        AgentRun reviewerRun = runtime.runForOperation(review.reviewerOperationId())
+                .orElseThrow(() -> rejected("EXACT_HEAD_REVIEW_MISSING"));
+        AgentResult reviewerResult = runtime.resultForRun(reviewerRun.runId())
+                .orElseThrow(() -> rejected("EXACT_HEAD_REVIEW_MISSING"));
+        if (reviewerRun.state() != RunState.COMPLETED
+                || reviewerResult.terminalOutcome() != TerminalOutcome.COMPLETED) {
+            throw rejected("EXACT_HEAD_REVIEW_MISSING");
+        }
+        PrDraftRevision draft = runtime.currentPrDraft(pr.prId())
+                .orElseThrow(() -> rejected("PR_DRAFT_MISSING"));
+        if (!draft.changeSetRevisionId().equals(changeSet.changeSetRevisionId())
+                || !draft.headSha().equals(changeSet.headSha())) {
+            throw rejected("PR_DRAFT_STALE");
+        }
+        LocalChecks.ReviewerEvidence reservation = localChecks.reviewerEvidence(
+                task.taskId(), changeSet.changeSetRevisionId(),
+                GateIntent.INITIAL_PUBLISH);
+        reservation.assertCurrentForReservation();
+        LocalCheckEvidence checks = reservation.evidence();
+        if (!checks.policyRevisionId().equals(review.localCheckPolicyRevisionId())
+                || !checks.checkRunRefs().equals(review.checkRunRefs())) {
+            throw rejected("LOCAL_CHECK_EVIDENCE_STALE");
+        }
+        List<String> blockers = new ArrayList<>();
+        for (LocalCheckRun check : checks.runs()) {
+            if (check.conclusion() == LocalCheckConclusion.FAILED) {
+                blockers.add("LOCAL_CHECK_FAILED:" + check.profileId());
+            }
+        }
+        if (!blockers.isEmpty()) {
+            throw new ReadyRejectedException(blockers);
+        }
+        RequiredCiPolicyRevision policy = autofix.currentPolicy(
+                task.repositoryId(), pr.scopeKey()).orElseThrow(() ->
+                        rejected("REQUIRED_CI_POLICY_MISSING"));
+        if (!policy.targetBaseRef().equals(pr.targetBaseRef())) {
+            throw rejected("REQUIRED_CI_POLICY_STALE");
+        }
+        Instant now = clock.instant();
+        String localDigest = stableId("local-review-binding:v1", pr.prId(),
+                changeSet.changeSetRevisionId(), "batch-count:0",
+                "revision-count:0");
+        LocalReviewBinding local = new LocalReviewBinding(stableId(
+                "local-review-binding-id:v1", pr.prId(),
+                changeSet.changeSetRevisionId()), pr.prId(),
+                changeSet.changeSetRevisionId(), localDigest, now);
+        CodePublicationReviewBinding reviewBinding =
+                new CodePublicationReviewBinding(changeSet.changeSetRevisionId(),
+                        local.bindingId(), true, List.of(), List.of(), localDigest);
+        String branchRef = "refs/heads/" + task.branchName();
+        String targetDigest = GitHubEffects.initialTargetSnapshotDigest(task.taskId(),
+                pr.prId(), task.repositoryId(), task.launchDigest(),
+                observation.repositoryExternalId(), observation.owner(),
+                observation.name(), observation.repositoryExternalId(),
+                observation.owner(), observation.name(),
+                task.branchName(), branchRef, pr.targetBaseRef(), base.baseSha(),
+                changeSet.headSha(), policy.policyRevisionId());
+        TargetSnapshot target = githubEffects.storeInitialTargetSnapshot(
+                new TargetSnapshot(GitHubEffects.initialTargetSnapshotId(targetDigest),
+                        task.taskId(), pr.prId(), task.repositoryId(),
+                        task.launchDigest(), observation.repositoryExternalId(),
+                        observation.owner(), observation.name(),
+                        observation.repositoryExternalId(), observation.owner(),
+                        observation.name(), task.branchName(),
+                        branchRef, pr.targetBaseRef(), base.baseSha(),
+                        changeSet.headSha(), policy.policyRevisionId(), targetDigest, now));
+        List<LocalCheckBinding> bindings = checks.runs().stream().map(check ->
+                new LocalCheckBinding(check.checkRunId(), check.profileId(),
+                        check.conclusion())).toList();
+        String subjectDigest = initialSubjectDigest(task, pr, changeSet, base,
+                draft, checks, review, reviewerRun, reviewerResult, reviewBinding,
+                target);
+        InitialPublishSubject subject = new InitialPublishSubject(stableId(
+                "initial-publish-subject:v1", runId, subjectDigest), task.taskId(),
+                pr.prId(), task.repositoryId(), task.launchDigest(),
+                changeSet.changeSetRevisionId(), base.baseRevisionId(), base.baseSha(),
+                changeSet.headSha(), changeSet.headTreeDigest(), changeSet.diffDigest(),
+                draft.draftRevisionId(), draft.draftDigest(), policy.policyRevisionId(),
+                checks.policyRevisionId(), bindings, review.requestId(),
+                reviewerRun.runId(), reviewerResult.resultId(), reviewBinding,
+                target.baseRepositoryExternalId(), target.baseRepositoryOwner(),
+                target.baseRepositoryName(), target.headRepositoryExternalId(),
+                target.headRepositoryOwner(), target.headRepositoryName(), branchRef,
+                target.targetBaseRef(), target.targetSnapshotId(),
+                target.targetSnapshotDigest(), subjectDigest, runId, now);
+        String actionDigest = initialActionDigest(subject, "KEEP_DRAFT");
+        InitialPublishAction action = new InitialPublishAction(stableId(
+                "initial-publish-action:v1", subject.subjectId(), actionDigest),
+                actionDigest, subject.prId(), subject.changeSetRevisionId(),
+                subject.baseRepositoryExternalId(), subject.baseRepositoryOwner(),
+                subject.baseRepositoryName(), subject.headRepositoryExternalId(),
+                subject.headRepositoryOwner(), subject.headRepositoryName(),
+                subject.branchRef(), subject.targetBaseRef(), subject.expectedBaseSha(),
+                subject.proposedHead(), subject.draftRevisionId(), subject.draftDigest(),
+                subject.requiredCiPolicyRevisionId(), "KEEP_DRAFT",
+                subject.targetSnapshotId(), subject.targetSnapshotDigest(), now);
+        return new InitialGateBundle(local, subject, action);
+    }
+
     private void assertSubjectCurrent(
             GateSubject subject,
             CiUpdateAction action,
@@ -2056,10 +3072,10 @@ public final class UserGates
         jdbc.update(
                 """
                 INSERT INTO flow_user_gate_revision (
-                    gate_id, revision, subject_manifest_ref, subject_digest,
+                    gate_id, kind, revision, subject_manifest_ref, subject_digest,
                     action_manifest_ref, action_digest,
                     readiness_evidence_ref, created_by_run_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, 'CI_UPDATE', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 gateId,
                 revision,
@@ -2092,6 +3108,13 @@ public final class UserGates
             }
             return;
         }
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_subject_manifest (
+                    subject_id, kind, subject_digest
+                ) VALUES (?, 'CI_UPDATE', ?)
+                """,
+                subject.subjectId(), subject.subjectDigest());
         jdbc.update(
                 """
                 INSERT INTO flow_user_gate_subject (
@@ -2221,6 +3244,13 @@ public final class UserGates
         }
         jdbc.update(
                 """
+                INSERT INTO flow_user_gate_action_manifest (
+                    action_ref, kind, action_digest
+                ) VALUES (?, 'CI_UPDATE', ?)
+                """,
+                action.actionRef(), action.actionDigest());
+        jdbc.update(
+                """
                 INSERT INTO flow_user_gate_ci_update_action (
                     action_ref, head_repository_external_id,
                     head_repository_owner, head_repository_name,
@@ -2236,6 +3266,96 @@ public final class UserGates
                 action.expectedRemoteHead(),
                 action.proposedHead(),
                 action.actionDigest(),
+                action.createdAt().toEpochMilli());
+    }
+
+    private void insertInitialSubject(InitialPublishSubject subject)
+    {
+        Optional<InitialPublishSubject> existing = initialSubject(subject.subjectId());
+        if (existing.isPresent()) {
+            if (!existing.orElseThrow().equals(subject)) {
+                throw new IllegalStateException("initial subject replay changed identity");
+            }
+            return;
+        }
+        jdbc.update("INSERT INTO flow_user_gate_subject_manifest "
+                        + "(subject_id, kind, subject_digest) VALUES (?, 'INITIAL_PUBLISH', ?)",
+                subject.subjectId(), subject.subjectDigest());
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_initial_publish_subject (
+                    subject_id, subject_digest, task_id, pr_id, repository_id,
+                    launch_digest, change_set_revision_id, base_revision_id,
+                    expected_base_sha, proposed_head, head_tree_digest, diff_digest,
+                    draft_revision_id, draft_digest, required_ci_policy_revision_id,
+                    local_check_policy_revision_id, reviewer_request_id, reviewer_run_id,
+                    reviewer_result_id, local_review_binding_id, local_review_digest,
+                    base_repository_external_id, base_repository_owner,
+                    base_repository_name, head_repository_external_id,
+                    head_repository_owner, head_repository_name, branch_ref,
+                    target_base_ref, target_snapshot_id, target_snapshot_digest,
+                    created_by_run_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                subject.subjectId(), subject.subjectDigest(), subject.taskId(),
+                subject.prId(), subject.repositoryId(), subject.launchDigest(),
+                subject.changeSetRevisionId(), subject.baseRevisionId(),
+                subject.expectedBaseSha(), subject.proposedHead(),
+                subject.headTreeDigest(), subject.diffDigest(),
+                subject.draftRevisionId(), subject.draftDigest(),
+                subject.requiredCiPolicyRevisionId(),
+                subject.localCheckPolicyRevisionId(), subject.reviewerRequestId(),
+                subject.reviewerRunId(), subject.reviewerResultId(),
+                subject.localReview().bindingId(), subject.localReview().digest(),
+                subject.baseRepositoryExternalId(), subject.baseRepositoryOwner(),
+                subject.baseRepositoryName(), subject.headRepositoryExternalId(),
+                subject.headRepositoryOwner(), subject.headRepositoryName(),
+                subject.branchRef(), subject.targetBaseRef(),
+                subject.targetSnapshotId(), subject.targetSnapshotDigest(),
+                subject.createdByRunId(), subject.createdAt().toEpochMilli());
+        for (int ordinal = 0; ordinal < subject.localChecks().size(); ordinal++) {
+            LocalCheckBinding check = subject.localChecks().get(ordinal);
+            jdbc.update("INSERT INTO flow_user_gate_initial_publish_subject_local_check "
+                            + "(subject_id, ordinal, check_run_id, profile_id, conclusion) "
+                            + "VALUES (?, ?, ?, ?, ?)",
+                    subject.subjectId(), ordinal, check.checkRunId(),
+                    check.profileId(), check.conclusion().name());
+        }
+    }
+
+    private void insertInitialAction(InitialPublishAction action)
+    {
+        Optional<InitialPublishAction> existing = initialAction(action.actionRef());
+        if (existing.isPresent()) {
+            if (!existing.orElseThrow().equals(action)) {
+                throw new IllegalStateException("initial action replay changed identity");
+            }
+            return;
+        }
+        jdbc.update("INSERT INTO flow_user_gate_action_manifest "
+                        + "(action_ref, kind, action_digest) VALUES (?, 'INITIAL_PUBLISH', ?)",
+                action.actionRef(), action.actionDigest());
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_initial_publish_action (
+                    action_ref, action_digest, pr_id, change_set_revision_id,
+                    base_repository_external_id, base_repository_owner,
+                    base_repository_name, head_repository_external_id,
+                    head_repository_owner, head_repository_name, branch_ref,
+                    target_base_ref, expected_base_sha, proposed_head,
+                    draft_revision_id, draft_digest, required_ci_policy_revision_id,
+                    ready_policy, target_snapshot_id, target_snapshot_digest, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                action.actionRef(), action.actionDigest(), action.prId(),
+                action.changeSetRevisionId(), action.baseRepositoryExternalId(),
+                action.baseRepositoryOwner(), action.baseRepositoryName(),
+                action.headRepositoryExternalId(), action.headRepositoryOwner(),
+                action.headRepositoryName(), action.branchRef(),
+                action.targetBaseRef(), action.expectedBaseSha(),
+                action.proposedHead(), action.draftRevisionId(), action.draftDigest(),
+                action.requiredCiPolicyRevisionId(), action.readyPolicy(),
+                action.targetSnapshotId(), action.targetSnapshotDigest(),
                 action.createdAt().toEpochMilli());
     }
 
@@ -2255,6 +3375,32 @@ public final class UserGates
                         result.getString("action_digest"),
                         instant(result, "created_at")),
                 actionRef).stream().findFirst();
+    }
+
+    public Optional<InitialPublishSubject> initialSubject(String subjectId)
+    {
+        requireText(subjectId, "subjectId");
+        return jdbc.query("SELECT * FROM flow_user_gate_initial_publish_subject WHERE subject_id = ?",
+                (result, row) -> readInitialSubject(result), subjectId).stream().findFirst();
+    }
+
+    public Optional<InitialPublishAction> initialAction(String actionRef)
+    {
+        requireText(actionRef, "actionRef");
+        return jdbc.query("SELECT * FROM flow_user_gate_initial_publish_action WHERE action_ref = ?",
+                (result, row) -> readInitialAction(result), actionRef).stream().findFirst();
+    }
+
+    private InitialPublishSubject requireInitialSubject(String subjectId)
+    {
+        return initialSubject(subjectId).orElseThrow(() ->
+                new IllegalStateException("initial gate subject is missing"));
+    }
+
+    private InitialPublishAction requireInitialAction(String actionRef)
+    {
+        return initialAction(actionRef).orElseThrow(() ->
+                new IllegalStateException("initial gate action is missing"));
     }
 
     private GateSubject requireSubject(String subjectId)
@@ -2346,6 +3492,61 @@ public final class UserGates
         return subject;
     }
 
+    private InitialPublishSubject readInitialSubject(ResultSet result)
+            throws SQLException
+    {
+        String subjectId = result.getString("subject_id");
+        List<LocalCheckBinding> checks = jdbc.query(
+                "SELECT * FROM flow_user_gate_initial_publish_subject_local_check "
+                        + "WHERE subject_id = ? ORDER BY ordinal",
+                (row, number) -> new LocalCheckBinding(
+                        row.getString("check_run_id"), row.getString("profile_id"),
+                        LocalCheckConclusion.valueOf(row.getString("conclusion"))),
+                subjectId);
+        InitialPublishSubject subject = new InitialPublishSubject(subjectId,
+                result.getString("task_id"), result.getString("pr_id"),
+                result.getString("repository_id"), result.getString("launch_digest"),
+                result.getString("change_set_revision_id"), result.getString("base_revision_id"),
+                result.getString("expected_base_sha"), result.getString("proposed_head"),
+                result.getString("head_tree_digest"), result.getString("diff_digest"),
+                result.getString("draft_revision_id"), result.getString("draft_digest"),
+                result.getString("required_ci_policy_revision_id"),
+                result.getString("local_check_policy_revision_id"), checks,
+                result.getString("reviewer_request_id"), result.getString("reviewer_run_id"),
+                result.getString("reviewer_result_id"), new CodePublicationReviewBinding(
+                        result.getString("change_set_revision_id"),
+                        result.getString("local_review_binding_id"), true, List.of(), List.of(),
+                        result.getString("local_review_digest")),
+                result.getString("base_repository_external_id"),
+                result.getString("base_repository_owner"), result.getString("base_repository_name"),
+                result.getString("head_repository_external_id"),
+                result.getString("head_repository_owner"), result.getString("head_repository_name"),
+                result.getString("branch_ref"), result.getString("target_base_ref"),
+                result.getString("target_snapshot_id"), result.getString("target_snapshot_digest"),
+                result.getString("subject_digest"), result.getString("created_by_run_id"),
+                instant(result, "created_at"));
+        assertStoredInitialSubject(subject);
+        return subject;
+    }
+
+    private static InitialPublishAction readInitialAction(ResultSet result)
+            throws SQLException
+    {
+        return new InitialPublishAction(result.getString("action_ref"),
+                result.getString("action_digest"), result.getString("pr_id"),
+                result.getString("change_set_revision_id"),
+                result.getString("base_repository_external_id"),
+                result.getString("base_repository_owner"), result.getString("base_repository_name"),
+                result.getString("head_repository_external_id"),
+                result.getString("head_repository_owner"), result.getString("head_repository_name"),
+                result.getString("branch_ref"), result.getString("target_base_ref"),
+                result.getString("expected_base_sha"), result.getString("proposed_head"),
+                result.getString("draft_revision_id"), result.getString("draft_digest"),
+                result.getString("required_ci_policy_revision_id"), result.getString("ready_policy"),
+                result.getString("target_snapshot_id"), result.getString("target_snapshot_digest"),
+                instant(result, "created_at"));
+    }
+
     private static LocalReviewBinding readLocalReviewBinding(ResultSet result)
             throws SQLException
     {
@@ -2359,7 +3560,14 @@ public final class UserGates
 
     private void assertStoredLocalReviewBinding(GateSubject subject)
     {
-        CodePublicationReviewBinding review = subject.localReview();
+        assertStoredLocalReviewBinding(subject.prId(),
+                subject.changeSetRevisionId(), subject.localReview());
+    }
+
+    private void assertStoredLocalReviewBinding(
+            String prId, String changeSetRevisionId,
+            CodePublicationReviewBinding review)
+    {
         if (!review.ownerPresent()) {
             return;
         }
@@ -2368,22 +3576,48 @@ public final class UserGates
                         "local-review binding is missing"));
         String expectedId = stableId(
                 "local-review-binding-id:v1",
-                subject.prId(),
-                subject.changeSetRevisionId());
+                prId, changeSetRevisionId);
         String expectedDigest = stableId(
                 "local-review-binding:v1",
-                subject.prId(),
-                subject.changeSetRevisionId(),
+                prId, changeSetRevisionId,
                 "batch-count:0",
                 "revision-count:0");
         if (!binding.bindingId().equals(expectedId)
-                || !binding.prId().equals(subject.prId())
+                || !binding.prId().equals(prId)
                 || !binding.candidateChangeSetRevisionId().equals(
-                        subject.changeSetRevisionId())
+                        changeSetRevisionId)
                 || !binding.digest().equals(expectedDigest)
                 || !review.digest().equals(expectedDigest)) {
             throw new IllegalStateException(
                     "local-review binding does not match gate subject");
+        }
+    }
+
+    private void assertStoredInitialSubject(InitialPublishSubject subject)
+    {
+        assertStoredLocalReviewBinding(subject.prId(),
+                subject.changeSetRevisionId(), subject.localReview());
+        TargetSnapshot target = githubEffects.initialTargetSnapshot(subject.targetSnapshotId())
+                .orElseThrow(() -> new IllegalStateException("initial target is missing"));
+        githubEffects.assertExactInitialTargetSnapshot(target);
+        if (!target.taskId().equals(subject.taskId()) || !target.prId().equals(subject.prId())
+                || !target.repositoryId().equals(subject.repositoryId())
+                || !target.launchDigest().equals(subject.launchDigest())
+                || !target.proposedHead().equals(subject.proposedHead())
+                || !target.requiredCiPolicyRevisionId().equals(subject.requiredCiPolicyRevisionId())
+                || !target.targetSnapshotDigest().equals(subject.targetSnapshotDigest())
+                || !target.branchRef().equals(subject.branchRef())
+                || !target.headBranchName().equals(subject.branchRef()
+                        .substring("refs/heads/".length()))
+                || !target.targetBaseRef().equals(subject.targetBaseRef())
+                || !target.expectedBaseSha().equals(subject.expectedBaseSha())
+                || !target.baseRepositoryExternalId().equals(subject.baseRepositoryExternalId())
+                || !target.baseRepositoryOwner().equals(subject.baseRepositoryOwner())
+                || !target.baseRepositoryName().equals(subject.baseRepositoryName())
+                || !target.headRepositoryExternalId().equals(subject.headRepositoryExternalId())
+                || !target.headRepositoryOwner().equals(subject.headRepositoryOwner())
+                || !target.headRepositoryName().equals(subject.headRepositoryName())) {
+            throw new IllegalStateException("initial target does not match subject");
         }
     }
 
@@ -2946,6 +4180,375 @@ public final class UserGates
                 subject.subjectDigest(),
                 action.actionDigest(),
                 idempotencyKey);
+    }
+
+    private AuthorizedInitialPublish createInitialAuthorizationLocked(
+            String gateId, long gateRevision, InitialPublishSubject subject,
+            InitialPublishAction action, String idempotencyKey)
+    {
+        Instant now = clock.instant();
+        String authorizationId = stableId("gate-authorization:v1", gateId,
+                Long.toString(gateRevision), subject.subjectDigest(),
+                action.actionDigest());
+        String operationId = stableId("publish-operation:v1", authorizationId);
+        PreparedInitialPublishPlan prepared = githubEffects.prepareInitialPublishPlan(
+                authorizationId, operationId, subject.prId(),
+                subject.changeSetRevisionId(), action.draftRevisionId(),
+                action.draftDigest(), action.readyPolicy(), action.actionRef(),
+                action.actionDigest(), action.targetSnapshotId(), now);
+        runtime.reservePublishOperation(operationId, prepared.plan().planId(),
+                subject.taskId(), subject.changeSetRevisionId(),
+                prepared.plan().planDigest(), now);
+        GateAuthorization authorization = new GateAuthorization(authorizationId,
+                gateId, gateRevision, subject.prId(), subject.subjectDigest(),
+                action.actionDigest(), "USER", MANUAL_ACTOR, null, null, null,
+                idempotencyKey, operationId, prepared.plan().planId(), now);
+        insertAuthorization(authorization);
+        githubEffects.insertInitialPublishPlan(prepared);
+        appendTransition(gateId, gateRevision, nextTransitionSequence(gateId),
+                GateState.OPEN, GateState.AUTHORIZED, "USER", MANUAL_ACTOR,
+                "MANUAL_AUTHORIZATION", authorizationId, now);
+        return assertInitialAuthorizationGraph(authorization, gateId,
+                gateRevision, subject.subjectDigest(), action.actionDigest(),
+                idempotencyKey);
+    }
+
+    private InitialAuthorityInspection inspectInitialAuthority(
+            Task task, InitialPublishSubject subject)
+    {
+        try {
+            return new InitialAuthorityInspection(
+                    worktreeInspector.inspect(
+                            Path.of(task.repositoryRoot()),
+                            Path.of(task.worktreePath()), task.branchName(),
+                            subject.expectedBaseSha(), subject.proposedHead()),
+                    null, true);
+        }
+        catch (InspectionFailure failure) {
+            if (transientFailure(failure.code())) {
+                throw failure;
+            }
+            return new InitialAuthorityInspection(
+                    null, "WORKTREE_" + failure.code().name(), true);
+        }
+    }
+
+    private InitialAuthorityInspection inspectInitialAuthorityIfRequired(
+            Claim claim)
+    {
+        var operation = runtime.assertPublishClaim(claim);
+        Plan plan = githubEffects.initialPublishPlan(operation.inputRef())
+                .orElseThrow(() -> new IllegalStateException(
+                        "initial publication plan is missing"));
+        GateAuthorization authorization = authorization(
+                plan.authorizationId()).orElseThrow();
+        List<InitialPublishRecords.Step> steps =
+                githubEffects.initialPublishSteps(plan.planId());
+        int currentOrdinal = githubEffects
+                .initialPublishStepReceipts(plan.planId()).size();
+        if (currentOrdinal == steps.size()) {
+            return new InitialAuthorityInspection(null, null, false);
+        }
+        boolean attemptBacked = githubEffects.initialPublishAttempts(
+                plan.planId()).stream().anyMatch(value ->
+                        value.stepId().equals(
+                                steps.get(currentOrdinal).stepId()));
+        GateState state = currentState(
+                authorization.gateId(), authorization.gateRevision());
+        if (attemptBacked && state != GateState.AUTHORIZED) {
+            return new InitialAuthorityInspection(null, null, false);
+        }
+        GateRevision revision = requireRevision(
+                authorization.gateId(), authorization.gateRevision());
+        InitialPublishSubject subject = requireInitialSubject(
+                revision.subjectManifestRef());
+        return inspectInitialAuthority(
+                runtime.task(subject.taskId()).orElseThrow(), subject);
+    }
+
+    private String initialAuthorizationBlocker(
+            String gateId, long gateRevision, GateRevision revision,
+            Inspection inspection)
+    {
+        try {
+            assertInitialRevisionGraph(revision);
+            InitialPublishSubject subject = requireInitialSubject(
+                    revision.subjectManifestRef());
+            InitialPublishAction action = requireInitialAction(
+                    revision.actionManifestRef());
+            UserGate gate = requireGate(gateId);
+            if (gate.kind() != GateKind.INITIAL_PUBLISH
+                    || !gate.prId().equals(subject.prId())
+                    || gate.currentRevision() != gateRevision) {
+                return "GATE_REVISION_STALE";
+            }
+            Task task = runtime.task(subject.taskId()).orElseThrow();
+            PullRequestSubject pr = runtime.pullRequest(subject.prId()).orElseThrow();
+            ChangeSetRevision changeSet = runtime.currentChangeSet(subject.taskId())
+                    .orElseThrow();
+            TaskBaseRevision base = runtime.currentBaseRevision(subject.taskId())
+                    .orElseThrow();
+            PrDraftRevision draft = runtime.currentPrDraft(subject.prId())
+                    .orElseThrow();
+            if (task.status() != TaskStatus.ACTIVE
+                    || task.selectedWriterOperationId() != null
+                    || task.waitingMutationStateRef() != null
+                    || !task.launchDigest().equals(subject.launchDigest())
+                    || !task.repositoryId().equals(subject.repositoryId())
+                    || !Objects.equals(task.prId(), subject.prId())
+                    || !Objects.equals(task.currentChangeSetRevisionId(),
+                            subject.changeSetRevisionId())
+                    || !Objects.equals(task.currentHeadSha(), subject.proposedHead())
+                    || !Objects.equals(task.currentBaseRevisionId(), subject.baseRevisionId())
+                    || !Objects.equals(task.currentBaseSha(), subject.expectedBaseSha())
+                    || pr.published() || !pr.taskId().equals(task.taskId())
+                    || !pr.repositoryId().equals(task.repositoryId())
+                    || !pr.branchName().equals(task.branchName())
+                    || !pr.targetBaseRef().equals(subject.targetBaseRef())
+                    || !changeSet.changeSetRevisionId().equals(subject.changeSetRevisionId())
+                    || !changeSet.baseRevisionId().equals(subject.baseRevisionId())
+                    || !changeSet.baseSha().equals(subject.expectedBaseSha())
+                    || !changeSet.headSha().equals(subject.proposedHead())
+                    || !changeSet.headTreeDigest().equals(subject.headTreeDigest())
+                    || !changeSet.diffDigest().equals(subject.diffDigest())
+                    || !changeSet.differsFromBase()
+                    || !base.baseRevisionId().equals(subject.baseRevisionId())
+                    || !base.baseSha().equals(subject.expectedBaseSha())
+                    || !draft.draftRevisionId().equals(subject.draftRevisionId())
+                    || !draft.draftDigest().equals(subject.draftDigest())
+                    || !draft.changeSetRevisionId().equals(subject.changeSetRevisionId())
+                    || !draft.headSha().equals(subject.proposedHead())) {
+                return "INITIAL_SUBJECT_STALE";
+            }
+            if (inspection == null
+                    || !inspection.headSha().equals(subject.proposedHead())
+                    || !inspection.headTreeDigest().equals(
+                            subject.headTreeDigest())
+                    || !inspection.baseToHeadDiffDigest().equals(
+                            subject.diffDigest())) {
+                return "WORKTREE_SUBJECT_STALE";
+            }
+            LocalChecks.ReviewerEvidence checks;
+            try {
+                checks = localChecks.reviewerEvidence(subject.taskId(),
+                        subject.changeSetRevisionId(), GateIntent.INITIAL_PUBLISH);
+                checks.assertCurrentForReservation();
+            }
+            catch (IllegalStateException staleChecks) {
+                return "LOCAL_CHECK_EVIDENCE_STALE";
+            }
+            List<LocalCheckBinding> bindings = checks.evidence().runs().stream()
+                    .map(check -> new LocalCheckBinding(check.checkRunId(),
+                            check.profileId(), check.conclusion())).toList();
+            if (!checks.evidence().policyRevisionId().equals(
+                    subject.localCheckPolicyRevisionId())
+                    || !bindings.equals(subject.localChecks())
+                    || bindings.stream().anyMatch(check -> check.conclusion()
+                            == LocalCheckConclusion.FAILED)) {
+                return "LOCAL_CHECK_EVIDENCE_STALE";
+            }
+            Optional<RequiredCiPolicyRevision> currentPolicy = autofix.currentPolicy(
+                    subject.repositoryId(), pr.scopeKey());
+            if (currentPolicy.isEmpty()) {
+                return "REQUIRED_CI_POLICY_STALE";
+            }
+            RequiredCiPolicyRevision policy = currentPolicy.orElseThrow();
+            if (!policy.policyRevisionId().equals(subject.requiredCiPolicyRevisionId())
+                    || !policy.targetBaseRef().equals(subject.targetBaseRef())) {
+                return "REQUIRED_CI_POLICY_STALE";
+            }
+            if (!autofix.lockCurrentPolicy(policy)) {
+                return "REQUIRED_CI_POLICY_STALE";
+            }
+            if (!actionMatchesInitialSubject(action, subject)) {
+                throw new IllegalStateException("initial action does not match subject");
+            }
+            return null;
+        }
+        catch (ReadyRejectedException | FlowRuntime.StaleOwnerRevisionException stale) {
+            return "INITIAL_SUBJECT_STALE";
+        }
+        catch (IllegalStateException corrupt) {
+            throw corrupt;
+        }
+    }
+
+    private AuthorizedInitialPublish assertInitialAuthorizationGraph(
+            GateAuthorization authorization, String gateId, long gateRevision,
+            String expectedSubjectDigest, String expectedActionDigest,
+            String expectedIdempotencyKey)
+    {
+        if (!authorization.gateId().equals(gateId)
+                || authorization.gateRevision() != gateRevision
+                || !authorization.subjectDigest().equals(expectedSubjectDigest)
+                || !authorization.actionDigest().equals(expectedActionDigest)
+                || !authorization.idempotencyKey().equals(expectedIdempotencyKey)) {
+            throw new AuthorizationRejectedException("AUTHORIZATION_REPLAY_CONFLICT");
+        }
+        requireManualAuthorization(authorization);
+        String expectedAuthorizationId = stableId("gate-authorization:v1", gateId,
+                Long.toString(gateRevision), expectedSubjectDigest,
+                expectedActionDigest);
+        String expectedOperationId = stableId("publish-operation:v1",
+                expectedAuthorizationId);
+        if (!authorization.authorizationId().equals(expectedAuthorizationId)
+                || !authorization.operationId().equals(expectedOperationId)) {
+            throw new IllegalStateException("initial authorization identity is inconsistent");
+        }
+        GateRevision revision = requireRevision(gateId, gateRevision);
+        assertInitialRevisionGraph(revision);
+        InitialPublishSubject subject = requireInitialSubject(revision.subjectManifestRef());
+        InitialPublishAction action = requireInitialAction(revision.actionManifestRef());
+        Plan plan = githubEffects.initialPublishPlan(authorization.effectPlanRef())
+                .orElseThrow(() -> new IllegalStateException("initial plan is missing"));
+        List<InitialPublishRecords.Step> steps = githubEffects.initialPublishSteps(plan.planId());
+        githubEffects.assertExactInitialPublishPlan(plan, steps);
+        Operation operation = runtime.operation(authorization.operationId()).orElseThrow();
+        Integer tickets = jdbc.queryForObject("SELECT COUNT(*) FROM flow_runtime_dispatch_ticket "
+                + "WHERE operation_id = ?", Integer.class, operation.operationId());
+        Integer transitions = jdbc.queryForObject("SELECT COUNT(*) FROM flow_user_gate_transition "
+                + "WHERE gate_id = ? AND gate_revision = ? AND from_state = 'OPEN' "
+                + "AND to_state = 'AUTHORIZED' AND actor_type = 'USER' "
+                + "AND actor_id = ? AND reason_code = 'MANUAL_AUTHORIZATION' AND detail_ref = ?",
+                Integer.class, gateId, gateRevision, MANUAL_ACTOR,
+                authorization.authorizationId());
+        boolean dispatchState = switch (operation.state()) {
+            case READY, RETRYABLE -> dispatchTicketInState(operation.operationId(), "AVAILABLE");
+            case CLAIMED -> dispatchTicketInState(operation.operationId(), "CLAIMED");
+            case CANCELED, SUCCEEDED -> dispatchTicketInState(operation.operationId(), "DONE");
+            default -> false;
+        };
+        if (!plan.authorizationId().equals(authorization.authorizationId())
+                || !plan.operationId().equals(authorization.operationId())
+                || !plan.prId().equals(subject.prId())
+                || !plan.baseRepositoryExternalId().equals(action.baseRepositoryExternalId())
+                || !plan.baseRepositoryOwner().equals(action.baseRepositoryOwner())
+                || !plan.baseRepositoryName().equals(action.baseRepositoryName())
+                || !plan.headRepositoryExternalId().equals(action.headRepositoryExternalId())
+                || !plan.headRepositoryOwner().equals(action.headRepositoryOwner())
+                || !plan.headRepositoryName().equals(action.headRepositoryName())
+                || !plan.branchRef().equals(action.branchRef())
+                || !plan.targetBaseRef().equals(action.targetBaseRef())
+                || !plan.expectedBaseSha().equals(action.expectedBaseSha())
+                || !plan.proposedHead().equals(action.proposedHead())
+                || !plan.changeSetRevisionId().equals(subject.changeSetRevisionId())
+                || !plan.draftRevisionId().equals(action.draftRevisionId())
+                || !plan.draftDigest().equals(action.draftDigest())
+                || !plan.actionRef().equals(action.actionRef())
+                || !plan.actionDigest().equals(action.actionDigest())
+                || !plan.requiredCiPolicyRevisionId().equals(action.requiredCiPolicyRevisionId())
+                || !plan.readyPolicy().equals(action.readyPolicy())
+                || !plan.targetSnapshotId().equals(subject.targetSnapshotId())
+                || !plan.targetSnapshotDigest().equals(subject.targetSnapshotDigest())
+                || !operation.ownerKind().equals("GITHUB_EFFECT_PLAN")
+                || !operation.ownerId().equals(plan.planId())
+                || !operation.inputRef().equals(plan.planId())
+                || operation.kind() != OperationKind.PUBLISH
+                || !operation.taskId().equals(subject.taskId())
+                || !operation.subjectDigest().equals(plan.planDigest())
+                || requireNonNull(tickets, "ticket count is null") != 1
+                || requireNonNull(transitions, "transition count is null") != 1
+                || !dispatchState) {
+            throw new IllegalStateException("initial authorization graph is inconsistent");
+        }
+        return new AuthorizedInitialPublish(authorization, plan.planId(),
+                operation.operationId(), plan.prSequence());
+    }
+
+    private void assertInitialRevisionGraph(GateRevision revision)
+    {
+        UserGate gate = requireGate(revision.gateId());
+        InitialPublishSubject subject = requireInitialSubject(
+                revision.subjectManifestRef());
+        InitialPublishAction action = requireInitialAction(
+                revision.actionManifestRef());
+        if (gate.kind() != GateKind.INITIAL_PUBLISH
+                || !gate.gateId().equals(stableId("user-gate", subject.prId(),
+                        GateKind.INITIAL_PUBLISH.name()))
+                || revision.readinessEvidenceRef() != null
+                || !revision.subjectDigest().equals(subject.subjectDigest())
+                || !revision.actionDigest().equals(action.actionDigest())
+                || !revision.createdByRunId().equals(subject.createdByRunId())
+                || !subject.subjectDigest().equals(initialSubjectDigest(subject))
+                || !subject.subjectId().equals(stableId("initial-publish-subject:v1",
+                        subject.createdByRunId(), subject.subjectDigest()))
+                || !action.actionDigest().equals(initialActionDigest(subject,
+                        action.readyPolicy()))
+                || !action.actionRef().equals(stableId("initial-publish-action:v1",
+                        subject.subjectId(), action.actionDigest()))
+                || !gate.taskId().equals(subject.taskId())
+                || !gate.prId().equals(subject.prId())
+                || !actionMatchesInitialSubject(action, subject)) {
+            throw new IllegalStateException("initial gate revision is inconsistent");
+        }
+        assertStoredInitialSubject(subject);
+        AgentRun parent = runtime.run(subject.createdByRunId()).orElseThrow(() ->
+                new IllegalStateException("initial parent run is missing"));
+        ReviewerRequest request = runtime.reviewerRequest(subject.reviewerRequestId())
+                .orElseThrow(() -> new IllegalStateException("initial reviewer request is missing"));
+        AgentRun reviewer = runtime.run(subject.reviewerRunId()).orElseThrow(() ->
+                new IllegalStateException("initial reviewer run is missing"));
+        AgentResult result = runtime.resultForRun(subject.reviewerRunId()).orElseThrow(() ->
+                new IllegalStateException("initial reviewer result is missing"));
+        Operation parentOperation = runtime.operation(parent.operationId()).orElseThrow(() ->
+                new IllegalStateException("initial parent operation is missing"));
+        Operation reviewerOperation = runtime.operation(reviewer.operationId()).orElseThrow(() ->
+                new IllegalStateException("initial reviewer operation is missing"));
+        if (parent.role() != AgentRole.TASK_AGENT
+                || parent.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || parentOperation.kind() != OperationKind.RUN_TASK_TURN
+                || !parentOperation.taskId().equals(subject.taskId())
+                || !parent.operationId().equals(request.parentOperationId())
+                || !request.parentRunId().equals(parent.runId())
+                || request.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || !request.taskId().equals(subject.taskId())
+                || !request.reviewerOperationId().equals(reviewer.operationId())
+                || reviewer.role() != AgentRole.ADVERSARIAL_REVIEWER
+                || reviewerOperation.kind() != OperationKind.RUN_REVIEWER
+                || !reviewerOperation.taskId().equals(subject.taskId())
+                || !reviewerOperation.ownerKind().equals("REVIEW_REQUEST")
+                || !reviewerOperation.ownerId().equals(request.requestId())
+                || !reviewerOperation.inputRef().equals("review-request:" + request.requestId())
+                || reviewer.state() != RunState.COMPLETED
+                || result.terminalOutcome() != TerminalOutcome.COMPLETED
+                || parent.state() == RunState.QUEUED
+                || parent.state() == RunState.RUNNING
+                || !result.runId().equals(reviewer.runId())
+                || !result.resultId().equals(subject.reviewerResultId())
+                || !request.changeSetRevisionId().equals(subject.changeSetRevisionId())
+                || !request.reviewedHeadSha().equals(subject.proposedHead())
+                || !request.baseHeadSha().equals(subject.expectedBaseSha())
+                || !request.headTreeDigest().equals(subject.headTreeDigest())
+                || !request.diffDigest().equals(subject.diffDigest())
+                || !request.localCheckPolicyRevisionId().equals(
+                        subject.localCheckPolicyRevisionId())
+                || !request.checkRunRefs().equals(subject.localChecks().stream()
+                        .map(LocalCheckBinding::checkRunId).toList())) {
+            throw new IllegalStateException("initial reviewer graph is inconsistent");
+        }
+    }
+
+    private static boolean actionMatchesInitialSubject(InitialPublishAction action,
+            InitialPublishSubject subject)
+    {
+        return action.prId().equals(subject.prId())
+                && action.changeSetRevisionId().equals(subject.changeSetRevisionId())
+                && action.baseRepositoryExternalId().equals(subject.baseRepositoryExternalId())
+                && action.baseRepositoryOwner().equals(subject.baseRepositoryOwner())
+                && action.baseRepositoryName().equals(subject.baseRepositoryName())
+                && action.headRepositoryExternalId().equals(subject.headRepositoryExternalId())
+                && action.headRepositoryOwner().equals(subject.headRepositoryOwner())
+                && action.headRepositoryName().equals(subject.headRepositoryName())
+                && action.branchRef().equals(subject.branchRef())
+                && action.targetBaseRef().equals(subject.targetBaseRef())
+                && action.expectedBaseSha().equals(subject.expectedBaseSha())
+                && action.proposedHead().equals(subject.proposedHead())
+                && action.draftRevisionId().equals(subject.draftRevisionId())
+                && action.draftDigest().equals(subject.draftDigest())
+                && action.requiredCiPolicyRevisionId().equals(
+                        subject.requiredCiPolicyRevisionId())
+                && action.targetSnapshotId().equals(subject.targetSnapshotId())
+                && action.targetSnapshotDigest().equals(subject.targetSnapshotDigest());
     }
 
     private AuthorityInspection inspectAuthority(
@@ -3742,6 +5345,61 @@ public final class UserGates
         fields.add("local-review-revisions:0");
         fields.add("ci-memory:0");
         return stableId(fields.toArray(String[]::new));
+    }
+
+    private static String initialSubjectDigest(
+            Task task, PullRequestSubject pr, ChangeSetRevision changeSet,
+            TaskBaseRevision base, PrDraftRevision draft,
+            LocalCheckEvidence checks, ReviewerRequest reviewer,
+            AgentRun reviewerRun, AgentResult reviewerResult,
+            CodePublicationReviewBinding localReview, TargetSnapshot target)
+    {
+        List<String> fields = new ArrayList<>(List.of("initial-publish-subject:v1",
+                task.taskId(), pr.prId(), task.repositoryId(), task.launchDigest(),
+                changeSet.changeSetRevisionId(), base.baseRevisionId(), base.baseSha(),
+                changeSet.headSha(), changeSet.headTreeDigest(), changeSet.diffDigest(),
+                draft.draftRevisionId(), draft.draftDigest(), checks.policyRevisionId(),
+                reviewer.requestId(), reviewerRun.runId(), reviewerResult.resultId(),
+                localReview.bindingId(), localReview.digest(),
+                target.targetSnapshotId(), target.targetSnapshotDigest(),
+                target.requiredCiPolicyRevisionId()));
+        checks.runs().forEach(check -> fields.add("check:" + check.checkRunId()
+                + ":" + check.profileId() + ":" + check.conclusion()));
+        return stableId(fields.toArray(String[]::new));
+    }
+
+    private static String initialSubjectDigest(InitialPublishSubject subject)
+    {
+        List<String> fields = new ArrayList<>(List.of("initial-publish-subject:v1",
+                subject.taskId(), subject.prId(), subject.repositoryId(),
+                subject.launchDigest(), subject.changeSetRevisionId(),
+                subject.baseRevisionId(), subject.expectedBaseSha(),
+                subject.proposedHead(), subject.headTreeDigest(), subject.diffDigest(),
+                subject.draftRevisionId(), subject.draftDigest(),
+                subject.localCheckPolicyRevisionId(), subject.reviewerRequestId(),
+                subject.reviewerRunId(), subject.reviewerResultId(),
+                subject.localReview().bindingId(), subject.localReview().digest(),
+                subject.targetSnapshotId(), subject.targetSnapshotDigest(),
+                subject.requiredCiPolicyRevisionId()));
+        subject.localChecks().forEach(check -> fields.add("check:"
+                + check.checkRunId() + ":" + check.profileId() + ":"
+                + check.conclusion()));
+        return stableId(fields.toArray(String[]::new));
+    }
+
+    private static String initialActionDigest(InitialPublishSubject subject,
+            String readyPolicy)
+    {
+        return stableId("initial-publish-action:v1", subject.prId(),
+                subject.changeSetRevisionId(), subject.baseRepositoryExternalId(),
+                subject.baseRepositoryOwner(), subject.baseRepositoryName(),
+                subject.headRepositoryExternalId(), subject.headRepositoryOwner(),
+                subject.headRepositoryName(), subject.branchRef(),
+                subject.targetBaseRef(), subject.expectedBaseSha(),
+                subject.proposedHead(), subject.draftRevisionId(),
+                subject.draftDigest(), subject.requiredCiPolicyRevisionId(),
+                readyPolicy, subject.targetSnapshotId(),
+                subject.targetSnapshotDigest());
     }
 
     private static String gateRevisionRef(GateRevision revision)

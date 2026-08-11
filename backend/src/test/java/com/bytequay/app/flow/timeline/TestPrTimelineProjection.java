@@ -160,10 +160,14 @@ class TestPrTimelineProjection
                 """, AT);
         jdbc.update("""
                 INSERT INTO flow_runtime_task (
-                    task_id, request_key, repository_id, goal_text, status,
-                    branch_name, worktree_path
-                ) VALUES ('task-2', 'request-2', 'repo-2', 'other private goal',
-                    'ACTIVE', 'branch-2', '/other/private/worktree')
+                    task_id, request_key, repository_id, repository_owner,
+                    repository_name, goal_text, repository_root,
+                    git_common_dir, remote_name, base_ref, launch_digest,
+                    status, branch_name, worktree_path
+                ) VALUES ('task-2', 'request-2', 'repo-2', 'other', 'repo',
+                    'other private goal', '/other/repo', '/other/repo/.git',
+                    'origin', 'main', 'launch-2', 'ACTIVE', 'branch-2',
+                    '/other/private/worktree')
                 """);
         jdbc.update("""
                 INSERT INTO flow_runtime_pr (
@@ -236,7 +240,7 @@ class TestPrTimelineProjection
                         "task-lifecycle:life-1:1");
 
         TimelineCursor wrongVersion = new TimelineCursor(
-                oldCursor.prId(), oldCursor.schemaVersion() + 1,
+                oldCursor.prId(), 1,
                 restarted.eventCount(), oldCursor.recordedAt(),
                 oldCursor.typeRank(), oldCursor.eventId());
         assertThat(projection.page("pr-1", wrongVersion, 3).status())
@@ -246,6 +250,139 @@ class TestPrTimelineProjection
                 restarted.eventCount(), Instant.ofEpochMilli(AT),
                 10, "task-lifecycle:not-retained:1");
         assertThat(projection.page("pr-1", forged, 3).status())
+                .isEqualTo(PageStatus.RESTART_REQUIRED);
+    }
+
+    @Test
+    void projectsInitialGateAndFinalReceiptButNotPartialReceipt()
+    {
+        jdbc.update("""
+                INSERT INTO flow_user_gate_subject_manifest (
+                    subject_id, kind, subject_digest
+                ) VALUES ('initial-subject', 'INITIAL_PUBLISH',
+                    'initial-subject-digest')
+                """);
+        jdbc.update("""
+                INSERT INTO flow_user_gate_action_manifest (
+                    action_ref, kind, action_digest
+                ) VALUES ('initial-action', 'INITIAL_PUBLISH',
+                    'initial-action-digest')
+                """);
+        jdbc.update("""
+                INSERT INTO flow_user_gate_initial_publish_subject (
+                    subject_id, subject_digest, task_id, pr_id, repository_id,
+                    launch_digest, change_set_revision_id, base_revision_id,
+                    expected_base_sha, proposed_head, head_tree_digest,
+                    diff_digest, draft_revision_id, draft_digest,
+                    required_ci_policy_revision_id,
+                    local_check_policy_revision_id, reviewer_request_id,
+                    reviewer_run_id, reviewer_result_id,
+                    local_review_binding_id, local_review_digest,
+                    base_repository_external_id, base_repository_owner,
+                    base_repository_name, head_repository_external_id,
+                    head_repository_owner, head_repository_name, branch_ref,
+                    target_base_ref, target_snapshot_id,
+                    target_snapshot_digest, created_by_run_id, created_at
+                ) VALUES ('initial-subject', 'initial-subject-digest',
+                    'task-1', 'pr-1', 'repo-1', 'launch-1', 'change-1',
+                    'base-1', 'B1', 'H_INITIAL', 'tree-initial',
+                    'diff-initial', 'draft-initial', 'draft-digest-initial',
+                    'ci-policy-1', 'local-policy-1', 'request-initial',
+                    'run-initial-review', 'result-initial-review',
+                    'binding-initial', 'binding-digest-initial', '100',
+                    'owner', 'repo', '100', 'owner', 'repo',
+                    'refs/heads/branch-1', 'main', 'snapshot-initial',
+                    'snapshot-digest-initial', 'run-initial-gate', ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_user_gate (
+                    gate_id, task_id, pr_id, kind, current_revision, created_at
+                ) VALUES ('gate-initial', 'task-1', 'pr-1',
+                    'INITIAL_PUBLISH', 1, ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_user_gate_revision (
+                    gate_id, kind, revision, subject_manifest_ref,
+                    subject_digest, action_manifest_ref, action_digest,
+                    readiness_evidence_ref, created_by_run_id, created_at
+                ) VALUES ('gate-initial', 'INITIAL_PUBLISH', 1,
+                    'initial-subject', 'initial-subject-digest',
+                    'initial-action', 'initial-action-digest', NULL,
+                    'run-initial-gate', ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_user_gate_transition (
+                    gate_id, gate_revision, sequence, from_state, to_state,
+                    actor_type, actor_id, reason_code, detail_ref, recorded_at
+                ) VALUES ('gate-initial', 1, 1, NULL, 'OPEN', 'PROGRAM',
+                    'USER_GATES', 'READY', NULL, ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_github_effect_plan_envelope (
+                    plan_id, operation_id, authorization_id, pr_id,
+                    pr_sequence, kind, action_ref, action_digest,
+                    plan_digest, created_at
+                ) VALUES ('plan-initial', 'operation-initial',
+                    'authorization-initial', 'pr-1', 2, 'INITIAL_PUBLISH',
+                    'initial-action', 'initial-action-digest',
+                    'plan-initial-digest', ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_github_effect_receipt_envelope (
+                    receipt_id, operation_id, plan_id, kind, proposed_head,
+                    receipt_digest, recorded_at
+                ) VALUES ('receipt-initial', 'operation-initial',
+                    'plan-initial', 'INITIAL_PUBLISH', 'H_INITIAL',
+                    'receipt-initial-digest', ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_github_initial_publish_partial_receipt (
+                    partial_receipt_id, operation_id, plan_id, kind,
+                    reason_code, attention_detail, branch_receipt_id,
+                    branch_step_ordinal,
+                    branch_step_kind, base_preflight_id,
+                    base_preflight_step_id, base_preflight_claim_generation,
+                    base_preflight_claim_token_digest, base_preflight_digest,
+                    proposed_head, expected_base_sha, observed_base_sha,
+                    partial_digest, recorded_at
+                ) VALUES ('partial-initial', 'operation-partial',
+                    'plan-partial', 'BRANCH_ONLY_BASE_DRIFT',
+                    'REMOTE_BASE_DRIFT', 'REMOTE_BASE_DRIFT',
+                    'branch-receipt-partial', 1,
+                    'CREATE_REF_EXACT', 'preflight-partial', 'step-partial',
+                    1, 'token-partial', 'preflight-digest-partial',
+                    'H_PARTIAL', 'B1', 'B2', 'partial-digest', ?)
+                """, AT);
+
+        var page = projection.page("pr-1", null, 100);
+        assertThat(page.events()).filteredOn(event ->
+                event.ownerRef().ownerId().equals("gate-initial"))
+                .singleElement().satisfies(event -> {
+                    assertThat(event.kind()).isEqualTo(EventKind.GATE_TRANSITION);
+                    assertThat(event.headSha()).isEqualTo("H_INITIAL");
+                });
+        assertThat(page.events()).filteredOn(event ->
+                event.ownerRef().ownerId().equals("receipt-initial"))
+                .singleElement().satisfies(event -> {
+                    assertThat(event.kind())
+                            .isEqualTo(EventKind.EXTERNAL_EFFECT_RECEIPT);
+                    assertThat(event.status()).isEqualTo(
+                            PrTimelineProjection.EventStatus.EFFECT_APPLIED);
+                });
+        assertThat(page.events()).extracting(TimelineEvent::eventId)
+                .noneMatch(id -> id.contains("partial-initial"));
+        assertThat(page.events()).filteredOn(event ->
+                        event.recordedAt().equals(Instant.ofEpochMilli(AT)))
+                .isSortedAccordingTo((left, right) -> {
+                    int rank = Integer.compare(left.typeRank(), right.typeRank());
+                    return rank != 0 ? rank
+                            : left.eventId().compareTo(right.eventId());
+                });
+        TimelineCursor v1 = new TimelineCursor(
+                "pr-1", 1, page.eventCount(), page.events().getFirst().recordedAt(),
+                page.events().getFirst().typeRank(),
+                page.events().getFirst().eventId());
+        assertThat(projection.page("pr-1", v1, 10).status())
                 .isEqualTo(PageStatus.RESTART_REQUIRED);
     }
 
@@ -307,10 +444,13 @@ class TestPrTimelineProjection
     {
         jdbc.update("""
                 INSERT INTO flow_runtime_task (
-                    task_id, request_key, repository_id, goal_text, status,
-                    branch_name, worktree_path
-                ) VALUES ('task-1', 'request-1', 'repo-1', 'private goal',
-                    'ACTIVE', 'branch-1', '/private/worktree')
+                    task_id, request_key, repository_id, repository_owner,
+                    repository_name, goal_text, repository_root,
+                    git_common_dir, remote_name, base_ref, launch_digest,
+                    status, branch_name, worktree_path
+                ) VALUES ('task-1', 'request-1', 'repo-1', 'owner', 'repo',
+                    'private goal', '/repo', '/repo/.git', 'origin', 'main',
+                    'launch-1', 'ACTIVE', 'branch-1', '/private/worktree')
                 """);
         jdbc.update("""
                 INSERT INTO flow_runtime_agent_session (
@@ -421,6 +561,15 @@ class TestPrTimelineProjection
                     'USER_GATES', 'READY', NULL, ?)
                 """, AT);
         jdbc.update("""
+                INSERT INTO flow_github_effect_plan_envelope (
+                    plan_id, operation_id, authorization_id, pr_id,
+                    pr_sequence, kind, action_ref, action_digest,
+                    plan_digest, created_at
+                ) VALUES ('plan-1', 'operation-publish', 'authorization-1',
+                    'pr-1', 1, 'CI_UPDATE', 'action-1', 'action-digest',
+                    'plan-digest', ?)
+                """, AT);
+        jdbc.update("""
                 INSERT INTO flow_github_external_effect_plan (
                     plan_id, operation_id, authorization_id, pr_id, pr_sequence,
                     kind, head_repository_external_id, head_repository_owner,
@@ -430,6 +579,13 @@ class TestPrTimelineProjection
                 ) VALUES ('plan-1', 'operation-publish', 'authorization-1',
                     'pr-1', 1, 'CI_UPDATE', '100', 'owner', 'repo', 'H0',
                     'action-1', 'action-digest', 'ci-policy-1', 'plan-digest', ?)
+                """, AT);
+        jdbc.update("""
+                INSERT INTO flow_github_effect_receipt_envelope (
+                    receipt_id, operation_id, plan_id, kind, proposed_head,
+                    receipt_digest, recorded_at
+                ) VALUES ('receipt-1', 'operation-publish', 'plan-1',
+                    'CI_UPDATE', 'H1', 'receipt-digest', ?)
                 """, AT);
         jdbc.update("""
                 INSERT INTO flow_github_external_effect_receipt (
@@ -471,10 +627,10 @@ class TestPrTimelineProjection
     {
         jdbc.update("""
                 INSERT INTO flow_user_gate_revision (
-                    gate_id, revision, subject_manifest_ref, subject_digest,
+                    gate_id, kind, revision, subject_manifest_ref, subject_digest,
                     action_manifest_ref, action_digest, readiness_evidence_ref,
                     created_by_run_id, created_at
-                ) VALUES ('gate-1', ?, ?, ?, 'action-1', 'action-digest',
+                ) VALUES ('gate-1', 'CI_UPDATE', ?, ?, ?, 'action-1', 'action-digest',
                     'ready-1', ?, ?)
                 """, revision, subjectId, subjectId + "-digest", runId, AT);
     }

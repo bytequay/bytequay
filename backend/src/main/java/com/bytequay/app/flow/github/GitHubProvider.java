@@ -20,6 +20,10 @@ import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderFailure;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderFailureKind;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderObservation;
 import com.bytequay.app.flow.github.GitHubEffects.ActivatedAttempt;
+import com.bytequay.app.flow.github.GitHubEffects.InitialProbeTarget;
+import com.bytequay.app.flow.github.InitialPublishRecords.Outcome;
+import com.bytequay.app.flow.github.InitialPublishRecords.PrIdentity;
+import com.bytequay.app.flow.github.InitialPublishRecords.ProviderProof;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
@@ -34,6 +38,7 @@ import java.net.Proxy;
 import java.net.ProxySelector;
 import java.net.SocketAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -47,10 +52,14 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,6 +71,11 @@ final class GitHubProvider
 {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(30);
     private static final int OUTPUT_LIMIT = 64 * 1024;
+    private static final int INITIAL_JSON_LIMIT = 1024 * 1024;
+    private static final int INITIAL_PAGE_SIZE = 100;
+    private static final int INITIAL_MAX_PAGES = 20;
+    private static final int INITIAL_MAX_REQUESTS = 44;
+    private static final Duration INITIAL_DEADLINE = Duration.ofMinutes(2);
 
     interface SecretSource
     {
@@ -99,6 +113,31 @@ final class GitHubProvider
     {
         RepositoryHttpResponse get(
                 URI uri, char[] token);
+    }
+
+    interface InitialHttp
+    {
+        InitialHttpResponse request(
+                String method,
+                URI uri,
+                char[] token,
+                byte[] body,
+                int responseLimit);
+    }
+
+    record InitialHttpResponse(
+            boolean complete, int statusCode, byte[] body)
+    {
+        InitialHttpResponse
+        {
+            body = body.clone();
+        }
+
+        @Override
+        public byte[] body()
+        {
+            return body.clone();
+        }
     }
 
     record RepositoryHttpResponse(
@@ -198,6 +237,109 @@ final class GitHubProvider
         }
     }
 
+    private enum InitialFailureKind
+    {
+        INVALID,
+        UNAVAILABLE,
+        BASE_DRIFT
+    }
+
+    record InitialProbeResult(
+            ExactInitialPublishProof proof,
+            ExactInitialFailure failure)
+    {
+        InitialProbeResult
+        {
+            if ((proof == null) == (failure == null)) {
+                throw new IllegalArgumentException(
+                        "initial probe must contain exactly one result");
+            }
+        }
+    }
+
+    record InitialPreparation(
+            PreparedInitialMutation mutation,
+            ExactInitialFailure failure)
+    {
+        InitialPreparation
+        {
+            if ((mutation == null) == (failure == null)) {
+                throw new IllegalArgumentException(
+                        "initial preparation must contain exactly one result");
+            }
+        }
+    }
+
+    static final class PreparedInitialMutation
+    {
+        private final Claim claim;
+        private final InitialProbeTarget target;
+        private final Path root;
+        private final String url;
+        private final char[] token;
+        private final String title;
+        private final String body;
+
+        private PreparedInitialMutation(
+                Claim claim,
+                InitialProbeTarget target,
+                Path root,
+                String url,
+                char[] token,
+                String title,
+                String body)
+        {
+            this.claim = requireNonNull(claim, "claim is null");
+            this.target = requireNonNull(target, "target is null");
+            this.root = root;
+            this.url = url;
+            this.token = requireNonNull(token, "token is null");
+            this.title = title;
+            this.body = body;
+        }
+
+        char[] token() { return token; }
+
+        boolean matches(Claim candidate, InitialProbeTarget candidateTarget)
+        {
+            return claim.equals(candidate)
+                    && target.operationId().equals(
+                            candidateTarget.operationId())
+                    && target.planId().equals(candidateTarget.planId())
+                    && target.stepId().equals(candidateTarget.stepId())
+                    && target.stepKind() == candidateTarget.stepKind();
+        }
+    }
+
+    private record InitialContext(
+            InitialPublishRecords.Plan plan,
+            Path root,
+            String branchName,
+            String title,
+            String body) {}
+
+    private record RawPr(
+            String state,
+            boolean draft,
+            boolean maintainerCanModify,
+            String baseRepositoryExternalId,
+            String baseRepositoryOwner,
+            String baseRepositoryName,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String headBranchRef,
+            String targetBaseRef,
+            long prNumber,
+            String prNodeId,
+            String htmlUrl,
+            String observedBaseSha,
+            String observedHead,
+            String titleDigest,
+            String bodyDigest) {}
+
+    private record PrPass(boolean complete, List<RawPr> values) {}
+
     static final class ExactProviderObservation
             implements ProviderObservation
     {
@@ -265,6 +407,165 @@ final class GitHubProvider
         }
     }
 
+    /** Sealed pure evidence composed only by the exact provider executor. */
+    static final class ExactInitialPublishProof
+            implements ProviderProof
+    {
+        private final Claim claim;
+        private final InitialProbeTarget target;
+        private final Outcome outcome;
+        private final String observedHead;
+        private final PrIdentity prIdentity;
+
+        private ExactInitialPublishProof(
+                Claim claim, InitialProbeTarget target, Outcome outcome,
+                String observedHead, PrIdentity prIdentity)
+        {
+            this.claim = requireNonNull(claim, "claim is null");
+            this.target = requireNonNull(target, "target is null");
+            this.outcome = requireNonNull(outcome, "outcome is null");
+            this.observedHead = observedHead;
+            this.prIdentity = prIdentity;
+        }
+
+        @Override
+        public String operationId() { return target.operationId(); }
+        @Override
+        public String planId() { return target.planId(); }
+        @Override
+        public String stepId() { return target.stepId(); }
+        @Override
+        public String attemptId() { return target.attemptId(); }
+        @Override
+        public int stepOrdinal() { return target.stepOrdinal(); }
+        @Override
+        public InitialPublishRecords.StepKind stepKind() {
+            return target.stepKind();
+        }
+        @Override
+        public Outcome outcome() { return outcome; }
+        @Override
+        public String observedHead() { return observedHead; }
+        @Override
+        public PrIdentity prIdentity() { return prIdentity; }
+        @Override
+        public boolean matchesClaim(Claim candidate) {
+            return claim.equals(candidate) && target.matchesClaim(candidate);
+        }
+
+        boolean matchesTarget(InitialProbeTarget candidate)
+        {
+            return operationId().equals(candidate.operationId())
+                    && planId().equals(candidate.planId())
+                    && stepId().equals(candidate.stepId())
+                    && Objects.equals(attemptId(), candidate.attemptId())
+                    && stepOrdinal() == candidate.stepOrdinal()
+                    && stepKind() == candidate.stepKind();
+        }
+    }
+
+    /** Provider-minted authority for one exact INITIAL failure disposition. */
+    static final class ExactInitialFailure
+            implements InitialPublishRecords.ProviderFailure
+    {
+        private final Claim claim;
+        private final InitialProbeTarget target;
+        private final InitialFailureKind kind;
+        private final String observedBaseSha;
+
+        private ExactInitialFailure(Claim claim, InitialProbeTarget target,
+                InitialFailureKind kind)
+        {
+            this(claim, target, kind, null);
+        }
+
+        private ExactInitialFailure(Claim claim, InitialProbeTarget target,
+                InitialFailureKind kind, String observedBaseSha)
+        {
+            this.claim = requireNonNull(claim, "claim is null");
+            this.target = requireNonNull(target, "target is null");
+            this.kind = requireNonNull(kind, "kind is null");
+            this.observedBaseSha = observedBaseSha;
+            if ((kind == InitialFailureKind.BASE_DRIFT)
+                    != (observedBaseSha != null)) {
+                throw new IllegalArgumentException(
+                        "base-drift failure evidence is inconsistent");
+            }
+        }
+
+        @Override
+        public boolean matches(Claim candidate, String planId, String stepId,
+                String attemptId)
+        {
+            return claim.equals(candidate) && target.matchesClaim(candidate)
+                    && target.planId().equals(planId)
+                    && target.stepId().equals(stepId)
+                    && Objects.equals(target.attemptId(), attemptId);
+        }
+
+        @Override
+        public boolean invalid()
+        {
+            return kind == InitialFailureKind.INVALID
+                    || kind == InitialFailureKind.BASE_DRIFT;
+        }
+
+        @Override
+        public boolean baseDrift() { return kind == InitialFailureKind.BASE_DRIFT; }
+
+        @Override
+        public String observedBaseSha() { return observedBaseSha; }
+    }
+
+    static final class ExactInitialRepositoryObservation
+            implements InitialPublishRecords.RepositoryObservation
+    {
+        private final String runId;
+        private final String taskId;
+        private final String repositoryId;
+        private final String launchDigest;
+        private final RepositoryIdentity identity;
+        private final long expiresAtNanos;
+        private final AtomicBoolean consumed = new AtomicBoolean();
+
+        private ExactInitialRepositoryObservation(String runId, String taskId,
+                String repositoryId, String launchDigest,
+                RepositoryIdentity identity)
+        {
+            this.runId = requireNonNull(runId, "runId is null");
+            this.taskId = requireNonNull(taskId, "taskId is null");
+            this.repositoryId = requireNonNull(
+                    repositoryId, "repositoryId is null");
+            this.launchDigest = requireNonNull(
+                    launchDigest, "launchDigest is null");
+            this.identity = requireNonNull(identity, "identity is null");
+            this.expiresAtNanos = System.nanoTime()
+                    + INITIAL_DEADLINE.toNanos();
+        }
+
+        @Override
+        public String repositoryExternalId() { return identity.externalId(); }
+        @Override
+        public String owner() { return identity.owner(); }
+        @Override
+        public String name() { return identity.repository(); }
+        @Override
+        public boolean consumeMatches(
+                String candidateRunId, String candidateTaskId,
+                String candidateRepositoryId, String candidateLaunchDigest,
+                String candidateOwner, String candidateName)
+        {
+            return System.nanoTime() <= expiresAtNanos
+                    && consumed.compareAndSet(false, true)
+                    && runId.equals(candidateRunId)
+                    && taskId.equals(candidateTaskId)
+                    && repositoryId.equals(candidateRepositoryId)
+                    && launchDigest.equals(candidateLaunchDigest)
+                    && identity.owner().equals(candidateOwner)
+                    && identity.repository().equals(candidateName);
+        }
+    }
+
     static final class ExactProviderFailure
             implements ProviderFailure
     {
@@ -324,11 +625,13 @@ final class GitHubProvider
     private final SecretSource secrets;
     private final GitProcess git;
     private final RepositoryLookup repositories;
+    private final InitialHttp initialHttp;
+    private final ObjectMapper json = new ObjectMapper();
 
     GitHubProvider(FlowRuntime runtime, SecretSource secrets)
     {
         this(runtime, secrets, new DirectGitProcess(),
-                new DirectRepositoryLookup());
+                new DirectRepositoryLookup(), new DirectInitialHttp());
     }
 
     GitHubProvider(
@@ -337,11 +640,804 @@ final class GitHubProvider
             GitProcess git,
             RepositoryLookup repositories)
     {
+        this(runtime, secrets, git, repositories, new DirectInitialHttp());
+    }
+
+    GitHubProvider(
+            FlowRuntime runtime,
+            SecretSource secrets,
+            GitProcess git,
+            RepositoryLookup repositories,
+            InitialHttp initialHttp)
+    {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.secrets = requireNonNull(secrets, "secrets is null");
         this.git = requireNonNull(git, "git is null");
         this.repositories = requireNonNull(
                 repositories, "repositories is null");
+        this.initialHttp = requireNonNull(initialHttp, "initialHttp is null");
+    }
+
+    InitialPublishRecords.RepositoryObservation observeInitialRepository(
+            String runId)
+    {
+        requireNonNull(runId, "runId is null");
+        GitHubCiUpdateExecutor.requireNoAmbientTransaction();
+        var run = runtime.run(runId).orElseThrow(() ->
+                new IllegalStateException("initial run is missing"));
+        var operation = runtime.operation(run.operationId()).orElseThrow(() ->
+                new IllegalStateException("initial operation is missing"));
+        var task = runtime.task(operation.taskId()).orElseThrow(() ->
+                new IllegalStateException("initial task is missing"));
+        RepositoryCredential credential = requireNonNull(
+                secrets.credential(
+                        task.repositoryId(), task.repositoryOwner(),
+                        task.repositoryName()),
+                "repository credential is missing");
+        char[] token = credential.token();
+        try {
+            RepositoryIdentity identity = requireNonNull(
+                    repositories.lookup(
+                            task.repositoryOwner(), task.repositoryName(),
+                            token),
+                    "repository identity is missing");
+            if (!identity.complete() || !identity.found()
+                    || !identity.externalId().matches("[1-9][0-9]*")
+                    || !identity.owner().equals(task.repositoryOwner())
+                    || !identity.repository().equals(task.repositoryName())) {
+                throw new IllegalStateException(
+                        "initial repository identity is unavailable or invalid");
+            }
+            return new ExactInitialRepositoryObservation(
+                    runId, task.taskId(), task.repositoryId(),
+                    task.launchDigest(), identity);
+        }
+        finally {
+            Arrays.fill(token, '\0');
+        }
+    }
+
+    InitialProbeResult probeInitial(
+            Claim claim, InitialProbeTarget target)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(target, "target is null");
+        assertInitialTarget(claim, target);
+        try {
+            InitialContext context = initialContext(target);
+            return target.stepKind()
+                    == InitialPublishRecords.StepKind.CREATE_REF_EXACT
+                    ? probeInitialRef(claim, target, context)
+                    : probeInitialPr(claim, target, context);
+        }
+        catch (InitialTargetException failure) {
+            return initialFailureProbe(claim, target, failure.kind);
+        }
+    }
+
+    InitialPreparation prepareInitialMutation(
+            Claim claim, InitialProbeTarget target)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(target, "target is null");
+        assertInitialTarget(claim, target);
+        InitialContext context;
+        try {
+            context = initialContext(target);
+            InitialPublishRecords.Plan plan = context.plan();
+            if (target.stepKind()
+                    == InitialPublishRecords.StepKind.CREATE_REF_EXACT) {
+                InitialFailureKind local = initialLocalFailure(
+                        context.root(), plan.proposedHead());
+                if (local != null) {
+                    return initialFailurePreparation(claim, target, local);
+                }
+                String url = exactPushUrl(
+                        context.root(), plan.headRepositoryOwner(),
+                        plan.headRepositoryName());
+                char[] token = exactCredential(
+                        plan.headRepositoryExternalId(),
+                        plan.headRepositoryOwner(),
+                        plan.headRepositoryName());
+                boolean transferred = false;
+                try {
+                    InitialPreparation result = new InitialPreparation(
+                            new PreparedInitialMutation(
+                                    claim, target, context.root(), url, token,
+                                    null, null), null);
+                    transferred = true;
+                    return result;
+                }
+                finally {
+                    if (!transferred) {
+                        Arrays.fill(token, '\0');
+                    }
+                }
+            }
+            String headUrl = exactPushUrl(
+                    context.root(), plan.headRepositoryOwner(),
+                    plan.headRepositoryName());
+            char[] headToken = exactCredential(
+                    plan.headRepositoryExternalId(),
+                    plan.headRepositoryOwner(), plan.headRepositoryName());
+            try {
+                if (!exactRemoteHead(
+                        context.root(), headUrl, headToken,
+                        plan.branchRef(), plan.proposedHead())) {
+                    return initialFailurePreparation(
+                            claim, target, InitialFailureKind.INVALID);
+                }
+            }
+            finally {
+                Arrays.fill(headToken, '\0');
+            }
+            char[] token = exactCredential(
+                    plan.baseRepositoryExternalId(),
+                    plan.baseRepositoryOwner(), plan.baseRepositoryName());
+            boolean transferred = false;
+            try {
+                String observedBase = exactBaseHead(plan, token);
+                if (!observedBase.equals(plan.expectedBaseSha())) {
+                    return initialBaseDrift(
+                            claim, target, observedBase);
+                }
+                InitialPreparation result = new InitialPreparation(
+                        new PreparedInitialMutation(
+                                claim, target, null, null, token,
+                                context.title(), context.body()), null);
+                transferred = true;
+                return result;
+            }
+            finally {
+                if (!transferred) {
+                    Arrays.fill(token, '\0');
+                }
+            }
+        }
+        catch (InitialTargetException failure) {
+            return initialFailurePreparation(claim, target, failure.kind);
+        }
+        catch (StableTargetException invalid) {
+            return initialFailurePreparation(
+                    claim, target, InitialFailureKind.INVALID);
+        }
+        catch (TransientTargetException unavailable) {
+            return initialFailurePreparation(
+                    claim, target, InitialFailureKind.UNAVAILABLE);
+        }
+        catch (RuntimeException unavailable) {
+            return initialFailurePreparation(
+                    claim, target, InitialFailureKind.UNAVAILABLE);
+        }
+    }
+
+    void mutateInitial(
+            Claim claim,
+            GitHubEffects.ActivatedInitialAttempt activated,
+            PreparedInitialMutation prepared)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(activated, "activated is null");
+        requireNonNull(prepared, "prepared is null");
+        try {
+            GitHubCiUpdateExecutor.requireNoAmbientTransaction();
+            InitialPublishRecords.Attempt attempt = activated.attempt();
+            InitialProbeTarget target = activated.target();
+            if (!prepared.matches(claim, target)
+                    || !attempt.operationId().equals(target.operationId())
+                    || !attempt.planId().equals(target.planId())
+                    || !attempt.stepId().equals(target.stepId())
+                    || attempt.stepKind() != target.stepKind()
+                    || !attempt.attemptId().equals(target.attemptId())) {
+                throw new IllegalStateException(
+                        "prepared initial mutation does not match its attempt");
+            }
+            runtime.consumePublishExecutionHandle(
+                    activated.executionHandle(), claim,
+                    attempt.attemptId(), attempt.executionTokenDigest());
+            InitialPublishRecords.Plan plan = target.plan();
+            if (target.stepKind()
+                    == InitialPublishRecords.StepKind.CREATE_REF_EXACT) {
+                // The command result is never proof. The empty old value is
+                // the atomic absence lease; there is deliberately no fallback.
+                try {
+                    git.run(
+                            prepared.root,
+                            initialCreateRefArguments(
+                                    plan.branchRef(), plan.proposedHead(),
+                                    prepared.url),
+                            environment(prepared.token, prepared.url), false);
+                }
+                catch (RuntimeException ignored) {
+                    // A transport failure still requires the exact post-probe.
+                }
+                return;
+            }
+            byte[] request;
+            try {
+                var body = json.createObjectNode()
+                        .put("title", prepared.title)
+                        .put("body", prepared.body)
+                        .put("head", plan.headRepositoryOwner() + ":"
+                                + initialBranchName(plan.branchRef()))
+                        .put("base", initialBaseName(plan.targetBaseRef()))
+                        .put("draft", true)
+                        .put("maintainer_can_modify", false);
+                if (!plan.baseRepositoryExternalId().equals(
+                        plan.headRepositoryExternalId())) {
+                    body.put("head_repo", plan.headRepositoryName());
+                }
+                request = body.toString().getBytes(StandardCharsets.UTF_8);
+            }
+            catch (RuntimeException invalid) {
+                throw new IllegalStateException(
+                        "frozen initial PR request is invalid", invalid);
+            }
+            if (request.length > INITIAL_JSON_LIMIT) {
+                throw new IllegalStateException(
+                        "frozen initial PR request is too large");
+            }
+            // The response is ignored. Only a subsequent exhaustive probe can
+            // prove whether GitHub created the exact draft pull request.
+            try {
+                initialHttp.request(
+                        "POST",
+                        api("/repos/" + encode(plan.baseRepositoryOwner()) + "/"
+                                + encode(plan.baseRepositoryName()) + "/pulls"),
+                        prepared.token, request, INITIAL_JSON_LIMIT);
+            }
+            catch (RuntimeException ignored) {
+                // A response-loss exception still requires the exact post-probe.
+            }
+        }
+        finally {
+            Arrays.fill(prepared.token, '\0');
+        }
+    }
+
+    static List<String> initialCreateRefArguments(
+            String branchRef, String proposedHead, String url)
+    {
+        return List.of(
+                "push",
+                "--no-follow-tags",
+                "--force-with-lease=" + branchRef + ":",
+                url,
+                proposedHead + ":" + branchRef);
+    }
+
+    private InitialProbeResult probeInitialRef(
+            Claim claim,
+            InitialProbeTarget target,
+            InitialContext context)
+    {
+        InitialPublishRecords.Plan plan = context.plan();
+        String url;
+        try {
+            url = exactPushUrl(context.root(), plan.headRepositoryOwner(),
+                    plan.headRepositoryName());
+        }
+        catch (StableTargetException invalid) {
+            return initialFailureProbe(
+                    claim, target, InitialFailureKind.INVALID);
+        }
+        catch (TransientTargetException unavailable) {
+            return initialFailureProbe(
+                    claim, target, InitialFailureKind.UNAVAILABLE);
+        }
+        catch (RuntimeException unavailable) {
+            return initialFailureProbe(
+                    claim, target, InitialFailureKind.UNAVAILABLE);
+        }
+        char[] token;
+        try {
+            token = exactCredential(
+                    plan.headRepositoryExternalId(),
+                    plan.headRepositoryOwner(), plan.headRepositoryName());
+        }
+        catch (InitialTargetException failure) {
+            return initialFailureProbe(claim, target, failure.kind);
+        }
+        try {
+            ProcessResult result;
+            try {
+                result = git.run(
+                        context.root(),
+                        List.of("ls-remote", "--heads", url,
+                                plan.branchRef()),
+                        environment(token, url), true);
+            }
+            catch (RuntimeException unavailable) {
+                return initialProof(
+                        claim, target, Outcome.UNKNOWN, null, null);
+            }
+            if (!result.complete() || result.exitCode() != 0) {
+                return initialProof(claim, target, Outcome.UNKNOWN, null, null);
+            }
+            List<String> lines = result.output().lines()
+                    .filter(line -> !line.isBlank()).toList();
+            if (lines.isEmpty()) {
+                return initialProof(claim, target, Outcome.ABSENT, null, null);
+            }
+            if (lines.size() != 1) {
+                return initialProof(claim, target, Outcome.UNKNOWN, null, null);
+            }
+            String[] fields = lines.getFirst().split("\\s+", 2);
+            if (fields.length != 2 || !fields[1].equals(plan.branchRef())) {
+                return initialProof(claim, target, Outcome.UNKNOWN, null, null);
+            }
+            String observed = fields[0];
+            Outcome outcome = target.attemptId() != null
+                    && observed.equals(plan.proposedHead())
+                    ? Outcome.APPLIED : Outcome.DIVERGED;
+            return initialProof(claim, target, outcome, observed, null);
+        }
+        finally {
+            Arrays.fill(token, '\0');
+        }
+    }
+
+    private InitialProbeResult probeInitialPr(
+            Claim claim,
+            InitialProbeTarget target,
+            InitialContext context)
+    {
+        InitialPublishRecords.Plan plan = context.plan();
+        char[] token;
+        try {
+            token = exactCredential(
+                    plan.baseRepositoryExternalId(),
+                    plan.baseRepositoryOwner(), plan.baseRepositoryName());
+        }
+        catch (InitialTargetException failure) {
+            return initialFailureProbe(claim, target, failure.kind);
+        }
+        try {
+            InitialBudget budget = new InitialBudget();
+            PrPass first = readPrPass(plan, token, budget);
+            PrPass second = readPrPass(plan, token, budget);
+            if (!first.complete() || !second.complete()
+                    || !first.values().equals(second.values())
+                    || first.values().size() > 1) {
+                return initialProof(claim, target, Outcome.UNKNOWN, null, null);
+            }
+            if (first.values().isEmpty()) {
+                return initialProof(claim, target, Outcome.ABSENT, null, null);
+            }
+            RawPr raw = first.values().getFirst();
+            boolean exact = exactInitialPr(plan, raw, context);
+            PrIdentity identity = prIdentity(
+                    raw, exact ? plan.targetBaseRef()
+                            : raw.targetBaseRef());
+            Outcome outcome = target.attemptId() != null && exact
+                    ? Outcome.APPLIED : Outcome.DIVERGED;
+            return initialProof(
+                    claim, target, outcome, raw.observedHead(), identity);
+        }
+        catch (RuntimeException unavailable) {
+            return initialProof(claim, target, Outcome.UNKNOWN, null, null);
+        }
+        finally {
+            Arrays.fill(token, '\0');
+        }
+    }
+
+    private InitialContext initialContext(InitialProbeTarget target)
+    {
+        InitialPublishRecords.Plan plan = target.plan();
+        var pr = runtime.pullRequest(plan.prId()).orElseThrow(() ->
+                new InitialTargetException(InitialFailureKind.INVALID));
+        var task = runtime.task(pr.taskId()).orElseThrow(() ->
+                new InitialTargetException(InitialFailureKind.INVALID));
+        var draft = runtime.requirePrDraftRevision(plan.draftRevisionId());
+        if (!draft.prId().equals(plan.prId())
+                || !draft.changeSetRevisionId().equals(
+                        plan.changeSetRevisionId())
+                || !draft.headSha().equals(plan.proposedHead())
+                || !draft.draftDigest().equals(plan.draftDigest())
+                || !pr.taskId().equals(task.taskId())
+                || !Objects.equals(task.prId(), pr.prId())) {
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        return new InitialContext(
+                plan,
+                Path.of(task.worktreePath()).toAbsolutePath().normalize(),
+                initialBranchName(plan.branchRef()),
+                draft.title(), draft.body());
+    }
+
+    private char[] exactCredential(
+            String externalId, String owner, String repository)
+    {
+        RepositoryCredential credential;
+        try {
+            credential = secrets.credential(externalId, owner, repository);
+        }
+        catch (RuntimeException unavailable) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        if (credential == null || credential.token().length == 0) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        char[] token = credential.token();
+        if (!credential.repositoryExternalId().equals(externalId)) {
+            Arrays.fill(token, '\0');
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        RepositoryIdentity identity;
+        try {
+            identity = repositories.lookup(owner, repository, token);
+        }
+        catch (RuntimeException unavailable) {
+            Arrays.fill(token, '\0');
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        if (identity == null || !identity.complete()) {
+            Arrays.fill(token, '\0');
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        if (!identity.found()
+                || !externalId.equals(identity.externalId())
+                || !owner.equals(identity.owner())
+                || !repository.equals(identity.repository())) {
+            Arrays.fill(token, '\0');
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        return token;
+    }
+
+    private InitialFailureKind initialLocalFailure(Path root, String head)
+    {
+        ProviderFailureKind graft = graftFailure(root);
+        if (graft != null) {
+            return graft == ProviderFailureKind.INVALID
+                    ? InitialFailureKind.INVALID
+                    : InitialFailureKind.UNAVAILABLE;
+        }
+        ProcessResult promisor = git.run(
+                root,
+                List.of("config", "--includes", "--local", "--get-regexp",
+                        "^(extensions\\.partialClone|remote\\..*\\."
+                                + "(promisor|partialclonefilter))$"),
+                safeEnvironment(), true);
+        if (!promisor.complete()
+                || promisor.exitCode() != 0 && promisor.exitCode() != 1) {
+            return InitialFailureKind.UNAVAILABLE;
+        }
+        if (promisor.exitCode() == 0 || !promisor.output().isBlank()) {
+            return InitialFailureKind.INVALID;
+        }
+        ProcessResult object = git.run(
+                root, List.of("cat-file", "-t", head),
+                safeEnvironment(), true);
+        if (!object.complete()) {
+            return InitialFailureKind.UNAVAILABLE;
+        }
+        if (object.exitCode() != 0
+                || !object.output().strip().equals("commit")) {
+            return InitialFailureKind.INVALID;
+        }
+        return null;
+    }
+
+    private String exactBaseHead(
+            InitialPublishRecords.Plan plan, char[] token)
+    {
+        InitialHttpResponse response;
+        try {
+            response = initialHttp.request(
+                    "GET",
+                    api("/repos/" + encode(plan.baseRepositoryOwner()) + "/"
+                            + encode(plan.baseRepositoryName())
+                            + "/git/ref/heads/"
+                            + encode(initialBaseName(plan.targetBaseRef()))),
+                    token, new byte[0], INITIAL_JSON_LIMIT);
+        }
+        catch (RuntimeException unavailable) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        if (response.complete() && response.statusCode() == 404) {
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        if (!response.complete() || response.statusCode() != 200
+                || response.body().length == 0
+                || response.body().length > INITIAL_JSON_LIMIT) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        try {
+            JsonNode root = json.readTree(response.body());
+            if (root == null || !root.isObject()
+                    || !root.path("object").path("sha").isTextual()) {
+                throw new InitialTargetException(
+                        InitialFailureKind.UNAVAILABLE);
+            }
+            return root.path("object").path("sha").textValue();
+        }
+        catch (IOException malformed) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+    }
+
+    private boolean exactRemoteHead(
+            Path root,
+            String url,
+            char[] token,
+            String branchRef,
+            String expectedHead)
+    {
+        ProcessResult result;
+        try {
+            result = git.run(
+                    root,
+                    List.of("ls-remote", "--heads", url, branchRef),
+                    environment(token, url), true);
+        }
+        catch (RuntimeException unavailable) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        if (!result.complete() || result.exitCode() != 0) {
+            throw new InitialTargetException(InitialFailureKind.UNAVAILABLE);
+        }
+        List<String> lines = result.output().lines()
+                .filter(line -> !line.isBlank()).toList();
+        if (lines.size() != 1) {
+            return false;
+        }
+        String[] fields = lines.getFirst().split("\\s+", 2);
+        return fields.length == 2 && fields[1].equals(branchRef)
+                && fields[0].equals(expectedHead);
+    }
+
+    private PrPass readPrPass(
+            InitialPublishRecords.Plan plan,
+            char[] token,
+            InitialBudget budget)
+    {
+        List<RawPr> values = new ArrayList<>();
+        Set<String> identities = new HashSet<>();
+        String head = plan.headRepositoryOwner() + ":"
+                + initialBranchName(plan.branchRef());
+        for (int page = 1; page <= INITIAL_MAX_PAGES; page++) {
+            budget.request();
+            InitialHttpResponse response = initialHttp.request(
+                    "GET",
+                    api("/repos/" + encode(plan.baseRepositoryOwner()) + "/"
+                            + encode(plan.baseRepositoryName())
+                            + "/pulls?state=all&head=" + encode(head)
+                            + "&per_page=" + INITIAL_PAGE_SIZE
+                            + "&page=" + page),
+                    token, new byte[0], INITIAL_JSON_LIMIT);
+            if (!response.complete() || response.statusCode() != 200
+                    || response.body().length == 0
+                    || response.body().length > INITIAL_JSON_LIMIT) {
+                return new PrPass(false, List.of());
+            }
+            JsonNode root;
+            try {
+                root = json.readTree(response.body());
+            }
+            catch (IOException malformed) {
+                return new PrPass(false, List.of());
+            }
+            if (root == null || !root.isArray()
+                    || root.size() > INITIAL_PAGE_SIZE) {
+                return new PrPass(false, List.of());
+            }
+            for (JsonNode value : root) {
+                RawPr parsed = readRawPr(value);
+                if (parsed == null
+                        || !identities.add(parsed.prNodeId())) {
+                    return new PrPass(false, List.of());
+                }
+                values.add(parsed);
+                if (values.size()
+                        > INITIAL_PAGE_SIZE * INITIAL_MAX_PAGES) {
+                    return new PrPass(false, List.of());
+                }
+            }
+            if (root.size() < INITIAL_PAGE_SIZE) {
+                values.sort(Comparator
+                        .comparingLong(RawPr::prNumber)
+                        .thenComparing(RawPr::prNodeId));
+                return new PrPass(true, List.copyOf(values));
+            }
+            if (page == INITIAL_MAX_PAGES) {
+                return new PrPass(false, List.of());
+            }
+        }
+        return new PrPass(false, List.of());
+    }
+
+    private RawPr readRawPr(JsonNode root)
+    {
+        JsonNode base = root.path("base");
+        JsonNode head = root.path("head");
+        JsonNode baseRepo = base.path("repo");
+        JsonNode headRepo = head.path("repo");
+        if (!root.path("state").isTextual()
+                || !root.path("draft").isBoolean()
+                || !root.path("maintainer_can_modify").isBoolean()
+                || !root.path("number").canConvertToLong()
+                || !root.path("node_id").isTextual()
+                || !root.path("html_url").isTextual()
+                || !root.path("title").isTextual()
+                || !(root.path("body").isTextual()
+                        || root.path("body").isNull())
+                || !baseRepo.path("id").isIntegralNumber()
+                || !baseRepo.path("owner").path("login").isTextual()
+                || !baseRepo.path("name").isTextual()
+                || !base.path("ref").isTextual()
+                || !base.path("sha").isTextual()
+                || !headRepo.path("id").isIntegralNumber()
+                || !headRepo.path("owner").path("login").isTextual()
+                || !headRepo.path("name").isTextual()
+                || !head.path("ref").isTextual()
+                || !head.path("sha").isTextual()) {
+            return null;
+        }
+        long number = root.path("number").longValue();
+        if (number < 1) {
+            return null;
+        }
+        String body = root.path("body").isNull()
+                ? "" : root.path("body").textValue();
+        return new RawPr(
+                root.path("state").textValue().toUpperCase(Locale.ROOT),
+                root.path("draft").booleanValue(),
+                root.path("maintainer_can_modify").booleanValue(),
+                baseRepo.path("id").asText(),
+                baseRepo.path("owner").path("login").textValue(),
+                baseRepo.path("name").textValue(),
+                headRepo.path("id").asText(),
+                headRepo.path("owner").path("login").textValue(),
+                headRepo.path("name").textValue(),
+                "refs/heads/" + head.path("ref").textValue(),
+                base.path("ref").textValue(), number,
+                root.path("node_id").textValue(),
+                root.path("html_url").textValue(),
+                base.path("sha").textValue(), head.path("sha").textValue(),
+                GitHubEffects.initialTitleDigest(
+                        root.path("title").textValue()),
+                GitHubEffects.initialBodyDigest(body));
+    }
+
+    private static boolean exactInitialPr(
+            InitialPublishRecords.Plan plan,
+            RawPr value,
+            InitialContext context)
+    {
+        return value.state().equals("OPEN") && value.draft()
+                && !value.maintainerCanModify()
+                && value.baseRepositoryExternalId().equals(
+                        plan.baseRepositoryExternalId())
+                && value.baseRepositoryOwner().equals(
+                        plan.baseRepositoryOwner())
+                && value.baseRepositoryName().equals(
+                        plan.baseRepositoryName())
+                && value.headRepositoryExternalId().equals(
+                        plan.headRepositoryExternalId())
+                && value.headRepositoryOwner().equals(
+                        plan.headRepositoryOwner())
+                && value.headRepositoryName().equals(
+                        plan.headRepositoryName())
+                && value.headBranchRef().equals(plan.branchRef())
+                && value.targetBaseRef().equals(
+                        initialBaseName(plan.targetBaseRef()))
+                && value.observedHead().equals(plan.proposedHead())
+                && value.titleDigest().equals(
+                        GitHubEffects.initialTitleDigest(context.title()))
+                && value.bodyDigest().equals(
+                        GitHubEffects.initialBodyDigest(context.body()));
+    }
+
+    private static PrIdentity prIdentity(
+            RawPr value, String recordedBaseRef)
+    {
+        PrIdentity preliminary = new PrIdentity(
+                value.state(), value.draft(),
+                value.baseRepositoryExternalId(),
+                value.baseRepositoryOwner(), value.baseRepositoryName(),
+                value.headRepositoryExternalId(),
+                value.headRepositoryOwner(), value.headRepositoryName(),
+                value.headBranchRef(), recordedBaseRef,
+                value.prNumber(), value.prNodeId(), value.htmlUrl(),
+                value.observedBaseSha(), value.titleDigest(),
+                value.bodyDigest(), "pending", "pending");
+        String digest = GitHubEffects.initialPrPassDigest(
+                value.observedHead(), preliminary);
+        return new PrIdentity(
+                value.state(), value.draft(),
+                value.baseRepositoryExternalId(),
+                value.baseRepositoryOwner(), value.baseRepositoryName(),
+                value.headRepositoryExternalId(),
+                value.headRepositoryOwner(), value.headRepositoryName(),
+                value.headBranchRef(), recordedBaseRef,
+                value.prNumber(), value.prNodeId(), value.htmlUrl(),
+                value.observedBaseSha(), value.titleDigest(),
+                value.bodyDigest(), digest, digest);
+    }
+
+    private static InitialProbeResult initialProof(
+            Claim claim,
+            InitialProbeTarget target,
+            Outcome outcome,
+            String observedHead,
+            PrIdentity identity)
+    {
+        return new InitialProbeResult(
+                new ExactInitialPublishProof(
+                        claim, target, outcome, observedHead, identity), null);
+    }
+
+    private static void assertInitialTarget(
+            Claim claim, InitialProbeTarget target)
+    {
+        if (claim.kind() != OperationKind.PUBLISH
+                || !claim.operationId().equals(target.operationId())
+                || !target.matchesClaim(claim)) {
+            throw new IllegalArgumentException(
+                    "initial provider target does not match its claim");
+        }
+    }
+
+    private static String initialBranchName(String branchRef)
+    {
+        if (branchRef == null || !branchRef.startsWith("refs/heads/")
+                || branchRef.length() == "refs/heads/".length()) {
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        return branchRef.substring("refs/heads/".length());
+    }
+
+    private static String initialBaseName(String baseRef)
+    {
+        if (baseRef == null || baseRef.isBlank()) {
+            throw new InitialTargetException(InitialFailureKind.INVALID);
+        }
+        return baseRef.startsWith("refs/heads/")
+                ? initialBranchName(baseRef) : baseRef;
+    }
+
+    private static String encode(String value)
+    {
+        return URLEncoder.encode(
+                requireNonNull(value, "value is null"), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+    }
+
+    private static URI api(String pathAndQuery)
+    {
+        return URI.create("https://api.github.com" + pathAndQuery);
+    }
+
+    private static final class InitialBudget
+    {
+        private final long deadline = System.nanoTime()
+                + INITIAL_DEADLINE.toNanos();
+        private int requests;
+
+        private void request()
+        {
+            requests++;
+            if (requests > INITIAL_MAX_REQUESTS
+                    || System.nanoTime() >= deadline) {
+                throw new InitialUnavailableException();
+            }
+        }
+    }
+
+    private static final class InitialUnavailableException
+            extends RuntimeException {}
+
+    private static final class InitialTargetException
+            extends RuntimeException
+    {
+        private final InitialFailureKind kind;
+
+        private InitialTargetException(InitialFailureKind kind)
+        {
+            this.kind = requireNonNull(kind, "kind is null");
+        }
     }
 
     ProbeResult probe(Claim claim, CiUpdateEffectActivation activation)
@@ -621,6 +1717,28 @@ final class GitHubProvider
                 null);
     }
 
+    private static InitialProbeResult initialFailureProbe(
+            Claim claim, InitialProbeTarget target, InitialFailureKind kind)
+    {
+        return new InitialProbeResult(
+                null, new ExactInitialFailure(claim, target, kind));
+    }
+
+    private static InitialPreparation initialFailurePreparation(
+            Claim claim, InitialProbeTarget target, InitialFailureKind kind)
+    {
+        return new InitialPreparation(
+                null, new ExactInitialFailure(claim, target, kind));
+    }
+
+    private static InitialPreparation initialBaseDrift(
+            Claim claim, InitialProbeTarget target, String observedBaseSha)
+    {
+        return new InitialPreparation(null, new ExactInitialFailure(
+                claim, target, InitialFailureKind.BASE_DRIFT,
+                requireNonNull(observedBaseSha, "observedBaseSha is null")));
+    }
+
     private static ProbeResult failure(
             Claim claim,
             CiUpdateEffectActivation activation,
@@ -742,6 +1860,13 @@ final class GitHubProvider
     private String exactPushUrl(
             Path root, CiUpdateEffectActivation activation)
     {
+        return exactPushUrl(root, activation.headRepositoryOwner(),
+                activation.headRepositoryName());
+    }
+
+    private String exactPushUrl(
+            Path root, String repositoryOwner, String repositoryName)
+    {
         ProcessResult rewrites = git.run(
                 root,
                 List.of(
@@ -822,8 +1947,8 @@ final class GitHubProvider
                     || parsed.getFragment() != null) {
                 continue;
             }
-            String expectedPath = "/" + activation.headRepositoryOwner()
-                    + "/" + activation.headRepositoryName();
+            String expectedPath = "/" + repositoryOwner
+                    + "/" + repositoryName;
             String actualPath = parsed.getPath();
             if (actualPath.endsWith(".git")) {
                 actualPath = actualPath.substring(
@@ -941,7 +2066,7 @@ final class GitHubProvider
             try {
                 RepositoryHttpResponse response = http.get(
                         URI.create("https://api.github.com/repos/"
-                                + owner + "/" + repository),
+                                + encode(owner) + "/" + encode(repository)),
                         token);
                 if (!response.complete()
                         || response.body().length > RESPONSE_LIMIT) {
@@ -1034,6 +2159,90 @@ final class GitHubProvider
             }
             catch (ResponseTooLargeException oversized) {
                 return new RepositoryHttpResponse(false, -1, new byte[0]);
+            }
+        }
+
+        List<Proxy> proxies(URI uri)
+        {
+            return client.proxy().orElseThrow().select(uri);
+        }
+
+        private static final class ResponseTooLargeException
+                extends RuntimeException {}
+    }
+
+    static final class DirectInitialHttp
+            implements InitialHttp
+    {
+        private final HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .proxy(new NoProxySelector())
+                .build();
+
+        @Override
+        public InitialHttpResponse request(
+                String method,
+                URI uri,
+                char[] token,
+                byte[] requestBody,
+                int responseLimit)
+        {
+            requireNonNull(method, "method is null");
+            requireNonNull(uri, "uri is null");
+            requireNonNull(token, "token is null");
+            requireNonNull(requestBody, "requestBody is null");
+            if (!(method.equals("GET") || method.equals("POST"))
+                    || !"https".equals(uri.getScheme())
+                    || !"api.github.com".equals(uri.getHost())
+                    || uri.getPort() != -1 || uri.getUserInfo() != null
+                    || uri.getFragment() != null || responseLimit < 1
+                    || requestBody.length > INITIAL_JSON_LIMIT) {
+                return new InitialHttpResponse(false, -1, new byte[0]);
+            }
+            try {
+                HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                        .timeout(Duration.ofSeconds(15))
+                        .header("Accept", "application/vnd.github+json")
+                        .header("Authorization", "Bearer " + new String(token))
+                        .header("X-GitHub-Api-Version", "2022-11-28");
+                if (method.equals("POST")) {
+                    builder.header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(
+                                    requestBody));
+                }
+                else {
+                    builder.GET();
+                }
+                ByteArrayOutputStream body = new ByteArrayOutputStream();
+                AtomicBoolean overflow = new AtomicBoolean();
+                HttpResponse<Void> response = client.send(
+                        builder.build(),
+                        HttpResponse.BodyHandlers.ofByteArrayConsumer(
+                                bytes -> bytes.ifPresent(chunk -> {
+                                    if (body.size() + chunk.length
+                                            > responseLimit) {
+                                        overflow.set(true);
+                                        throw new ResponseTooLargeException();
+                                    }
+                                    body.writeBytes(chunk);
+                                })));
+                return overflow.get()
+                        ? new InitialHttpResponse(
+                                false, response.statusCode(), new byte[0])
+                        : new InitialHttpResponse(
+                                true, response.statusCode(),
+                                body.toByteArray());
+            }
+            catch (IOException failure) {
+                return new InitialHttpResponse(false, -1, new byte[0]);
+            }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return new InitialHttpResponse(false, -1, new byte[0]);
+            }
+            catch (ResponseTooLargeException oversized) {
+                return new InitialHttpResponse(false, -1, new byte[0]);
             }
         }
 

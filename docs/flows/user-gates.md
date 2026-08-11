@@ -87,17 +87,21 @@ One aggregate per `(pr_id, kind)` is enough. Repeated CI or feedback rounds appe
 revisions instead of inventing another gate framework.
 
 Current executable scope is narrower than this full contract. The implemented
-owner constructs only local `CI_UPDATE` gates from the sealed CI-review Task
-continuation. It creates one stable `(pr_id, CI_UPDATE)` aggregate, immutable
+owner constructs local `CI_UPDATE` gates from the sealed CI-review Task
+continuation and narrow manual `INITIAL_PUBLISH` gates from complete-empty local
+review plus a provider-sealed repository target. It creates stable typed gate
+aggregates, immutable
 subjects/actions/revisions/transitions, one exact complete-empty local-review
 binding per PR/change set, and exact manual authorization for the current OPEN
 revision. It also implements one explicit, one-shot, Task-scoped `CI_UPDATE`
 consent lasting at most 24 hours. If that consent is current and a newly opened
 revision is fully automatic-eligible, the stopped-ready transaction creates the
 same exact authorization graph; it never scans an existing OPEN gate.
-Authorization atomically creates one immutable GitHub-owned,
-single-step `CI_UPDATE` push plan plus its runtime `PUBLISH` operation/ticket;
-it performs no Git/provider call and writes no timeline event. A
+Authorization atomically creates the GitHub-owned plan plus its runtime
+`PUBLISH` operation/ticket: one `CI_UPDATE` push step or two ordered INITIAL
+create-ref/create-draft-PR steps. It performs no Git/provider call and writes no
+timeline event. INITIAL currently freezes only `KEEP_DRAFT`; recovery revisions
+and `MARK_READY` execution remain deferred. A
 different later ready run may atomically transition only the current
 OPEN revision to `STALE/SUPERSEDED_BY_READY` and append a new OPEN revision. A
 revision made `STALE` by authorization/effect freshness is never resurrected,
@@ -460,8 +464,12 @@ only for missing/stale evidence or an unproven process boundary. The implemented
 local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
 manual-only warning, and rejects missing/stale/process-boundary evidence. Its
 complete-empty local-review binding is implemented; private comments/threads,
-other gate kinds, configurable/multi-use consent, and general provider
-observation remain deferred. Manual current-OPEN `CI_UPDATE` authorization,
+configurable/multi-use consent, and general provider observation remain
+deferred. Manual INITIAL authorization is implemented with a provider-sealed
+repository target, hardcoded `KEEP_DRAFT`, two exact remote steps, terminal
+typed partial evidence, and one atomic final receipt/identity/policy/watch graph.
+Fresh partial-recovery revisions and `MARK_READY` execution remain deferred.
+Manual current-OPEN `CI_UPDATE` authorization,
 one-shot new-gate `CI_UPDATE` consent, its immutable one-step
 push plan/runtime ticket, and exact GitHub attempt/probe/receipt settlement are
 implemented.
@@ -551,6 +559,9 @@ name and authorization path for the CI repair-push gate/consent subject.
 | `GateFreshness.revalidate(gateId, revision)` | Rebuild relevant digests and compare before authorization and every effect. |
 | `GateCommands.authorize(AuthorizeGateCommand)` | In one transaction verify authority/revision/digests, append authorization, reserve the operation ID, lock `prId` and allocate the plan's next monotonic `prSequence`, create the GitHub-owned immutable plan from the frozen action manifest, and create that runtime `Operation` plus its `DispatchTicket`. |
 | `UserGates.beginCiUpdateEffect(claim)` | Revalidate the claimed exact graph and every current owner fact, then append `AUTHORIZED -> EXECUTING` without calling Git or GitHub. Stable drift may append terminal `STALE` and cancel only before any attempt exists. With historical attempt uncertainty it enters durable probe-only `NEEDS_ATTENTION` and retains the barrier. |
+| `UserGates.beginInitialPublishEffect(claim)` | Revalidate the exact manual INITIAL authorization, plan, and current owner graph before each remote step. Ordered durable attempts, probes, and receipts are the only mutation authority; uncertainty remains probe-only. |
+| `UserGates.settleInitialPublish(claim, sealedSettlement)` | In one shared transaction revalidate the complete two-step proof and current owners, then either consume/succeed with final receipt, set-once identity, sequence-1 ready policy and receipt-owned CI watch, or retain proven partial evidence, stale/cancel, release the barrier and wake reconciliation. Response-loss replay returns only the exact historical terminal graph. |
+| `UserGates.recoverExpiredInitialPublish(operationId, generation)` | Rearm never-started work, preserve post-attempt probe-only attention, or redrive a fully receipted operation for provider-free final settlement. Generic recovery cannot settle INITIAL publication. |
 | `UserGates.recoverExpiredCiUpdateEffect(operationId, generation)` | Prove the expired generation has no durable provider attempt, return `EXECUTING -> AUTHORIZED` when needed, and redrive the same operation/ticket. Generic claim recovery rejects `PUBLISH`; a generation with an attempt uses probe-only recovery. |
 | `GitHubCiUpdateExecutor.execute(claim)` | Outside owner transactions, probe the exact frozen ref, commit each possible mutation attempt before its call (maximum two), execute the exact-lease fast-forward, then hand a sealed provider observation/failure to User Gates for atomic settlement. |
 | `UserGates.applyCiUpdateObservation(...)` | Consume only a provider-minted claim/plan/target/attempt-bound remote observation. `APPLIED` consumes with a receipt and atomically installs its read-only CI observation watch; `DIVERGED` stales, exact-expected `ABSENT` schedules the bounded retry unless authority uncertainty must remain probe-only, and `UNKNOWN` retains the barrier. |
@@ -812,7 +823,7 @@ Insert a process restart after every numbered step in test variants.
 4. Receive `GATE_STALE`; observe no Git/GitHub call and no authorization row for
    revision 5.
 
-### C. Explicit mark-ready policy
+### C. Explicit mark-ready policy (normative deferred trace)
 
 1. Authorize initial publication with `MARK_READY_ON_EXACT_GREEN` for `H1`.
 2. Observe green CI for an external or feedback-produced head; assert no ready

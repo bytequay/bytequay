@@ -13,19 +13,29 @@
  */
 package com.bytequay.app.flow.github;
 
+import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
+import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectAttempt;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectReceipt;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectStep;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProbeOutcome;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderObservation;
+import com.bytequay.app.flow.github.GitHubEffects.ActivatedInitialAttempt;
+import com.bytequay.app.flow.github.GitHubEffects.InitialProbeTarget;
+import com.bytequay.app.flow.github.InitialPublishRecords.Outcome;
+import com.bytequay.app.flow.github.InitialPublishRecords.Plan;
+import com.bytequay.app.flow.github.InitialPublishRecords.PrIdentity;
+import com.bytequay.app.flow.github.InitialPublishRecords.ProviderProof;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.repository.CredentialStore;
 
+import java.lang.reflect.Constructor;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -35,6 +45,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Test-only route through the concrete provider proof boundary. */
 @SuppressWarnings("StringConcatToTextBlock")
@@ -53,7 +66,136 @@ public final class GitHubProviderFixtures
             CiObservationActivation activation,
             GitHubCiObservationProof proof) {}
 
+    public record InitialExecution(
+            GitHubInitialPublishExecutor.Result branch,
+            GitHubInitialPublishExecutor.Result pullRequest,
+            int pushes,
+            int posts,
+            String postBody,
+            Claim prClaim,
+            GitHubInitialPublishExecutor executor,
+            AtomicInteger providerCommands) {}
+
+    public record InitialProbeExecution(
+            GitHubInitialPublishExecutor.Result result, int pushes) {}
+
+    public record InterruptedInitialExecution(
+            GitHubInitialPublishExecutor.Result branch,
+            RuntimeException failure,
+            Claim prClaim,
+            GitHubInitialPublishExecutor executor,
+            AtomicInteger providerCommands) {}
+
+    public record InitialRetryExecution(
+            GitHubInitialPublishExecutor.Result first,
+            GitHubInitialPublishExecutor executor,
+            AtomicInteger pushes) {}
+
     private GitHubProviderFixtures() {}
+
+    public static GateRevision openInitialPublish(
+            FlowRuntime runtime, UserGates gates, String runId)
+    {
+        CredentialStore credentials = mock(CredentialStore.class);
+        var run = runtime.run(runId).orElseThrow();
+        var operation = runtime.operation(run.operationId()).orElseThrow();
+        var task = runtime.task(operation.taskId()).orElseThrow();
+        when(credentials.getSecret(
+                CredentialType.REPO,
+                task.repositoryOwner() + "/" + task.repositoryName()))
+                .thenReturn(Optional.of("initial-secret"));
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                GitHubInitialPublishDispatcher.repoSecrets(credentials),
+                (root, arguments, environment, captureOutput) ->
+                        new GitHubProvider.ProcessResult(true, 0, ""),
+                matchingLookup("101"));
+        return gates.openInitialPublish(
+                runId, () -> provider.observeInitialRepository(runId));
+    }
+
+    public static InitialPublishRecords.RepositoryObservation
+            initialRepositoryObservation(
+                    FlowRuntime runtime,
+                    String runId,
+                    String attestedExternalId,
+                    String observedExternalId,
+                    char[] token,
+                    AtomicInteger lookups)
+    {
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (repositoryId, owner, name) ->
+                        new GitHubProvider.RepositoryCredential(
+                                attestedExternalId, token),
+                (root, arguments, environment, captureOutput) ->
+                        new GitHubProvider.ProcessResult(true, 0, ""),
+                (owner, repository, suppliedToken) -> {
+                    lookups.incrementAndGet();
+                    return new GitHubProvider.RepositoryIdentity(
+                            true, true, observedExternalId, owner, repository);
+                });
+        return provider.observeInitialRepository(runId);
+    }
+
+    public static ProviderProof initialProof(
+            Claim claim, InitialProbeTarget target, Outcome outcome,
+            String observedHead, PrIdentity identity)
+    {
+        try {
+            Constructor<GitHubProvider.ExactInitialPublishProof> constructor =
+                    GitHubProvider.ExactInitialPublishProof.class
+                            .getDeclaredConstructor(Claim.class,
+                                    InitialProbeTarget.class, Outcome.class,
+                                    String.class, PrIdentity.class);
+            constructor.setAccessible(true);
+            return constructor.newInstance(
+                    claim, target, outcome, observedHead, identity);
+        }
+        catch (ReflectiveOperationException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
+    public static ProviderProof initialProof(
+            Claim claim, ActivatedInitialAttempt activated, Outcome outcome,
+            String observedHead, PrIdentity identity)
+    {
+        return initialProof(
+                claim, activated.target(), outcome, observedHead, identity);
+    }
+
+    public static void consumeInitial(
+            FlowRuntime runtime, Claim claim, ActivatedInitialAttempt activated)
+    {
+        runtime.consumePublishExecutionHandle(
+                activated.executionHandle(), claim,
+                activated.attempt().attemptId(),
+                activated.attempt().executionTokenDigest());
+    }
+
+    public static PrIdentity exactInitialPr(
+            Plan plan, String observedBaseSha)
+    {
+        String title = GitHubEffects.initialTitleDigest("Initial draft");
+        String body = GitHubEffects.initialBodyDigest("body");
+        PrIdentity seed = new PrIdentity("OPEN", true,
+                plan.baseRepositoryExternalId(), plan.baseRepositoryOwner(),
+                plan.baseRepositoryName(), plan.headRepositoryExternalId(),
+                plan.headRepositoryOwner(), plan.headRepositoryName(),
+                plan.branchRef(), plan.targetBaseRef(), 42, "PR_node",
+                "https://example.test/pr/42", observedBaseSha, title, body,
+                "seed", "seed");
+        String pass = GitHubEffects.initialPrPassDigest(
+                plan.proposedHead(), seed);
+        return new PrIdentity("OPEN", true,
+                plan.baseRepositoryExternalId(), plan.baseRepositoryOwner(),
+                plan.baseRepositoryName(), plan.headRepositoryExternalId(),
+                plan.headRepositoryOwner(), plan.headRepositoryName(),
+                plan.branchRef(), plan.targetBaseRef(), 42, "PR_node",
+                "https://example.test/pr/42", observedBaseSha, title, body,
+                pass, pass);
+    }
 
     public static ProviderObservation observation(
             FlowRuntime runtime,
@@ -92,6 +234,225 @@ public final class GitHubProviderFixtures
                 matchingLookup(step.headRepositoryExternalId()));
         return new GitHubCiUpdateExecutor(
                 gates, effects, provider, clock).execute(claim);
+    }
+
+    public static InitialExecution executeInitialApplied(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock)
+    {
+        return executeInitialApplied(
+                runtime, gates, effects, branchClaim, plan, clock,
+                plan.expectedBaseSha());
+    }
+
+    public static InitialExecution executeInitialApplied(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            String observedBaseSha)
+    {
+        return executeInitial(
+                runtime, gates, effects, branchClaim, plan, clock,
+                plan.expectedBaseSha(), observedBaseSha, () -> {});
+    }
+
+    public static InitialExecution executeInitialBaseDrift(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            String observedBaseSha)
+    {
+        return executeInitial(
+                runtime, gates, effects, branchClaim, plan, clock,
+                observedBaseSha, plan.expectedBaseSha(), () -> {});
+    }
+
+    public static InitialExecution executeInitialWithBranchHook(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            Runnable afterBranch)
+    {
+        return executeInitial(
+                runtime, gates, effects, branchClaim, plan, clock,
+                plan.expectedBaseSha(), plan.expectedBaseSha(), afterBranch);
+    }
+
+    public static InterruptedInitialExecution executeInitialInterrupted(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            Runnable afterBranch)
+    {
+        return executeInitialInterrupted(
+                runtime, gates, effects, branchClaim, plan, clock,
+                plan.expectedBaseSha(), afterBranch);
+    }
+
+    public static InterruptedInitialExecution executeInitialPartialInterrupted(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            String observedBaseSha,
+            Runnable afterBranch)
+    {
+        return executeInitialInterrupted(
+                runtime, gates, effects, branchClaim, plan, clock,
+                observedBaseSha, afterBranch);
+    }
+
+    private static InterruptedInitialExecution executeInitialInterrupted(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            String observedBaseSha,
+            Runnable afterBranch)
+    {
+        InitialAppliedTransport transport = new InitialAppliedTransport(
+                plan, true, plan.expectedBaseSha(), observedBaseSha);
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                transport,
+                (owner, repository, token) ->
+                        new GitHubProvider.RepositoryIdentity(
+                                true, true,
+                                owner.equals(plan.baseRepositoryOwner())
+                                        ? plan.baseRepositoryExternalId()
+                                        : plan.headRepositoryExternalId(),
+                                owner, repository),
+                transport);
+        GitHubInitialPublishExecutor executor =
+                new GitHubInitialPublishExecutor(
+                        gates, effects, provider, clock);
+        GitHubInitialPublishExecutor.Result branch =
+                executor.execute(branchClaim);
+        afterBranch.run();
+        Claim prClaim = runtime.claimNextPublish(
+                "initial-pr-interrupted", Duration.ofMinutes(5))
+                .orElseThrow();
+        RuntimeException failure;
+        try {
+            executor.execute(prClaim);
+            throw new AssertionError("initial settlement did not fail");
+        }
+        catch (RuntimeException expected) {
+            failure = expected;
+        }
+        return new InterruptedInitialExecution(
+                branch, failure, prClaim, executor, transport.commands);
+    }
+
+    private static InitialExecution executeInitial(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim branchClaim,
+            Plan plan,
+            Clock clock,
+            String preflightBaseSha,
+            String observedBaseSha,
+            Runnable afterBranch)
+    {
+        InitialAppliedTransport transport = new InitialAppliedTransport(
+                plan, true, preflightBaseSha, observedBaseSha);
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                transport,
+                (owner, repository, token) ->
+                        new GitHubProvider.RepositoryIdentity(
+                                true, true,
+                                owner.equals(plan.baseRepositoryOwner())
+                                        ? plan.baseRepositoryExternalId()
+                                        : plan.headRepositoryExternalId(),
+                                owner, repository),
+                transport);
+        GitHubInitialPublishExecutor executor =
+                new GitHubInitialPublishExecutor(
+                        gates, effects, provider, clock);
+        GitHubInitialPublishExecutor.Result branch =
+                executor.execute(branchClaim);
+        afterBranch.run();
+        Claim prClaim = runtime.claimNextPublish(
+                "initial-pr-fixture", Duration.ofMinutes(5)).orElseThrow();
+        GitHubInitialPublishExecutor.Result pullRequest =
+                executor.execute(prClaim);
+        return new InitialExecution(
+                branch, pullRequest,
+                transport.pushes.get(), transport.posts.get(),
+                transport.postBody,
+                prClaim, executor, transport.commands);
+    }
+
+    public static InitialProbeExecution executeInitialAbsent(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim claim,
+            Plan plan,
+            Clock clock)
+    {
+        InitialAppliedTransport transport = new InitialAppliedTransport(plan);
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                transport,
+                (owner, repository, token) ->
+                        new GitHubProvider.RepositoryIdentity(
+                                true, true,
+                                owner.equals(plan.baseRepositoryOwner())
+                                        ? plan.baseRepositoryExternalId()
+                                        : plan.headRepositoryExternalId(),
+                                owner, repository),
+                transport);
+        var result = new GitHubInitialPublishExecutor(
+                gates, effects, provider, clock).execute(claim);
+        return new InitialProbeExecution(result, transport.pushes.get());
+    }
+
+    public static InitialRetryExecution executeInitialMissingAfterMutation(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Claim claim,
+            Plan plan,
+            Clock clock)
+    {
+        InitialAppliedTransport transport =
+                new InitialAppliedTransport(plan, false);
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                transport,
+                matchingLookup(plan.headRepositoryExternalId()),
+                transport);
+        var executor = new GitHubInitialPublishExecutor(
+                gates, effects, provider, clock);
+        return new InitialRetryExecution(
+                executor.execute(claim), executor, transport.pushes);
     }
 
     public static Optional<ExternalEffectReceipt> executeTerminalProbe(
@@ -186,6 +547,137 @@ public final class GitHubProviderFixtures
     {
         return new GitHubProvider.RepositoryCredential(
                 externalId, "fixture-token".toCharArray());
+    }
+
+    private static final class InitialAppliedTransport
+            implements GitHubProvider.GitProcess, GitHubProvider.InitialHttp
+    {
+        private final Plan plan;
+        private final boolean applyPush;
+        private final AtomicInteger pushes = new AtomicInteger();
+        private final AtomicInteger posts = new AtomicInteger();
+        private final AtomicInteger commands = new AtomicInteger();
+        private final String observedBaseSha;
+        private final String preflightBaseSha;
+        private boolean branchExists;
+        private boolean prExists;
+        private String postBody;
+
+        private InitialAppliedTransport(Plan plan)
+        {
+            this(plan, true, plan.expectedBaseSha(), plan.expectedBaseSha());
+        }
+
+        private InitialAppliedTransport(Plan plan, boolean applyPush)
+        {
+            this(plan, applyPush, plan.expectedBaseSha(),
+                    plan.expectedBaseSha());
+        }
+
+        private InitialAppliedTransport(
+                Plan plan, boolean applyPush, String preflightBaseSha,
+                String observedBaseSha)
+        {
+            this.plan = plan;
+            this.applyPush = applyPush;
+            this.preflightBaseSha = preflightBaseSha;
+            this.observedBaseSha = observedBaseSha;
+        }
+
+        @Override
+        public GitHubProvider.ProcessResult run(
+                Path root,
+                List<String> arguments,
+                Map<String, String> environment,
+                boolean captureOutput)
+        {
+            commands.incrementAndGet();
+            if (arguments.contains("--git-common-dir")) {
+                return new GitHubProvider.ProcessResult(
+                        true, 0, root.resolve(".git") + "\n");
+            }
+            if (arguments.contains("--get-regexp")) {
+                return new GitHubProvider.ProcessResult(true, 1, "");
+            }
+            if (arguments.equals(List.of("remote", "-v"))) {
+                return new GitHubProvider.ProcessResult(
+                        true, 0, "target https://github.com/"
+                                + plan.headRepositoryOwner() + "/"
+                                + plan.headRepositoryName() + ".git (push)\n");
+            }
+            if (arguments.equals(List.of(
+                    "cat-file", "-t", plan.proposedHead()))) {
+                return new GitHubProvider.ProcessResult(true, 0, "commit\n");
+            }
+            if (arguments.getFirst().equals("ls-remote")) {
+                return new GitHubProvider.ProcessResult(
+                        true, 0, branchExists
+                                ? plan.proposedHead() + "\t"
+                                        + plan.branchRef() + "\n"
+                                : "");
+            }
+            if (arguments.getFirst().equals("push")) {
+                pushes.incrementAndGet();
+                branchExists = applyPush;
+                return new GitHubProvider.ProcessResult(false, -1, "");
+            }
+            return new GitHubProvider.ProcessResult(true, 0, "");
+        }
+
+        @Override
+        public GitHubProvider.InitialHttpResponse request(
+                String method,
+                URI uri,
+                char[] token,
+                byte[] body,
+                int responseLimit)
+        {
+            commands.incrementAndGet();
+            if (uri.getPath().contains("/git/ref/heads/")) {
+                return initialJson("""
+                        {"object":{"sha":"%s"}}
+                        """.formatted(preflightBaseSha));
+            }
+            if (method.equals("POST")) {
+                posts.incrementAndGet();
+                postBody = new String(body, StandardCharsets.UTF_8);
+                prExists = true;
+                return new GitHubProvider.InitialHttpResponse(
+                        false, -1, new byte[0]);
+            }
+            if (!prExists) {
+                return initialJson("[]");
+            }
+            String prBody = """
+                    [{"state":"open","draft":true,
+                      "maintainer_can_modify":false,"number":42,
+                      "node_id":"PR_node",
+                      "html_url":"https://example.test/pr/42",
+                      "title":"Initial draft","body":"body",
+                      "base":{"ref":"%s","sha":"%s","repo":{
+                        "id":%s,"name":"%s","owner":{"login":"%s"}}},
+                      "head":{"ref":"%s","sha":"%s","repo":{
+                        "id":%s,"name":"%s","owner":{"login":"%s"}}}}]
+                    """.formatted(
+                    plan.targetBaseRef().startsWith("refs/heads/")
+                            ? plan.targetBaseRef().substring(
+                                    "refs/heads/".length())
+                            : plan.targetBaseRef(),
+                    observedBaseSha,
+                    plan.baseRepositoryExternalId(),
+                    plan.baseRepositoryName(), plan.baseRepositoryOwner(),
+                    plan.branchRef().substring("refs/heads/".length()),
+                    plan.proposedHead(), plan.headRepositoryExternalId(),
+                    plan.headRepositoryName(), plan.headRepositoryOwner());
+            return initialJson(prBody);
+        }
+
+        private static GitHubProvider.InitialHttpResponse initialJson(
+                String value)
+        {
+            return new GitHubProvider.InitialHttpResponse(
+                    true, 200, value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 
     private static final class ObservationHttp

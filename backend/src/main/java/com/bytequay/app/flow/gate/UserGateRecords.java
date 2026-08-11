@@ -27,6 +27,7 @@ public final class UserGateRecords
 
     public enum GateKind
     {
+        INITIAL_PUBLISH,
         CI_UPDATE
     }
 
@@ -236,6 +237,150 @@ public final class UserGateRecords
         }
     }
 
+    /** Program-built, unpublished-PR subject for a first GitHub publication. */
+    public record InitialPublishSubject(
+            String subjectId,
+            String taskId,
+            String prId,
+            String repositoryId,
+            String launchDigest,
+            String changeSetRevisionId,
+            String baseRevisionId,
+            String expectedBaseSha,
+            String proposedHead,
+            String headTreeDigest,
+            String diffDigest,
+            String draftRevisionId,
+            String draftDigest,
+            String requiredCiPolicyRevisionId,
+            String localCheckPolicyRevisionId,
+            List<LocalCheckBinding> localChecks,
+            String reviewerRequestId,
+            String reviewerRunId,
+            String reviewerResultId,
+            CodePublicationReviewBinding localReview,
+            String baseRepositoryExternalId,
+            String baseRepositoryOwner,
+            String baseRepositoryName,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String branchRef,
+            String targetBaseRef,
+            String targetSnapshotId,
+            String targetSnapshotDigest,
+            String subjectDigest,
+            String createdByRunId,
+            Instant createdAt)
+    {
+        public InitialPublishSubject
+        {
+            requireNonNull(subjectId, "subjectId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(launchDigest, "launchDigest is null");
+            requireNonNull(changeSetRevisionId, "changeSetRevisionId is null");
+            requireNonNull(baseRevisionId, "baseRevisionId is null");
+            requireNonNull(expectedBaseSha, "expectedBaseSha is null");
+            requireNonNull(proposedHead, "proposedHead is null");
+            requireNonNull(headTreeDigest, "headTreeDigest is null");
+            requireNonNull(diffDigest, "diffDigest is null");
+            requireNonNull(draftRevisionId, "draftRevisionId is null");
+            requireNonNull(draftDigest, "draftDigest is null");
+            requireNonNull(requiredCiPolicyRevisionId,
+                    "requiredCiPolicyRevisionId is null");
+            requireNonNull(localCheckPolicyRevisionId,
+                    "localCheckPolicyRevisionId is null");
+            localChecks = List.copyOf(localChecks);
+            requireNonNull(reviewerRequestId, "reviewerRequestId is null");
+            requireNonNull(reviewerRunId, "reviewerRunId is null");
+            requireNonNull(reviewerResultId, "reviewerResultId is null");
+            requireNonNull(localReview, "localReview is null");
+            requireNonNull(baseRepositoryExternalId,
+                    "baseRepositoryExternalId is null");
+            requireNonNull(baseRepositoryOwner, "baseRepositoryOwner is null");
+            requireNonNull(baseRepositoryName, "baseRepositoryName is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner, "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName, "headRepositoryName is null");
+            requireNonNull(branchRef, "branchRef is null");
+            requireNonNull(targetBaseRef, "targetBaseRef is null");
+            requireNonNull(targetSnapshotId, "targetSnapshotId is null");
+            requireNonNull(targetSnapshotDigest,
+                    "targetSnapshotDigest is null");
+            requireNonNull(subjectDigest, "subjectDigest is null");
+            requireNonNull(createdByRunId, "createdByRunId is null");
+            requireNonNull(createdAt, "createdAt is null");
+            if (!branchRef.startsWith("refs/heads/")
+                    || !localReview.ownerPresent()
+                    || !localReview.candidateChangeSetRevisionId().equals(
+                            changeSetRevisionId)) {
+                throw new IllegalArgumentException(
+                        "initial publication subject is invalid");
+            }
+        }
+    }
+
+    /** The only currently supported first-publication action: exact draft PR. */
+    public record InitialPublishAction(
+            String actionRef,
+            String actionDigest,
+            String prId,
+            String changeSetRevisionId,
+            String baseRepositoryExternalId,
+            String baseRepositoryOwner,
+            String baseRepositoryName,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String branchRef,
+            String targetBaseRef,
+            String expectedBaseSha,
+            String proposedHead,
+            String draftRevisionId,
+            String draftDigest,
+            String requiredCiPolicyRevisionId,
+            String readyPolicy,
+            String targetSnapshotId,
+            String targetSnapshotDigest,
+            Instant createdAt)
+    {
+        public InitialPublishAction
+        {
+            requireNonNull(actionRef, "actionRef is null");
+            requireNonNull(actionDigest, "actionDigest is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(changeSetRevisionId, "changeSetRevisionId is null");
+            requireNonNull(baseRepositoryExternalId,
+                    "baseRepositoryExternalId is null");
+            requireNonNull(baseRepositoryOwner, "baseRepositoryOwner is null");
+            requireNonNull(baseRepositoryName, "baseRepositoryName is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner, "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName, "headRepositoryName is null");
+            requireNonNull(branchRef, "branchRef is null");
+            requireNonNull(targetBaseRef, "targetBaseRef is null");
+            requireNonNull(expectedBaseSha, "expectedBaseSha is null");
+            requireNonNull(proposedHead, "proposedHead is null");
+            requireNonNull(draftRevisionId, "draftRevisionId is null");
+            requireNonNull(draftDigest, "draftDigest is null");
+            requireNonNull(requiredCiPolicyRevisionId,
+                    "requiredCiPolicyRevisionId is null");
+            requireNonNull(readyPolicy, "readyPolicy is null");
+            requireNonNull(targetSnapshotId, "targetSnapshotId is null");
+            requireNonNull(targetSnapshotDigest,
+                    "targetSnapshotDigest is null");
+            requireNonNull(createdAt, "createdAt is null");
+            if (!readyPolicy.equals("KEEP_DRAFT")
+                    && !readyPolicy.equals("MARK_READY_ON_EXACT_GREEN")) {
+                throw new IllegalArgumentException("ready policy is invalid");
+            }
+        }
+    }
+
     public record UserGate(
             String gateId,
             String taskId,
@@ -274,8 +419,6 @@ public final class UserGateRecords
             requireNonNull(actionManifestRef,
                     "actionManifestRef is null");
             requireNonNull(actionDigest, "actionDigest is null");
-            requireNonNull(readinessEvidenceRef,
-                    "readinessEvidenceRef is null");
             requireNonNull(createdByRunId,
                     "createdByRunId is null");
             requireNonNull(createdAt, "createdAt is null");
@@ -394,6 +537,23 @@ public final class UserGateRecords
             if (prSequence < 1) {
                 throw new IllegalArgumentException(
                         "prSequence must be positive");
+            }
+        }
+    }
+
+    public record AuthorizedInitialPublish(
+            GateAuthorization authorization,
+            String planId,
+            String operationId,
+            long prSequence)
+    {
+        public AuthorizedInitialPublish
+        {
+            requireNonNull(authorization, "authorization is null");
+            requireNonNull(planId, "planId is null");
+            requireNonNull(operationId, "operationId is null");
+            if (prSequence < 1) {
+                throw new IllegalArgumentException("prSequence must be positive");
             }
         }
     }

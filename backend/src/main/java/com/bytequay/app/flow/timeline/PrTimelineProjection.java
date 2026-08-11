@@ -28,7 +28,7 @@ import static java.util.Objects.requireNonNull;
 /** A pure, snapshot-consistent projection over retained greenfield PR facts. */
 public final class PrTimelineProjection
 {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final int MAX_PAGE_SIZE = 100;
 
     private static final String PAGE_SQL = """
@@ -183,7 +183,8 @@ public final class PrTimelineProjection
                         WHEN 'CONSUMED' THEN 'GATE_CONSUMED'
                         WHEN 'STALE' THEN 'GATE_STALE'
                     END,
-                    s.proposed_head, 'GATE_TRANSITION', t.gate_id,
+                    COALESCE(s.proposed_head, i.proposed_head),
+                    'GATE_TRANSITION', t.gate_id,
                     t.sequence
                 FROM pr_owner p
                 JOIN flow_user_gate g ON g.pr_id = p.pr_id
@@ -191,8 +192,11 @@ public final class PrTimelineProjection
                 JOIN flow_user_gate_revision r
                     ON r.gate_id = t.gate_id
                     AND r.revision = t.gate_revision
-                JOIN flow_user_gate_subject s
+                LEFT JOIN flow_user_gate_subject s
                     ON s.subject_id = r.subject_manifest_ref
+                LEFT JOIN flow_user_gate_initial_publish_subject i
+                    ON i.subject_id = r.subject_manifest_ref
+                WHERE s.subject_id IS NOT NULL OR i.subject_id IS NOT NULL
 
                 UNION ALL
                 SELECT
@@ -201,8 +205,8 @@ public final class PrTimelineProjection
                     'EXTERNAL_EFFECT_RECEIPT', 'PROGRAM', 'EFFECT_APPLIED',
                     x.proposed_head, 'EXTERNAL_EFFECT_RECEIPT', x.receipt_id, 1
                 FROM pr_owner p
-                JOIN flow_github_external_effect_plan e ON e.pr_id = p.pr_id
-                JOIN flow_github_external_effect_receipt x
+                JOIN flow_github_effect_plan_envelope e ON e.pr_id = p.pr_id
+                JOIN flow_github_effect_receipt_envelope x
                     ON x.plan_id = e.plan_id
 
                 UNION ALL

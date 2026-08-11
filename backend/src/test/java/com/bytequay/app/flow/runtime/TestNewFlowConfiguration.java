@@ -16,7 +16,10 @@ package com.bytequay.app.flow.runtime;
 import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
+import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
+import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -59,6 +62,8 @@ class TestNewFlowConfiguration
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(WatchedRepoStore.class,
                         () -> mock(WatchedRepoStore.class))
+                .withBean(CredentialStore.class,
+                        () -> mock(CredentialStore.class))
                 .withPropertyValues(
                         "bytequay.new-flow.database-path=" + newFlowPath,
                         "bytequay.new-flow.worktree-root="
@@ -82,6 +87,10 @@ class TestNewFlowConfiguration
                             CiAutofixCoordinator.class);
                     TaskProvisioning provisioning = context.getBean(
                             TaskProvisioning.class);
+                    GitHubInitialPublishDispatcher initial = context.getBean(
+                            GitHubInitialPublishDispatcher.class);
+                    GitHubCiObservationDispatcher observation = context.getBean(
+                            GitHubCiObservationDispatcher.class);
 
                     assertThat(ReflectionTestUtils.getField(checks, "runtime"))
                             .isSameAs(runtime);
@@ -107,6 +116,14 @@ class TestNewFlowConfiguration
                             .containsValue(provisioning);
                     assertThat(ReflectionTestUtils.getField(
                             provisioning, "runtime")).isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(initial, "runtime"))
+                            .isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(initial, "gates"))
+                            .isSameAs(gates);
+                    assertThat(ReflectionTestUtils.getField(initial, "effects"))
+                            .isSameAs(effects);
+                    assertThat(ReflectionTestUtils.getField(
+                            observation, "runtime")).isSameAs(runtime);
                     assertThat(newFlowPath).exists();
                 });
         assertThat(Files.readAllBytes(primaryPath))

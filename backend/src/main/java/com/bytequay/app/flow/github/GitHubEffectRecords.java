@@ -26,6 +26,7 @@ public final class GitHubEffectRecords
 
     public enum EffectKind
     {
+        INITIAL_PUBLISH,
         CI_UPDATE
     }
 

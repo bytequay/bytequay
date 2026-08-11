@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
+import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -71,5 +73,9 @@ class TestNewFlowBootComposition
         assertThat(ReflectionTestUtils.getField(
                 taskProvisioning, "runtime"))
                 .isSameAs(context.getBean(FlowRuntime.class));
+        assertThat(context.getBean(GitHubInitialPublishDispatcher.class))
+                .isNotNull();
+        assertThat(context.getBean(GitHubCiObservationDispatcher.class))
+                .isNotNull();
     }
 }

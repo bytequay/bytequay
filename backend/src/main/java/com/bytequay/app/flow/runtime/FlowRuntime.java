@@ -91,6 +91,7 @@ public final class FlowRuntime
 {
     private static final int PROVISION_PRIORITY = 1_000;
     private static final int RECONCILIATION_PRIORITY = 900;
+    private static final int PUBLISH_PRIORITY = 850;
     private static final int CI_FIX_PRIORITY = 800;
     private static final int TASK_TURN_PRIORITY = 700;
 
@@ -782,8 +783,16 @@ public final class FlowRuntime
         requireNonNull(nextStatus, "nextStatus is null");
         requireText(reasonCode, "reasonCode");
         return inTransaction(() -> {
+            int taskLocked = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task SET task_id = task_id
+                    WHERE task_id = ? AND current_lifecycle_revision_id = ?
+                    """,
+                    taskId,
+                    expectedLifecycleRevisionId);
             Task task = requireTask(taskId);
-            if (!task.currentLifecycleRevisionId()
+            if (taskLocked != 1
+                    || !task.currentLifecycleRevisionId()
                     .equals(expectedLifecycleRevisionId)) {
                 throw new StaleOwnerRevisionException(
                         "Task lifecycle revision is stale");
@@ -810,6 +819,10 @@ public final class FlowRuntime
             if (hasNonterminalReviewer(taskId)) {
                 throw new MutationRejectedException(
                         "Task lifecycle cannot change while review is live");
+            }
+            if (hasNonterminalPublish(taskId)) {
+                throw new MutationRejectedException(
+                        "Task lifecycle cannot change while publication is live");
             }
             if (isTerminal(nextStatus) && hasClaimedOperation(taskId)) {
                 throw new MutationRejectedException(
@@ -1071,6 +1084,95 @@ public final class FlowRuntime
         });
     }
 
+    /** Takes the stable PR ordering lock without asserting mutable remote state. */
+    public synchronized PullRequestSubject lockPublishedPullRequest(String prId)
+    {
+        requireText(prId, "prId");
+        return inTransaction(() -> {
+            int locked = jdbc.update(
+                    """
+                    UPDATE flow_runtime_pr SET pr_id = pr_id
+                    WHERE pr_id = ? AND remote_identity_id IS NOT NULL
+                    """,
+                    prId);
+            if (locked != 1) {
+                throw new StaleOwnerRevisionException(
+                        "published PR is unavailable");
+            }
+            return requirePullRequest(prId);
+        });
+    }
+
+    /** Reserves one exact GitHub-owned publication operation and barrier. */
+    public synchronized Operation reservePublishOperation(
+            String operationId,
+            String planId,
+            String taskId,
+            String expectedChangeSetRevisionId,
+            String planDigest,
+            Instant createdAt)
+    {
+        requireText(operationId, "operationId");
+        requireText(planId, "planId");
+        requireText(taskId, "taskId");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
+        requireText(planDigest, "planDigest");
+        requireNonNull(createdAt, "createdAt is null");
+        return inTransaction(() -> {
+            int taskLocked = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task SET task_id = task_id
+                    WHERE task_id = ? AND status = 'ACTIVE'
+                      AND current_change_set_revision_id = ?
+                      AND selected_writer_operation_id IS NULL
+                      AND waiting_mutation_state_ref IS NULL
+                    """,
+                    taskId,
+                    expectedChangeSetRevisionId);
+            Task task = requireTask(taskId);
+            Integer liveLease = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM flow_runtime_writer_lease "
+                            + "WHERE task_id = ?",
+                    Integer.class,
+                    taskId);
+            Integer liveReviewer = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_operation
+                    WHERE task_id = ? AND kind = 'RUN_REVIEWER'
+                      AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                    """,
+                    Integer.class,
+                    taskId);
+            if (taskLocked != 1
+                    || task.status() != TaskStatus.ACTIVE
+                    || task.selectedWriterOperationId() != null
+                    || task.waitingMutationStateRef() != null
+                    || !expectedChangeSetRevisionId.equals(
+                            task.currentChangeSetRevisionId())
+                    || requireNonNull(liveLease,
+                            "writer lease count is null") != 0
+                    || requireNonNull(liveReviewer,
+                            "reviewer count is null") != 0
+                    || hasNonterminalPublish(taskId)) {
+                throw new StaleOwnerRevisionException(
+                        "Task cannot reserve publication authority");
+            }
+            insertOperationAndTicket(
+                    operationId,
+                    "GITHUB_EFFECT_PLAN",
+                    planId,
+                    taskId,
+                    OperationKind.PUBLISH,
+                    planDigest,
+                    planId,
+                    null,
+                    PUBLISH_PRIORITY,
+                    createdAt);
+            return requireOperation(operationId);
+        });
+    }
+
     /**
      * Persists a typed FINAL_RED owner reference and only ensures
      * reconciliation; it never starts a CI process directly.
@@ -1267,6 +1369,15 @@ public final class FlowRuntime
                               AND t.status = 'ACTIVE'
                               AND t.waiting_mutation_state_ref IS NULL
                               AND t.selected_writer_operation_id IS NULL
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM flow_runtime_operation po
+                                  WHERE po.task_id = t.task_id
+                                    AND po.kind = 'PUBLISH'
+                                    AND po.state IN (
+                                        'READY', 'CLAIMED', 'WAITING',
+                                        'RETRYABLE'
+                                    )
+                              )
                               AND ts.state <> 'PARKED_CHILD'
                               AND NOT EXISTS (
                                   SELECT 1 FROM flow_runtime_operation ro
@@ -1280,6 +1391,15 @@ public final class FlowRuntime
                           OR (o.kind IN ('RUN_TASK_TURN', 'RUN_CI_FIXER')
                               AND t.status = 'ACTIVE'
                               AND t.waiting_mutation_state_ref IS NULL
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM flow_runtime_operation po
+                                  WHERE po.task_id = t.task_id
+                                    AND po.kind = 'PUBLISH'
+                                    AND po.state IN (
+                                        'READY', 'CLAIMED', 'WAITING',
+                                        'RETRYABLE'
+                                    )
+                              )
                               AND t.selected_writer_operation_id = o.operation_id)
                           OR (o.kind = 'RUN_REVIEWER'
                               AND o.owner_kind = 'REVIEW_REQUEST'
@@ -1360,6 +1480,247 @@ public final class FlowRuntime
         });
     }
 
+    /** Claims the oldest exact authorized publication plan for one PR. */
+    public synchronized Optional<Claim> claimNextPublish(
+            String workerId, Duration claimTtl)
+    {
+        requireText(workerId, "workerId");
+        requirePositive(claimTtl, "claimTtl");
+        return inTransaction(() -> {
+            Instant now = clock.instant();
+            List<PublishClaimCandidate> candidates = jdbc.query(
+                    """
+                    SELECT o.operation_id, o.task_id, p.pr_id,
+                           d.claim_generation
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_github_external_effect_plan p
+                      ON p.operation_id = o.operation_id
+                     AND p.plan_id = o.owner_id
+                     AND p.plan_id = o.input_ref
+                     AND p.plan_digest = o.subject_digest
+                    JOIN flow_user_gate_authorization a
+                      ON a.authorization_id = p.authorization_id
+                     AND a.effect_plan_ref = p.plan_id
+                     AND a.operation_id = p.operation_id
+                     AND a.pr_id = p.pr_id
+                     AND a.action_digest = p.action_digest
+                    WHERE o.kind = 'PUBLISH'
+                      AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
+                      AND o.state = 'READY'
+                      AND d.delivery_state = 'AVAILABLE'
+                      AND d.not_before <= ?
+                      AND EXISTS (
+                          SELECT 1
+                          FROM flow_user_gate_transition t
+                          WHERE t.gate_id = a.gate_id
+                            AND t.gate_revision = a.gate_revision
+                            AND t.to_state = 'AUTHORIZED'
+                            AND t.detail_ref = a.authorization_id
+                            AND t.sequence = (
+                                SELECT MAX(t2.sequence)
+                                FROM flow_user_gate_transition t2
+                                WHERE t2.gate_id = t.gate_id
+                                  AND t2.gate_revision = t.gate_revision
+                            )
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM flow_github_external_effect_plan earlier
+                          JOIN flow_runtime_operation earlier_operation
+                            ON earlier_operation.operation_id =
+                                earlier.operation_id
+                          WHERE earlier.pr_id = p.pr_id
+                            AND earlier.pr_sequence < p.pr_sequence
+                            AND earlier_operation.state IN (
+                                'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
+                            )
+                      )
+                    ORDER BY d.priority DESC, d.not_before, o.operation_id
+                    LIMIT 32
+                    """,
+                    (result, row) -> new PublishClaimCandidate(
+                            result.getString("operation_id"),
+                            result.getString("task_id"),
+                            result.getString("pr_id"),
+                            result.getLong("claim_generation")),
+                    now.toEpochMilli());
+            for (PublishClaimCandidate candidate : candidates) {
+                lockPublishedPullRequest(candidate.prId());
+                if (!publishCandidateStillEligible(candidate, now)) {
+                    continue;
+                }
+                long generation = candidate.generation() + 1;
+                String token = UUID.randomUUID().toString();
+                Instant expiresAt = now.plus(claimTtl);
+                int ticketUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_dispatch_ticket
+                        SET claim_owner = ?, claim_expires_at = ?,
+                            claim_generation = ?, claim_token = ?,
+                            delivery_state = 'CLAIMED'
+                        WHERE operation_id = ?
+                          AND delivery_state = 'AVAILABLE'
+                          AND claim_generation = ?
+                        """,
+                        workerId,
+                        expiresAt.toEpochMilli(),
+                        generation,
+                        token,
+                        candidate.operationId(),
+                        candidate.generation());
+                if (ticketUpdated == 0) {
+                    continue;
+                }
+                int operationUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_operation
+                        SET state = 'CLAIMED', attempt = attempt + 1
+                        WHERE operation_id = ? AND state = 'READY'
+                        """,
+                        candidate.operationId());
+                if (operationUpdated != 1) {
+                    throw new IllegalStateException(
+                            "publication ticket claimed without READY operation");
+                }
+                return Optional.of(new Claim(
+                        candidate.operationId(),
+                        candidate.taskId(),
+                        OperationKind.PUBLISH,
+                        generation,
+                        token,
+                        workerId,
+                        expiresAt));
+            }
+            return Optional.empty();
+        });
+    }
+
+    /** Requires one current exact PUBLISH claim. */
+    public synchronized Operation assertPublishClaim(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            if (claim.kind() != OperationKind.PUBLISH) {
+                throw new IllegalArgumentException(
+                        "claim is not a publication claim");
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Operation operation = requireOperation(claim.operationId());
+            if (operation.kind() != OperationKind.PUBLISH
+                    || !operation.ownerKind().equals("GITHUB_EFFECT_PLAN")
+                    || !operation.ownerId().equals(operation.inputRef())) {
+                throw new IllegalStateException(
+                        "publication operation graph is invalid");
+            }
+            return operation;
+        });
+    }
+
+    /** Cancels a claimed publication before any provider attempt can exist. */
+    public synchronized void cancelClaimedPublish(
+            Claim claim, String resultRef)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(resultRef, "resultRef");
+        inTransaction(() -> {
+            assertPublishClaim(claim);
+            settleDispatch(
+                    claim.operationId(), OperationState.CANCELED, resultRef);
+            resumeWaitingReconciliation(claim.taskId());
+            return Boolean.TRUE;
+        });
+    }
+
+    /** Reads one exact canceled disposition for response-loss replay. */
+    public Optional<String> canceledPublishResult(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        if (claim.kind() != OperationKind.PUBLISH) {
+            throw new IllegalArgumentException(
+                    "claim is not a publication claim");
+        }
+        return jdbc.query(
+                """
+                SELECT o.result_ref
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH' AND o.state = 'CANCELED'
+                  AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
+                  AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ? AND d.claim_token = ?
+                  AND d.claim_owner = ?
+                """,
+                (result, row) -> result.getString("result_ref"),
+                claim.operationId(),
+                claim.taskId(),
+                claim.generation(),
+                claim.claimToken(),
+                claim.workerId()).stream().findFirst();
+    }
+
+    /** Redrives the same never-provider-started PUBLISH operation. */
+    public synchronized void redriveExpiredPublish(
+            String operationId, long generation)
+    {
+        requireText(operationId, "operationId");
+        inTransaction(() -> {
+            Operation operation = requireOperation(operationId);
+            if (operation.kind() != OperationKind.PUBLISH) {
+                throw new IllegalArgumentException(
+                        "operation is not PUBLISH");
+            }
+            Integer replay = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_dispatch_ticket
+                    WHERE operation_id = ? AND claim_generation = ?
+                      AND delivery_state = 'AVAILABLE'
+                      AND claim_owner IS NULL AND claim_expires_at IS NULL
+                      AND claim_token IS NULL
+                    """,
+                    Integer.class,
+                    operationId,
+                    generation);
+            if (operation.state() == OperationState.READY
+                    && requireNonNull(replay,
+                            "publication replay count is null") == 1) {
+                return Boolean.TRUE;
+            }
+            ExpiredClaim expired = requireExpiredClaim(
+                    operationId, generation);
+            if (expired.processAttemptId() != null) {
+                throw new IllegalStateException(
+                        "PUBLISH cannot have an agent process attempt");
+            }
+            int operationUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_operation
+                    SET state = 'READY'
+                    WHERE operation_id = ? AND state = 'CLAIMED'
+                    """,
+                    operationId);
+            int ticketUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_dispatch_ticket
+                    SET delivery_state = 'AVAILABLE', claim_owner = NULL,
+                        claim_expires_at = NULL, claim_token = NULL
+                    WHERE operation_id = ? AND delivery_state = 'CLAIMED'
+                      AND claim_generation = ?
+                    """,
+                    operationId,
+                    generation);
+            if (operationUpdated != 1 || ticketUpdated != 1) {
+                throw new StaleClaimException(
+                        "expired PUBLISH changed during redrive");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
     /** Finds expired generations entirely from durable state after restart. */
     public List<ExpiredClaim> expiredClaims()
     {
@@ -1403,6 +1764,10 @@ public final class FlowRuntime
         requireText(operationId, "operationId");
         return inTransaction(() -> {
             Operation operation = requireOperation(operationId);
+            if (operation.kind() == OperationKind.PUBLISH) {
+                throw new IllegalArgumentException(
+                        "PUBLISH requires owner-specific recovery");
+            }
             if (operation.state() == OperationState.RETRYABLE
                     && ticketMatches(
                             operationId, generation, "AVAILABLE")) {
@@ -1485,7 +1850,19 @@ public final class FlowRuntime
                 throw new IllegalArgumentException(
                         "claim does not own reconciliation");
             }
+            int taskLocked = jdbc.update(
+                    "UPDATE flow_runtime_task SET task_id = task_id "
+                            + "WHERE task_id = ?",
+                    reconciliation.taskId());
+            if (taskLocked != 1) {
+                throw new StaleOwnerRevisionException(
+                        "reconciliation Task is unavailable");
+            }
             Task task = requireTask(reconciliation.taskId());
+            if (hasNonterminalPublish(task.taskId())) {
+                parkReconciliation(reconciliation.operationId());
+                return Optional.empty();
+            }
             if (task.selectedWriterOperationId() != null) {
                 throw new IllegalStateException(
                         "Task already has a selected writer");
@@ -1613,6 +1990,14 @@ public final class FlowRuntime
                         WHERE task_id = ?
                           AND selected_writer_operation_id IS NULL
                           AND epoch = ?
+                          AND NOT EXISTS (
+                              SELECT 1 FROM flow_runtime_operation po
+                              WHERE po.task_id = flow_runtime_task.task_id
+                                AND po.kind = 'PUBLISH'
+                                AND po.state IN (
+                                    'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
+                                )
+                          )
                         """,
                         operationId,
                         task.taskId(),
@@ -2095,6 +2480,7 @@ public final class FlowRuntime
             Task task = requireTask(operation.taskId());
             if (task.status() != TaskStatus.ACTIVE
                     || task.waitingMutationStateRef() != null
+                    || hasNonterminalPublish(task.taskId())
                     || !operation.operationId().equals(
                             task.selectedWriterOperationId())) {
                 throw new MutationRejectedException(
@@ -6940,6 +7326,80 @@ public final class FlowRuntime
                 priority);
     }
 
+    private boolean hasNonterminalPublish(String taskId)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_operation
+                WHERE task_id = ? AND kind = 'PUBLISH'
+                  AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                """,
+                Integer.class,
+                taskId);
+        return requireNonNull(count,
+                "publication barrier count is null") != 0;
+    }
+
+    private boolean publishCandidateStillEligible(
+            PublishClaimCandidate candidate, Instant now)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                JOIN flow_github_external_effect_plan p
+                  ON p.operation_id = o.operation_id
+                 AND p.plan_id = o.owner_id
+                 AND p.plan_id = o.input_ref
+                 AND p.plan_digest = o.subject_digest
+                JOIN flow_user_gate_authorization a
+                  ON a.authorization_id = p.authorization_id
+                 AND a.effect_plan_ref = p.plan_id
+                 AND a.operation_id = p.operation_id
+                 AND a.pr_id = p.pr_id
+                 AND a.action_digest = p.action_digest
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH'
+                  AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
+                  AND o.state = 'READY'
+                  AND d.delivery_state = 'AVAILABLE'
+                  AND d.claim_generation = ? AND d.not_before <= ?
+                  AND EXISTS (
+                      SELECT 1 FROM flow_user_gate_transition t
+                      WHERE t.gate_id = a.gate_id
+                        AND t.gate_revision = a.gate_revision
+                        AND t.to_state = 'AUTHORIZED'
+                        AND t.detail_ref = a.authorization_id
+                        AND t.sequence = (
+                            SELECT MAX(t2.sequence)
+                            FROM flow_user_gate_transition t2
+                            WHERE t2.gate_id = t.gate_id
+                              AND t2.gate_revision = t.gate_revision
+                        )
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM flow_github_external_effect_plan earlier
+                      JOIN flow_runtime_operation earlier_operation
+                        ON earlier_operation.operation_id = earlier.operation_id
+                      WHERE earlier.pr_id = p.pr_id
+                        AND earlier.pr_sequence < p.pr_sequence
+                        AND earlier_operation.state IN (
+                            'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
+                        )
+                  )
+                """,
+                Integer.class,
+                candidate.operationId(),
+                candidate.taskId(),
+                candidate.generation(),
+                now.toEpochMilli());
+        return requireNonNull(count,
+                "publish candidate count is null") == 1;
+    }
+
     private void settleDispatch(
             String operationId, OperationState state, String resultRef)
     {
@@ -7438,6 +7898,13 @@ public final class FlowRuntime
                   AND t.status = 'ACTIVE'
                   AND t.waiting_mutation_state_ref IS NULL
                   AND t.selected_writer_operation_id = l.operation_id
+                  AND NOT EXISTS (
+                      SELECT 1 FROM flow_runtime_operation po
+                      WHERE po.task_id = t.task_id AND po.kind = 'PUBLISH'
+                        AND po.state IN (
+                            'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
+                        )
+                  )
                 """,
                 Integer.class,
                 fence.taskId(),
@@ -7761,6 +8228,7 @@ public final class FlowRuntime
                 UPDATE flow_runtime_operation
                 SET state = 'CANCELED', result_ref = ?
                 WHERE task_id = ?
+                  AND kind <> 'PUBLISH'
                   AND state IN ('READY', 'WAITING', 'RETRYABLE')
                 """,
                 resultRef,
@@ -7773,6 +8241,7 @@ public final class FlowRuntime
                 WHERE operation_id IN (
                     SELECT operation_id FROM flow_runtime_operation
                     WHERE task_id = ? AND state = 'CANCELED'
+                      AND kind <> 'PUBLISH'
                       AND result_ref = ?
                 )
                 """,
@@ -8858,6 +9327,12 @@ public final class FlowRuntime
             String operationId,
             String taskId,
             OperationKind kind,
+            long generation) {}
+
+    private record PublishClaimCandidate(
+            String operationId,
+            String taskId,
+            String prId,
             long generation) {}
 
     private record TaskAdmissionSnapshot(

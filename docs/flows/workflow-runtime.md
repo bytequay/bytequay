@@ -619,6 +619,17 @@ transient transaction failure rolls back for stopped-finalizer retry without
 rerunning the body. Initial/upstream/feedback/local-review ready bindings remain
 deferred.
 
+For a current OPEN local `CI_UPDATE` revision, manual authorization atomically
+adds the immutable authorization, GitHub-owned one-step plan, and one `PUBLISH`
+operation/ticket. That nonterminal operation is the Task publication barrier:
+reconciliation parks, writer claim/lease/fence and Task lifecycle changes reject.
+`claimNextPublish` locks the PR and admits only its oldest nonterminal
+`prSequence`; `beginCiUpdateEffect` records `AUTHORIZED -> EXECUTING` after exact
+revalidation but makes no provider call. Stable drift records terminal STALE,
+cancels the operation/ticket, releases the barrier, and rearms parked
+reconciliation in one transaction. Generic expired-claim recovery rejects
+`PUBLISH`; the owner-specific never-started recovery redrives the same operation.
+
 ## 6. Command and dispatch protocol
 
 Every asynchronous command follows one durable boundary:

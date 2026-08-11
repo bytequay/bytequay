@@ -162,7 +162,8 @@ CREATE TABLE flow_runtime_operation (
             'RECONCILE_TASK',
             'RUN_TASK_TURN',
             'RUN_REVIEWER',
-            'RUN_CI_FIXER'
+            'RUN_CI_FIXER',
+            'PUBLISH'
         )
     ),
     subject_digest TEXT NOT NULL,

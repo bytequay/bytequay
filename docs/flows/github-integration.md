@@ -61,12 +61,14 @@ review prose passed, or whether the user should approve an effect.
 - GitHub payload text is untrusted display data. It is never treated as an agent
   instruction.
 
-The currently implemented CI-review checkpoint stops at an inert local OPEN
-`CI_UPDATE` gate. Its subject owns an exact deterministic complete-empty local
-review binding, but that fact grants no authority. It creates no authorization,
-effect plan, GitHub operation or dispatch ticket, performs no Git/GitHub call,
-and does not observe a remote result. Those records and effects begin only in
-the authorization/executor boundary specified below.
+The currently implemented `CI_UPDATE` boundary accepts an exact authenticated
+manual decision for the current OPEN revision and atomically creates one
+immutable plan, exactly one ordinal-1 `PUSH_EXACT` step, and the linked runtime
+`PUBLISH` operation/ticket. Claim admits only the oldest nonterminal
+`prSequence`; typed begin revalidates freshness and records `EXECUTING`. This
+checkpoint performs no Git/GitHub call and owns no attempt, probe, receipt, or
+remote result. Stable pre-call drift stales the gate and cancels the operation;
+never-started expiry redrives that same operation.
 
 ## Logical data model
 
@@ -136,13 +138,17 @@ authorization, runtime `Operation`, and `DispatchTicket`. A unique
 
 The enclosing `Operation`, claim state, retry time, fence, and unique
 `DispatchTicket` belong to [workflow-runtime.md](./workflow-runtime.md). This
-component owns only the immutable GitHub plan and its provider execution
-evidence, all tied to that `operationId`.
+implemented component owns only the immutable one-step `CI_UPDATE` plan tied to
+that `operationId`; provider execution evidence remains deferred.
 
 ### Effect steps and evidence
 
-Each plan contains ordered, immutable `ExternalEffectStep` records. A step has a
-stable idempotency key, frozen payload reference, and precondition digest.
+Each plan contains ordered, immutable `ExternalEffectStep` records. The current
+`CI_UPDATE` plan has exactly one canonical ordinal-1 `PUSH_EXACT` step binding
+branch ref, expected remote head, proposed head, `force=false`, action digest,
+and precondition digest. A future provider checkpoint will add attempt/proof
+owners. A step generally has a stable idempotency key, frozen payload reference,
+and precondition digest.
 `ExternalEffectAttempt` records each provider call, `ExternalEffectProbe`
 records read-after-unknown checks, and `ExternalEffectReceipt` records the
 provider object/current value plus the fresh observation that proved success.

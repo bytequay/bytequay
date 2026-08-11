@@ -313,6 +313,7 @@ CREATE TABLE flow_runtime_provision_subject (
     task_id TEXT NOT NULL,
     launch_digest TEXT NOT NULL,
     base_sha TEXT NOT NULL,
+    target_base_ref TEXT NOT NULL,
     mutation_digest TEXT NOT NULL,
     bound_at INTEGER NOT NULL,
     PRIMARY KEY (operation_id),
@@ -467,8 +468,13 @@ CREATE TABLE flow_runtime_agent_run (
             AND intended_gate_kind IS NOT NULL
             AND (
                 (intended_gate_kind = 'INITIAL_PUBLISH'
-                    AND input_change_set_revision_id IS NULL
-                    AND input_remote_head_sha IS NULL)
+                    AND input_remote_head_sha IS NULL
+                    AND (
+                        (wake_kind = 'INITIAL_TASK'
+                            AND input_change_set_revision_id IS NULL)
+                        OR (wake_kind = 'AGENT_RESULT_READY'
+                            AND input_change_set_revision_id IS NOT NULL)
+                    ))
                 OR (intended_gate_kind = 'CI_UPDATE'
                     AND input_change_set_revision_id IS NOT NULL
                     AND input_remote_head_sha IS NOT NULL)
@@ -710,12 +716,12 @@ CREATE TABLE flow_runtime_reviewer_request (
     repository_root TEXT NOT NULL,
     base_head_sha TEXT NOT NULL,
     reviewed_head_sha TEXT NOT NULL,
-    remote_head_sha TEXT NOT NULL,
-    origin_ci_fix_pending_id TEXT NOT NULL,
-    origin_ci_fix_source_kind TEXT NOT NULL CHECK (
+    remote_head_sha TEXT,
+    origin_ci_fix_pending_id TEXT,
+    origin_ci_fix_source_kind TEXT CHECK (
         origin_ci_fix_source_kind IN ('REPAIR_ATTEMPT', 'CLEANUP')
     ),
-    origin_ci_fix_source_id TEXT NOT NULL,
+    origin_ci_fix_source_id TEXT,
     change_set_revision_id TEXT NOT NULL,
     local_check_policy_revision_id TEXT NOT NULL,
     head_tree_digest TEXT NOT NULL,
@@ -724,6 +730,18 @@ CREATE TABLE flow_runtime_reviewer_request (
         intended_gate_kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')
     ),
     created_at INTEGER NOT NULL,
+    CHECK (
+        (intended_gate_kind = 'INITIAL_PUBLISH'
+            AND remote_head_sha IS NULL
+            AND origin_ci_fix_pending_id IS NULL
+            AND origin_ci_fix_source_kind IS NULL
+            AND origin_ci_fix_source_id IS NULL)
+        OR (intended_gate_kind = 'CI_UPDATE'
+            AND remote_head_sha IS NOT NULL
+            AND origin_ci_fix_pending_id IS NOT NULL
+            AND origin_ci_fix_source_kind IS NOT NULL
+            AND origin_ci_fix_source_id IS NOT NULL)
+    ),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
     FOREIGN KEY (parent_operation_id)
         REFERENCES flow_runtime_operation (operation_id),

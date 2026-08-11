@@ -107,7 +107,8 @@ class TestFlowRuntime
                 .contains(runtime.runForOperation(
                         initialTurn.operationId()).orElseThrow());
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(), writer.claim(), writer.fence(),
                 capability -> {
                     commitTaskChange(first, "first task change");
@@ -119,7 +120,8 @@ class TestFlowRuntime
                             "ordinary prose; not a protocol",
                             null);
                 });
-        assertThat(supervisor.launch(
+        assertThat(FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(), writer.claim(), writer.fence(),
                 capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
                         TerminalOutcome.FAILED, null, "must-not-run")))
@@ -275,7 +277,8 @@ class TestFlowRuntime
         Claim claim = runtime.claimNext(
                 "worker-1", Duration.ofMinutes(1)).orElseThrow();
         assertThat(claim.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
-        WriterFence fence = runtime.acquireWriterLease(
+        WriterFence fence = FlowRuntimeTestSupport.acquireWriterFixture(
+                runtime,
                 claim,
                 AgentRole.TASK_AGENT,
                 snapshot(task.currentHeadSha()),
@@ -654,7 +657,9 @@ class TestFlowRuntime
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
         Task task = runtime.task(writer.fence().taskId()).orElseThrow();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor,
+                runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -675,8 +680,12 @@ class TestFlowRuntime
     {
         Claim claim = claim(kind);
         Task task = runtime.task(claim.taskId()).orElseThrow();
-        WriterFence fence = runtime.acquireWriterLease(
-                claim, role, snapshot(task.currentHeadSha()), TTL);
+        WriterFence fence = kind == OperationKind.RUN_TASK_TURN
+                ? FlowRuntimeTestSupport.acquireWriterFixture(
+                        runtime, claim, role,
+                        snapshot(task.currentHeadSha()), TTL)
+                : runtime.acquireWriterLease(
+                        claim, role, snapshot(task.currentHeadSha()), TTL);
         AgentRun run = runtime.startWriterAgent(
                 claim,
                 fence,
@@ -711,12 +720,16 @@ class TestFlowRuntime
             String errorRef)
     {
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
-                writer.run().runId(),
-                writer.claim(),
-                writer.fence(),
-                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
-                        outcome, finalContent, errorRef));
+        var handle = writer.run().role() == AgentRole.TASK_AGENT
+                ? FlowRuntimeTestSupport.launchWriterFixture(
+                        supervisor, runtime, writer.run().runId(),
+                        writer.claim(), writer.fence(),
+                        capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                                outcome, finalContent, errorRef))
+                : supervisor.launch(
+                        writer.run().runId(), writer.claim(), writer.fence(),
+                        capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                                outcome, finalContent, errorRef));
         return supervisor.awaitAndFinish(handle, TTL);
     }
 

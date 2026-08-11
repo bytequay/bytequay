@@ -60,11 +60,37 @@ public final class GitHubCiObservationDispatcher
             Duration pollInterval,
             int capacity)
     {
+        this(
+                runtime,
+                new GitHubCiObservationExecutor(
+                        runtime,
+                        coordinator,
+                        new GitHubCiProvider(
+                                GitHubInitialPublishDispatcher.repoSecrets(
+                                        requireNonNull(
+                                                credentials,
+                                                "credentials is null")),
+                                requireNonNull(clock, "clock is null")),
+                        clock),
+                ciAgents,
+                workerId,
+                claimTtl,
+                pollInterval,
+                capacity);
+    }
+
+    GitHubCiObservationDispatcher(
+            FlowRuntime runtime,
+            GitHubCiObservationExecutor executor,
+            CiAutofixDispatcher ciAgents,
+            String workerId,
+            Duration claimTtl,
+            Duration pollInterval,
+            int capacity)
+    {
         this.runtime = requireNonNull(runtime, "runtime is null");
-        requireNonNull(coordinator, "coordinator is null");
+        this.executor = requireNonNull(executor, "executor is null");
         this.ciAgents = requireNonNull(ciAgents, "ciAgents is null");
-        requireNonNull(credentials, "credentials is null");
-        requireNonNull(clock, "clock is null");
         if (workerId == null || workerId.isBlank()
                 || claimTtl == null || claimTtl.isNegative()
                 || claimTtl.isZero()
@@ -77,12 +103,6 @@ public final class GitHubCiObservationDispatcher
         this.claimTtl = claimTtl;
         this.pollInterval = pollInterval;
         this.capacity = capacity;
-        this.executor = new GitHubCiObservationExecutor(
-                runtime, coordinator,
-                new GitHubCiProvider(
-                        GitHubInitialPublishDispatcher.repoSecrets(credentials),
-                        clock),
-                clock);
     }
 
     public void start()

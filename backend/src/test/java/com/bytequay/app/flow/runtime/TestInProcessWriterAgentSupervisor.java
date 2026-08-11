@@ -102,7 +102,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<String> observedState = new AtomicReference<>();
 
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -173,15 +173,14 @@ class TestInProcessWriterAgentSupervisor
             assertThat(claim).isSameAs(renewedClaim.get());
             assertThat(fence).isSameAs(renewedFence.get());
             assertThat(completion).isSameAs(firstCompletion.get());
-            return runtime.finishAgentRun(
+            return FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -235,7 +234,7 @@ class TestInProcessWriterAgentSupervisor
                 renewedClaim.get().claimToken(),
                 renewedClaim.get().workerId(),
                 renewedClaim.get().expiresAt());
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 wrongTask,
                 renewedFence.get(),
@@ -244,7 +243,7 @@ class TestInProcessWriterAgentSupervisor
                 capability -> completed()))
                 .isInstanceOf(FlowRuntime.StaleClaimException.class)
                 .hasMessageContaining("metadata");
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 wrongKind,
                 renewedFence.get(),
@@ -253,7 +252,7 @@ class TestInProcessWriterAgentSupervisor
                 capability -> completed()))
                 .isInstanceOf(FlowRuntime.StaleClaimException.class)
                 .hasMessageContaining("metadata");
-        ExecutionHandle retry = supervisor.launch(
+        ExecutionHandle retry = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 renewedClaim.get(),
                 renewedFence.get(),
@@ -296,15 +295,14 @@ class TestInProcessWriterAgentSupervisor
                         attempt(writer).stopProofRef(),
                         NOW);
             }
-            return runtime.finishAgentRun(
+            return FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -343,19 +341,18 @@ class TestInProcessWriterAgentSupervisor
         ActiveWriter writer = startWriter("finalizer-after-commit");
         AtomicInteger calls = new AtomicInteger();
         StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
-            AgentResult result = runtime.finishAgentRun(
+            AgentResult result = FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
             if (calls.incrementAndGet() == 1) {
                 throw new IllegalStateException("failure after commit");
             }
             return result;
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -387,13 +384,12 @@ class TestInProcessWriterAgentSupervisor
     {
         ActiveWriter writer = startWriter("finalizer-parked-session");
         StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
-            AgentResult result = runtime.finishAgentRun(
+            AgentResult result = FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
             assertThat(jdbc.update(
                     """
                     UPDATE flow_runtime_agent_session
@@ -405,7 +401,7 @@ class TestInProcessWriterAgentSupervisor
                     runId)).isOne();
             return result;
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -439,15 +435,14 @@ class TestInProcessWriterAgentSupervisor
                         attempt(writer).stopProofRef(),
                         NOW);
             }
-            return runtime.finishAgentRun(
+            return FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -492,15 +487,14 @@ class TestInProcessWriterAgentSupervisor
         StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
             finalizerCalls.incrementAndGet();
             seenCompletion.set(completion);
-            return runtime.finishAgentRun(
+            return FlowRuntimeTestSupport.finishWriterFixture(
+                    runtime,
                     runId,
                     claim,
                     fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef());
+                    completion);
         };
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -535,7 +529,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch invokeAgain = new CountDownLatch(1);
         AtomicReference<WriterToolCapability> tool = new AtomicReference<>();
         AtomicReference<Throwable> denied = new AtomicReference<>();
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -605,13 +599,15 @@ class TestInProcessWriterAgentSupervisor
         ActiveWriter writer = startWriter("active-finish");
         RunningBody running = launchWaiting(writer);
 
-        assertThatThrownBy(() -> runtime.finishAgentRun(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.finishWriterFixture(
+                runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
-                TerminalOutcome.COMPLETED,
-                "cannot finish yet",
-                null))
+                new AgentCompletion(
+                        TerminalOutcome.COMPLETED,
+                        "cannot finish yet",
+                        null)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("stopped in-process proof");
         assertThatThrownBy(() -> supervisor.awaitAndFinish(
@@ -635,7 +631,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch cancellationInterruptedTool = new CountDownLatch(1);
         AtomicBoolean releaseTool = new AtomicBoolean(false);
         AtomicReference<Throwable> laterToolFailure = new AtomicReference<>();
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -690,7 +686,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch ended = new CountDownLatch(1);
         AtomicBoolean keepRunning = new AtomicBoolean(true);
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -746,7 +742,7 @@ class TestInProcessWriterAgentSupervisor
     {
         ActiveWriter writer = startWriter("expired-normal");
         CountDownLatch ended = new CountDownLatch(1);
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -774,7 +770,7 @@ class TestInProcessWriterAgentSupervisor
     {
         ActiveWriter writer = startWriter("expired-cancel");
         CountDownLatch entered = new CountDownLatch(1);
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -803,7 +799,7 @@ class TestInProcessWriterAgentSupervisor
     {
         ActiveWriter writer = startWriter("recovery-first-stop");
         CountDownLatch entered = new CountDownLatch(1);
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -834,7 +830,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch ended = new CountDownLatch(1);
         AtomicBoolean keepRunning = new AtomicBoolean(true);
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -889,7 +885,7 @@ class TestInProcessWriterAgentSupervisor
             throws Exception
     {
         ActiveWriter writer = startWriter("thread-rename");
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -921,7 +917,7 @@ class TestInProcessWriterAgentSupervisor
                 END
                 """);
 
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -936,7 +932,7 @@ class TestInProcessWriterAgentSupervisor
         assertThat(supervisor.liveExecution(reserved.executionId())).isEmpty();
 
         jdbc.execute("DROP TRIGGER fail_writer_activation");
-        ExecutionHandle redelivery = supervisor.launch(
+        ExecutionHandle redelivery = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -957,7 +953,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger bodyStarts = new AtomicInteger();
         AtomicReference<Throwable> toolFailure = new AtomicReference<>();
-        ExecutionHandle first = supervisor.launch(
+        ExecutionHandle first = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -998,13 +994,12 @@ class TestInProcessWriterAgentSupervisor
         release.countDown();
         var firstResult = secondSupervisor.awaitAndFinish(duplicate, WAIT);
         assertThat(toolFailure.get()).isNull();
-        assertThat(restartedRuntime.finishAgentRun(
+        assertThat(FlowRuntimeTestSupport.finishWriterFixture(
+                restartedRuntime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
-                TerminalOutcome.COMPLETED,
-                "done",
-                null)).isEqualTo(firstResult);
+                completed())).isEqualTo(firstResult);
         assertThat(count("flow_runtime_agent_process_attempt")).isOne();
         assertThat(count("flow_runtime_agent_result")).isOne();
     }
@@ -1053,7 +1048,7 @@ class TestInProcessWriterAgentSupervisor
         CountDownLatch invoke = new CountDownLatch(1);
         CountDownLatch ended = new CountDownLatch(1);
         AtomicReference<Throwable> toolFailure = new AtomicReference<>();
-        ExecutionHandle handle = supervisor.launch(
+        ExecutionHandle handle = FlowRuntimeTestSupport.launchWriterFixture(supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -1092,7 +1087,8 @@ class TestInProcessWriterAgentSupervisor
         assertThat(runtime.selectNext(reconciliation).orElseThrow().kind())
                 .isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
-        WriterFence fence = runtime.acquireWriterLease(
+        WriterFence fence = FlowRuntimeTestSupport.acquireWriterFixture(
+                runtime,
                 turn,
                 AgentRole.TASK_AGENT,
                 new WorktreeSnapshot(

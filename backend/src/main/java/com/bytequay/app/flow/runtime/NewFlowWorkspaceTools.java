@@ -199,12 +199,22 @@ final class NewFlowWorkspaceTools
     /** Fixed local-only commit; the model supplies neither message nor argv. */
     String commitRepair()
     {
+        return commit("Apply CI repair");
+    }
+
+    String commitTaskChange()
+    {
+        return commit("Implement Task change");
+    }
+
+    private String commit(String message)
+    {
         rejectGitFilters();
         run(false, "add", "-A");
         if (run(true, "diff", "--cached", "--quiet") == 0) {
             return head();
         }
-        run(false, "commit", "-m", "Apply CI repair");
+        run(false, "commit", "-m", message);
         return head();
     }
 

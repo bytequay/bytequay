@@ -71,17 +71,35 @@ public final class GitHubCiUpdateDispatcher
             Clock clock,
             Config config)
     {
+        this(
+                runtime,
+                gates,
+                effects,
+                new GitHubCiUpdateExecutor(
+                        gates,
+                        effects,
+                        new GitHubProvider(
+                                runtime,
+                                GitHubInitialPublishDispatcher.repoSecrets(
+                                        requireNonNull(
+                                                credentials,
+                                                "credentials is null"))),
+                        requireNonNull(clock, "clock is null")),
+                config);
+    }
+
+    GitHubCiUpdateDispatcher(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            GitHubCiUpdateExecutor executor,
+            Config config)
+    {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.gates = requireNonNull(gates, "gates is null");
         this.effects = requireNonNull(effects, "effects is null");
+        this.executor = requireNonNull(executor, "executor is null");
         this.config = requireNonNull(config, "config is null");
-        GitHubProvider provider = new GitHubProvider(
-                runtime,
-                GitHubInitialPublishDispatcher.repoSecrets(
-                        requireNonNull(credentials, "credentials is null")));
-        this.executor = new GitHubCiUpdateExecutor(
-                gates, effects, provider,
-                requireNonNull(clock, "clock is null"));
     }
 
     public void start()

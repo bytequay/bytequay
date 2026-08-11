@@ -20,6 +20,7 @@ import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
+import com.bytequay.app.flow.github.GitHubInitialRepositoryObserver;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.agents.TurnRunner;
@@ -98,6 +99,15 @@ class TestNewFlowConfiguration
                             GitHubCiUpdateDispatcher.class);
                     CiAutofixDispatcher ciAgents = context.getBean(
                             CiAutofixDispatcher.class);
+                    InitialTaskCoordinator initialTasks = context.getBean(
+                            InitialTaskCoordinator.class);
+                    InitialTaskDispatcher initialTaskDispatcher =
+                            context.getBean(InitialTaskDispatcher.class);
+                    TaskCommands commands = context.getBean(
+                            TaskCommands.class);
+                    GitHubInitialRepositoryObserver initialRepository =
+                            context.getBean(
+                                    GitHubInitialRepositoryObserver.class);
 
                     assertThat(ReflectionTestUtils.getField(checks, "runtime"))
                             .isSameAs(runtime);
@@ -139,6 +149,18 @@ class TestNewFlowConfiguration
                             ciAgents, "runtime")).isSameAs(runtime);
                     assertThat(ReflectionTestUtils.getField(
                             ciAgents, "coordinator")).isSameAs(coordinator);
+                    assertThat(ReflectionTestUtils.getField(
+                            initialTasks, "runtime")).isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(
+                            initialTaskDispatcher, "runtime"))
+                            .isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(
+                            initialTaskDispatcher, "coordinator"))
+                            .isSameAs(initialTasks);
+                    assertThat(ReflectionTestUtils.getField(
+                            commands, "provisioning"))
+                            .isSameAs(provisioning);
+                    assertThat(initialRepository).isNotNull();
                     assertThat(newFlowPath).exists();
                 });
         assertThat(Files.readAllBytes(primaryPath))

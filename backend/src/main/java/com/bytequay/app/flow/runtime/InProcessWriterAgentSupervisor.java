@@ -15,7 +15,9 @@ package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
 import com.bytequay.app.flow.gate.UserGates;
+import com.bytequay.app.flow.gate.UserGates.PreparedInitialReadyRequest;
 import com.bytequay.app.flow.gate.UserGates.PreparedReadyRequest;
+import com.bytequay.app.flow.github.InitialPublishRecords;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
@@ -23,6 +25,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
@@ -182,6 +185,26 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId);
         }
 
+        /** Program-only first INITIAL adoption; the model supplies no IDs. */
+        public ChangeSetRevision adoptInitialChangeSet(
+                Path programOwnedRepositoryRoot)
+        {
+            return execution.adoptInitialChangeSet(
+                    programOwnedRepositoryRoot);
+        }
+
+        /** Program-bound draft append under this exact capability. */
+        public PrDraftRevision savePrDraft(
+                String prId,
+                String changeSetRevisionId,
+                String headSha,
+                String title,
+                String body)
+        {
+            return execution.savePrDraft(
+                    prId, changeSetRevisionId, headSha, title, body);
+        }
+
         /** Terminal Task tool; its immutable request durably seals all tools. */
         public ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
@@ -211,6 +234,30 @@ public final class InProcessWriterAgentSupervisor
                     checkRunRefs);
         }
 
+        public ReviewerRequest spawnInitialAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                LocalChecks.ReviewerEvidence reviewerEvidence)
+        {
+            return execution.spawnInitialAdversarialReviewer(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId,
+                    reviewerEvidence);
+        }
+
+        public ReviewerRequest replayInitialAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                String localCheckPolicyRevisionId,
+                List<String> checkRunRefs)
+        {
+            return execution.replayInitialAdversarialReviewer(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId,
+                    localCheckPolicyRevisionId,
+                    checkRunRefs);
+        }
+
         /** Terminal ready command over one program-derived immutable subject. */
         public ReadyForReviewAcceptance readyForReview(
                 UserGates userGates,
@@ -225,6 +272,17 @@ public final class InProcessWriterAgentSupervisor
                     reviewerRequest,
                     reviewerResult,
                     origin);
+        }
+
+        /** Terminal INITIAL ready command; repository proof stays opaque. */
+        public ReadyForReviewAcceptance readyForInitialPublish(
+                UserGates userGates,
+                Path repositoryRoot,
+                Supplier<InitialPublishRecords.RepositoryObservation>
+                        observation)
+        {
+            return execution.readyForInitialPublish(
+                    userGates, repositoryRoot, observation);
         }
 
         @Override
@@ -939,6 +997,27 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId));
         }
 
+        private ChangeSetRevision adoptInitialChangeSet(
+                Path programOwnedRepositoryRoot)
+        {
+            requireNonNull(programOwnedRepositoryRoot,
+                    "programOwnedRepositoryRoot is null");
+            return callTool(() -> runtime.adoptInitialChangeSet(
+                    claim, fence, programOwnedRepositoryRoot));
+        }
+
+        private PrDraftRevision savePrDraft(
+                String prId,
+                String changeSetRevisionId,
+                String headSha,
+                String title,
+                String body)
+        {
+            return callTool(() -> runtime.savePrDraft(
+                    claim, fence, attempt.capabilityId(), prId,
+                    changeSetRevisionId, headSha, runId, title, body));
+        }
+
         private void renewFor(Duration requiredTtl)
         {
             Claim previousClaim;
@@ -1016,6 +1095,50 @@ public final class InProcessWriterAgentSupervisor
                     checkRunRefs));
         }
 
+        private ReviewerRequest spawnInitialAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                LocalChecks.ReviewerEvidence reviewerEvidence)
+        {
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            return callTerminalTool(() -> {
+                FlowRuntime.PreparedReviewerRequest prepared =
+                        runtime.prepareInitialReviewerRequest(
+                                runId, claim, fence,
+                                programOwnedRepositoryRoot,
+                                expectedChangeSetRevisionId,
+                                reviewerEvidence);
+                return runtime.reserveReviewerRequest(
+                        runId, claim, fence,
+                        attempt.processAttemptId(),
+                        attempt.capabilityId(), prepared);
+            });
+        }
+
+        private ReviewerRequest replayInitialAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                String localCheckPolicyRevisionId,
+                List<String> checkRunRefs)
+        {
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            return callTerminalTool(() ->
+                    runtime.replayInitialReviewerRequest(
+                            runId, programOwnedRepositoryRoot,
+                            expectedChangeSetRevisionId,
+                            localCheckPolicyRevisionId, checkRunRefs));
+        }
+
         private ReadyForReviewAcceptance readyForReview(
                 UserGates userGates,
                 Path repositoryRoot,
@@ -1049,6 +1172,37 @@ public final class InProcessWriterAgentSupervisor
                         fence,
                         attempt.processAttemptId(),
                         attempt.capabilityId(),
+                        prepared);
+            });
+        }
+
+        private ReadyForReviewAcceptance readyForInitialPublish(
+                UserGates userGates,
+                Path repositoryRoot,
+                Supplier<InitialPublishRecords.RepositoryObservation>
+                        observation)
+        {
+            requireNonNull(userGates, "userGates is null");
+            requireNonNull(repositoryRoot, "repositoryRoot is null");
+            requireNonNull(observation, "observation is null");
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
+                return callTerminalTool(
+                        () -> userGates.replayInitialReadyRequest(runId));
+            }
+            return callTerminalTool(() -> {
+                PreparedInitialReadyRequest prepared =
+                        userGates.prepareInitialReadyRequest(
+                                runId, claim, fence, repositoryRoot,
+                                observation);
+                return userGates.reserveInitialReadyRequest(
+                        runId, claim, fence,
+                        attempt.processAttemptId(), attempt.capabilityId(),
                         prepared);
             });
         }

@@ -187,6 +187,72 @@ final class TestTaskProvisioning
     }
 
     @Test
+    void boundsTaskCommandBeforeCatalogAndReplaysExactMaximumText()
+    {
+        AtomicInteger reads = new AtomicInteger();
+        TaskProvisioning guarded = new TaskProvisioning(
+                dataSource,
+                runtime,
+                ignored -> {
+                    reads.incrementAndGet();
+                    return config;
+                },
+                clock);
+        assertThatThrownBy(() -> guarded.startTask(
+                "r".repeat(257), "repo-1", "goal"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> guarded.startTask(
+                "request", "r".repeat(257), "goal"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> guarded.startTask(
+                "request", "repo-1", "g".repeat(16_385)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> guarded.startTask(
+                "request\u0000", "repo-1", "goal"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> guarded.startTask(
+                "request", "repo\n1", "goal"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> guarded.startTask(
+                "request", "repo-1", "goal\u0000"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(reads).hasValue(0);
+        assertThat(count("flow_runtime_task")).isZero();
+
+        String request = "q".repeat(256);
+        String repositoryId = "r".repeat(256);
+        String goal = "g".repeat(16_382) + "\n\t";
+        TaskProvisioning.RepositoryConfig maximumConfig =
+                new TaskProvisioning.RepositoryConfig(
+                        repositoryId,
+                        config.repositoryOwner(),
+                        config.repositoryName(),
+                        config.repositoryRoot(),
+                        config.gitCommonDir(),
+                        config.remoteName(),
+                        config.baseRef(),
+                        config.worktreeRoot());
+        Task maximum = provisioning(maximumConfig)
+                .startTask(request, repositoryId, goal);
+        assertThat(maximum.requestKey()).isEqualTo(request);
+        assertThat(maximum.repositoryId()).isEqualTo(repositoryId);
+        assertThat(maximum.goalText()).isEqualTo(goal);
+
+        TaskProvisioning replay = new TaskProvisioning(
+                dataSource,
+                runtime,
+                ignored -> {
+                    throw new AssertionError("replay consulted repository catalog");
+                },
+                clock);
+        assertThat(replay.startTask(request, repositoryId, goal))
+                .isEqualTo(maximum);
+        assertThatThrownBy(() -> replay.startTask(
+                request, repositoryId, goal.substring(1)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void transientProofRearmsImmediatelyAndTheNextGenerationCompletes()
     {
         AtomicBoolean unavailable = new AtomicBoolean(true);

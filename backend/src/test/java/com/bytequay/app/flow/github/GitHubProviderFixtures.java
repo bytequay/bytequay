@@ -19,6 +19,9 @@ import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
+import com.bytequay.app.flow.gate.UserGateRecords.InitialPublishAction;
+import com.bytequay.app.flow.gate.UserGateRecords.InitialPublishSubject;
+import com.bytequay.app.flow.gate.UserGateRecords.LocalReviewBinding;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectAttempt;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectReceipt;
@@ -31,11 +34,19 @@ import com.bytequay.app.flow.github.InitialPublishRecords.Outcome;
 import com.bytequay.app.flow.github.InitialPublishRecords.Plan;
 import com.bytequay.app.flow.github.InitialPublishRecords.PrIdentity;
 import com.bytequay.app.flow.github.InitialPublishRecords.ProviderProof;
+import com.bytequay.app.flow.github.InitialPublishRecords.RepositoryObservation;
+import com.bytequay.app.flow.github.InitialPublishRecords.TargetSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.repository.CredentialStore;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -45,6 +56,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -53,6 +65,8 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("StringConcatToTextBlock")
 public final class GitHubProviderFixtures
 {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     public enum CiObservationMode
     {
         GREEN,
@@ -91,6 +105,15 @@ public final class GitHubProviderFixtures
             GitHubInitialPublishExecutor executor,
             AtomicInteger pushes) {}
 
+    record InitialLane(
+            GitHubInitialPublishExecutor executor,
+            AtomicInteger pushes,
+            AtomicInteger posts) {}
+
+    record CiUpdateLane(
+            GitHubCiUpdateExecutor executor,
+            AtomicInteger pushes) {}
+
     private GitHubProviderFixtures() {}
 
     public static GateRevision openInitialPublish(
@@ -110,8 +133,129 @@ public final class GitHubProviderFixtures
                 (root, arguments, environment, captureOutput) ->
                         new GitHubProvider.ProcessResult(true, 0, ""),
                 matchingLookup("101"));
-        return gates.openInitialPublish(
-                runId, () -> provider.observeInitialRepository(runId));
+        return openInitialPublish(
+                runtime, gates, runId,
+                () -> provider.observeInitialRepository(runId));
+    }
+
+    /** Test-only fixture for pre-Checkpoint-B historical owner tests. */
+    public static GateRevision openInitialPublish(
+            FlowRuntime runtime,
+            UserGates gates,
+            String runId,
+            Supplier<RepositoryObservation> observation)
+    {
+        try {
+            Method replayMethod = UserGates.class.getDeclaredMethod(
+                    "initialPublishReplay", String.class);
+            replayMethod.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Optional<GateRevision> replay = (Optional<GateRevision>)
+                    replayMethod.invoke(gates, runId);
+            if (replay.isPresent()) {
+                return replay.orElseThrow();
+            }
+            Method derive = UserGates.class.getDeclaredMethod(
+                    "deriveInitialPublish", String.class,
+                    RepositoryObservation.class);
+            derive.setAccessible(true);
+            Object bundle = derive.invoke(gates, runId, observation.get());
+            @SuppressWarnings("unchecked")
+            Optional<GateRevision> concurrentReplay =
+                    (Optional<GateRevision>) replayMethod.invoke(gates, runId);
+            if (concurrentReplay.isPresent()) {
+                return concurrentReplay.orElseThrow();
+            }
+            InitialPublishSubject subject = (InitialPublishSubject)
+                    bundleValue(bundle, "subject");
+            InitialPublishAction action = (InitialPublishAction)
+                    bundleValue(bundle, "action");
+            LocalReviewBinding local = (LocalReviewBinding)
+                    bundleValue(bundle, "localReviewBinding");
+            TargetSnapshot target = (TargetSnapshot)
+                    bundleValue(bundle, "target");
+            Field effectsField = UserGates.class.getDeclaredField(
+                    "githubEffects");
+            effectsField.setAccessible(true);
+            ((GitHubEffects) effectsField.get(gates))
+                    .storeInitialTargetSnapshot(target);
+            invoke(gates, "insertLocalReviewBinding",
+                    LocalReviewBinding.class, local);
+            invoke(gates, "insertInitialSubject",
+                    InitialPublishSubject.class, subject);
+            invoke(gates, "insertInitialAction",
+                    InitialPublishAction.class, action);
+            Method stable = UserGates.class.getDeclaredMethod(
+                    "stableId", String[].class);
+            stable.setAccessible(true);
+            String requestId = (String) stable.invoke(
+                    null, (Object) new String[] {
+                        "ready-request", runId, subject.subjectId()});
+            Field jdbcField = UserGates.class.getDeclaredField("jdbc");
+            jdbcField.setAccessible(true);
+            JdbcTemplate jdbc = (JdbcTemplate) jdbcField.get(gates);
+            var run = runtime.run(runId).orElseThrow();
+            var operation = runtime.operation(run.operationId()).orElseThrow();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_ready_for_review_request (
+                        request_id, run_id, operation_id, task_id, pr_id,
+                        subject_ref, subject_digest, action_ref,
+                        action_digest, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    requestId, runId, operation.operationId(),
+                    operation.taskId(), subject.prId(), subject.subjectId(),
+                    subject.subjectDigest(), action.actionRef(),
+                    action.actionDigest(), subject.createdAt().toEpochMilli());
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_task_terminal_request (
+                        run_id, kind, request_id, created_at
+                    ) VALUES (?, 'READY_FOR_REVIEW', ?, ?)
+                    """,
+                    runId, requestId, subject.createdAt().toEpochMilli());
+            Method open = UserGates.class.getDeclaredMethod(
+                    "openInitialGate", String.class,
+                    InitialPublishSubject.class, InitialPublishAction.class);
+            open.setAccessible(true);
+            GateRevision revision = (GateRevision) open.invoke(
+                    gates, runId, subject, action);
+            // Historical owner tests predate the real STOPPED finalizer. Keep
+            // their fixture post-finalization-shaped without reopening a
+            // production run-id-only gate command.
+            jdbc.update(
+                    "UPDATE flow_runtime_task "
+                            + "SET selected_writer_operation_id = NULL "
+                            + "WHERE task_id = ? "
+                            + "AND selected_writer_operation_id = ?",
+                    operation.taskId(), operation.operationId());
+            return revision;
+        }
+        catch (ReflectiveOperationException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    private static Object bundleValue(Object bundle, String name)
+            throws ReflectiveOperationException
+    {
+        Method accessor = bundle.getClass().getDeclaredMethod(name);
+        accessor.setAccessible(true);
+        return accessor.invoke(bundle);
+    }
+
+    private static void invoke(
+            UserGates gates, String name, Class<?> type, Object value)
+            throws ReflectiveOperationException
+    {
+        Method method = UserGates.class.getDeclaredMethod(name, type);
+        method.setAccessible(true);
+        method.invoke(gates, value);
     }
 
     public static InitialPublishRecords.RepositoryObservation
@@ -247,6 +391,82 @@ public final class GitHubProviderFixtures
         return executeInitialApplied(
                 runtime, gates, effects, branchClaim, plan, clock,
                 plan.expectedBaseSha());
+    }
+
+    static InitialLane initialLane(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            Plan plan,
+            Clock clock)
+    {
+        InitialAppliedTransport transport = new InitialAppliedTransport(
+                plan, true, plan.expectedBaseSha(), plan.expectedBaseSha());
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                transport,
+                (owner, repository, token) ->
+                        new GitHubProvider.RepositoryIdentity(
+                                true, true,
+                                owner.equals(plan.baseRepositoryOwner())
+                                        ? plan.baseRepositoryExternalId()
+                                        : plan.headRepositoryExternalId(),
+                                owner, repository),
+                transport);
+        return new InitialLane(
+                new GitHubInitialPublishExecutor(
+                        gates, effects, provider, clock),
+                transport.pushes,
+                transport.posts);
+    }
+
+    static CiUpdateLane ciUpdateLane(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            ExternalEffectStep step,
+            Clock clock)
+    {
+        AtomicInteger pushes = new AtomicInteger();
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id),
+                new AppliedGit(step, () -> {}, pushes),
+                matchingLookup(step.headRepositoryExternalId()));
+        return new CiUpdateLane(
+                new GitHubCiUpdateExecutor(
+                        gates, effects, provider, clock),
+                pushes);
+    }
+
+    static GitHubCiObservationExecutor ciObservationExecutor(
+            FlowRuntime runtime,
+            CiAutofixCoordinator coordinator,
+            String prId,
+            Clock clock,
+            CiObservationMode mode)
+    {
+        var pr = runtime.pullRequest(prId).orElseThrow();
+        FlowRuntime.CiObservationSubject subject =
+                new FlowRuntime.CiObservationSubject(
+                        "fixture-receipt", "fixture-operation",
+                        "fixture-plan", "fixture-step", "fixture-probe",
+                        "fixture-digest", pr.prId(), pr.taskId(),
+                        pr.repositoryId(), pr.targetBaseRef(), pr.scopeKey(),
+                        pr.provider(), pr.repositoryExternalId(),
+                        pr.repositoryOwner(), pr.repositoryName(),
+                        pr.headRepositoryExternalId(),
+                        pr.headRepositoryOwner(),
+                        pr.headRepositoryName(), pr.prNumber(), "PR_node",
+                        pr.branchName(), "refs/heads/" + pr.branchName(),
+                        pr.currentRemoteHead(), pr.currentRemoteHead());
+        GitHubCiProvider provider = new GitHubCiProvider(
+                (id, owner, name) -> credential(id),
+                new ObservationHttp(subject, mode),
+                clock);
+        return new GitHubCiObservationExecutor(
+                runtime, coordinator, provider, clock);
     }
 
     public static InitialExecution executeInitialApplied(
@@ -562,6 +782,8 @@ public final class GitHubProviderFixtures
         private boolean branchExists;
         private boolean prExists;
         private String postBody;
+        private String submittedTitle;
+        private String submittedBody;
 
         private InitialAppliedTransport(Plan plan)
         {
@@ -641,6 +863,17 @@ public final class GitHubProviderFixtures
             if (method.equals("POST")) {
                 posts.incrementAndGet();
                 postBody = new String(body, StandardCharsets.UTF_8);
+                try {
+                    JsonNode request = JSON.readTree(body);
+                    submittedTitle = request.path("title").textValue();
+                    submittedBody = request.path("body").textValue();
+                }
+                catch (IOException malformed) {
+                    throw new AssertionError("invalid initial PR request", malformed);
+                }
+                if (submittedTitle == null || submittedBody == null) {
+                    throw new AssertionError("incomplete initial PR request");
+                }
                 prExists = true;
                 return new GitHubProvider.InitialHttpResponse(
                         false, -1, new byte[0]);
@@ -653,12 +886,14 @@ public final class GitHubProviderFixtures
                       "maintainer_can_modify":false,"number":42,
                       "node_id":"PR_node",
                       "html_url":"https://example.test/pr/42",
-                      "title":"Initial draft","body":"body",
+                      "title":%s,"body":%s,
                       "base":{"ref":"%s","sha":"%s","repo":{
                         "id":%s,"name":"%s","owner":{"login":"%s"}}},
                       "head":{"ref":"%s","sha":"%s","repo":{
                         "id":%s,"name":"%s","owner":{"login":"%s"}}}}]
                     """.formatted(
+                    JSON.getNodeFactory().textNode(submittedTitle),
+                    JSON.getNodeFactory().textNode(submittedBody),
                     plan.targetBaseRef().startsWith("refs/heads/")
                             ? plan.targetBaseRef().substring(
                                     "refs/heads/".length())

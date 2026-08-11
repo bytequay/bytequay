@@ -1843,6 +1843,7 @@ public final class GitHubEffects
             Claim claim, InitialProbeTarget target, ProviderProof proof,
             Instant observedAt)
     {
+        observedAt = Instant.ofEpochMilli(observedAt.toEpochMilli());
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flow_github_initial_publish_probe "
                         + "WHERE operation_id = ? AND claim_generation = ?",
@@ -2250,6 +2251,8 @@ public final class GitHubEffects
         requireNonNull(claim, "claim is null");
         requireNonNull(observation, "observation is null");
         requireNonNull(observedAt, "observedAt is null");
+        Instant storedObservedAt = Instant.ofEpochMilli(
+                observedAt.toEpochMilli());
         return inTransaction(() -> {
             ExternalEffectAttempt stored = null;
             if (attempt != null) {
@@ -2367,7 +2370,7 @@ public final class GitHubEffects
                     outcome,
                     observedHead,
                     probeDigest,
-                    observedAt);
+                    storedObservedAt);
             jdbc.update(
                     """
                     INSERT INTO flow_github_external_effect_probe (
@@ -2628,6 +2631,8 @@ public final class GitHubEffects
         requireNonNull(step, "step is null");
         requireNonNull(probe, "probe is null");
         requireNonNull(recordedAt, "recordedAt is null");
+        Instant storedRecordedAt = Instant.ofEpochMilli(
+                recordedAt.toEpochMilli());
         return inTransaction(() -> {
             Optional<ExternalEffectReceipt> existing = receipt(plan.planId());
             if (existing.isPresent()) {
@@ -2670,7 +2675,7 @@ public final class GitHubEffects
                     step.expectedRemoteHead(),
                     step.proposedHead(),
                     digest,
-                    recordedAt);
+                    storedRecordedAt);
             jdbc.update(
                     """
                     INSERT INTO flow_github_effect_receipt_envelope (

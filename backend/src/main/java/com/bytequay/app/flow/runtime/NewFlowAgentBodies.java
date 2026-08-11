@@ -22,6 +22,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.InProcessCiLearningAgentSupervisor.CiLearningToolCapability;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ReviewerToolCapability;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
+import com.bytequay.app.flow.runtime.InitialTaskCoordinator.InitialToolCapability;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.ToolExecutor.ToolCallResult;
@@ -48,6 +49,8 @@ import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_REPA
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.REVIEWER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_FIX;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_REVIEW_RESULT;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL_REVIEW_RESULT;
 import static java.util.Objects.requireNonNull;
 
 /** Neutral TurnRunner bodies behind role-specific, zero-owner-id tools. */
@@ -76,6 +79,84 @@ final class NewFlowAgentBodies
     NewFlowAgentLaunches.Binding bindRepair(AgentRun run)
     {
         return launches.bind(run, CI_REPAIR);
+    }
+
+    NewFlowAgentLaunches.Binding bindInitialTask(AgentRun run)
+    {
+        return launches.bind(run, TASK_INITIAL);
+    }
+
+    NewFlowAgentLaunches.Binding bindInitialReviewResult(AgentRun run)
+    {
+        return launches.bind(run, TASK_INITIAL_REVIEW_RESULT);
+    }
+
+    InProcessWriterAgentSupervisor.AgentCompletion initialTask(
+            NewFlowAgentLaunches.Binding binding,
+            Path worktree,
+            InitialToolCapability capability,
+            boolean reviewContinuation)
+    {
+        NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
+        AtomicBoolean terminal = new AtomicBoolean();
+        var program = reviewContinuation
+                ? TASK_INITIAL_REVIEW_RESULT : TASK_INITIAL;
+        ToolExecutor executor = bounded(terminal, call -> switch (call.name()) {
+            case "read_initial_task_context" -> {
+                if (reviewContinuation) {
+                    yield ToolCallResult.error("tool is not available");
+                }
+                yield safe(capability::readContext);
+            }
+            case "read_initial_review_context" -> {
+                if (!reviewContinuation) {
+                    yield ToolCallResult.error("tool is not available");
+                }
+                yield safe(capability::readContext);
+            }
+            case "read_candidate_diff" -> safe(() -> utf8(
+                    capability.readCandidateDiff()));
+            case "list_repository" -> guarded(capability,
+                    () -> json(workspace.listRepository()));
+            case "read_file" -> guarded(capability,
+                    () -> workspace.readFile(text(call, "path")));
+            case "search_repository" -> guarded(capability,
+                    () -> json(workspace.search(text(call, "query"))));
+            case "write_file" -> guarded(capability, () -> {
+                workspace.writeFile(
+                        text(call, "path"), text(call, "content"));
+                return "written";
+            });
+            case "delete_file" -> guarded(capability, () -> {
+                workspace.deleteFile(text(call, "path"));
+                return "deleted";
+            });
+            case "commit_initial_change" -> safe(() -> {
+                String head = capability.callTool(
+                        workspace::commitTaskChange);
+                capability.adoptCommittedHead(head);
+                return "Task change committed and inspected";
+            });
+            case "request_initial_review" -> safe(() -> {
+                capability.requestReview(
+                        text(call, "title"), text(call, "body"));
+                terminal.set(true);
+                return "initial review requested";
+            });
+            case "ready_for_initial_publish" -> {
+                if (!reviewContinuation) {
+                    yield ToolCallResult.error("tool is not available");
+                }
+                yield safe(() -> {
+                    capability.readyForInitialPublish();
+                    terminal.set(true);
+                    return "manual initial publication requested";
+                });
+            }
+            default -> ToolCallResult.error("tool is not available");
+        });
+        return sealedWriterCompletion(
+                run(binding, program, executor, terminal), terminal.get());
     }
 
     NewFlowAgentLaunches.Binding bindCleanup(AgentRun run)
@@ -392,6 +473,7 @@ final class NewFlowAgentBodies
             case "read_ci_log" -> Set.of("index", "offset");
             case "read_candidate_lesson" -> Set.of("index");
             case "save_ci_lesson" -> Set.of("title", "markdown");
+            case "request_initial_review" -> Set.of("title", "body");
             default -> Set.of();
         };
         return input.propertyStream().allMatch(
@@ -454,6 +536,13 @@ final class NewFlowAgentBodies
 
     private ToolCallResult guarded(
             TaskInspectionToolCapability capability,
+            Supplier<String> action)
+    {
+        return safe(() -> capability.callTool(action));
+    }
+
+    private ToolCallResult guarded(
+            InitialToolCapability capability,
             Supplier<String> action)
     {
         return safe(() -> capability.callTool(action));

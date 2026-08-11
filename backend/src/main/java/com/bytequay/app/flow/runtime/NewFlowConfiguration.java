@@ -23,6 +23,7 @@ import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
+import com.bytequay.app.flow.github.GitHubInitialRepositoryObserver;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
 import com.bytequay.app.repository.CredentialStore;
@@ -207,6 +208,45 @@ public class NewFlowConfiguration
     {
         return new CiFixReviewCoordinator(
                 autofix, runtime, localChecks, userGates);
+    }
+
+    @Bean
+    public GitHubInitialRepositoryObserver newFlowInitialRepositoryObserver(
+            FlowRuntime runtime, CredentialStore credentials)
+    {
+        return new GitHubInitialRepositoryObserver(runtime, credentials);
+    }
+
+    @Bean
+    public InitialTaskCoordinator newFlowInitialTaskCoordinator(
+            FlowRuntime runtime,
+            TaskProvisioning provisioning,
+            LocalChecks localChecks,
+            UserGates userGates)
+    {
+        return new InitialTaskCoordinator(
+                runtime, provisioning, localChecks, userGates);
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public InitialTaskDispatcher newFlowInitialTaskDispatcher(
+            FlowRuntime runtime,
+            InitialTaskCoordinator coordinator,
+            InProcessWriterAgentSupervisor writerSupervisor,
+            InProcessReviewerAgentSupervisor reviewerSupervisor,
+            NewFlowAgentBodies bodies,
+            GitHubInitialRepositoryObserver repositories)
+    {
+        return new InitialTaskDispatcher(
+                runtime, coordinator, writerSupervisor, reviewerSupervisor,
+                bodies, repositories,
+                new InitialTaskDispatcher.Config(
+                        "new-flow-initial-task",
+                        AGENT_CLAIM_TTL,
+                        POLL_INTERVAL,
+                        AGENT_BODY_TIMEOUT,
+                        AGENT_SHUTDOWN_TIMEOUT,
+                        CAPACITY));
     }
 
     @Bean
@@ -426,6 +466,15 @@ public class NewFlowConfiguration
                         POLL_INTERVAL,
                         CAPACITY),
                 handlers);
+    }
+
+    @Bean
+    public TaskCommands newFlowTaskCommands(
+            TaskProvisioning provisioning,
+            NewFlowDispatcher dispatcher,
+            InitialTaskDispatcher initialTasks)
+    {
+        return new TaskCommands(provisioning, dispatcher, initialTasks);
     }
 
     private static PublishedPrSubject publishedSubject(

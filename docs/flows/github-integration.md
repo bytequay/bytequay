@@ -74,6 +74,13 @@ and accepts only a later exact remote probe as proof. Stable pre-attempt target
 failure can stale the gate; any uncertainty after an attempt keeps the gate and
 publication barrier in probe-only attention. Never-started expiry redrives the
 same operation, while activated expiry can only schedule another probe.
+An `APPLIED` receipt also atomically creates the one receipt-owned
+`OBSERVE_CI` operation/ticket for the new head and cancels older watches for
+that PR. The implemented observer is scheduled polling only: it reads the
+exact open PR before and after two identical, exhaustively paged check-suite
+and `filter=all` check-run passes for the proposed head. It accepts only
+explicit `GITHUB_CHECK:<appId>:<exact check name>` policy selectors and stores
+one source-bound round in the existing CI owner. Webhooks remain deferred.
 
 ## Logical data model
 
@@ -403,23 +410,43 @@ can never satisfy this policy. The policy may carry across authorized CI-only
 repair heads; it never follows an external, unauthorized, stale, or
 feedback-driven head.
 
-### 2. Observation loop
+### 2. Head-bound CI observation loop
 
-1. A webhook or scheduled reconciliation produces immutable evidence.
-2. The normalizer fetches missing authoritative fields instead of assuming a
-   partial webhook is complete.
-3. It emits owner commands keyed by stable provider object/revision IDs.
-4. Owners insert new revisions idempotently and enqueue work.
-5. The workflow runtime dispatches work only after checking current head,
-   lifecycle, leases, and pending higher-priority work.
+1. An `APPLIED` `CI_UPDATE` receipt atomically installs one read-only
+   receipt-owned `OBSERVE_CI` operation/ticket. A newer receipt cancels older
+   same-PR watches, including claimed reads; their late batches cannot commit.
+2. Claim renews the read lease for the complete bounded poll. Begin binds the
+   current receipt, open PR/head identity, and current required-CI policy.
+3. The concrete GitHub reader authenticates the frozen base repository and PR,
+   reads the exact open PR before and after, and requires two identical
+   exhaustive suite/run enumerations. Aggregate request, page, record, byte,
+   and wall-time caps fail closed without storing partial facts. `403`/`429`
+   `Retry-After` and rate-reset headers set a bounded no-earlier retry; malformed
+   or absent timing uses a one-hour fixed backoff.
+   One poll admits at most 10 suites, 1,000 runs, and 50 HTTP requests; local
+   budget exhaustion waits at least 15 minutes, bounding one watch to at most
+   200 such requests per hour.
+4. Required checks use exact case-sensitive app-ID/check-name selectors.
+   Historical executions remain evidence, but only the unique latest execution
+   determines the round. Bounded sanitized Actions logs are fetched only for
+   selected unaccepted failures when the whole batch can be `FINAL_RED`.
+5. One private provider-sealed batch is accepted in one transaction:
+   source-bound observations/logs, the existing `CiRound`, an optional
+   `FINAL_RED` inbox/reconciliation wake, and watch rearm commit together.
+   Identical provider revisions across claims reuse the same facts and round.
+   Collecting polls may rearm quickly; green, attention, queued, unsupported,
+   and rate-limited outcomes use slower/provider-directed cadence.
 
-Polling is required even with optional webhooks because local desktop
-connectivity and webhook delivery are not durable guarantees.
+This is exhaustive only for head-bound GitHub check runs on exact
+`proposedHead`; it is not branch-protection or merge-readiness proof. Test-merge
+checks, legacy commit statuses, webhooks, a generic event bus, timeline
+projection, green learning/readiness, and cutover remain deferred.
 
 ### 3. CI update
 
 An authorized CI-only update contains one push step. After pushing, the
-executor confirms the remote head; CI observation then owns the new round.
+executor confirms the remote head and its receipt-owned watch feeds the exact
+head-bound provider batch into the existing CI round owner.
 Details and standing-consent rules are in [ci-autofix.md](./ci-autofix.md).
 
 ### 4. Remote feedback batch

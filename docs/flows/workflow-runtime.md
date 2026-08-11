@@ -638,6 +638,16 @@ probe-only attention. Generic expired-claim recovery rejects `PUBLISH`; the
 owner-specific never-started recovery redrives the same operation, while an
 activated generation can only redrive probing.
 
+An applied CI-update receipt atomically installs one read-only `OBSERVE_CI`
+operation/ticket owned by that receipt. This operation is not Task
+reconciliation and never receives a writer lease. Its owner-specific claim and
+recovery keep stale/terminal watches claimable long enough to settle them
+`CANCELED/DONE`; current watches rearm the same ticket after each bounded poll.
+A newer same-PR receipt cancels older READY or CLAIMED watches in the receipt
+transaction, so a late old batch cannot insert CI facts. The accepted provider
+batch, source-bound CI facts/round, optional `FINAL_RED` inbox/reconciliation,
+and watch rearm are one transaction.
+
 ## 6. Command and dispatch protocol
 
 Every asynchronous command follows one durable boundary:

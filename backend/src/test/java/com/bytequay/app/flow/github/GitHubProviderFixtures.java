@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.flow.github;
 
+import com.bytequay.app.flow.ci.CiAutofixCoordinator;
+import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectAttempt;
@@ -23,8 +26,11 @@ import com.bytequay.app.flow.github.GitHubEffectRecords.ProviderObservation;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +40,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SuppressWarnings("StringConcatToTextBlock")
 public final class GitHubProviderFixtures
 {
+    public enum CiObservationMode
+    {
+        GREEN,
+        FAILED_ACTIONS,
+        FAILED_UNSUPPORTED,
+        PENDING,
+        UNSTABLE
+    }
+
+    public record CiObservationDelivery(
+            CiObservationActivation activation,
+            GitHubCiObservationProof proof) {}
+
     private GitHubProviderFixtures() {}
 
     public static ProviderObservation observation(
@@ -112,6 +131,48 @@ public final class GitHubProviderFixtures
                 gates, effects, provider, clock).execute(claim);
     }
 
+    public static Optional<CiRound> executeCiObservation(
+            FlowRuntime runtime,
+            CiAutofixCoordinator coordinator,
+            Claim claim,
+            Clock clock,
+            CiObservationMode mode)
+    {
+        FlowRuntime.CiObservationSubject subject =
+                runtime.ciObservationSubject(claim);
+        GitHubCiProvider provider = new GitHubCiProvider(
+                (id, owner, name) -> credential(id),
+                new ObservationHttp(subject, mode),
+                clock);
+        return new GitHubCiObservationExecutor(
+                runtime, coordinator, provider, clock).execute(claim);
+    }
+
+    public static CiObservationDelivery prepareCiObservation(
+            FlowRuntime runtime,
+            CiAutofixCoordinator coordinator,
+            Claim suppliedClaim,
+            Clock clock,
+            CiObservationMode mode)
+    {
+        Claim claim = runtime.renewClaim(
+                suppliedClaim, Duration.ofMinutes(3));
+        CiObservationActivation activation = coordinator
+                .beginCiObservation(claim).orElseThrow();
+        FlowRuntime.CiObservationSubject subject =
+                runtime.ciObservationSubject(claim);
+        GitHubCiProvider provider = new GitHubCiProvider(
+                (id, owner, name) -> credential(id),
+                new ObservationHttp(subject, mode),
+                clock);
+        GitHubCiProvider.PollResult result = provider.poll(activation);
+        if (result.failure() != null) {
+            throw new AssertionError(
+                    "fixture CI provider failed: " + result.failure());
+        }
+        return new CiObservationDelivery(activation, result.proof());
+    }
+
     private static GitHubProvider.RepositoryLookup matchingLookup(
             String externalId)
     {
@@ -125,6 +186,99 @@ public final class GitHubProviderFixtures
     {
         return new GitHubProvider.RepositoryCredential(
                 externalId, "fixture-token".toCharArray());
+    }
+
+    private static final class ObservationHttp
+            implements GitHubCiProvider.CiHttp
+    {
+        private final FlowRuntime.CiObservationSubject subject;
+        private final CiObservationMode mode;
+        private int runReads;
+
+        private ObservationHttp(
+                FlowRuntime.CiObservationSubject subject,
+                CiObservationMode mode)
+        {
+            this.subject = subject;
+            this.mode = mode;
+        }
+
+        @Override
+        public GitHubCiProvider.CiHttpResponse get(
+                URI uri, char[] token, int responseLimit)
+        {
+            String value = uri.toString();
+            if (value.contains("/pulls/" + subject.prNumber())) {
+                return json(pr());
+            }
+            if (value.contains("/check-suites?")) {
+                return json("""
+                        {"total_count":1,"check_suites":[
+                          {"id":1,"app":{"id":7},"head_sha":"%s"}]}
+                        """.formatted(subject.proposedHead()));
+            }
+            if (value.contains("/check-suites/1/check-runs?")) {
+                String conclusion = switch (mode) {
+                    case GREEN -> "success";
+                    case FAILED_ACTIONS, FAILED_UNSUPPORTED -> "failure";
+                    case PENDING -> null;
+                    case UNSTABLE -> runReads++ == 0 ? "success" : null;
+                };
+                String status = conclusion == null
+                        ? "in_progress" : "completed";
+                String details = mode == CiObservationMode.FAILED_UNSUPPORTED
+                        ? "https://ci.invalid/build/1"
+                        : "https://github.com/" + subject.repositoryOwner()
+                                + "/" + subject.repositoryName()
+                                + "/actions/runs/1/job/1";
+                return json("""
+                        {"total_count":1,"check_runs":[{
+                          "id":1,"check_suite":{"id":1},
+                          "app":{"id":7,"slug":"github-actions"},
+                          "head_sha":"%s","name":"build",
+                          "status":"%s","conclusion":%s,
+                          "started_at":"2026-08-11T00:00:00Z",
+                          "completed_at":"2026-08-11T00:01:00Z",
+                          "details_url":"%s"}]}
+                        """.formatted(
+                        subject.proposedHead(), status,
+                        conclusion == null ? "null"
+                                : "\"" + conclusion + "\"",
+                        details));
+            }
+            if (value.contains("/actions/jobs/1/logs")) {
+                return new GitHubCiProvider.CiHttpResponse(
+                        true, 200,
+                        "exact failure log\n".getBytes(StandardCharsets.UTF_8),
+                        null, null, null);
+            }
+            throw new AssertionError("unexpected CI fixture request: " + uri);
+        }
+
+        private String pr()
+        {
+            return """
+                    {"number":%d,"state":"open","node_id":"%s",
+                     "base":{"ref":"%s","sha":"base-sha","repo":{
+                       "id":%s,"name":"%s","owner":{"login":"%s"}}},
+                     "head":{"ref":"%s","sha":"%s","repo":{
+                       "id":%s,"name":"%s","owner":{"login":"%s"}}}}
+                    """.formatted(
+                    subject.prNumber(), subject.prNodeId(),
+                    subject.targetBaseRef(), subject.repositoryExternalId(),
+                    subject.repositoryName(), subject.repositoryOwner(),
+                    subject.branchName(), subject.proposedHead(),
+                    subject.headRepositoryExternalId(),
+                    subject.headRepositoryName(),
+                    subject.headRepositoryOwner());
+        }
+
+        private static GitHubCiProvider.CiHttpResponse json(String value)
+        {
+            return new GitHubCiProvider.CiHttpResponse(
+                    true, 200, value.getBytes(StandardCharsets.UTF_8),
+                    null, null, null);
+        }
     }
 
     private record ObservationGit(

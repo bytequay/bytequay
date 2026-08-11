@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
@@ -65,6 +66,9 @@ class TestCiAutofix
         dataSource = new DriverManagerDataSource(
                 "jdbc:sqlite:" + temporaryDirectory.resolve("new-flow.db")
                         + "?foreign_keys=ON");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TABLE flow_runtime_operation (operation_id TEXT PRIMARY KEY)");
+        jdbc.execute("CREATE TABLE flow_github_external_effect_receipt (receipt_id TEXT PRIMARY KEY)");
         CiAutofixSchema.install(dataSource);
         subject.set(new PublishedPrSubject(
                 "pr-1", "task-1", "repo-1", "main", "main", "H1"));

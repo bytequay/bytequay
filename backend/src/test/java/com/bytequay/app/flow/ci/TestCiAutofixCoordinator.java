@@ -184,7 +184,7 @@ class TestCiAutofixCoordinator
                 githubEffects,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
     }
 
@@ -5224,7 +5224,7 @@ class TestCiAutofixCoordinator
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5260,7 +5260,7 @@ class TestCiAutofixCoordinator
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5304,7 +5304,7 @@ class TestCiAutofixCoordinator
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim observation = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5350,7 +5350,7 @@ class TestCiAutofixCoordinator
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim observation = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5799,7 +5799,7 @@ class TestCiAutofixCoordinator
                 .isZero();
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5824,7 +5824,7 @@ class TestCiAutofixCoordinator
 
         advancePublicationClock(Duration.ofMinutes(2));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim accepted = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -5837,7 +5837,7 @@ class TestCiAutofixCoordinator
 
         advancePublicationClock(Duration.ofMinutes(6));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         assertThat(runtime.operation(first.operationId()).orElseThrow()
                 .state()).isEqualTo(OperationState.READY);
@@ -6016,7 +6016,7 @@ class TestCiAutofixCoordinator
 
         advancePublicationClock(Duration.ofMinutes(2));
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
+                dataSource, autofix, runtime, userGates,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
@@ -6582,19 +6582,17 @@ class TestCiAutofixCoordinator
 
     private void expireRuntime()
     {
-        runtime = new FlowRuntime(
-                dataSource,
-                Clock.fixed(NOW.plus(TTL).plusSeconds(1), ZoneOffset.UTC));
+        rebuildOwnerGraph(
+                Clock.fixed(
+                        NOW.plus(TTL).plusSeconds(1), ZoneOffset.UTC),
+                false);
     }
 
     private void expireLearningRuntime()
     {
         Instant expiredAt = runtimeNow.plus(TTL).plusSeconds(1);
-        runtime = new FlowRuntime(
-                dataSource, Clock.fixed(expiredAt, ZoneOffset.UTC));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
-                Clock.fixed(expiredAt, ZoneOffset.UTC));
+        rebuildOwnerGraph(
+                Clock.fixed(expiredAt, ZoneOffset.UTC), false);
     }
 
     private void markLearningAttemptStopped(String attemptId)
@@ -6615,15 +6613,7 @@ class TestCiAutofixCoordinator
     {
         runtimeNow = runtimeNow.plus(duration);
         Clock advanced = Clock.fixed(runtimeNow, ZoneOffset.UTC);
-        runtime = new FlowRuntime(dataSource, advanced);
-        githubEffects = new GitHubEffects(dataSource, runtime);
-        userGates = new UserGates(
-                dataSource,
-                runtime,
-                localChecks,
-                autofix,
-                githubEffects,
-                advanced);
+        rebuildOwnerGraph(advanced, false);
     }
 
     private ParkedReview parkForReviewer(
@@ -7163,12 +7153,31 @@ class TestCiAutofixCoordinator
     private void restart()
     {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        rebuildOwnerGraph(clock, true);
+    }
+
+    private void rebuildOwnerGraph(Clock clock, boolean rebuildAutofix)
+    {
         runtime = new FlowRuntime(dataSource, clock);
-        autofix = new CiAutofix(
-                dataSource, new ObjectMapper(), clock, this::publishedSubject);
+        localChecks = new LocalChecks(dataSource, runtime, clock);
+        if (rebuildAutofix) {
+            autofix = new CiAutofix(
+                    dataSource,
+                    new ObjectMapper(),
+                    clock,
+                    this::publishedSubject);
+        }
+        githubEffects = new GitHubEffects(dataSource, runtime);
+        userGates = new UserGates(
+                dataSource,
+                runtime,
+                localChecks,
+                autofix,
+                githubEffects,
+                clock);
         coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime,
-                Clock.fixed(runtimeNow, ZoneOffset.UTC));
+                dataSource, autofix, runtime, userGates,
+                clock);
     }
 
     private void transition(TaskStatus next)

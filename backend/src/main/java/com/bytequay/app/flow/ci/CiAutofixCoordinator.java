@@ -34,7 +34,6 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.gate.UserGates.CiUpdateLearningPublication;
 import com.bytequay.app.flow.github.GitHubCiObservationProof;
-import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntime.CiCleanupAdmissionBlockedException;
 import com.bytequay.app.flow.runtime.FlowRuntime.CiCleanupFinalizationReceipt;
@@ -74,7 +73,6 @@ import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.ExecutionHandle;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
-import com.bytequay.app.flow.runtime.LocalChecks;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -130,15 +128,10 @@ public final class CiAutofixCoordinator
     private final Clock clock;
 
     public CiAutofixCoordinator(
-            DataSource dataSource, CiAutofix autofix, FlowRuntime runtime)
-    {
-        this(dataSource, autofix, runtime, Clock.systemUTC());
-    }
-
-    CiAutofixCoordinator(
             DataSource dataSource,
             CiAutofix autofix,
             FlowRuntime runtime,
+            UserGates userGates,
             Clock clock)
     {
         this.transactions = new TransactionTemplate(
@@ -147,12 +140,8 @@ public final class CiAutofixCoordinator
         this.jdbc = new JdbcTemplate(dataSource);
         this.autofix = requireNonNull(autofix, "autofix is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
+        this.userGates = requireNonNull(userGates, "userGates is null");
         this.clock = requireNonNull(clock, "clock is null");
-        GitHubEffects githubEffects = new GitHubEffects(dataSource, runtime);
-        this.userGates = new UserGates(
-                dataSource, runtime,
-                new LocalChecks(dataSource, runtime, clock), autofix,
-                githubEffects, clock);
     }
 
     public record RepairBinding(CiRepairAttempt attempt, AgentRun run)

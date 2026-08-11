@@ -33,6 +33,8 @@ public final class UserGateRecords
     public enum GateState
     {
         OPEN,
+        AUTHORIZED,
+        EXECUTING,
         STALE
     }
 
@@ -257,6 +259,87 @@ public final class UserGateRecords
             requireNonNull(createdByRunId,
                     "createdByRunId is null");
             requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    public record GateAuthorization(
+            String authorizationId,
+            String gateId,
+            long gateRevision,
+            String prId,
+            String subjectDigest,
+            String actionDigest,
+            String authority,
+            String actorId,
+            String idempotencyKey,
+            String operationId,
+            String effectPlanRef,
+            Instant authorizedAt)
+    {
+        public GateAuthorization
+        {
+            requireNonNull(authorizationId,
+                    "authorizationId is null");
+            requireNonNull(gateId, "gateId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(subjectDigest, "subjectDigest is null");
+            requireNonNull(actionDigest, "actionDigest is null");
+            requireNonNull(authority, "authority is null");
+            requireNonNull(actorId, "actorId is null");
+            requireNonNull(idempotencyKey, "idempotencyKey is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(effectPlanRef, "effectPlanRef is null");
+            requireNonNull(authorizedAt, "authorizedAt is null");
+            if (gateRevision < 1
+                    || !authority.equals("USER")
+                    || !actorId.equals("LOCAL_DESKTOP_USER")) {
+                throw new IllegalArgumentException(
+                        "manual authorization identity is invalid");
+            }
+        }
+    }
+
+    public record AuthorizedCiUpdate(
+            GateAuthorization authorization,
+            String planId,
+            String operationId,
+            long prSequence)
+    {
+        public AuthorizedCiUpdate
+        {
+            requireNonNull(authorization, "authorization is null");
+            requireNonNull(planId, "planId is null");
+            requireNonNull(operationId, "operationId is null");
+            if (prSequence < 1) {
+                throw new IllegalArgumentException(
+                        "prSequence must be positive");
+            }
+        }
+    }
+
+    public record CiUpdateEffectActivation(
+            String authorizationId,
+            String planId,
+            String operationId,
+            String prId,
+            long prSequence,
+            String branchRef,
+            String expectedRemoteHead,
+            String proposedHead,
+            String planDigest)
+    {
+        public CiUpdateEffectActivation
+        {
+            requireNonNull(authorizationId,
+                    "authorizationId is null");
+            requireNonNull(planId, "planId is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(branchRef, "branchRef is null");
+            requireNonNull(expectedRemoteHead,
+                    "expectedRemoteHead is null");
+            requireNonNull(proposedHead, "proposedHead is null");
+            requireNonNull(planDigest, "planDigest is null");
         }
     }
 

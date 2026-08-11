@@ -15,8 +15,11 @@ package com.bytequay.app.flow.gate;
 
 import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
+import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateAction;
+import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.CodePublicationReviewBinding;
+import com.bytequay.app.flow.gate.UserGateRecords.GateAuthorization;
 import com.bytequay.app.flow.gate.UserGateRecords.GateKind;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateState;
@@ -26,6 +29,10 @@ import com.bytequay.app.flow.gate.UserGateRecords.LocalCheckBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.LocalReviewBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
 import com.bytequay.app.flow.gate.UserGateRecords.UserGate;
+import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectPlan;
+import com.bytequay.app.flow.github.GitHubEffectRecords.ExternalEffectStep;
+import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.flow.github.GitHubEffects.PreparedCiUpdatePlan;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
@@ -33,9 +40,12 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixSourceKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckEvidence;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
@@ -80,12 +90,16 @@ import static java.util.Objects.requireNonNull;
 public final class UserGates
 {
     private static final String READY_ACTOR = "READY_FOR_REVIEW";
+    private static final String AUTHORIZATION_ACTOR =
+            "USER_GATES_AUTHORIZATION";
+    private static final String MANUAL_ACTOR = "LOCAL_DESKTOP_USER";
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final FlowRuntime runtime;
     private final LocalChecks localChecks;
     private final CiAutofix autofix;
+    private final GitHubEffects githubEffects;
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector =
             new FlowWorktreeInspector();
@@ -95,6 +109,7 @@ public final class UserGates
             FlowRuntime runtime,
             LocalChecks localChecks,
             CiAutofix autofix,
+            GitHubEffects githubEffects,
             Clock clock)
     {
         requireNonNull(dataSource, "dataSource is null");
@@ -104,6 +119,8 @@ public final class UserGates
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.localChecks = requireNonNull(localChecks, "localChecks is null");
         this.autofix = requireNonNull(autofix, "autofix is null");
+        this.githubEffects = requireNonNull(
+                githubEffects, "githubEffects is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -127,6 +144,32 @@ public final class UserGates
     public static ReadyRejectedException missingExactReview()
     {
         return rejected("EXACT_HEAD_REVIEW_MISSING");
+    }
+
+    public static final class AuthorizationRejectedException
+            extends IllegalStateException
+    {
+        private final String reasonCode;
+
+        private AuthorizationRejectedException(String reasonCode)
+        {
+            super(reasonCode);
+            this.reasonCode = reasonCode;
+        }
+
+        public String reasonCode()
+        {
+            return reasonCode;
+        }
+    }
+
+    public static final class DurableStaleEffectException
+            extends IllegalStateException
+    {
+        private DurableStaleEffectException(String reasonCode)
+        {
+            super(reasonCode);
+        }
     }
 
     public static final class PreparedReadyRequest
@@ -183,6 +226,15 @@ public final class UserGates
             this.blockerCode = blockerCode;
         }
     }
+
+    private record AuthorityInspection(
+            Inspection inspection, String blockerCode) {}
+
+    private record AuthorizationOutcome(
+            AuthorizedCiUpdate authorized, String blockerCode) {}
+
+    private record BeginOutcome(
+            CiUpdateEffectActivation activation, String blockerCode) {}
 
     public PreparedReadyRequest prepareReadyRequest(
             String runId,
@@ -424,6 +476,322 @@ public final class UserGates
         });
     }
 
+    /** Authorizes exactly one displayed local CI_UPDATE gate revision. */
+    public AuthorizedCiUpdate authorizeCiUpdate(
+            String gateId,
+            long gateRevision,
+            String expectedSubjectDigest,
+            String expectedActionDigest,
+            String idempotencyKey)
+    {
+        requireText(gateId, "gateId");
+        requireText(expectedSubjectDigest, "expectedSubjectDigest");
+        requireText(expectedActionDigest, "expectedActionDigest");
+        requireText(idempotencyKey, "idempotencyKey");
+        if (gateRevision < 1 || idempotencyKey.length() > 256) {
+            throw new IllegalArgumentException(
+                    "gate revision/idempotency key is invalid");
+        }
+        Optional<GateAuthorization> replay = authorizationByKey(
+                MANUAL_ACTOR, idempotencyKey);
+        if (replay.isPresent()) {
+            return assertAuthorizationGraph(
+                    replay.orElseThrow(), gateId, gateRevision,
+                    expectedSubjectDigest, expectedActionDigest,
+                    idempotencyKey);
+        }
+        Optional<GateAuthorization> revisionReplay = authorizationForRevision(
+                gateId, gateRevision);
+        if (revisionReplay.isPresent()) {
+            GateAuthorization existing = revisionReplay.orElseThrow();
+            if (!existing.idempotencyKey().equals(idempotencyKey)) {
+                throw new AuthorizationRejectedException(
+                        "IDEMPOTENCY_KEY_CONFLICT");
+            }
+            return assertAuthorizationGraph(
+                    existing, gateId, gateRevision,
+                    expectedSubjectDigest, expectedActionDigest,
+                    idempotencyKey);
+        }
+        GateRevision revision = requireRevision(gateId, gateRevision);
+        if (currentState(gateId, gateRevision) != GateState.OPEN) {
+            throw new AuthorizationRejectedException(
+                    terminalAuthorizationBlocker(
+                            gateId, gateRevision));
+        }
+        if (!revision.subjectDigest().equals(expectedSubjectDigest)
+                || !revision.actionDigest().equals(expectedActionDigest)) {
+            throw new AuthorizationRejectedException(
+                    "DISPLAYED_GATE_DIGEST_CHANGED");
+        }
+        GateSubject subject = requireSubject(revision.subjectManifestRef());
+        CiUpdateAction action = requireAction(revision.actionManifestRef());
+        ReviewerRequest reviewerRequest = runtime.reviewerRequest(
+                subject.reviewerRequestId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "reviewer request is missing"));
+        AuthorityInspection inspected = inspectAuthority(
+                Path.of(reviewerRequest.repositoryRoot()), subject);
+        AuthorizationOutcome outcome = inTransaction(() -> {
+            lockCurrentGateRevision(gateId, gateRevision);
+            Optional<GateAuthorization> transactionalReplay =
+                    authorizationByKey(MANUAL_ACTOR, idempotencyKey);
+            if (transactionalReplay.isPresent()) {
+                return new AuthorizationOutcome(
+                        assertAuthorizationGraph(
+                                transactionalReplay.orElseThrow(), gateId,
+                                gateRevision, expectedSubjectDigest,
+                                expectedActionDigest, idempotencyKey),
+                        null);
+            }
+            Optional<GateAuthorization> transactionalRevisionReplay =
+                    authorizationForRevision(gateId, gateRevision);
+            if (transactionalRevisionReplay.isPresent()) {
+                GateAuthorization existing =
+                        transactionalRevisionReplay.orElseThrow();
+                if (!existing.idempotencyKey().equals(idempotencyKey)) {
+                    throw new AuthorizationRejectedException(
+                            "IDEMPOTENCY_KEY_CONFLICT");
+                }
+                return new AuthorizationOutcome(
+                        assertAuthorizationGraph(
+                                existing, gateId, gateRevision,
+                                expectedSubjectDigest,
+                                expectedActionDigest, idempotencyKey),
+                        null);
+            }
+            if (currentState(gateId, gateRevision) != GateState.OPEN) {
+                return new AuthorizationOutcome(
+                        null,
+                        terminalAuthorizationBlocker(
+                                gateId, gateRevision));
+            }
+            String blocker = inspected.blockerCode();
+            if (blocker == null) {
+                blocker = authorizationBlocker(
+                        gateId, gateRevision, revision, subject, action,
+                        inspected.inspection());
+            }
+            if (blocker != null) {
+                staleOpenAuthorization(gateId, gateRevision, blocker);
+                return new AuthorizationOutcome(null, blocker);
+            }
+            Instant now = clock.instant();
+            String authorizationId = stableId(
+                    "gate-authorization:v1",
+                    gateId,
+                    Long.toString(gateRevision),
+                    expectedSubjectDigest,
+                    expectedActionDigest);
+            String operationId = stableId(
+                    "publish-operation:v1", authorizationId);
+            PreparedCiUpdatePlan prepared = githubEffects.prepareCiUpdatePlan(
+                    authorizationId,
+                    operationId,
+                    subject.prId(),
+                    action.branchRef(),
+                    action.expectedRemoteHead(),
+                    action.proposedHead(),
+                    action.actionRef(),
+                    action.actionDigest(),
+                    subject.requiredCiPolicyRevisionId(),
+                    now);
+            String planId = prepared.plan().planId();
+            runtime.reservePublishOperation(
+                    operationId,
+                    planId,
+                    subject.taskId(),
+                    subject.changeSetRevisionId(),
+                    prepared.plan().planDigest(),
+                    now);
+            GateAuthorization authorization = new GateAuthorization(
+                    authorizationId,
+                    gateId,
+                    gateRevision,
+                    subject.prId(),
+                    subject.subjectDigest(),
+                    action.actionDigest(),
+                    "USER",
+                    MANUAL_ACTOR,
+                    idempotencyKey,
+                    operationId,
+                    planId,
+                    now);
+            insertAuthorization(authorization);
+            githubEffects.insert(prepared);
+            appendTransition(
+                    gateId,
+                    gateRevision,
+                    nextTransitionSequence(gateId),
+                    GateState.OPEN,
+                    GateState.AUTHORIZED,
+                    "USER",
+                    MANUAL_ACTOR,
+                    "MANUAL_AUTHORIZATION",
+                    authorizationId,
+                    now);
+            return new AuthorizationOutcome(
+                    assertAuthorizationGraph(
+                            authorization, gateId, gateRevision,
+                            expectedSubjectDigest, expectedActionDigest,
+                            idempotencyKey),
+                    null);
+        });
+        if (outcome.blockerCode() != null) {
+            throw new AuthorizationRejectedException(outcome.blockerCode());
+        }
+        return requireNonNull(outcome.authorized(),
+                "authorization result is null");
+    }
+
+    /** Revalidates and activates one claimed CI_UPDATE without an external call. */
+    public CiUpdateEffectActivation beginCiUpdateEffect(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        Optional<String> canceled = runtime.canceledPublishResult(claim);
+        if (canceled.isPresent()) {
+            String blocker = durableStaleBlocker(
+                    claim, canceled.orElseThrow());
+            throw new DurableStaleEffectException(blocker);
+        }
+        var operation = runtime.assertPublishClaim(claim);
+        ExternalEffectPlan plan = githubEffects.plan(operation.inputRef())
+                .orElseThrow(() -> new IllegalStateException(
+                        "publication plan is missing"));
+        GateAuthorization authorization = authorization(
+                plan.authorizationId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "authorization is missing"));
+        assertStoredAuthorizationGraph(authorization);
+        GateState state = currentState(
+                authorization.gateId(), authorization.gateRevision());
+        if (state == GateState.EXECUTING) {
+            return activation(authorization, plan);
+        }
+        if (state != GateState.AUTHORIZED) {
+            throw new IllegalStateException(
+                    "authorization is not claim-activatable");
+        }
+        GateRevision revision = requireRevision(
+                authorization.gateId(), authorization.gateRevision());
+        GateSubject subject = requireSubject(revision.subjectManifestRef());
+        CiUpdateAction action = requireAction(revision.actionManifestRef());
+        ReviewerRequest reviewerRequest = runtime.reviewerRequest(
+                subject.reviewerRequestId()).orElseThrow();
+        AuthorityInspection inspected = inspectAuthority(
+                Path.of(reviewerRequest.repositoryRoot()), subject);
+        BeginOutcome outcome = inTransaction(() -> {
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            runtime.assertPublishClaim(claim);
+            GateState current = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            if (current == GateState.EXECUTING) {
+                return new BeginOutcome(
+                        activation(authorization, plan), null);
+            }
+            if (current != GateState.AUTHORIZED) {
+                throw new IllegalStateException(
+                        "authorization changed before effect begin");
+            }
+            String blocker = inspected.blockerCode();
+            if (blocker == null) {
+                blocker = authorizationBlocker(
+                        authorization.gateId(),
+                        authorization.gateRevision(),
+                        revision,
+                        subject,
+                        action,
+                        inspected.inspection());
+            }
+            if (blocker != null) {
+                appendTransition(
+                        authorization.gateId(),
+                        authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        GateState.AUTHORIZED,
+                        GateState.STALE,
+                        "PROGRAM",
+                        claim.operationId(),
+                        "EFFECT_STALE",
+                        blocker,
+                        clock.instant());
+                runtime.cancelClaimedPublish(
+                        claim, "PUBLISH_STALE:" + blocker);
+                return new BeginOutcome(null, blocker);
+            }
+            assertAuthorizationGraph(
+                    authorization,
+                    authorization.gateId(),
+                    authorization.gateRevision(),
+                    authorization.subjectDigest(),
+                    authorization.actionDigest(),
+                    authorization.idempotencyKey());
+            appendTransition(
+                    authorization.gateId(),
+                    authorization.gateRevision(),
+                    nextTransitionSequence(authorization.gateId()),
+                    GateState.AUTHORIZED,
+                    GateState.EXECUTING,
+                    "PROGRAM",
+                    claim.operationId(),
+                    "EFFECT_BEGIN",
+                    claim.operationId(),
+                    clock.instant());
+            return new BeginOutcome(
+                    activation(authorization, plan), null);
+        });
+        if (outcome.blockerCode() != null) {
+            throw new DurableStaleEffectException(outcome.blockerCode());
+        }
+        return requireNonNull(outcome.activation(),
+                "effect activation is null");
+    }
+
+    /** Recovers only an expired PUBLISH generation that could not call GitHub. */
+    public void recoverExpiredCiUpdateEffect(
+            String operationId, long generation)
+    {
+        requireText(operationId, "operationId");
+        inTransaction(() -> {
+            ExternalEffectPlan plan = githubEffects.planForAuthorization(
+                    authorizationForOperation(operationId)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "publication authorization is missing"))
+                            .authorizationId()).orElseThrow();
+            if (!plan.operationId().equals(operationId)) {
+                throw new IllegalStateException(
+                        "publication recovery graph is invalid");
+            }
+            GateAuthorization authorization = authorization(
+                    plan.authorizationId()).orElseThrow();
+            lockCurrentGateRevision(
+                    authorization.gateId(), authorization.gateRevision());
+            assertStoredAuthorizationGraph(authorization);
+            GateState state = currentState(
+                    authorization.gateId(), authorization.gateRevision());
+            if (state == GateState.EXECUTING) {
+                appendTransition(
+                        authorization.gateId(),
+                        authorization.gateRevision(),
+                        nextTransitionSequence(authorization.gateId()),
+                        GateState.EXECUTING,
+                        GateState.AUTHORIZED,
+                        "PROGRAM",
+                        operationId,
+                        "NEVER_STARTED_REDRIVE",
+                        operationId,
+                        clock.instant());
+            }
+            else if (state != GateState.AUTHORIZED) {
+                throw new IllegalStateException(
+                        "expired publication is not redrivable");
+            }
+            runtime.redriveExpiredPublish(operationId, generation);
+            return Boolean.TRUE;
+        });
+    }
+
     public Optional<UserGate> gate(String prId)
     {
         requireText(prId, "prId");
@@ -458,6 +826,16 @@ public final class UserGates
                 "SELECT * FROM flow_user_gate_local_review_binding WHERE binding_id = ?",
                 (result, row) -> readLocalReviewBinding(result),
                 bindingId).stream().findFirst();
+    }
+
+    public Optional<GateAuthorization> authorization(String authorizationId)
+    {
+        requireText(authorizationId, "authorizationId");
+        return jdbc.query(
+                "SELECT * FROM flow_user_gate_authorization "
+                        + "WHERE authorization_id = ?",
+                (result, row) -> readAuthorization(result),
+                authorizationId).stream().findFirst();
     }
 
     public List<GateTransition> transitions(String gateId)
@@ -801,19 +1179,22 @@ public final class UserGates
             UserGate gate = existing.orElseThrow();
             GateState currentState = currentState(
                     gate.gateId(), gate.currentRevision());
-            if (currentState != GateState.OPEN) {
+            if (currentState != GateState.OPEN
+                    && currentState != GateState.STALE) {
                 throw new IllegalStateException(
-                        "only the current OPEN CI_UPDATE gate may be revised");
+                        "authorized CI_UPDATE gate may not be revised");
             }
-            appendTransition(
-                    gateId,
-                    gate.currentRevision(),
-                    nextTransitionSequence(gateId),
-                    GateState.OPEN,
-                    GateState.STALE,
-                    "SUPERSEDED_BY_READY",
-                    "ready-subject:" + subject.subjectId(),
-                    now);
+            if (currentState == GateState.OPEN) {
+                appendTransition(
+                        gateId,
+                        gate.currentRevision(),
+                        nextTransitionSequence(gateId),
+                        GateState.OPEN,
+                        GateState.STALE,
+                        "SUPERSEDED_BY_READY",
+                        "ready-subject:" + subject.subjectId(),
+                        now);
+            }
             int advanced = jdbc.update(
                     """
                     UPDATE flow_user_gate SET current_revision = ?
@@ -1146,6 +1527,580 @@ public final class UserGates
         }
     }
 
+    private GateRevision requireRevision(String gateId, long revision)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_revision
+                WHERE gate_id = ? AND revision = ?
+                """,
+                (result, row) -> readRevision(result),
+                gateId,
+                revision).stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException(
+                                "gate revision is missing"));
+    }
+
+    private void lockCurrentGateRevision(String gateId, long revision)
+    {
+        int locked = jdbc.update(
+                """
+                UPDATE flow_user_gate SET gate_id = gate_id
+                WHERE gate_id = ? AND current_revision = ?
+                """,
+                gateId,
+                revision);
+        if (locked != 1) {
+            throw new AuthorizationRejectedException(
+                    "GATE_REVISION_STALE");
+        }
+    }
+
+    private Optional<GateAuthorization> authorizationByKey(
+            String actorId, String idempotencyKey)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_authorization
+                WHERE actor_id = ? AND idempotency_key = ?
+                """,
+                (result, row) -> readAuthorization(result),
+                actorId,
+                idempotencyKey).stream().findFirst();
+    }
+
+    private Optional<GateAuthorization> authorizationForRevision(
+            String gateId, long revision)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_authorization
+                WHERE gate_id = ? AND gate_revision = ?
+                """,
+                (result, row) -> readAuthorization(result),
+                gateId,
+                revision).stream().findFirst();
+    }
+
+    private Optional<GateAuthorization> authorizationForOperation(
+            String operationId)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_authorization
+                WHERE operation_id = ?
+                """,
+                (result, row) -> readAuthorization(result),
+                operationId).stream().findFirst();
+    }
+
+    private static GateAuthorization readAuthorization(ResultSet result)
+            throws SQLException
+    {
+        return new GateAuthorization(
+                result.getString("authorization_id"),
+                result.getString("gate_id"),
+                result.getLong("gate_revision"),
+                result.getString("pr_id"),
+                result.getString("subject_digest"),
+                result.getString("action_digest"),
+                result.getString("authority"),
+                result.getString("actor_id"),
+                result.getString("idempotency_key"),
+                result.getString("operation_id"),
+                result.getString("effect_plan_ref"),
+                instant(result, "authorized_at"));
+    }
+
+    private void insertAuthorization(GateAuthorization authorization)
+    {
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_authorization (
+                    authorization_id, gate_id, gate_revision, pr_id,
+                    subject_digest, action_digest, authority, actor_id,
+                    idempotency_key, operation_id, effect_plan_ref,
+                    authorized_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'USER', ?, ?, ?, ?, ?)
+                """,
+                authorization.authorizationId(),
+                authorization.gateId(),
+                authorization.gateRevision(),
+                authorization.prId(),
+                authorization.subjectDigest(),
+                authorization.actionDigest(),
+                authorization.actorId(),
+                authorization.idempotencyKey(),
+                authorization.operationId(),
+                authorization.effectPlanRef(),
+                authorization.authorizedAt().toEpochMilli());
+    }
+
+    private AuthorityInspection inspectAuthority(
+            Path repositoryRoot, GateSubject subject)
+    {
+        try {
+            return new AuthorityInspection(
+                    inspect(repositoryRoot, subject), null);
+        }
+        catch (InspectionFailure failure) {
+            if (transientFailure(failure.code())) {
+                throw failure;
+            }
+            return new AuthorityInspection(
+                    null, "WORKTREE_" + failure.code().name());
+        }
+    }
+
+    private AuthorizedCiUpdate assertAuthorizationGraph(
+            GateAuthorization authorization,
+            String expectedGateId,
+            long expectedGateRevision,
+            String expectedSubjectDigest,
+            String expectedActionDigest,
+            String expectedIdempotencyKey)
+    {
+        if (!authorization.gateId().equals(expectedGateId)
+                || authorization.gateRevision() != expectedGateRevision
+                || !authorization.subjectDigest().equals(
+                        expectedSubjectDigest)
+                || !authorization.actionDigest().equals(
+                        expectedActionDigest)
+                || !authorization.authority().equals("USER")
+                || !authorization.actorId().equals(MANUAL_ACTOR)
+                || !authorization.idempotencyKey().equals(
+                        expectedIdempotencyKey)) {
+            throw new AuthorizationRejectedException(
+                    "AUTHORIZATION_REPLAY_CONFLICT");
+        }
+        GateRevision revision = requireRevision(
+                authorization.gateId(), authorization.gateRevision());
+        GateSubject subject = requireSubject(revision.subjectManifestRef());
+        CiUpdateAction action = requireAction(revision.actionManifestRef());
+        ExternalEffectPlan plan = githubEffects.plan(
+                authorization.effectPlanRef()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "GitHub effect plan is missing"));
+        List<ExternalEffectStep> steps = githubEffects.steps(plan.planId());
+        githubEffects.assertExactPlan(plan, steps);
+        ExternalEffectStep step = steps.getFirst();
+        Operation operation = runtime.operation(
+                authorization.operationId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "publication operation is missing"));
+        Integer ticketCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_dispatch_ticket "
+                        + "WHERE operation_id = ?",
+                Integer.class,
+                authorization.operationId());
+        Integer transitionCount = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition
+                WHERE gate_id = ? AND gate_revision = ?
+                  AND from_state = 'OPEN' AND to_state = 'AUTHORIZED'
+                  AND actor_type = 'USER' AND actor_id = ?
+                  AND reason_code = 'MANUAL_AUTHORIZATION'
+                  AND detail_ref = ?
+                """,
+                Integer.class,
+                authorization.gateId(),
+                authorization.gateRevision(),
+                MANUAL_ACTOR,
+                authorization.authorizationId());
+        boolean dispatchState = switch (operation.state()) {
+            case READY -> dispatchTicketInState(
+                    operation.operationId(), "AVAILABLE");
+            case CLAIMED -> dispatchTicketInState(
+                    operation.operationId(), "CLAIMED");
+            case CANCELED -> dispatchTicketInState(
+                    operation.operationId(), "DONE");
+            default -> false;
+        };
+        if (!revision.subjectDigest().equals(subject.subjectDigest())
+                || !revision.actionDigest().equals(action.actionDigest())
+                || !authorization.prId().equals(subject.prId())
+                || !plan.planId().equals(authorization.effectPlanRef())
+                || !plan.operationId().equals(authorization.operationId())
+                || !plan.authorizationId().equals(
+                        authorization.authorizationId())
+                || !plan.prId().equals(authorization.prId())
+                || !plan.actionRef().equals(action.actionRef())
+                || !plan.actionDigest().equals(action.actionDigest())
+                || !plan.requiredCiPolicyRevisionId().equals(
+                        subject.requiredCiPolicyRevisionId())
+                || !step.branchRef().equals(action.branchRef())
+                || !step.expectedRemoteHead().equals(
+                        action.expectedRemoteHead())
+                || !step.proposedHead().equals(action.proposedHead())
+                || step.forcePush()
+                || !operation.ownerKind().equals("GITHUB_EFFECT_PLAN")
+                || !operation.ownerId().equals(plan.planId())
+                || !operation.taskId().equals(subject.taskId())
+                || operation.kind() != OperationKind.PUBLISH
+                || !operation.subjectDigest().equals(plan.planDigest())
+                || !operation.inputRef().equals(plan.planId())
+                || requireNonNull(ticketCount,
+                        "publication ticket count is null") != 1
+                || requireNonNull(transitionCount,
+                        "authorization transition count is null") != 1
+                || !dispatchState) {
+            throw new IllegalStateException(
+                    "authorization graph is internally inconsistent");
+        }
+        return new AuthorizedCiUpdate(
+                authorization,
+                plan.planId(),
+                operation.operationId(),
+                plan.prSequence());
+    }
+
+    private AuthorizedCiUpdate assertStoredAuthorizationGraph(
+            GateAuthorization authorization)
+    {
+        return assertAuthorizationGraph(
+                authorization,
+                authorization.gateId(),
+                authorization.gateRevision(),
+                authorization.subjectDigest(),
+                authorization.actionDigest(),
+                authorization.idempotencyKey());
+    }
+
+    private String durableStaleBlocker(
+            Claim claim, String resultRef)
+    {
+        String prefix = "PUBLISH_STALE:";
+        if (!resultRef.startsWith(prefix)) {
+            throw new IllegalStateException(
+                    "publication cancellation is not a stable disposition");
+        }
+        GateAuthorization authorization = authorizationForOperation(
+                claim.operationId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "publication authorization is missing"));
+        assertStoredAuthorizationGraph(authorization);
+        String blocker = resultRef.substring(prefix.length());
+        Integer transition = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition
+                WHERE gate_id = ? AND gate_revision = ?
+                  AND from_state = 'AUTHORIZED' AND to_state = 'STALE'
+                  AND actor_type = 'PROGRAM' AND actor_id = ?
+                  AND reason_code = 'EFFECT_STALE' AND detail_ref = ?
+                  AND sequence = (
+                      SELECT MAX(sequence)
+                      FROM flow_user_gate_transition
+                      WHERE gate_id = ? AND gate_revision = ?
+                  )
+                """,
+                Integer.class,
+                authorization.gateId(),
+                authorization.gateRevision(),
+                claim.operationId(),
+                blocker,
+                authorization.gateId(),
+                authorization.gateRevision());
+        if (blocker.isBlank()
+                || requireNonNull(transition,
+                        "stale transition count is null") != 1) {
+            throw new IllegalStateException(
+                    "publication stale disposition is inconsistent");
+        }
+        return blocker;
+    }
+
+    private boolean dispatchTicketInState(
+            String operationId, String deliveryState)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_dispatch_ticket
+                WHERE operation_id = ? AND delivery_state = ?
+                """,
+                Integer.class,
+                operationId,
+                deliveryState);
+        return requireNonNull(count,
+                "publication ticket state count is null") == 1;
+    }
+
+    private CiUpdateEffectActivation activation(
+            GateAuthorization authorization, ExternalEffectPlan plan)
+    {
+        List<ExternalEffectStep> steps = githubEffects.steps(plan.planId());
+        githubEffects.assertExactPlan(plan, steps);
+        ExternalEffectStep step = steps.getFirst();
+        return new CiUpdateEffectActivation(
+                authorization.authorizationId(),
+                plan.planId(),
+                plan.operationId(),
+                plan.prId(),
+                plan.prSequence(),
+                step.branchRef(),
+                step.expectedRemoteHead(),
+                step.proposedHead(),
+                plan.planDigest());
+    }
+
+    private void staleOpenAuthorization(
+            String gateId, long revision, String blocker)
+    {
+        GateState state = currentState(gateId, revision);
+        if (state == GateState.STALE) {
+            return;
+        }
+        if (state != GateState.OPEN) {
+            throw new AuthorizationRejectedException(
+                    "GATE_NOT_OPEN");
+        }
+        appendTransition(
+                gateId,
+                revision,
+                nextTransitionSequence(gateId),
+                GateState.OPEN,
+                GateState.STALE,
+                "PROGRAM",
+                AUTHORIZATION_ACTOR,
+                "AUTHORIZATION_STALE",
+                blocker,
+                clock.instant());
+    }
+
+    private String terminalAuthorizationBlocker(
+            String gateId, long revision)
+    {
+        return jdbc.queryForObject(
+                """
+                SELECT CASE
+                    WHEN to_state = 'STALE'
+                         AND reason_code = 'AUTHORIZATION_STALE'
+                    THEN detail_ref
+                    ELSE 'GATE_NOT_OPEN'
+                END
+                FROM flow_user_gate_transition
+                WHERE gate_id = ? AND gate_revision = ?
+                ORDER BY sequence DESC LIMIT 1
+                """,
+                String.class,
+                gateId,
+                revision);
+    }
+
+    private String authorizationBlocker(
+            String gateId,
+            long gateRevision,
+            GateRevision revision,
+            GateSubject subject,
+            CiUpdateAction action,
+            Inspection inspection)
+    {
+        UserGate gate = gate(subject.prId()).orElseThrow(() ->
+                new IllegalStateException("CI_UPDATE gate is missing"));
+        if (!gate.gateId().equals(gateId)
+                || gate.currentRevision() != gateRevision
+                || !revision.equals(requireRevision(gateId, gateRevision))) {
+            return "GATE_REVISION_STALE";
+        }
+        if (!revision.subjectDigest().equals(subject.subjectDigest())
+                || !revision.actionDigest().equals(action.actionDigest())
+                || !revision.subjectManifestRef().equals(subject.subjectId())
+                || !revision.actionManifestRef().equals(action.actionRef())) {
+            throw new IllegalStateException(
+                    "gate revision manifests are internally inconsistent");
+        }
+        if (!subject.localReview().ownerPresent()
+                || subject.localReview().bindingId() == null) {
+            return "LOCAL_REVIEW_INCOMPLETE";
+        }
+        assertStoredLocalReviewBinding(subject);
+        if (inspection == null || !inspectionMatches(inspection, subject)) {
+            return "WORKTREE_SUBJECT_STALE";
+        }
+        Task task = runtime.task(subject.taskId()).orElseThrow();
+        ChangeSetRevision changeSet = runtime.currentChangeSet(
+                subject.taskId()).orElseThrow();
+        TaskBaseRevision base = runtime.currentBaseRevision(
+                subject.taskId()).orElseThrow();
+        PullRequestSubject pr = runtime.pullRequest(
+                subject.prId()).orElseThrow();
+        if (task.status() != TaskStatus.ACTIVE
+                || task.selectedWriterOperationId() != null
+                || task.waitingMutationStateRef() != null
+                || !task.repositoryId().equals(subject.repositoryId())
+                || !Objects.equals(task.prId(), subject.prId())
+                || !Objects.equals(task.currentChangeSetRevisionId(),
+                        subject.changeSetRevisionId())
+                || !Objects.equals(task.currentHeadSha(),
+                        subject.proposedHead())
+                || !Objects.equals(task.currentBaseRevisionId(),
+                        subject.baseRevisionId())
+                || !Objects.equals(task.currentBaseSha(), subject.baseSha())) {
+            return "TASK_SUBJECT_STALE";
+        }
+        Integer leases = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_writer_lease "
+                        + "WHERE task_id = ?",
+                Integer.class,
+                task.taskId());
+        Integer reviewers = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_operation
+                WHERE task_id = ? AND kind = 'RUN_REVIEWER'
+                  AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                """,
+                Integer.class,
+                task.taskId());
+        if (requireNonNull(leases, "lease count is null") != 0
+                || requireNonNull(reviewers,
+                        "reviewer count is null") != 0) {
+            return "TASK_AUTHORITY_BUSY";
+        }
+        if (!changeSet.changeSetRevisionId().equals(
+                    subject.changeSetRevisionId())
+                || !changeSet.baseRevisionId().equals(subject.baseRevisionId())
+                || !changeSet.baseSha().equals(subject.baseSha())
+                || !changeSet.headSha().equals(subject.proposedHead())
+                || !changeSet.headTreeDigest().equals(
+                        subject.headTreeDigest())
+                || !changeSet.diffDigest().equals(subject.diffDigest())
+                || !base.baseRevisionId().equals(subject.baseRevisionId())
+                || !base.baseSha().equals(subject.baseSha())) {
+            return "CHANGE_SET_STALE";
+        }
+        if (!pr.prId().equals(subject.prId())
+                || !pr.taskId().equals(subject.taskId())
+                || !pr.repositoryId().equals(subject.repositoryId())
+                || !pr.branchName().equals(task.branchName())
+                || !subject.branchRef().equals(
+                        "refs/heads/" + task.branchName())
+                || !Objects.equals(pr.currentRemoteHead(),
+                        subject.expectedRemoteHead())
+                || subject.expectedRemoteHead().equals(subject.proposedHead())) {
+            return "REMOTE_SUBJECT_STALE";
+        }
+        try {
+            runtime.assertAndLockCiUpdatePr(pr);
+        }
+        catch (FlowRuntime.StaleOwnerRevisionException stale) {
+            return "REMOTE_SUBJECT_STALE";
+        }
+        if (!action.branchRef().equals(subject.branchRef())
+                || !action.expectedRemoteHead().equals(
+                        subject.expectedRemoteHead())
+                || !action.proposedHead().equals(subject.proposedHead())
+                || action.forcePush()) {
+            throw new IllegalStateException(
+                    "CI_UPDATE action does not match its subject");
+        }
+        ReviewerRequest request = runtime.reviewerRequest(
+                subject.reviewerRequestId()).orElseThrow();
+        AgentRun reviewerRun = runtime.run(
+                subject.reviewerRunId()).orElseThrow();
+        AgentResult reviewerResult = runtime.resultForRun(
+                reviewerRun.runId()).orElseThrow();
+        AgentRun readyRun = runtime.run(
+                subject.createdByRunId()).orElseThrow();
+        PendingWork readyInput = runtime.pendingWork(subject.taskId()).stream()
+                .filter(item -> Objects.equals(
+                        item.selectedByOperationId(), readyRun.operationId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "ready input is missing"));
+        List<String> subjectCheckRefs = subject.localChecks().stream()
+                .map(LocalCheckBinding::checkRunId)
+                .toList();
+        if (!request.taskId().equals(subject.taskId())
+                || !request.changeSetRevisionId().equals(
+                        subject.changeSetRevisionId())
+                || !request.reviewedHeadSha().equals(subject.proposedHead())
+                || !request.baseHeadSha().equals(subject.baseSha())
+                || !request.headTreeDigest().equals(subject.headTreeDigest())
+                || !request.diffDigest().equals(subject.diffDigest())
+                || !request.remoteHeadSha().equals(
+                        subject.expectedRemoteHead())
+                || !request.localCheckPolicyRevisionId().equals(
+                        subject.localCheckPolicyRevisionId())
+                || !request.checkRunRefs().equals(subjectCheckRefs)
+                || !request.originCiFixPendingId().equals(
+                        subject.originCiFixPendingId())
+                || !request.originCiFixSourceKind().equals(
+                        subject.originCiFixSourceKind())
+                || !request.originCiFixSourceId().equals(
+                        subject.originCiFixSourceId())
+                || !request.reviewerOperationId().equals(
+                        reviewerRun.operationId())
+                || !runtime.reviewerRequestForReviewerRun(
+                        reviewerRun.runId()).orElseThrow().equals(request)
+                || reviewerRun.state() != RunState.COMPLETED
+                || !reviewerResult.resultId().equals(
+                        subject.reviewerResultId())
+                || reviewerResult.terminalOutcome()
+                        != TerminalOutcome.COMPLETED
+                || readyRun.state() != RunState.COMPLETED
+                || readyRun.wakeKind() != WakeKind.AGENT_RESULT_READY
+                || readyInput.kind() != PendingKind.AGENT_RESULT_READY
+                || !readyInput.externalKey().equals(reviewerRun.runId())
+                || !Objects.equals(
+                        readyInput.agentResultId(), reviewerResult.resultId())
+                || !readyInput.payloadRef().equals(reviewerResultPayload(
+                        request.requestId(), reviewerResult.resultId()))) {
+            return "EXACT_HEAD_REVIEW_STALE";
+        }
+        try {
+            LocalChecks.ReviewerEvidence checks =
+                    localChecks.reviewerEvidence(
+                            subject.taskId(),
+                            subject.changeSetRevisionId(),
+                            GateIntent.CI_UPDATE);
+            checks.assertCurrentForReservation();
+            LocalCheckEvidence evidence = checks.evidence();
+            List<LocalCheckBinding> bindings = evidence.runs().stream()
+                    .map(check -> new LocalCheckBinding(
+                            check.checkRunId(),
+                            check.profileId(),
+                            check.conclusion()))
+                    .toList();
+            if (!evidence.policyRevisionId().equals(
+                        subject.localCheckPolicyRevisionId())
+                    || !bindings.equals(subject.localChecks())) {
+                return "LOCAL_CHECK_EVIDENCE_STALE";
+            }
+        }
+        catch (IllegalStateException stale) {
+            return "LOCAL_CHECK_EVIDENCE_STALE";
+        }
+        try {
+            CiUpdateGateEvidence ci = autofix.ciUpdateGateEvidence(
+                    subject.originCiFixSourceKind(),
+                    subject.originCiFixSourceId());
+            if (!ci.taskId().equals(subject.taskId())
+                    || !ci.prId().equals(subject.prId())
+                    || !ci.roundId().equals(subject.ciRoundId())
+                    || !ci.remoteHead().equals(subject.expectedRemoteHead())
+                    || !ci.requiredCiPolicyRevisionId().equals(
+                            subject.requiredCiPolicyRevisionId())
+                    || ci.evidenceRevision() != subject.ciEvidenceRevision()
+                    || !ci.checkObservationIds().equals(
+                            subject.ciObservationIds())
+                    || !ci.failedLogRefs().equals(subject.failedLogRefs())
+                    || !ci.outputChangeSetRevisionId().equals(
+                            subject.changeSetRevisionId())
+                    || !ci.outputHead().equals(subject.proposedHead())
+                    || !ci.repairAttemptId().equals(
+                            subject.repairAttemptId())
+                    || !ci.repairResultId().equals(subject.repairResultId())
+                    || !Objects.equals(ci.cleanupId(), subject.cleanupId())
+                    || !Objects.equals(
+                            ci.cleanupResultId(), subject.cleanupResultId())) {
+                return "CI_FIX_SOURCE_STALE";
+            }
+        }
+        catch (IllegalStateException stale) {
+            return "CI_FIX_SOURCE_STALE";
+        }
+        return null;
+    }
+
     private UserGate readGate(ResultSet result) throws SQLException
     {
         return new UserGate(
@@ -1220,19 +2175,45 @@ public final class UserGates
             String detail,
             Instant now)
     {
+        appendTransition(
+                gateId,
+                revision,
+                sequence,
+                from,
+                to,
+                "PROGRAM",
+                READY_ACTOR,
+                reason,
+                detail,
+                now);
+    }
+
+    private void appendTransition(
+            String gateId,
+            long revision,
+            long sequence,
+            GateState from,
+            GateState to,
+            String actorType,
+            String actorId,
+            String reason,
+            String detail,
+            Instant now)
+    {
         jdbc.update(
                 """
                 INSERT INTO flow_user_gate_transition (
                     gate_id, gate_revision, sequence, from_state, to_state,
                     actor_type, actor_id, reason_code, detail_ref, recorded_at
-                ) VALUES (?, ?, ?, ?, ?, 'PROGRAM', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 gateId,
                 revision,
                 sequence,
                 from == null ? null : from.name(),
                 to.name(),
-                READY_ACTOR,
+                actorType,
+                actorId,
                 reason,
                 detail,
                 now.toEpochMilli());

@@ -90,9 +90,14 @@ Current executable scope is narrower than this full contract. The implemented
 owner constructs only local `CI_UPDATE` gates from the sealed CI-review Task
 continuation. It creates one stable `(pr_id, CI_UPDATE)` aggregate, immutable
 subjects/actions/revisions/transitions, one exact complete-empty local-review
-binding per PR/change set, and no authorization or external-effect record. A
+binding per PR/change set, and exact manual authorization for the current OPEN
+revision. Authorization atomically creates one immutable GitHub-owned,
+single-step `CI_UPDATE` push plan plus its runtime `PUBLISH` operation/ticket;
+it performs no Git/provider call and writes no timeline event. A
 different later ready run may atomically transition only the current
-OPEN revision to `STALE/SUPERSEDED_BY_READY` and append a new OPEN revision;
+OPEN revision to `STALE/SUPERSEDED_BY_READY` and append a new OPEN revision. A
+revision made `STALE` by authorization/effect freshness is never resurrected,
+but a later exact ready run may append a fresh OPEN revision;
 historical replay returns the revision created by that run.
 
 ### `GateRevision`
@@ -126,9 +131,11 @@ maintained transactionally.
 
 Immutable row:
 
-`{authorization_id, gate_id, gate_revision, subject_digest, action_digest,
-authority=USER|CI_CONSENT|MERGE_CONSENT, user_id?, consent_revision_id?,
-operation_id, effect_plan_ref, authorized_at, consumed_at?}`.
+The implemented manual `CI_UPDATE` row is
+`{authorization_id, gate_id, gate_revision, pr_id, subject_digest,
+action_digest, authority=USER, actor_id=LOCAL_DESKTOP_USER, idempotency_key,
+operation_id, effect_plan_ref, authorized_at}`. Standing-consent and
+consumption fields remain part of the wider contract, not this checkpoint.
 
 An authorization is not reusable for another gate revision or another action
 digest.
@@ -339,10 +346,11 @@ a cleanup-produced candidate, the cleanup ID/result as separate causal facts.
 It also freezes the full ordered failed observation/log lists. The implemented
 greenfield local-review owner stores the exact complete-empty binding above;
 because no CI-memory owner exists yet, memory references remain canonically
-empty. Neither path reads legacy data. The later authorization/freshness owner
-must reject an absent local-review sentinel, revalidate the exact binding and
-other current facts, and transition an obsolete OPEN snapshot. OPEN alone is
-neither authorization nor executable work.
+empty. Neither path reads legacy data. The implemented manual
+authorization/freshness owner rejects an absent local-review sentinel,
+revalidates the exact binding and
+all frozen current facts, and transitions an obsolete OPEN snapshot to terminal
+STALE. OPEN alone is neither authorization nor executable work.
 
 ### 6.3 `REMOTE_FEEDBACK`
 
@@ -438,7 +446,9 @@ only for missing/stale evidence or an unproven process boundary. The implemented
 local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
 manual-only warning, and rejects missing/stale/process-boundary evidence. Its
 complete-empty local-review binding is implemented; private comments/threads,
-other gate kinds, authorization, and effects remain deferred.
+other gate kinds, standing consent, provider execution, and effect proof remain
+deferred. Manual current-OPEN `CI_UPDATE` authorization and its immutable
+one-step push plan/runtime ticket are implemented.
 
 | Gate | Required objective facts |
 |---|---|
@@ -491,7 +501,7 @@ immediate; this is not parsing its eventual final response.
 
 | Method | Meaning |
 |---|---|
-| `GateCommands.authorize(userId, gateId, gateRevision, expectedSubjectDigest, expectedActionDigest, idempotencyKey)` | Approve exactly the displayed revision and digests; the handler supplies authenticated `USER` authority. |
+| `UserGates.authorizeCiUpdate(gateId, gateRevision, expectedSubjectDigest, expectedActionDigest, idempotencyKey)` | Approve exactly the displayed local `CI_UPDATE` revision and digests. The local-sidecar program supplies fixed `USER/LOCAL_DESKTOP_USER` authority; callers cannot choose an actor or authority kind. |
 | `GateCommands.requestChanges(userId, gateId, revision, localRevisionIds[], summary?)` | Submit the selected owned local-review revisions, terminally mark this gate revision `CHANGES_REQUESTED`, persist pending Task work, and ensure the one reconciliation ticket in the same transaction. It does not directly create a writer turn. |
 | `GateCommands.cancel(userId, gateId, revision)` | Cancel this revision without authorizing anything. |
 | `GateCommands.cancelAttention(userId, gateId, revision, attentionRevision)` | Request abandonment of this exact attention state and retain proven receipts. If no executor/remote call can still act, atomically cancel plan/runtime operation and release the barrier; otherwise keep attention while stop/probe proof is obtained, then settle `CANCELED`. |
@@ -524,6 +534,8 @@ name and authorization path for the CI repair-push gate/consent subject.
 | `GateCommands.openOrRevise(...)` | Append one deduplicated gate revision/`OPEN` transition with the exact visible action manifest and digest. It creates no effect plan, operation, or ticket before authority exists. |
 | `GateFreshness.revalidate(gateId, revision)` | Rebuild relevant digests and compare before authorization and every effect. |
 | `GateCommands.authorize(AuthorizeGateCommand)` | In one transaction verify authority/revision/digests, append authorization, reserve the operation ID, lock `prId` and allocate the plan's next monotonic `prSequence`, create the GitHub-owned immutable plan from the frozen action manifest, and create that runtime `Operation` plus its `DispatchTicket`. |
+| `UserGates.beginCiUpdateEffect(claim)` | Revalidate the claimed exact graph and every current owner fact, then append `AUTHORIZED -> EXECUTING` without calling Git or GitHub. Stable drift appends terminal `STALE`, cancels the same operation/ticket, releases the publication barrier, and rearms parked reconciliation in one transaction. |
+| `UserGates.recoverExpiredCiUpdateEffect(operationId, generation)` | Before any provider-attempt API exists, prove the expired generation could not have called a provider, return `EXECUTING -> AUTHORIZED` when needed, and redrive the same operation/ticket. Generic claim recovery rejects `PUBLISH`. |
 | `ConsentEvaluator.maybeAuthorize(gateId, gateRevision)` | If current narrow consent is eligible, construct the same `AuthorizeGateCommand`; otherwise do nothing. |
 | `ReadyPolicyEvaluator.maybeAuthorize(prId, exactRemoteHead)` | Resolve the current `RequiredCiPolicyRevision`, require eligible lineage plus exact-head accepted CI/no blocker, and under the same per-PR allocator atomically create `ReadyAuthorization` freezing that policy/evidence, its next-sequence GitHub-owned plan, and the runtime operation/ticket. |
 | `GateExecution.acceptResult(operationId, githubResultRef)` | Consume only after GitHub integration returns typed references proving every required plan step, then release any exact reconciliation wait on this gate/operation revision; User Gates does not copy attempts/probes/receipts. |
@@ -665,12 +677,14 @@ The following changes stale the named open/authorized revision:
 | Action draft or action order change | Gate whose action digest changes. |
 | Applicable consent/policy revoked | Unclaimed automatic authorization; manual authorization remains only for its frozen action unless safety evidence changed. |
 
-While an authorization is executing, the runtime installs a logical publication
+From the authorization commit until the operation becomes terminal, the runtime
+installs a logical publication
 barrier for the Task. It does **not** hold a writer lease across CI waiting. The
-executor pushes the frozen commit SHA without changing the local worktree or Task
-branch; the barrier prevents an agent/program writer from changing the approved
-subject during that effect. If post-push CI fails, the feedback operation becomes
-stale, the barrier is released, and CI repair may be admitted.
+implemented begin boundary makes no external call; the future executor will push
+the frozen commit SHA without changing the local worktree or Task branch. The
+barrier blocks WorkSelector, writer claims, leases/fences, and Task lifecycle
+changes. Stable begin-time drift atomically stales the gate, cancels the
+never-started operation, releases the barrier, and rearms reconciliation.
 
 External effects do not add a second queue. Every immutable GitHub effect plan
 has a per-`prId` monotonic `prSequence`. Before claiming its runtime ticket, the

@@ -160,7 +160,11 @@ CREATE TABLE flow_user_gate_ci_update_action (
     proposed_head TEXT NOT NULL,
     force_push INTEGER NOT NULL CHECK (force_push = 0),
     action_digest TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    UNIQUE (
+        action_ref, branch_ref, expected_remote_head, proposed_head,
+        force_push, action_digest
+    )
 );
 
 CREATE TABLE flow_user_gate (
@@ -186,6 +190,7 @@ CREATE TABLE flow_user_gate_revision (
     created_by_run_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (gate_id, revision),
+    UNIQUE (gate_id, revision, subject_digest, action_digest),
     FOREIGN KEY (gate_id) REFERENCES flow_user_gate (gate_id),
     FOREIGN KEY (subject_manifest_ref)
         REFERENCES flow_user_gate_subject (subject_id),
@@ -197,13 +202,44 @@ CREATE TABLE flow_user_gate_revision (
         REFERENCES flow_runtime_agent_run (run_id)
 );
 
+CREATE TABLE flow_user_gate_authorization (
+    authorization_id TEXT PRIMARY KEY,
+    gate_id TEXT NOT NULL,
+    gate_revision INTEGER NOT NULL,
+    pr_id TEXT NOT NULL,
+    subject_digest TEXT NOT NULL,
+    action_digest TEXT NOT NULL,
+    authority TEXT NOT NULL CHECK (authority = 'USER'),
+    actor_id TEXT NOT NULL CHECK (actor_id = 'LOCAL_DESKTOP_USER'),
+    idempotency_key TEXT NOT NULL,
+    operation_id TEXT NOT NULL UNIQUE,
+    effect_plan_ref TEXT NOT NULL UNIQUE,
+    authorized_at INTEGER NOT NULL,
+    UNIQUE (actor_id, idempotency_key),
+    UNIQUE (gate_id, gate_revision),
+    UNIQUE (
+        authorization_id, effect_plan_ref, operation_id, pr_id, action_digest
+    ),
+    FOREIGN KEY (gate_id, gate_revision, subject_digest, action_digest)
+        REFERENCES flow_user_gate_revision (
+            gate_id, revision, subject_digest, action_digest
+        ),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);
+
 CREATE TABLE flow_user_gate_transition (
     gate_id TEXT NOT NULL,
     gate_revision INTEGER NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
-    from_state TEXT CHECK (from_state IN ('OPEN', 'STALE')),
-    to_state TEXT NOT NULL CHECK (to_state IN ('OPEN', 'STALE')),
-    actor_type TEXT NOT NULL CHECK (actor_type = 'PROGRAM'),
+    from_state TEXT CHECK (
+        from_state IN ('OPEN', 'AUTHORIZED', 'EXECUTING', 'STALE')
+    ),
+    to_state TEXT NOT NULL CHECK (
+        to_state IN ('OPEN', 'AUTHORIZED', 'EXECUTING', 'STALE')
+    ),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('PROGRAM', 'USER')),
     actor_id TEXT NOT NULL,
     reason_code TEXT NOT NULL,
     detail_ref TEXT,
@@ -212,8 +248,32 @@ CREATE TABLE flow_user_gate_transition (
     FOREIGN KEY (gate_id, gate_revision)
         REFERENCES flow_user_gate_revision (gate_id, revision),
     CHECK (
+        (actor_type = 'USER' AND actor_id = 'LOCAL_DESKTOP_USER')
+        OR (actor_type = 'PROGRAM'
+            AND actor_id <> 'LOCAL_DESKTOP_USER')
+    ),
+    CHECK (
         (from_state IS NULL AND to_state = 'OPEN' AND reason_code = 'READY')
         OR (from_state = 'OPEN' AND to_state = 'STALE'
-            AND reason_code = 'SUPERSEDED_BY_READY')
+            AND reason_code IN (
+                'SUPERSEDED_BY_READY', 'AUTHORIZATION_STALE'
+            ))
+        OR (from_state = 'OPEN' AND to_state = 'AUTHORIZED'
+            AND actor_type = 'USER'
+            AND reason_code = 'MANUAL_AUTHORIZATION'
+            AND detail_ref IS NOT NULL)
+        OR (from_state = 'AUTHORIZED' AND to_state = 'EXECUTING'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'EFFECT_BEGIN'
+            AND detail_ref IS NOT NULL)
+        OR (from_state = 'EXECUTING' AND to_state = 'AUTHORIZED'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'NEVER_STARTED_REDRIVE'
+            AND detail_ref IS NOT NULL)
+        OR (from_state IN ('AUTHORIZED', 'EXECUTING')
+            AND to_state = 'STALE'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'EFFECT_STALE'
+            AND detail_ref IS NOT NULL)
     )
 );

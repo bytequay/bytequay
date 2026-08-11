@@ -563,12 +563,14 @@ not undo an already accepted command. Stable post-seal drift records typed
 attention and no gate; a transaction failure retries the stopped finalizer and
 does not rerun the agent body.
 
-This checkpoint creates no authorization, effect plan, dispatch ticket, push,
-provider call, or timeline event. The binding proves only that no private local
-review items exist; the future authenticated manual authorization supplies the
-semantic review and must reject a historical absent binding. The OPEN gate is
-inert until the separately specified authorization/effect owners are
-implemented.
+The implemented manual command supplies the local user's semantic review for an
+exact current OPEN `CI_UPDATE` revision and rejects a historical absent binding.
+It atomically stores the immutable authorization, one-step GitHub push plan,
+runtime `PUBLISH` operation, and ticket; that commit installs the publication
+barrier. Claim locks the PR and admits the exact stored graph only at its oldest
+nonterminal sequence. Begin revalidates all current owners and records
+`EXECUTING` without calling Git or GitHub. Provider execution/proof, push,
+standing consent, and timeline events remain deferred.
 
 ### 4. Authorize and push
 

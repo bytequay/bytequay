@@ -26,9 +26,14 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
+import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
+import com.bytequay.app.flow.gate.UserGateRecords.GateState;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.gate.UserGatesSchema;
+import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.flow.github.GitHubEffectsSchema;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
@@ -83,6 +88,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -105,12 +111,14 @@ class TestCiAutofixCoordinator
     private FlowRuntime runtime;
     private LocalChecks localChecks;
     private CiAutofix autofix;
+    private GitHubEffects githubEffects;
     private UserGates userGates;
     private CiAutofixCoordinator coordinator;
     private Task task;
     private PullRequestSubject pr;
     private Path repositoryRoot;
     private String publishedHead;
+    private Instant runtimeNow;
     private final AtomicReference<Runnable> publishedSubjectHook =
             new AtomicReference<>();
 
@@ -120,9 +128,11 @@ class TestCiAutofixCoordinator
         dataSource = new DriverManagerDataSource(
                 "jdbc:sqlite:" + temporaryDirectory.resolve("flow.db")
                         + "?foreign_keys=ON&busy_timeout=5000");
+        runtimeNow = NOW;
         FlowRuntimeSchema.install(dataSource);
         CiAutofixSchema.install(dataSource);
         UserGatesSchema.install(dataSource);
+        GitHubEffectsSchema.install(dataSource);
         jdbc = new JdbcTemplate(dataSource);
         runtime = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -147,11 +157,14 @@ class TestCiAutofixCoordinator
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 this::publishedSubject);
+        githubEffects = new GitHubEffects(
+                dataSource, runtime);
         userGates = new UserGates(
                 dataSource,
                 runtime,
                 localChecks,
                 autofix,
+                githubEffects,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         coordinator = new CiAutofixCoordinator(dataSource, autofix, runtime);
     }
@@ -2427,11 +2440,9 @@ class TestCiAutofixCoordinator
                 .isEqualTo(operationCount);
         assertThat(count("flow_runtime_dispatch_ticket", "1 = 1"))
                 .isEqualTo(ticketCount);
-        assertThat(jdbc.queryForList(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                        + "AND (name LIKE '%authorization%' "
-                        + "OR name LIKE '%effect_plan%')",
-                String.class)).isEmpty();
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isZero();
     }
 
     @Test
@@ -2596,10 +2607,19 @@ class TestCiAutofixCoordinator
         assertThat(count(
                 "flow_user_gate_local_review_binding", "1 = 1"))
                 .isEqualTo(bindingCount);
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                ready.revision().gateId(),
+                ready.revision().revision(),
+                ready.revision().subjectDigest(),
+                ready.revision().actionDigest(),
+                "historical-absent-key"))
+                .isInstanceOf(UserGates.AuthorizationRejectedException.class)
+                .hasMessage("LOCAL_REVIEW_INCOMPLETE");
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
     }
 
     @Test
-    void completeEmptyBindingAddsNoSpeculativeLocalReviewOrEffectOwner()
+    void publicationPlanningAddsNoSpeculativeReviewOrProviderExecutionOwner()
     {
         openReadyGate("binding-yagni");
 
@@ -2611,8 +2631,11 @@ class TestCiAutofixCoordinator
                     OR name LIKE 'flow_user_gate_local_review_revision%'
                     OR name LIKE 'flow_user_gate_local_review_batch%'
                     OR name LIKE 'flow_user_gate_local_review_current%'
-                    OR name LIKE 'flow_user_gate_authorization%'
-                    OR name LIKE 'flow_github_effect%'
+                    OR name LIKE '%consent%'
+                    OR name LIKE '%effect_attempt%'
+                    OR name LIKE '%effect_probe%'
+                    OR name LIKE '%effect_receipt%'
+                    OR name LIKE '%provider_call%'
                 )
                 """,
                 String.class)).isEmpty();
@@ -3812,6 +3835,592 @@ class TestCiAutofixCoordinator
                         continuation, TTL));
     }
 
+    @Test
+    void exactManualAuthorizationBuildsOneClaimablePlanAndBeginReplays()
+    {
+        CompletedReady ready = openReadyGate("manual-authorization");
+        GateRevision revision = ready.revision();
+
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(),
+                revision.revision(),
+                revision.subjectDigest(),
+                revision.actionDigest(),
+                "authorize-manual-1");
+        assertThat(userGates.authorizeCiUpdate(
+                revision.gateId(),
+                revision.revision(),
+                revision.subjectDigest(),
+                revision.actionDigest(),
+                "authorize-manual-1")).isEqualTo(authorized);
+        assertThat(githubEffects.steps(authorized.planId())).singleElement()
+                .satisfies(step -> {
+                    assertThat(step.ordinal()).isEqualTo(1);
+                    assertThat(step.forcePush()).isFalse();
+                });
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.READY);
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN, GateState.AUTHORIZED);
+        assertThat(jdbc.queryForMap(
+                """
+                SELECT actor_type, actor_id
+                FROM flow_user_gate_transition
+                WHERE gate_id = ? AND reason_code = 'MANUAL_AUTHORIZATION'
+                """,
+                revision.gateId()))
+                .containsEntry("actor_type", "USER")
+                .containsEntry("actor_id", "LOCAL_DESKTOP_USER");
+
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        assertThat(userGates.beginCiUpdateEffect(claim))
+                .isEqualTo(activation);
+        assertThat(activation.operationId())
+                .isEqualTo(authorized.operationId());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CLAIMED);
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN,
+                        GateState.AUTHORIZED,
+                        GateState.EXECUTING);
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_github_external_effect_step", "1 = 1"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void concurrentAuthorizationAndBeginDeliveriesCreateOneExactGraph()
+            throws Exception
+    {
+        CompletedReady ready = openReadyGate("concurrent-authorization");
+        GateRevision revision = ready.revision();
+        CountDownLatch callersReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<AuthorizedCiUpdate> first = new AtomicReference<>();
+        AtomicReference<AuthorizedCiUpdate> second = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread firstThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                first.set(userGates.authorizeCiUpdate(
+                        revision.gateId(), revision.revision(),
+                        revision.subjectDigest(), revision.actionDigest(),
+                        "concurrent-key"));
+            }
+            catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        }, "first-authorization");
+        Thread secondThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                second.set(userGates.authorizeCiUpdate(
+                        revision.gateId(), revision.revision(),
+                        revision.subjectDigest(), revision.actionDigest(),
+                        "concurrent-key"));
+            }
+            catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        }, "second-authorization");
+        firstThread.start();
+        secondThread.start();
+        assertThat(callersReady.await(5, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        firstThread.join(30_000);
+        secondThread.join(30_000);
+        assertThat(firstThread.isAlive()).isFalse();
+        assertThat(secondThread.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(first.get()).isEqualTo(second.get());
+        assertThat(count("flow_user_gate_authorization", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                .isEqualTo(1);
+
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        CountDownLatch beginStart = new CountDownLatch(1);
+        AtomicReference<CiUpdateEffectActivation> firstBegin =
+                new AtomicReference<>();
+        AtomicReference<CiUpdateEffectActivation> secondBegin =
+                new AtomicReference<>();
+        Thread firstBeginThread = new Thread(() -> {
+            awaitLatch(beginStart);
+            try {
+                firstBegin.set(userGates.beginCiUpdateEffect(claim));
+            }
+            catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        }, "first-begin");
+        Thread secondBeginThread = new Thread(() -> {
+            awaitLatch(beginStart);
+            try {
+                secondBegin.set(userGates.beginCiUpdateEffect(claim));
+            }
+            catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        }, "second-begin");
+        firstBeginThread.start();
+        secondBeginThread.start();
+        beginStart.countDown();
+        firstBeginThread.join(30_000);
+        secondBeginThread.join(30_000);
+        assertThat(failure.get()).isNull();
+        assertThat(firstBegin.get()).isNotNull();
+        assertThat(firstBegin.get()).isEqualTo(secondBegin.get());
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN,
+                        GateState.AUTHORIZED,
+                        GateState.EXECUTING);
+    }
+
+    @Test
+    void stableBeginDriftCancelsPublicationAndRearmsParkedReconciliation()
+    {
+        CompletedReady ready = openReadyGate("publish-stale-rearm");
+        var registered = runtime.registerFinalRed(
+                "later-round",
+                task.taskId(),
+                pr.prId(),
+                publishedHead,
+                "later-payload");
+        Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(),
+                revision.revision(),
+                revision.subjectDigest(),
+                revision.actionDigest(),
+                "authorize-stale-1");
+        Claim publish = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        assertThat(runtime.selectNext(reconciliation)).isEmpty();
+        assertThat(runtime.operation(reconciliation.operationId())
+                .orElseThrow().state()).isEqualTo(OperationState.WAITING);
+        runtime.advanceRemoteHead(
+                pr.prId(), publishedHead, publishedHead + "-advanced");
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(publish))
+                .isInstanceOf(UserGates.DurableStaleEffectException.class)
+                .hasMessage("REMOTE_SUBJECT_STALE");
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(publish))
+                .isInstanceOf(UserGates.DurableStaleEffectException.class)
+                .hasMessage("REMOTE_SUBJECT_STALE");
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CANCELED);
+        assertThat(runtime.operation(reconciliation.operationId())
+                .orElseThrow().state()).isEqualTo(OperationState.READY);
+        Claim resumed = claim(OperationKind.RECONCILE_TASK);
+        assertThat(resumed.operationId())
+                .isEqualTo(reconciliation.operationId());
+        assertThat(registered.reconciliationOperationId())
+                .isEqualTo(reconciliation.operationId());
+    }
+
+    @Test
+    void authorizationRejectsConflictsAndLateFailureRollsBackEveryOwner()
+    {
+        CompletedReady ready = openReadyGate("authorization-rollback");
+        GateRevision revision = ready.revision();
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                "wrong-subject-digest", revision.actionDigest(),
+                "wrong-digest-key"))
+                .isInstanceOf(UserGates.AuthorizationRejectedException.class)
+                .hasMessage("DISPLAYED_GATE_DIGEST_CHANGED");
+
+        jdbc.execute("""
+                CREATE TRIGGER fail_effect_step
+                BEFORE INSERT ON flow_github_external_effect_step
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced effect step failure');
+                END
+                """);
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "rollback-key"))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isZero();
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                .isZero();
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN);
+
+        jdbc.execute("DROP TRIGGER fail_effect_step");
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "rollback-key");
+        assertThat(authorized.prSequence()).isEqualTo(1);
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "different-key"))
+                .isInstanceOf(UserGates.AuthorizationRejectedException.class)
+                .hasMessage("IDEMPOTENCY_KEY_CONFLICT");
+        assertThat(count("flow_user_gate_authorization", "1 = 1"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void authorizationStaleIsTerminalEvenIfInspectionLaterFails()
+            throws Exception
+    {
+        CompletedReady ready = openReadyGate("authorization-stale-terminal");
+        GateRevision revision = ready.revision();
+        String moved = runtime.currentChangeSet(task.taskId())
+                .orElseThrow().headSha();
+        runtime.advanceRemoteHead(pr.prId(), publishedHead, moved);
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "stale-terminal-key"))
+                .isInstanceOf(UserGates.AuthorizationRejectedException.class)
+                .hasMessage("REMOTE_SUBJECT_STALE");
+        runtime.advanceRemoteHead(pr.prId(), moved, publishedHead);
+        Path git = repositoryRoot.resolve(".git");
+        Path hiddenGit = repositoryRoot.resolve(".git-hidden");
+        Files.move(git, hiddenGit);
+        try {
+            assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                    revision.gateId(), revision.revision(),
+                    revision.subjectDigest(), revision.actionDigest(),
+                    "stale-terminal-key"))
+                    .isInstanceOf(
+                            UserGates.AuthorizationRejectedException.class)
+                    .hasMessage("REMOTE_SUBJECT_STALE");
+        }
+        finally {
+            Files.move(hiddenGit, git);
+        }
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN, GateState.STALE);
+        assertThat(jdbc.queryForMap(
+                """
+                SELECT actor_type, actor_id
+                FROM flow_user_gate_transition
+                WHERE gate_id = ? AND reason_code = 'AUTHORIZATION_STALE'
+                """,
+                revision.gateId()))
+                .containsEntry("actor_type", "PROGRAM")
+                .containsEntry("actor_id", "USER_GATES_AUTHORIZATION");
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                .isZero();
+        runtime.advanceRemoteHead(pr.prId(), publishedHead, moved);
+        publishedHead = moved;
+        CompletedReady replacement = openReadyGate(
+                "authorization-after-stale", "failure-2");
+        assertThat(replacement.revision().revision()).isEqualTo(2);
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN,
+                        GateState.STALE,
+                        GateState.OPEN);
+    }
+
+    @Test
+    void neverStartedPublishRecoveryIsOwnerSpecificAndIdempotent()
+    {
+        CompletedReady ready = openReadyGate("publish-recovery");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "recovery-key");
+        Claim first = runtime.claimNextPublish(
+                "publisher", Duration.ofSeconds(1)).orElseThrow();
+        advancePublicationClock(Duration.ofSeconds(2));
+        assertThatThrownBy(() -> runtime.recoverExpiredClaim(
+                first.operationId(), first.generation()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("owner-specific");
+        userGates.recoverExpiredCiUpdateEffect(
+                first.operationId(), first.generation());
+        userGates.recoverExpiredCiUpdateEffect(
+                first.operationId(), first.generation());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.READY);
+
+        Claim second = runtime.claimNextPublish(
+                "publisher-2", Duration.ofSeconds(1)).orElseThrow();
+        userGates.beginCiUpdateEffect(second);
+        advancePublicationClock(Duration.ofSeconds(2));
+        userGates.recoverExpiredCiUpdateEffect(
+                second.operationId(), second.generation());
+        userGates.recoverExpiredCiUpdateEffect(
+                second.operationId(), second.generation());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.READY);
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN,
+                        GateState.AUTHORIZED,
+                        GateState.EXECUTING,
+                        GateState.AUTHORIZED);
+    }
+
+    @Test
+    void transientBeginFailureLeavesTheExactClaimRetryable()
+    {
+        CompletedReady ready = openReadyGate("publish-begin-rollback");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "begin-rollback-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        jdbc.execute("""
+                CREATE TRIGGER fail_effect_begin
+                BEFORE INSERT ON flow_user_gate_transition
+                WHEN NEW.reason_code = 'EFFECT_BEGIN'
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced effect begin failure');
+                END
+                """);
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(claim))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(runtime.assertPublishClaim(claim).operationId())
+                .isEqualTo(authorized.operationId());
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN, GateState.AUTHORIZED);
+
+        jdbc.execute("DROP TRIGGER fail_effect_begin");
+        assertThat(userGates.beginCiUpdateEffect(claim).operationId())
+                .isEqualTo(authorized.operationId());
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN,
+                        GateState.AUTHORIZED,
+                        GateState.EXECUTING);
+    }
+
+    @Test
+    void publicationBarrierBlocksReconciliationClaim()
+    {
+        CompletedReady ready = openReadyGate("publish-barrier");
+        GateRevision revision = ready.revision();
+        userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "barrier-key");
+        runtime.registerFinalRed(
+                "barrier-round", task.taskId(), pr.prId(), publishedHead,
+                "barrier-payload");
+        assertThat(runtime.claimNext("writer", TTL)).isEmpty();
+        Task current = runtime.task(task.taskId()).orElseThrow();
+        assertThatThrownBy(() -> runtime.transitionTask(
+                task.taskId(),
+                current.currentLifecycleRevisionId(),
+                TaskStatus.WAITING_USER,
+                "USER_PAUSED",
+                "pause"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("publication is live");
+        assertThatThrownBy(() -> runtime.transitionTask(
+                task.taskId(),
+                current.currentLifecycleRevisionId(),
+                TaskStatus.CANCELED,
+                "USER_CANCELED",
+                "cancel"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("publication is live");
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH' "
+                + "AND state = 'READY'"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void concurrentPublicationReservationAndWorkSelectionCannotBothWin()
+            throws Exception
+    {
+        CompletedReady ready = openReadyGate("publish-selection-race");
+        runtime.registerFinalRed(
+                "publish-selection-later",
+                task.taskId(),
+                pr.prId(),
+                publishedHead,
+                "publish-selection-payload");
+        Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
+        GateRevision revision = ready.revision();
+        CountDownLatch callersReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<AuthorizedCiUpdate> authorized =
+                new AtomicReference<>();
+        AtomicReference<Optional<Operation>> selected =
+                new AtomicReference<>();
+        AtomicReference<Throwable> authorizationFailure =
+                new AtomicReference<>();
+        AtomicReference<Throwable> selectionFailure =
+                new AtomicReference<>();
+        Thread authorizationThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                authorized.set(userGates.authorizeCiUpdate(
+                        revision.gateId(), revision.revision(),
+                        revision.subjectDigest(), revision.actionDigest(),
+                        "selection-race-key"));
+            }
+            catch (Throwable thrown) {
+                authorizationFailure.set(thrown);
+            }
+        }, "publication-reservation");
+        Thread selectionThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                selected.set(runtime.selectNext(reconciliation));
+            }
+            catch (Throwable thrown) {
+                selectionFailure.set(thrown);
+            }
+        }, "work-selection");
+        authorizationThread.start();
+        selectionThread.start();
+        assertThat(callersReady.await(5, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        authorizationThread.join(30_000);
+        selectionThread.join(30_000);
+        assertThat(selectionFailure.get()).isNull();
+        if (authorized.get() != null) {
+            assertThat(authorizationFailure.get()).isNull();
+            assertThat(selected.get()).isEmpty();
+            assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                    .isEqualTo(1);
+            assertThat(runtime.task(task.taskId()).orElseThrow()
+                    .selectedWriterOperationId()).isNull();
+        }
+        else {
+            assertThat(authorizationFailure.get()).isNotNull();
+            assertThat(selected.get()).isPresent();
+            assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                    .isZero();
+            assertThat(runtime.task(task.taskId()).orElseThrow()
+                    .selectedWriterOperationId()).isNotNull();
+        }
+    }
+
+    @Test
+    void concurrentPublicationReservationAndTaskTerminationCannotBothWin()
+            throws Exception
+    {
+        CompletedReady ready = openReadyGate("publish-lifecycle-race");
+        GateRevision revision = ready.revision();
+        Task current = runtime.task(task.taskId()).orElseThrow();
+        CountDownLatch callersReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<AuthorizedCiUpdate> authorized =
+                new AtomicReference<>();
+        AtomicReference<Throwable> authorizationFailure =
+                new AtomicReference<>();
+        AtomicReference<Throwable> transitionFailure =
+                new AtomicReference<>();
+        Thread authorizationThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                authorized.set(userGates.authorizeCiUpdate(
+                        revision.gateId(), revision.revision(),
+                        revision.subjectDigest(), revision.actionDigest(),
+                        "lifecycle-race-key"));
+            }
+            catch (Throwable thrown) {
+                authorizationFailure.set(thrown);
+            }
+        }, "publication-lifecycle-reservation");
+        Thread transitionThread = new Thread(() -> {
+            callersReady.countDown();
+            awaitLatch(start);
+            try {
+                runtime.transitionTask(
+                        task.taskId(),
+                        current.currentLifecycleRevisionId(),
+                        TaskStatus.CANCELED,
+                        "USER_CANCELED",
+                        "race-cancel");
+            }
+            catch (Throwable thrown) {
+                transitionFailure.set(thrown);
+            }
+        }, "task-termination");
+        authorizationThread.start();
+        transitionThread.start();
+        assertThat(callersReady.await(5, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        authorizationThread.join(30_000);
+        transitionThread.join(30_000);
+        if (authorized.get() != null) {
+            assertThat(authorizationFailure.get()).isNull();
+            assertThat(transitionFailure.get()).isNotNull();
+            assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                    .isEqualTo(TaskStatus.ACTIVE);
+            assertThat(runtime.operation(authorized.get().operationId())
+                    .orElseThrow().state()).isEqualTo(OperationState.READY);
+        }
+        else {
+            assertThat(authorizationFailure.get()).isNotNull();
+            assertThat(transitionFailure.get()).isNull();
+            assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                    .isEqualTo(TaskStatus.CANCELED);
+            assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                    .isZero();
+        }
+    }
+
+    @Test
+    void effectPlanReaderRejectsDigestCorruptionAndSchemaRejectsPayloadDrift()
+    {
+        CompletedReady ready = openReadyGate("plan-corruption");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "plan-corruption-key");
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_github_external_effect_step
+                SET proposed_head = 'different-head' WHERE plan_id = ?
+                """,
+                authorized.planId())).isInstanceOf(RuntimeException.class);
+        jdbc.update(
+                """
+                UPDATE flow_github_external_effect_step
+                SET precondition_digest = 'corrupt' WHERE plan_id = ?
+                """,
+                authorized.planId());
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "plan-corruption-key"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("digest graph");
+    }
+
     private CompletedReady openReadyGate(String suffix)
     {
         return openReadyGate(suffix, "failure-1");
@@ -3898,6 +4507,21 @@ class TestCiAutofixCoordinator
         runtime = new FlowRuntime(
                 dataSource,
                 Clock.fixed(NOW.plus(TTL).plusSeconds(1), ZoneOffset.UTC));
+    }
+
+    private void advancePublicationClock(Duration duration)
+    {
+        runtimeNow = runtimeNow.plus(duration);
+        Clock advanced = Clock.fixed(runtimeNow, ZoneOffset.UTC);
+        runtime = new FlowRuntime(dataSource, advanced);
+        githubEffects = new GitHubEffects(dataSource, runtime);
+        userGates = new UserGates(
+                dataSource,
+                runtime,
+                localChecks,
+                autofix,
+                githubEffects,
+                advanced);
     }
 
     private ParkedReview parkForReviewer(

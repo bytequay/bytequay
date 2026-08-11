@@ -125,6 +125,14 @@ scoped standing consent. The authorization freezes the relevant head,
 revisions, action digest, and policy revision. A changed subject makes it
 stale.
 
+The current executable subset implements this boundary only for manual local
+`CI_UPDATE`: the exact decision atomically creates one immutable one-step push
+plan and its runtime `PUBLISH` operation/ticket, installing the barrier. Claim
+locks the PR and admits the exact stored graph at the oldest nonterminal
+sequence; begin performs current-owner freshness revalidation but makes no Git
+or provider call. Attempts, probes, receipts, standing consent, and timeline
+projection remain deferred.
+
 ### 6. Record a fact once
 
 Each durable fact is stored in the component that owns it. The PR timeline is a

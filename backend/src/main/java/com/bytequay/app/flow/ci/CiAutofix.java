@@ -64,6 +64,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -285,6 +286,20 @@ public final class CiAutofix
                 scopeKey).stream().findFirst();
     }
 
+    boolean lockCurrentPolicy(RequiredCiPolicyRevision policy)
+    {
+        requireNonNull(policy, "policy is null");
+        return jdbc.update(
+                """
+                UPDATE flow_ci_policy_current
+                SET policy_revision_id = policy_revision_id
+                WHERE repository_id = ? AND scope_key = ?
+                  AND policy_revision_id = ?
+                """,
+                policy.repositoryId(), policy.scopeKey(),
+                policy.policyRevisionId()) == 1;
+    }
+
     /** Current actionable CI-fix facts for one local CI_UPDATE gate. */
     public CiUpdateGateEvidence ciUpdateGateEvidence(
             String sourceKind, String sourceId)
@@ -395,7 +410,27 @@ public final class CiAutofix
         }), "CI_UPDATE evidence transaction returned null");
     }
 
-    public CiCheckObservation observeCi(String prId, NormalizedCheck check)
+    CiCheckObservation observeCi(String prId, NormalizedCheck check)
+    {
+        return observeCi(null, null, prId, check);
+    }
+
+    CiCheckObservation observeProviderCi(
+            String sourceOperationId,
+            String sourceReceiptId,
+            String prId,
+            NormalizedCheck check)
+    {
+        requireText(sourceOperationId, "sourceOperationId");
+        requireText(sourceReceiptId, "sourceReceiptId");
+        return observeCi(sourceOperationId, sourceReceiptId, prId, check);
+    }
+
+    private CiCheckObservation observeCi(
+            String sourceOperationId,
+            String sourceReceiptId,
+            String prId,
+            NormalizedCheck check)
     {
         requireText(prId, "prId");
         requireNonNull(check, "check is null");
@@ -403,6 +438,8 @@ public final class CiAutofix
         String id = stableId(
                 "ci-observation",
                 prId,
+                Objects.toString(sourceOperationId, "INTERNAL"),
+                Objects.toString(sourceReceiptId, "INTERNAL"),
                 check.selectorKey(),
                 check.providerCheckId(),
                 check.providerRunId(),
@@ -411,14 +448,17 @@ public final class CiAutofix
         jdbc.update(
                     """
                     INSERT OR IGNORE INTO flow_ci_check_observation (
-                        observation_id, pr_id, head_sha, selector_key, provider_check_id,
+                        observation_id, pr_id, source_operation_id,
+                        source_receipt_id, head_sha, selector_key, provider_check_id,
                         provider_run_id, attempt, provider_state_revision,
                         name, status, conclusion, started_at, completed_at,
                         observed_at, raw_evidence_ref
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     id,
                     subject.prId(),
+                    sourceOperationId,
+                    sourceReceiptId,
                     check.headSha(),
                     check.selectorKey(),
                     check.providerCheckId(),
@@ -435,6 +475,12 @@ public final class CiAutofix
         CiCheckObservation stored = observation(id)
                 .orElseThrow(() -> new IllegalStateException(
                         "CI observation identity conflict for " + id));
+        if (!Objects.equals(stored.sourceOperationId(), sourceOperationId)
+                || !Objects.equals(
+                        stored.sourceReceiptId(), sourceReceiptId)) {
+            throw new IllegalStateException(
+                    "CI observation source identity conflict for " + id);
+        }
         assertSameObservation(stored.check(), check);
         return stored;
     }
@@ -596,6 +642,70 @@ public final class CiAutofix
                 "finalize transaction returned null");
     }
 
+    FinalizeHeadResult finalizeProviderBatch(
+            String sourceOperationId,
+            String sourceReceiptId,
+            String prId,
+            String headSha,
+            String policyRevisionId,
+            List<String> exactObservationIds)
+    {
+        requireText(sourceOperationId, "sourceOperationId");
+        requireText(sourceReceiptId, "sourceReceiptId");
+        requireText(prId, "prId");
+        requireText(headSha, "headSha");
+        requireText(policyRevisionId, "policyRevisionId");
+        requireNonNull(exactObservationIds, "exactObservationIds is null");
+        if (exactObservationIds.size()
+                        != new HashSet<>(exactObservationIds).size()) {
+            throw new IllegalArgumentException(
+                    "provider batch observation IDs are invalid");
+        }
+        ObservationSource source = new ObservationSource(
+                sourceOperationId, sourceReceiptId);
+        return requireNonNull(transactions.execute(ignored -> {
+            PublishedPrSubject subject = requireSubject(prId);
+            supersedeOldHeadRounds(subject);
+            if (!subject.currentRemoteHead().equals(headSha)) {
+                return new FinalizeBlocked(
+                        FinalizeBlocker.STALE_REMOTE_HEAD,
+                        "Current remote head is " + subject.currentRemoteHead());
+            }
+            RequiredCiPolicyRevision policy = currentPolicy(
+                    subject.repositoryId(), subject.scopeKey()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "Current CI policy is unavailable"));
+            if (!policy.policyRevisionId().equals(policyRevisionId)
+                    || policy.resolution() != PolicyResolution.RESOLVED
+                    || !policy.targetBaseRef().equals(
+                            subject.targetBaseRef())) {
+                throw new IllegalStateException(
+                        "provider batch CI policy is no longer current");
+            }
+            List<CiCheckObservation> exact = exactObservationIds.stream()
+                    .map(id -> observation(id).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "provider batch observation is missing: " + id)))
+                    .toList();
+            for (CiCheckObservation observation : exact) {
+                if (!observation.prId().equals(prId)
+                        || !observation.check().headSha().equals(headSha)
+                        || !Objects.equals(
+                                observation.sourceOperationId(),
+                                source.operationId())
+                        || !Objects.equals(
+                                observation.sourceReceiptId(),
+                                source.receiptId())) {
+                    throw new IllegalStateException(
+                            "provider batch mixes observation authority");
+                }
+            }
+            return storeFinalizedRound(
+                    subject, headSha, policy,
+                    calculateRound(exact, policy), source);
+        }), "provider batch finalize transaction returned null");
+    }
+
     /**
      * Lazily reconciles old rounds after the PR-owner snapshot reports a new head.
      * Future GitHub integration must invoke the equivalent operation inside the
@@ -644,8 +754,8 @@ public final class CiAutofix
                     requested.prId(),
                     requested.remoteHead(),
                     requested.policyRevisionId()).orElseThrow();
-            RoundCalculation calculation = calculateRound(
-                    requested.prId(), requested.remoteHead(), policy);
+            RoundCalculation calculation = calculateStoredRound(
+                    requested, policy);
             if (!latest.roundId().equals(roundId)
                     || calculation.state() != RoundState.FINAL_RED
                     || !calculation.observationIds().equals(
@@ -747,7 +857,7 @@ public final class CiAutofix
                 subject.repositoryId(), subject.scopeKey())
                 .orElseThrow(() -> new CiEvidenceUnavailableException(
                         "CI_POLICY_MISSING", "No current CI policy"));
-        RoundCalculation current = calculateRound(prId, headSha, policy);
+        RoundCalculation current = calculateStoredRound(round, policy);
         if (current.state() != RoundState.GREEN
                 || !current.observationIds().equals(round.checkObservationIds())) {
             throw new CiEvidenceUnavailableException(
@@ -809,9 +919,48 @@ public final class CiAutofix
                     requireNonNull(policy.unavailableReasonRef(), "unavailableReasonRef is null"));
         }
 
+        Optional<CiRound> latest = round(
+                prId, headSha, policy.policyRevisionId());
+        if (latest.isPresent()
+                && latest.orElseThrow().sourceObservationOperationId()
+                        != null) {
+            CiRound sourced = latest.orElseThrow();
+            RoundCalculation exact = calculateStoredRound(sourced, policy);
+            if (!sameFrozenEvidence(sourced, exact)) {
+                throw new IllegalStateException(
+                        "provider-sourced CI round evidence is inconsistent");
+            }
+            return new FinalizedRound(sourced, false);
+        }
+        Integer sourcedFacts = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_ci_check_observation
+                WHERE pr_id = ? AND head_sha = ?
+                  AND source_operation_id IS NOT NULL
+                """,
+                Integer.class, prId, headSha);
+        if (latest.isEmpty() && requireNonNull(
+                sourcedFacts, "sourced observation count is null") > 0) {
+            return new FinalizeBlocked(
+                    FinalizeBlocker.CI_OBSERVATION_PENDING,
+                    "Current CI policy awaits its next exhaustive provider poll");
+        }
         RoundCalculation calculation = calculateRound(prId, headSha, policy);
-        Optional<CiRound> before = round(prId, headSha, policy.policyRevisionId());
-        CiRound stored = storeRound(subject, headSha, policy, calculation);
+        return storeFinalizedRound(
+                subject, headSha, policy, calculation, null);
+    }
+
+    private FinalizeHeadResult storeFinalizedRound(
+            PublishedPrSubject subject,
+            String headSha,
+            RequiredCiPolicyRevision policy,
+            RoundCalculation calculation,
+            ObservationSource source)
+    {
+        Optional<CiRound> before = round(
+                subject.prId(), headSha, policy.policyRevisionId());
+        CiRound stored = storeRound(
+                subject, headSha, policy, calculation, source);
         jdbc.update(
                 """
                 UPDATE flow_ci_round
@@ -822,7 +971,7 @@ public final class CiAutofix
                   AND state NOT IN ('GREEN', 'SUPERSEDED')
                 """,
                 stored.roundId(),
-                prId,
+                subject.prId(),
                 headSha,
                 policy.policyRevisionId());
         boolean newlyFinal = stored.state() == RoundState.FINAL_RED
@@ -835,8 +984,15 @@ public final class CiAutofix
     private RoundCalculation calculateRound(
             String prId, String headSha, RequiredCiPolicyRevision policy)
     {
+        return calculateRound(observations(prId, headSha), policy);
+    }
+
+    private RoundCalculation calculateRound(
+            List<CiCheckObservation> exactObservations,
+            RequiredCiPolicyRevision policy)
+    {
         Map<String, List<CiCheckObservation>> observationsBySelector = new HashMap<>();
-        for (CiCheckObservation observation : observations(prId, headSha)) {
+        for (CiCheckObservation observation : exactObservations) {
             observationsBySelector.computeIfAbsent(
                             observation.check().selectorKey(), ignored -> new ArrayList<>())
                     .add(observation);
@@ -879,18 +1035,58 @@ public final class CiAutofix
                 state);
     }
 
+    private RoundCalculation calculateStoredRound(
+            CiRound round, RequiredCiPolicyRevision policy)
+    {
+        if (round.sourceObservationOperationId() == null) {
+            return calculateRound(round.prId(), round.remoteHead(), policy);
+        }
+        List<CiCheckObservation> exact = round.checkObservationIds().stream()
+                .map(id -> observation(id).orElseThrow(() ->
+                        new IllegalStateException(
+                                "sourced CI round observation is missing")))
+                .toList();
+        for (CiCheckObservation observation : exact) {
+            if (!observation.prId().equals(round.prId())
+                    || !observation.check().headSha().equals(
+                            round.remoteHead())
+                    || !Objects.equals(
+                            observation.sourceOperationId(),
+                            round.sourceObservationOperationId())
+                    || !Objects.equals(
+                            observation.sourceReceiptId(),
+                            round.sourceReceiptId())) {
+                throw new IllegalStateException(
+                        "sourced CI round mixes observation authority");
+            }
+        }
+        return calculateRound(exact, policy);
+    }
+
     private CiRound storeRound(
             PublishedPrSubject subject,
             String headSha,
             RequiredCiPolicyRevision policy,
             RoundCalculation calculation)
     {
+        return storeRound(subject, headSha, policy, calculation, null);
+    }
+
+    private CiRound storeRound(
+            PublishedPrSubject subject,
+            String headSha,
+            RequiredCiPolicyRevision policy,
+            RoundCalculation calculation,
+            ObservationSource source)
+    {
         Optional<CiRound> existing = round(subject.prId(), headSha, policy.policyRevisionId());
         if (existing.isEmpty()) {
-            return insertRound(subject, headSha, policy, calculation, 0);
+            return insertRound(
+                    subject, headSha, policy, calculation, source, 0);
         }
         CiRound current = existing.get();
-        if (canRefreshEvidence(current.state())) {
+        if (sameSource(current, source)
+                && canRefreshEvidence(current.state())) {
             jdbc.update(
                     """
                     UPDATE flow_ci_round
@@ -903,7 +1099,8 @@ public final class CiAutofix
                     current.roundId());
             return roundById(current.roundId()).orElseThrow();
         }
-        if (sameFrozenEvidence(current, calculation)) {
+        if (sameFrozenEvidence(current, calculation)
+                && sameSource(current, source)) {
             return current;
         }
 
@@ -912,6 +1109,7 @@ public final class CiAutofix
                 headSha,
                 policy,
                 calculation,
+                source,
                 current.evidenceRevision() + 1);
         if (current.state() != RoundState.SUPERSEDED) {
             int superseded = jdbc.update(
@@ -920,7 +1118,7 @@ public final class CiAutofix
                     SET state = 'SUPERSEDED', superseded_by = ?
                     WHERE round_id = ?
                       AND state IN (
-                          'FINAL_RED', 'QUEUED', 'ACTIVE', 'FIX_PREPARED',
+                          'COLLECTING', 'FINAL_RED', 'QUEUED', 'ACTIVE', 'FIX_PREPARED',
                           'GREEN', 'NEEDS_ATTENTION'
                       )
                     """,
@@ -940,6 +1138,7 @@ public final class CiAutofix
             String headSha,
             RequiredCiPolicyRevision policy,
             RoundCalculation calculation,
+            ObservationSource source,
             long evidenceRevision)
     {
         String id = stableId(
@@ -953,9 +1152,10 @@ public final class CiAutofix
                 INSERT OR IGNORE INTO flow_ci_round (
                     round_id, task_id, pr_id, remote_head,
                     policy_revision_id, evidence_revision,
+                    source_observation_operation_id, source_receipt_id,
                     check_observation_ids_json, failed_log_refs_json,
                     state, created_at, superseded_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL)
                 """,
                 id,
                 subject.taskId(),
@@ -963,6 +1163,8 @@ public final class CiAutofix
                 headSha,
                 policy.policyRevisionId(),
                 evidenceRevision,
+                source == null ? null : source.operationId(),
+                source == null ? null : source.receiptId(),
                 writeJson(calculation.observationIds()),
                 calculation.state().name(),
                 clock.instant().toEpochMilli());
@@ -971,6 +1173,7 @@ public final class CiAutofix
                         "Round was not stored: " + id));
         if (inserted == 0
                 && (!stored.checkObservationIds().equals(calculation.observationIds())
+                || !sameSource(stored, source)
                 || stored.state() != calculation.state())) {
             throw new IllegalStateException(
                     "CI evidence revision identity has conflicting content");
@@ -1021,6 +1224,8 @@ public final class CiAutofix
                     return new CiCheckObservation(
                             result.getString("observation_id"),
                             result.getString("pr_id"),
+                            result.getString("source_operation_id"),
+                            result.getString("source_receipt_id"),
                             check);
                 },
                 prId,
@@ -1053,6 +1258,8 @@ public final class CiAutofix
                     return new CiCheckObservation(
                             result.getString("observation_id"),
                             result.getString("pr_id"),
+                            result.getString("source_operation_id"),
+                            result.getString("source_receipt_id"),
                             check);
                 },
                 observationId).stream().findFirst();
@@ -1787,6 +1994,8 @@ public final class CiAutofix
                 result.getString("remote_head"),
                 result.getString("policy_revision_id"),
                 result.getLong("evidence_revision"),
+                result.getString("source_observation_operation_id"),
+                result.getString("source_receipt_id"),
                 readStringList(result.getString("check_observation_ids_json")),
                 readStringList(result.getString("failed_log_refs_json")),
                 RoundState.valueOf(result.getString("state")),
@@ -1953,6 +2162,17 @@ public final class CiAutofix
                         && calculated == RoundState.FINAL_RED);
         return sameState
                 && round.checkObservationIds().equals(calculation.observationIds());
+    }
+
+    private static boolean sameSource(
+            CiRound round, ObservationSource source)
+    {
+        return Objects.equals(
+                        round.sourceObservationOperationId(),
+                        source == null ? null : source.operationId())
+                && Objects.equals(
+                        round.sourceReceiptId(),
+                        source == null ? null : source.receiptId());
     }
 
     private static String normalizeToken(String value)
@@ -2239,6 +2459,10 @@ public final class CiAutofix
     private record RoundCalculation(
             List<String> observationIds,
             RoundState state) {}
+
+    private record ObservationSource(
+            String operationId,
+            String receiptId) {}
 
     private record ExecutionKey(String providerRunId, String providerCheckId) {}
 

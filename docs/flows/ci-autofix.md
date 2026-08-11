@@ -601,28 +601,27 @@ in-process dispatcher nudge occurs only after commit; ticket polling recovers a
 lost nudge. There is no separate GitHub-effect submission or claim protocol.
 
 [GitHub integration](./github-integration.md) pushes exact `H2`, confirms the
-remote head, and returns observation ownership to this component. Neither agent
-pushes.
+remote head, and atomically installs a receipt-owned `OBSERVE_CI` watch. Its
+private exhaustive provider batch is accepted here as exact source-bound
+observations, logs, and the existing `CiRound`; there is no second CI snapshot
+engine. Neither agent pushes or constructs provider facts.
 
 ### 5. Wait for remote proof
 
-1. CI for `H2` is a new round. Old `H1` checks are historical evidence only.
-2. If `H2` is red, the persistent CI Fixer is resumed with the new exact-head
-   round and its prior attempt context.
-3. If `H2` is accepted green, `observeRemoteGreen` marks every qualifying repair
-   attempt whose output is `H2` as remotely confirmed.
-4. `enqueueLearning` durably schedules one idempotent read-only
-   `RUN_CI_LEARNING` operation/ticket for the persistent CI Fixer.
-5. The fixer writes zero or more concise lesson candidates with
-   `save_ci_lesson`. Only now may a lesson be stored.
-6. If the current narrow policy is `MARK_READY_ON_EXACT_GREEN`, `H2` was
-   published through this authorized CI-only operation, and no blocking work is
-   pending, the program may create a fresh exact `MARK_READY` authorization for
-   green `H2`. At claim it rechecks the exact remote head, CI and policy. Neither
-   agent marks it ready.
+1. CI for `H2` is a source-bound round. Old-head and old-receipt checks are
+   historical evidence only and cannot satisfy it.
+2. `FINAL_RED` with every selected required failure log commits the round,
+   inbox fact, reconciliation wake, and watch rearm atomically. The existing
+   persistent CI Fixer loop consumes that round.
+3. `COLLECTING`, `NEEDS_ATTENTION`, and `GREEN` are stored without a repair wake
+   and rearm the same receipt watch. Stable unsupported log provenance also
+   rearms without partial facts so a later supported rerun or green result can
+   be observed.
+4. Current-policy advance waits for a new provider batch; it never reinterprets
+   an old sourced batch as unsourced evidence.
 
-No lesson is created from a local pass, an agent claim, or a partially green
-matrix.
+Green learning, ready/merge decisions, test-merge and legacy-status selection,
+webhooks, timeline projection, and general observation routing remain deferred.
 
 ## Lesson contract
 

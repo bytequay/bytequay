@@ -41,6 +41,7 @@ public final class FlowRuntimeRecords
         RUN_TASK_TURN,
         RUN_REVIEWER,
         RUN_CI_FIXER,
+        OBSERVE_CI,
         PUBLISH
     }
 

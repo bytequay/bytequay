@@ -26,6 +26,8 @@ CREATE TABLE flow_ci_policy_current (
 CREATE TABLE flow_ci_check_observation (
     observation_id TEXT PRIMARY KEY,
     pr_id TEXT NOT NULL,
+    source_operation_id TEXT,
+    source_receipt_id TEXT,
     head_sha TEXT NOT NULL,
     selector_key TEXT NOT NULL,
     provider_check_id TEXT NOT NULL,
@@ -39,14 +41,14 @@ CREATE TABLE flow_ci_check_observation (
     completed_at INTEGER,
     observed_at INTEGER NOT NULL,
     raw_evidence_ref TEXT NOT NULL,
-    UNIQUE (
-        pr_id,
-        selector_key,
-        provider_check_id,
-        provider_run_id,
-        attempt,
-        provider_state_revision
-    )
+    CHECK (
+        (source_operation_id IS NULL AND source_receipt_id IS NULL)
+        OR (source_operation_id IS NOT NULL AND source_receipt_id IS NOT NULL)
+    ),
+    FOREIGN KEY (source_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (source_receipt_id)
+        REFERENCES flow_github_external_effect_receipt (receipt_id)
 );
 
 CREATE INDEX flow_ci_observation_head_idx
@@ -78,6 +80,8 @@ CREATE TABLE flow_ci_round (
     remote_head TEXT NOT NULL,
     policy_revision_id TEXT NOT NULL,
     evidence_revision INTEGER NOT NULL,
+    source_observation_operation_id TEXT,
+    source_receipt_id TEXT,
     check_observation_ids_json TEXT NOT NULL,
     failed_log_refs_json TEXT NOT NULL,
     state TEXT NOT NULL CHECK (
@@ -94,9 +98,19 @@ CREATE TABLE flow_ci_round (
     ),
     created_at INTEGER NOT NULL,
     superseded_by TEXT,
+    CHECK (
+        (source_observation_operation_id IS NULL
+            AND source_receipt_id IS NULL)
+        OR (source_observation_operation_id IS NOT NULL
+            AND source_receipt_id IS NOT NULL)
+    ),
     UNIQUE (pr_id, remote_head, policy_revision_id, evidence_revision),
     FOREIGN KEY (policy_revision_id)
         REFERENCES flow_ci_policy_revision (policy_revision_id),
+    FOREIGN KEY (source_observation_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (source_receipt_id)
+        REFERENCES flow_github_external_effect_receipt (receipt_id),
     FOREIGN KEY (superseded_by)
         REFERENCES flow_ci_round (round_id)
 );

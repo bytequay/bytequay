@@ -1172,6 +1172,7 @@ public final class UserGates
                         plan.prId(),
                         step.expectedRemoteHead(),
                         step.proposedHead());
+                runtime.ensureCiObservationWatch(receipt.receiptId());
                 appendTransition(
                         authorization.gateId(),
                         authorization.gateRevision(),
@@ -1943,7 +1944,8 @@ public final class UserGates
             GateState currentState = currentState(
                     gate.gateId(), gate.currentRevision());
             if (currentState != GateState.OPEN
-                    && currentState != GateState.STALE) {
+                    && currentState != GateState.STALE
+                    && currentState != GateState.CONSUMED) {
                 throw new IllegalStateException(
                         "authorized CI_UPDATE gate may not be revised");
             }

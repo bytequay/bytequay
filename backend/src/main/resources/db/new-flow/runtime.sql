@@ -180,6 +180,7 @@ CREATE TABLE flow_runtime_operation (
             'RUN_TASK_TURN',
             'RUN_REVIEWER',
             'RUN_CI_FIXER',
+            'OBSERVE_CI',
             'PUBLISH'
         )
     ),

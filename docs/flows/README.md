@@ -135,8 +135,13 @@ locks the PR and admits the exact stored graph at the oldest nonterminal
 sequence; begin performs current-owner freshness revalidation but makes no Git
 or provider call. The concrete GitHub executor commits an attempt before its
 exact-lease push and uses immutable probes/receipts for settlement.
-Configurable/multi-use consent, consent UI, general remote-observation routing,
-and timeline projection remain deferred.
+An applied receipt atomically installs one receipt-owned read-only CI watch.
+The bounded GitHub poller proves two identical exhaustive check-suite/run
+passes for the exact proposed head and feeds one private source-bound batch into
+the existing CI round/red-fixer loop. Green and collecting only rearm the watch.
+Configurable/multi-use consent, consent UI, webhooks, generic observation
+routing, test-merge/legacy-status readiness, green consumers, and timeline
+projection remain deferred.
 
 ### 6. Record a fact once
 

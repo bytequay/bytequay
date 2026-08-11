@@ -18,6 +18,7 @@ import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 
@@ -27,6 +28,42 @@ import static java.util.Objects.requireNonNull;
 public final class CiAutofixRecords
 {
     private CiAutofixRecords() {}
+
+    /** One exact GitHub App/check-run name selector. */
+    public record GitHubCheckSelector(long appId, String name, String key)
+    {
+        public GitHubCheckSelector
+        {
+            requireNonNull(name, "name is null");
+            requireNonNull(key, "key is null");
+            if (appId < 1 || name.isBlank()
+                    || name.getBytes(StandardCharsets.UTF_8).length > 256
+                    || name.chars().anyMatch(Character::isISOControl)
+                    || !key.equals("GITHUB_CHECK:" + appId + ":" + name)) {
+                throw new IllegalArgumentException(
+                        "invalid GitHub required-check selector");
+            }
+        }
+
+        public static GitHubCheckSelector parse(String value)
+        {
+            String prefix = "GITHUB_CHECK:";
+            requireNonNull(value, "value is null");
+            if (!value.startsWith(prefix)) {
+                throw new IllegalArgumentException(
+                        "unsupported required-check selector");
+            }
+            int separator = value.indexOf(':', prefix.length());
+            if (separator < 0 || separator == value.length() - 1) {
+                throw new IllegalArgumentException(
+                        "unsupported required-check selector");
+            }
+            long appId = Long.parseLong(value.substring(
+                    prefix.length(), separator));
+            return new GitHubCheckSelector(
+                    appId, value.substring(separator + 1), value);
+        }
+    }
 
     public enum PolicyResolution
     {
@@ -77,6 +114,7 @@ public final class CiAutofixRecords
     {
         CI_POLICY_MISSING,
         CI_POLICY_UNAVAILABLE,
+        CI_OBSERVATION_PENDING,
         STALE_REMOTE_HEAD
     }
 
@@ -163,12 +201,18 @@ public final class CiAutofixRecords
     public record CiCheckObservation(
             String observationId,
             String prId,
+            String sourceOperationId,
+            String sourceReceiptId,
             NormalizedCheck check)
     {
         public CiCheckObservation
         {
             requireNonNull(observationId, "observationId is null");
             requireNonNull(prId, "prId is null");
+            if ((sourceOperationId == null) != (sourceReceiptId == null)) {
+                throw new IllegalArgumentException(
+                        "observation source operation/receipt must be paired");
+            }
             requireNonNull(check, "check is null");
         }
     }
@@ -180,6 +224,8 @@ public final class CiAutofixRecords
             String remoteHead,
             String policyRevisionId,
             long evidenceRevision,
+            String sourceObservationOperationId,
+            String sourceReceiptId,
             List<String> checkObservationIds,
             List<String> failedLogRefs,
             RoundState state,
@@ -193,6 +239,11 @@ public final class CiAutofixRecords
             requireNonNull(prId, "prId is null");
             requireNonNull(remoteHead, "remoteHead is null");
             requireNonNull(policyRevisionId, "policyRevisionId is null");
+            if ((sourceObservationOperationId == null)
+                    != (sourceReceiptId == null)) {
+                throw new IllegalArgumentException(
+                        "round source operation/receipt must be paired");
+            }
             checkObservationIds = List.copyOf(checkObservationIds);
             failedLogRefs = List.copyOf(failedLogRefs);
             requireNonNull(state, "state is null");

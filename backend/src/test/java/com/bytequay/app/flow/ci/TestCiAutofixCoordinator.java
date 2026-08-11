@@ -99,10 +99,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_ACTIONS;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_UNSUPPORTED;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.GREEN;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.PENDING;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.UNSTABLE;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeApplied;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeCiObservation;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeTerminalProbe;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeUnavailableProbe;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.observation;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.prepareCiObservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -174,7 +181,9 @@ class TestCiAutofixCoordinator
                 autofix,
                 githubEffects,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        coordinator = new CiAutofixCoordinator(dataSource, autofix, runtime);
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
     }
 
     @Test
@@ -4914,6 +4923,63 @@ class TestCiAutofixCoordinator
     }
 
     @Test
+    void receiptOwnedObservationWatchIsAtomicWithAppliedSettlement()
+    {
+        CompletedReady ready = openReadyGate("receipt-watch-rollback");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "receipt-watch-rollback-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        var applied = observation(
+                runtime, claim, activation, null, ProbeOutcome.APPLIED);
+        int probesBefore = count(
+                "flow_github_external_effect_probe", "1 = 1");
+        jdbc.execute("""
+                CREATE TRIGGER reject_observation_watch
+                BEFORE INSERT ON flow_runtime_operation
+                WHEN NEW.kind = 'OBSERVE_CI'
+                BEGIN
+                    SELECT RAISE(ABORT, 'watch insert rejected');
+                END
+                """);
+
+        assertThatThrownBy(() -> userGates.applyCiUpdateObservation(
+                claim, null, null, applied))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(githubEffects.exactReceipt(authorized.planId())).isEmpty();
+        assertThat(count("flow_github_external_effect_probe", "1 = 1"))
+                .isEqualTo(probesBefore);
+        assertThat(runtime.pullRequest(pr.prId()).orElseThrow()
+                .currentRemoteHead()).isEqualTo(activation.expectedRemoteHead());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CLAIMED);
+        assertThat(userGates.transitions(revision.gateId()).getLast()
+                .toState()).isEqualTo(GateState.EXECUTING);
+        assertThat(count("flow_runtime_operation", "kind = 'OBSERVE_CI'"))
+                .isZero();
+
+        jdbc.execute("DROP TRIGGER reject_observation_watch");
+        var receipt = userGates.applyCiUpdateObservation(
+                claim, null, null, applied).orElseThrow();
+        assertThat(githubEffects.exactReceipt(authorized.planId()))
+                .contains(receipt);
+        assertThat(runtime.pullRequest(pr.prId()).orElseThrow()
+                .currentRemoteHead()).isEqualTo(activation.proposedHead());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.SUCCEEDED);
+        assertThat(count("flow_runtime_operation", "kind = 'OBSERVE_CI'"))
+                .isEqualTo(1);
+        assertThat(count("flow_runtime_dispatch_ticket",
+                "operation_id IN (SELECT operation_id FROM "
+                        + "flow_runtime_operation WHERE kind = 'OBSERVE_CI')"))
+                .isEqualTo(1);
+    }
+
+    @Test
     void realExecutorCommitsAttemptBeforeItsOnlyProviderCall()
     {
         CompletedReady ready = openReadyGate("executor-attempt-boundary");
@@ -4995,6 +5061,350 @@ class TestCiAutofixCoordinator
                     pushes)).isInstanceOf(RuntimeException.class);
         }
         assertThat(pushes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void receiptWatchAcceptsExactGreenProviderBatch()
+    {
+        Claim greenClaim = observationClaim("observe-green");
+        CiRound green = executeCiObservation(
+                runtime, coordinator, greenClaim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+
+        assertThat(green.state()).isEqualTo(RoundState.GREEN);
+        assertThat(green.sourceObservationOperationId())
+                .isEqualTo(greenClaim.operationId());
+        assertThat(green.sourceReceiptId()).isNotBlank();
+        assertThat(runtime.pendingWork(task.taskId()))
+                .noneMatch(work -> work.kind() == PendingKind.FINAL_RED
+                        && work.externalKey().equals(green.roundId()));
+        assertThat(runtime.operation(greenClaim.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.READY);
+        assertThat(jdbc.queryForObject(
+                "SELECT not_before FROM flow_runtime_dispatch_ticket "
+                        + "WHERE operation_id = ?",
+                Long.class, greenClaim.operationId()))
+                .isEqualTo(runtimeNow.plus(Duration.ofMinutes(5))
+                        .toEpochMilli());
+    }
+
+    @Test
+    void receiptWatchQueuesExactRedProviderBatchWithItsLog()
+    {
+        Claim redClaim = observationClaim("observe-red");
+        CiRound red = executeCiObservation(
+                runtime, coordinator, redClaim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
+                .orElseThrow();
+
+        assertThat(red.state()).isEqualTo(RoundState.QUEUED);
+        assertThat(red.failedLogRefs()).hasSize(1);
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.FINAL_RED)
+                .filteredOn(work -> work.externalKey().equals(red.roundId()))
+                .singleElement()
+                .satisfies(work -> assertThat(work.payloadRef())
+                        .isEqualTo("ci-round:" + red.roundId()));
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + redClaim.operationId() + "'"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void unsupportedFailureRearmsAndLaterGreenIsAccepted()
+    {
+        Claim first = observationClaim("observe-unsupported");
+
+        assertThat(executeCiObservation(
+                runtime, coordinator, first,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_UNSUPPORTED))
+                .isEmpty();
+        assertThat(runtime.operation(first.operationId()).orElseThrow())
+                .satisfies(operation -> {
+                    assertThat(operation.state())
+                            .isEqualTo(OperationState.READY);
+                    assertThat(operation.resultRef())
+                            .isEqualTo("CI_OBSERVATION_PROVIDER_UNSUPPORTED");
+                });
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + first.operationId() + "'"))
+                .isZero();
+        advancePublicationClock(Duration.ofMinutes(6));
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
+        Claim retry = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        assertThat(retry.operationId()).isEqualTo(first.operationId());
+        CiRound green = executeCiObservation(
+                runtime, coordinator, retry,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        assertThat(green.state()).isEqualTo(RoundState.GREEN);
+    }
+
+    @Test
+    void unstableProviderReadStoresNothingAndIdenticalRetryReusesRound()
+    {
+        Claim first = observationClaim("observe-replay");
+        assertThat(executeCiObservation(
+                runtime, coordinator, first,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), UNSTABLE)).isEmpty();
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + first.operationId() + "'"))
+                .isZero();
+
+        advancePublicationClock(Duration.ofMinutes(2));
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
+        Claim accepted = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        CiRound firstGreen = executeCiObservation(
+                runtime, coordinator, accepted,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        int observations = count("flow_ci_check_observation",
+                "source_operation_id = '" + first.operationId() + "'");
+
+        advancePublicationClock(Duration.ofMinutes(6));
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
+        assertThat(runtime.operation(first.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.READY);
+        assertThat(jdbc.queryForMap(
+                "SELECT delivery_state, not_before FROM "
+                        + "flow_runtime_dispatch_ticket WHERE operation_id = ?",
+                first.operationId()))
+                .containsEntry("delivery_state", "AVAILABLE");
+        Claim replay = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        CiRound sameGreen = executeCiObservation(
+                runtime, coordinator, replay,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+
+        assertThat(sameGreen.roundId()).isEqualTo(firstGreen.roundId());
+        assertThat(sameGreen.evidenceRevision())
+                .isEqualTo(firstGreen.evidenceRevision());
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + first.operationId() + "'"))
+                .isEqualTo(observations);
+    }
+
+    @Test
+    void acceptedBatchResponseLossReplaysTheExactHistoricalRound()
+    {
+        Claim claim = observationClaim("observe-response-loss");
+        var delivery = prepareCiObservation(
+                runtime, coordinator, claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN);
+
+        CiRound first = coordinator.acceptCiObservation(
+                delivery.activation(), delivery.proof()).orElseThrow();
+        int observations = count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "'");
+        int rounds = count("flow_ci_round",
+                "source_observation_operation_id = '"
+                        + claim.operationId() + "'");
+        int finalRed = runtime.pendingWork(task.taskId()).stream()
+                .filter(work -> work.kind() == PendingKind.FINAL_RED)
+                .toList().size();
+
+        CiRound replay = coordinator.acceptCiObservation(
+                delivery.activation(), delivery.proof()).orElseThrow();
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "'"))
+                .isEqualTo(observations);
+        assertThat(count("flow_ci_round",
+                "source_observation_operation_id = '"
+                        + claim.operationId() + "'"))
+                .isEqualTo(rounds);
+        assertThat(runtime.pendingWork(task.taskId()).stream()
+                .filter(work -> work.kind() == PendingKind.FINAL_RED))
+                .hasSize(finalRed);
+    }
+
+    @Test
+    void lateAcceptanceFailureRollsBackEveryOwnerAndExactRetrySucceeds()
+    {
+        Claim claim = observationClaim("observe-rollback");
+        var delivery = prepareCiObservation(
+                runtime, coordinator, claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS);
+        int pendingBefore = runtime.pendingWork(task.taskId()).stream()
+                .filter(work -> work.kind() == PendingKind.FINAL_RED)
+                .toList().size();
+        jdbc.execute("""
+                CREATE TRIGGER reject_ci_observation_rearm
+                BEFORE UPDATE OF delivery_state
+                ON flow_runtime_dispatch_ticket
+                WHEN OLD.operation_id = '%s'
+                  AND NEW.delivery_state = 'AVAILABLE'
+                BEGIN
+                    SELECT RAISE(ABORT, 'CI rearm rejected');
+                END
+                """.formatted(claim.operationId()));
+
+        assertThatThrownBy(() -> coordinator.acceptCiObservation(
+                delivery.activation(), delivery.proof()))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "'"))
+                .isZero();
+        assertThat(count("flow_ci_round",
+                "source_observation_operation_id = '"
+                        + claim.operationId() + "'"))
+                .isZero();
+        assertThat(runtime.operation(claim.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CLAIMED);
+        assertThat(runtime.pendingWork(task.taskId()).stream()
+                .filter(work -> work.kind() == PendingKind.FINAL_RED))
+                .hasSize(pendingBefore);
+
+        jdbc.execute("DROP TRIGGER reject_ci_observation_rearm");
+        CiRound accepted = coordinator.acceptCiObservation(
+                delivery.activation(), delivery.proof()).orElseThrow();
+        assertThat(accepted.state()).isEqualTo(RoundState.QUEUED);
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "'"))
+                .isEqualTo(1);
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.FINAL_RED)
+                .hasSize(pendingBefore + 1);
+    }
+
+    @Test
+    void policyAdvanceRejectsOldBatchUntilTheNextCurrentPolicyPoll()
+    {
+        Claim first = observationClaim("observe-policy-advance");
+        var oldPolicyDelivery = prepareCiObservation(
+                runtime, coordinator, first,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN);
+        var current = autofix.recordPolicy(
+                task.repositoryId(), pr.scopeKey(), pr.targetBaseRef(),
+                "github-check-policy:advanced",
+                "github-check-policy-digest:advanced",
+                PolicyResolution.RESOLVED, null,
+                List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
+
+        assertThat(coordinator.acceptCiObservation(
+                oldPolicyDelivery.activation(), oldPolicyDelivery.proof()))
+                .isEmpty();
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + first.operationId() + "'"))
+                .isZero();
+
+        advancePublicationClock(Duration.ofMinutes(2));
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
+        Claim retry = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        CiRound green = executeCiObservation(
+                runtime, coordinator, retry,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        assertThat(green.policyRevisionId())
+                .isEqualTo(current.policyRevisionId());
+        assertThat(green.sourceObservationOperationId())
+                .isEqualTo(first.operationId());
+    }
+
+    @Test
+    void unrelatedInternalFactCannotCompleteAProviderBatch()
+    {
+        Claim claim = observationClaim("observe-mixed-source");
+        autofix.observeCi(pr.prId(), new NormalizedCheck(
+                runtime.pullRequest(pr.prId()).orElseThrow().currentRemoteHead(),
+                "GITHUB_CHECK:7:build", "internal-check", "internal-run",
+                1, "internal-revision", "build", "COMPLETED", "SUCCESS",
+                NOW, NOW.plusSeconds(1), NOW.plusSeconds(1),
+                "internal:evidence"));
+
+        CiRound collecting = executeCiObservation(
+                runtime, coordinator, claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), PENDING)
+                .orElseThrow();
+
+        assertThat(collecting.state()).isEqualTo(RoundState.COLLECTING);
+        assertThat(collecting.sourceObservationOperationId())
+                .isEqualTo(claim.operationId());
+        assertThat(collecting.checkObservationIds()).isEmpty();
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "'"))
+                .isEqualTo(1);
+        assertThat(runtime.pendingWork(task.taskId()))
+                .noneMatch(work -> work.kind() == PendingKind.FINAL_RED
+                        && work.externalKey().equals(collecting.roundId()));
+    }
+
+    @Test
+    void newerReceiptSupersessionMakesOldClaimRecoveryIdempotent()
+    {
+        Claim oldWatch = observationClaim("observe-old-receipt");
+        CiRound firstRed = executeCiObservation(
+                runtime, coordinator, oldWatch,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
+                .orElseThrow();
+        CompletedReady secondReady = openReadyGate(
+                "observe-second-receipt", firstRed);
+        GateRevision secondRevision = secondReady.revision();
+        AuthorizedCiUpdate secondAuthorization = userGates.authorizeCiUpdate(
+                secondRevision.gateId(), secondRevision.revision(),
+                secondRevision.subjectDigest(), secondRevision.actionDigest(),
+                "observe-second-receipt-authorization");
+        Claim secondPublication = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var secondReceipt = executeApplied(
+                runtime, userGates, githubEffects, secondPublication,
+                githubEffects.steps(secondAuthorization.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), () -> {},
+                new AtomicInteger()).orElseThrow();
+
+        Claim secondWatch = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        CiRound secondRed = executeCiObservation(
+                runtime, coordinator, secondWatch,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
+                .orElseThrow();
+        CompletedReady thirdReady = openReadyGate(
+                "observe-third-receipt", secondRed);
+        GateRevision thirdRevision = thirdReady.revision();
+        AuthorizedCiUpdate thirdAuthorization = userGates.authorizeCiUpdate(
+                thirdRevision.gateId(), thirdRevision.revision(),
+                thirdRevision.subjectDigest(), thirdRevision.actionDigest(),
+                "observe-third-receipt-authorization");
+        Claim thirdPublication = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var thirdReceipt = executeApplied(
+                runtime, userGates, githubEffects, thirdPublication,
+                githubEffects.steps(thirdAuthorization.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), () -> {},
+                new AtomicInteger()).orElseThrow();
+
+        assertThat(runtime.operation(oldWatch.operationId()).orElseThrow())
+                .satisfies(operation -> {
+                    assertThat(operation.state())
+                            .isEqualTo(OperationState.CANCELED);
+                    assertThat(operation.resultRef())
+                            .isEqualTo("CI_HEAD_SUPERSEDED:"
+                                    + secondReceipt.receiptId());
+                });
+        assertThat(runtime.operation(secondWatch.operationId()).orElseThrow()
+                .resultRef()).isEqualTo(
+                        "CI_HEAD_SUPERSEDED:" + thirdReceipt.receiptId());
+        runtime.recoverExpiredCiObservation(
+                oldWatch.operationId(), oldWatch.generation());
+        runtime.recoverExpiredCiObservation(
+                oldWatch.operationId(), oldWatch.generation());
+        assertThat(count("flow_runtime_operation",
+                "kind = 'OBSERVE_CI' AND state <> 'CANCELED'"))
+                .isEqualTo(1);
     }
 
     @Test
@@ -5383,6 +5793,36 @@ class TestCiAutofixCoordinator
                 finalContent);
     }
 
+    private CompletedReady openReadyGate(String suffix, CiRound red)
+    {
+        ReviewReady review = prepareCleanReview(suffix, red);
+        ReviewerResultReady ready = prepareReviewerResult(review, suffix);
+        String finalContent = "opaque ready " + suffix;
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            finalContent,
+                                            null);
+                        });
+        AgentResult result = ready.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor, ready.binding(), handle, TTL);
+        return new CompletedReady(
+                ready,
+                result,
+                userGates.revisionForRun(ready.binding().run().runId())
+                        .orElseThrow(),
+                finalContent);
+    }
+
     private ReviewerClaim prepareReviewerClaim(String suffix)
     {
         ReviewReady ready = prepareCleanReview(suffix);
@@ -5606,6 +6046,17 @@ class TestCiAutofixCoordinator
             String suffix, String failureRevision)
     {
         StartedRepair started = startRepair(failureRevision);
+        return prepareCleanReview(suffix, started);
+    }
+
+    private ReviewReady prepareCleanReview(String suffix, CiRound red)
+    {
+        return prepareCleanReview(suffix, startRepair(red));
+    }
+
+    private ReviewReady prepareCleanReview(
+            String suffix, StartedRepair started)
+    {
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         var handle = coordinator.launchRepair(
                 supervisor,
@@ -5703,6 +6154,11 @@ class TestCiAutofixCoordinator
                 red.checkObservationIds().getFirst(),
                 "failure".getBytes(StandardCharsets.UTF_8),
                 List.of());
+        return startRepair(red);
+    }
+
+    private StartedRepair startRepair(CiRound red)
+    {
         CiRound round = coordinator.enqueueRepair(red.roundId()).round();
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
         Operation selected = coordinator.selectNext(reconciliation)
@@ -5882,6 +6338,32 @@ class TestCiAutofixCoordinator
                 pr.prId(), publishedHead)).round();
     }
 
+    private Claim observationClaim(String suffix)
+    {
+        CompletedReady ready = openReadyGate(suffix);
+        GateRevision revision = ready.revision();
+        AuthorizedCiUpdate authorization = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                suffix + "-authorization");
+        Claim publication = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var receipt = executeApplied(
+                runtime, userGates, githubEffects, publication,
+                githubEffects.steps(authorization.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), () -> {},
+                new AtomicInteger()).orElseThrow();
+        assertThat(receipt.receiptId()).isNotBlank();
+        autofix.recordPolicy(
+                task.repositoryId(), pr.scopeKey(), pr.targetBaseRef(),
+                "github-check-policy:" + suffix,
+                "github-check-policy-digest:" + suffix,
+                PolicyResolution.RESOLVED, null,
+                List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
+        return runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+    }
+
     private NormalizedCheck check(
             String checkId,
             String runId,
@@ -5932,9 +6414,9 @@ class TestCiAutofixCoordinator
         pr = runtime.bindGitHubRemoteIdentity(
                 local.prId(), publishedHead,
                 new GitHubRepositoryLocator(
-                        "repo-external", "octocat", "bytequay"),
+                        "101", "octocat", "bytequay"),
                 new GitHubRepositoryLocator(
-                        "head-repo-external", "octocat", "bytequay"), 42,
+                        "202", "octocat", "bytequay"), 42,
                 "PR_node", "https://example.test/pr/42", "receipt:42");
         return runtime.task(started.taskId()).orElseThrow();
     }
@@ -5945,7 +6427,9 @@ class TestCiAutofixCoordinator
         runtime = new FlowRuntime(dataSource, clock);
         autofix = new CiAutofix(
                 dataSource, new ObjectMapper(), clock, this::publishedSubject);
-        coordinator = new CiAutofixCoordinator(dataSource, autofix, runtime);
+        coordinator = new CiAutofixCoordinator(
+                dataSource, autofix, runtime,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC));
     }
 
     private void transition(TaskStatus next)

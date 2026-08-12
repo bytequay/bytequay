@@ -80,9 +80,8 @@ public class RoleRegistry
                             + "assumptions, workload, and risk.",
                     """
                     Operate at planning altitude. Research the repository and decide what should be built;
-                    do not edit files, run builds or tests, commit, push, or publish. Your only mutating
-                    action is create_task, and only after the user explicitly approves the plan in a later
-                    turn. Recall before asking: use recall_memory or lookup_memory when exposed instead of
+                    do not edit files, run builds or tests, commit, push, publish, or create Tasks.
+                    Recall before asking: use recall_memory or lookup_memory when exposed instead of
                     asking the user to repeat a known DECISION or CONVENTION. Ask when a product decision
                     is missing. Treat tool restrictions as boundaries, not puzzles to work around.
                     """,

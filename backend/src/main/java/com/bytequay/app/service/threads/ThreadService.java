@@ -15,7 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
-import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
+import com.bytequay.app.developmentflow.task.creation.V2TrunkPreparationService;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.PermissionDecision;
@@ -133,7 +133,7 @@ public class ThreadService
     private WorkModelResolver workModelResolver;
     private WorkModelService workModels;
     /** Permanent production cutover boundary. */
-    private V2TaskCreationService v2TaskCreation;
+    private V2TrunkPreparationService v2TrunkPreparation;
     /** Typed Trunk runtime, supplied only when the V2 dispatcher graph exists. */
     private V2ThreadControlService v2ThreadControls;
     /** Read-only adapter for V2-owned branch/worktree/PR facts. */
@@ -185,10 +185,10 @@ public class ThreadService
     }
 
     @Autowired
-    void setV2TaskCreation(V2TaskCreationService v2TaskCreation)
+    void setV2TrunkPreparation(V2TrunkPreparationService v2TrunkPreparation)
     {
-        this.v2TaskCreation = requireNonNull(
-                v2TaskCreation, "v2TaskCreation is null");
+        this.v2TrunkPreparation = requireNonNull(
+                v2TrunkPreparation, "v2TrunkPreparation is null");
     }
 
     @Autowired(required = false)
@@ -593,7 +593,7 @@ public class ThreadService
             requireNonNull(threadEngines, "threadEngines is null")
                     .replace(thread.id(), engineSnapshot);
         }
-        v2TaskCreation.prepareNewTrunk(thread.id(), thread.workspaceId());
+        v2TrunkPreparation.prepareNewTrunk(thread.id(), thread.workspaceId());
         // initialPrompt — if present — feeds the title derivation
         // above but is NOT enqueued as a trunk turn. Treat it as
         // setup context the user prepared in the create dialog; the
@@ -639,30 +639,6 @@ public class ThreadService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "workspaceId is required — every thread belongs to a workspace");
         }
-    }
-
-    /**
-     * Materialise a Task under an existing thread — cuts a dev branch
-     * + worktree and (if {@code request.initialPrompt} is non-blank)
-     * enqueues a task-scope turn against it. Use this when work turns
-     * branch-worthy from the trunk's planning conversation, or when an
-     * assign-dev-task action attaches a build Task to a thread.
-     *
-     * <p>decision pending: today this is an explicit caller-driven
-     * path. The trunk's agent-proposed "looks like it'll touch code,
-     * start a task?" prompt should call into this method once that
-     * proposal UI lands.
-     */
-    public Task materialiseTask(String threadId, NewTaskRequest request)
-    {
-        requireNonNull(request, "request is null");
-        Thread thread = requireTask(threadId);
-        requireV2Trunk(thread);
-        if (v2TaskCreation == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(503),
-                    "V2 Task creation is not configured");
-        }
-        return v2TaskCreation.create(thread, request);
     }
 
     private static String deriveTitle(String supplied, String firstMessage)
@@ -1087,7 +1063,7 @@ public class ThreadService
 
     private boolean routesNewTaskToV2(String workspaceId)
     {
-        return v2TaskCreation != null && v2TaskCreation.routes(workspaceId);
+        return v2TrunkPreparation != null && v2TrunkPreparation.routes(workspaceId);
     }
 
     private V2ThreadControlService requireV2ThreadControls()
@@ -1702,8 +1678,8 @@ public class ThreadService
                     workspaceId, workModel, null, false, Task.ORIGIN_USER, null);
         }
 
-        /** Constructor for callers that supply a trunk plan but plan
-         *  immediately (the {@code create_task} path) — leaves
+        /** Constructor for callers that supply a trunk plan and plan
+         *  immediately — leaves
          *  {@code deferPlanKickoff} false. */
         public NewTaskRequest(
                 ThreadKind kind, String provider, String model, String title,

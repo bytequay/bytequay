@@ -41,7 +41,7 @@ export type Nav =
   | { view: 'thread-detail'; threadId: string; taskId?: string }
   | { view: 'task-brain'; threadId: string; taskId: string; initialPrSubTab?: 'changes' }
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
-  | { view: 'ci-harness'; jobId?: string }
+  | { view: 'syncs'; jobId?: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -165,10 +165,9 @@ export function parseWorkspaceRoute(value: string): WorkspaceNavigation {
         branchName: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
       }, workspaceId);
     case 'commits': return navigation({ view: 'workspace', section: 'commits' }, workspaceId);
-    case 'ci-harness':
     case 'syncs':
       return navigation({
-        view: 'ci-harness',
+        view: 'syncs',
         jobId: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
       }, workspaceId);
     case 'memory': return navigation({ view: 'workspace', section: 'memory' }, workspaceId);
@@ -233,7 +232,7 @@ export function workspaceRouteHash(nav: Nav, workspaceId: string | null): string
     case 'stage-detail':
       return workspaceId === null ? null
         : `#/workspace/${encoded(workspaceId)}/trunks/${encoded(nav.threadId)}`;
-    case 'ci-harness':
+    case 'syncs':
       return workspaceId === null ? null
         : `#/workspace/${encoded(workspaceId)}/syncs${
           nav.jobId === undefined ? '' : `/${encoded(nav.jobId)}`}`;

@@ -20,7 +20,6 @@ import {
 } from './WorkspaceSyncIcons';
 import {
   elapsedLabel,
-  harnessLine,
   isLiveSync,
   syncProgress,
   syncQueue,
@@ -28,7 +27,6 @@ import {
   type SyncQueue,
 } from './syncRunModel';
 import type {
-  CiHarnessWatchSnapshotDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickJobDto,
 } from './workspaceApi';
@@ -41,20 +39,16 @@ const COLLAPSED_DONE_ROWS = 6;
  * unbounded list — "done" collapses and "next" is a window.
  */
 export default function WorkspaceSyncRunQueue({
-  job, commits, fixups, harness, syncs, onOpenSync, onNewSync, onFixNow, onBack,
+  job, commits, fixups, syncs, onOpenSync, onNewSync, onBack,
 }: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
   /** The fixup commit each repaired pick produced, by pick index. */
   fixups: Map<number, string>;
-  /** Phase 2's watch, once there is one — null while phase 1 is still picking. */
-  harness: CiHarnessWatchSnapshotDto | null;
   /** Every sync run in the workspace, so this column is also the way between them. */
   syncs: UpstreamCherryPickJobDto[];
   onOpenSync?: (jobId: string) => void;
   onNewSync?: () => void;
-  /** Stop waiting for the board to settle and fix what has already failed. */
-  onFixNow?: () => void;
   onBack?: () => void;
 }) {
   const [doneOpen, setDoneOpen] = useState(true);
@@ -183,47 +177,8 @@ export default function WorkspaceSyncRunQueue({
         )}
       </div>
 
-      {harness !== null && <HarnessFooter harness={harness} onFixNow={onFixNow} />}
       <SafetyFooter job={job} queue={queue} />
     </aside>
-  );
-}
-
-/**
- * Phase 2, in the one place the reader is already watching. The picks stop
- * moving once the range lands, and without this the run looks finished while
- * the harness is still driving the pull request green.
- */
-function HarnessFooter({ harness, onFixNow }: {
-  harness: CiHarnessWatchSnapshotDto;
-  onFixNow?: () => void;
-}) {
-  const line = harnessLine(harness);
-  // Two states worth a nudge: waiting on a suite that runs for an hour while
-  // other checks are already red, and stopped short — which nothing polls, so
-  // the run sits there until a person restarts it.
-  const waiting = harness.status === 'watching' || harness.status === 'handoff';
-  const stopped = harness.status === 'needs_attention';
-  return (
-    <div className={`sr-queue__phase2 is-${line.tone}`}>
-      <div className="sr-queue__phase2-head">
-        <span className="sr-queue__phase2-dot" aria-hidden />
-        <span>PHASE 2 · CI HARNESS</span>
-        {line.checkedAtMs !== null && (
-          <em>checked {elapsedLabel(new Date(line.checkedAtMs).toISOString())} ago</em>
-        )}
-      </div>
-      <strong>{line.label}</strong>
-      {line.detail !== null && line.detail.length > 0 && <span>{line.detail}</span>}
-      {(waiting || stopped) && onFixNow !== undefined && (
-        <button type="button" className="sr-queue__phase2-now" onClick={onFixNow}
-          title={stopped
-            ? 'Start another round on the checks that are red now'
-            : 'Do not wait for the checks still running — fix what has already failed'}>
-          {stopped ? 'Try again on what is failing' : 'Fix what has failed so far'}
-        </button>
-      )}
-    </div>
   );
 }
 

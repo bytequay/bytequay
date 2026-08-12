@@ -17,48 +17,25 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
-import com.bytequay.app.service.checks.ValidationFailure;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.List;
 import java.util.Map;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.STAGE;
 import static java.util.Objects.requireNonNull;
 
-/** Executes finite Remote CI and no-conflict branch-sync effects. */
+/** Executes finite no-conflict branch-sync effects. */
 public final class RemoteEffectOperationHandler
         implements ExecutionPorts.OperationHandler
 {
-    public static final String RERUN_CI = "RERUN_REMOTE_CI";
-    public static final String VALIDATE_CI_REPAIR = "VALIDATE_REMOTE_CI_REPAIR";
-    public static final String REWRITE_VALIDATE_BASE_CI_REPAIR =
-            "REWRITE_VALIDATE_REMOTE_CI_BASE_REPAIR";
-    public static final String PUSH_CI_REPAIR = "PUSH_REMOTE_CI_REPAIR";
     public static final String FETCH_BRANCH = "FETCH_COMPARE_REMOTE_BRANCH";
     public static final String REBASE_BRANCH = "REBASE_REMOTE_BRANCH";
     public static final String VALIDATE_BRANCH = "VALIDATE_REMOTE_BRANCH_SYNC";
     public static final String PUSH_BRANCH = "FORCE_WITH_LEASE_REMOTE_BRANCH";
 
     private static final Map<String, Shape> SHAPES = Map.ofEntries(
-            Map.entry(
-            RERUN_CI, new Shape(
-                    DispatchTicket.AsyncFamily.GITHUB_EFFECT,
-                    "REMOTE_CI_RERUN_RESULT")),
-            Map.entry(
-            VALIDATE_CI_REPAIR, new Shape(
-                    DispatchTicket.AsyncFamily.VALIDATION,
-                    "REMOTE_CI_VALIDATION_RESULT")),
-            Map.entry(
-            REWRITE_VALIDATE_BASE_CI_REPAIR, new Shape(
-                    DispatchTicket.AsyncFamily.VALIDATION,
-                    "REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT")),
-            Map.entry(
-            PUSH_CI_REPAIR, new Shape(
-                    DispatchTicket.AsyncFamily.GITHUB_EFFECT,
-                    "REMOTE_CI_PUSH_RESULT")),
             Map.entry(
             FETCH_BRANCH, new Shape(
                     DispatchTicket.AsyncFamily.LOCAL_GIT,
@@ -259,10 +236,6 @@ public final class RemoteEffectOperationHandler
             String expectedHeadSha,
             String expectedBaseSha,
             String targetBaseSha,
-            String baseRepairOriginalHeadSha,
-            String baseRepairAuthorizationId,
-            String baseRepairManifestDigest,
-            String prepublishBranchSyncEpisodeId,
             String forceWithLeaseExpectedSha,
             String idempotencyKey)
     {
@@ -278,47 +251,9 @@ public final class RemoteEffectOperationHandler
             requireText(expectedHeadSha, "expectedHeadSha");
             requireText(expectedBaseSha, "expectedBaseSha");
             requireText(idempotencyKey, "idempotencyKey");
-            if ((PUSH_BRANCH.equals(operationKind)
-                    || PUSH_CI_REPAIR.equals(operationKind))) {
+            if (PUSH_BRANCH.equals(operationKind)) {
                 requireText(forceWithLeaseExpectedSha,
                         "forceWithLeaseExpectedSha");
-            }
-            if (baseRepairOriginalHeadSha != null) {
-                requireText(baseRepairOriginalHeadSha,
-                        "baseRepairOriginalHeadSha");
-                if (!REWRITE_VALIDATE_BASE_CI_REPAIR.equals(operationKind)
-                        && !PUSH_CI_REPAIR.equals(operationKind)) {
-                    throw new IllegalArgumentException(
-                            "Base-repair history applies only to CI validation/push");
-                }
-            }
-            boolean baseRepair = baseRepairAuthorizationId != null
-                    || baseRepairManifestDigest != null
-                    || baseRepairOriginalHeadSha != null;
-            if (baseRepair) {
-                requireText(baseRepairAuthorizationId,
-                        "baseRepairAuthorizationId");
-                requireText(baseRepairManifestDigest,
-                        "baseRepairManifestDigest");
-                requireText(baseRepairOriginalHeadSha,
-                        "baseRepairOriginalHeadSha");
-                if (!baseRepairManifestDigest.matches("[0-9a-f]{64}")) {
-                    throw new IllegalArgumentException(
-                            "baseRepairManifestDigest is invalid");
-                }
-            }
-            if (REWRITE_VALIDATE_BASE_CI_REPAIR.equals(operationKind)
-                    && !baseRepair) {
-                throw new IllegalArgumentException(
-                        "Base rewrite requires exact authorization");
-            }
-            if (prepublishBranchSyncEpisodeId != null) {
-                requireText(prepublishBranchSyncEpisodeId,
-                        "prepublishBranchSyncEpisodeId");
-                if (!PUSH_CI_REPAIR.equals(operationKind)) {
-                    throw new IllegalArgumentException(
-                            "Prepublish BranchSync applies only to a CI push");
-                }
             }
             if (pullRequestNumber < 1) {
                 throw new IllegalArgumentException(
@@ -348,20 +283,6 @@ public final class RemoteEffectOperationHandler
             if (disposition == Disposition.SUCCEEDED) {
                 requireText(evidence, "evidence");
             }
-        }
-    }
-
-    public record BaseRewriteEvidence(
-            String schema,
-            String authorizationId,
-            String manifestDigest,
-            BaseCiHistoryRewriter.Proof proof,
-            List<ValidationFailure> validationFailures)
-    {
-        public BaseRewriteEvidence
-        {
-            validationFailures = List.copyOf(requireNonNull(
-                    validationFailures, "validationFailures is null"));
         }
     }
 

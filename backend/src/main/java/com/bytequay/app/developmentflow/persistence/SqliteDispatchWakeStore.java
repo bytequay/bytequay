@@ -88,18 +88,22 @@ public class SqliteDispatchWakeStore
         }
 
         List<Candidate> candidates = jdbc.query("""
-                SELECT id, aggregate_id, status, attempts, available_at_ms,
-                       claim_owner, lease_until_ms
-                FROM outbox
-                WHERE aggregate_kind = 'DISPATCH_TICKET'
-                  AND topic = ?
-                  AND ((status = 'PENDING' AND available_at_ms <= ?)
-                    OR (status = 'CLAIMED' AND lease_until_ms <= ?))
-                ORDER BY CASE status
-                    WHEN 'PENDING' THEN available_at_ms ELSE lease_until_ms END,
-                    created_at_ms, id
+                SELECT wake.id, wake.aggregate_id, wake.status, wake.attempts,
+                       wake.available_at_ms, wake.claim_owner, wake.lease_until_ms
+                FROM outbox wake
+                JOIN dispatch_ticket d ON d.id = wake.aggregate_id
+                WHERE wake.aggregate_kind = 'DISPATCH_TICKET'
+                  AND wake.topic = ?
+                  AND ((wake.status = 'PENDING' AND wake.available_at_ms <= ?)
+                    OR (wake.status = 'CLAIMED' AND wake.lease_until_ms <= ?))
+                  %s
+                ORDER BY CASE wake.status
+                    WHEN 'PENDING' THEN wake.available_at_ms
+                    ELSE wake.lease_until_ms END,
+                    wake.created_at_ms, wake.id
                 LIMIT ?
-                """,
+                """.formatted(
+                        SqliteDispatchTicketStore.executableTicketPredicate("d")),
                 (rs, row) -> new Candidate(
                         rs.getString("id"),
                         rs.getString("aggregate_id"),

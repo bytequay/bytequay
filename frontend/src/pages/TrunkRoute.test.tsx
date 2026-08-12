@@ -107,15 +107,14 @@ describe('TrunkRoute', () => {
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     await screen.findAllByText('Backend cleanup');
     const box = screen.getByRole('textbox');
-    fireEvent.change(box, { target: { value: 'cut a task' } });
+    fireEvent.change(box, { target: { value: 'plan the cleanup' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task', []));
+    await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith(
+      't1', 'plan the cleanup', []));
   });
 
   it.each([
     'Phase 2 is unblocked. Want me to put up the plan for approval?',
-    'Cut this as the Phase 2 task?',
-    'Next task: Cut this as the Phase 2 task?',
   ])('offers go ahead for the direct continuation question: %s', async question => {
     const bridge = mockAssistantQuestion(question);
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
@@ -125,6 +124,18 @@ describe('TrunkRoute', () => {
 
     await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'go ahead', []));
   });
+
+  it.each([
+    'Cut this as the Phase 2 task?',
+    'Next task: Cut this as the Phase 2 task?',
+  ])('renders a historical task-cut question without offering an obsolete action: %s',
+    async question => {
+      mockAssistantQuestion(question);
+      render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+
+      await screen.findByText(question);
+      expect(screen.queryByText('go ahead')).toBeNull();
+    });
 
   it.each([
     'Which branch should I use?',

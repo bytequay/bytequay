@@ -254,7 +254,7 @@ public class McpServiceImpl
             }
             // A brain connection is further scoped to the read-only brain
             // allowlist (+ record_plan), matching the in-JVM brain — so a
-            // claude-code brain can't reach create_task / publish tools.
+            // claude-code brain cannot reach publish tools.
             // approval_prompt is exempt: it's not a capability but the
             // CLI's --permission-prompt-tool target, which claude-code
             // validates exists in the advertised list at startup — strip it
@@ -568,10 +568,7 @@ public class McpServiceImpl
                 && kind == ThreadKind.CLI_AGENT
                 && isImplementationCapability(security)) {
             return "Tool '" + name + "' is denied: you are the TRUNK and may only research and "
-                    + "plan. Do not retry this tool or look for another write path. If the work "
-                    + "requires implementation, call ask_user_question to ask whether to cut a "
-                    + "task and end the turn. Only after the user's next explicit confirmation "
-                    + "may you call create_task.";
+                    + "plan. Do not retry this tool or look for another write path.";
         }
         return "tool '" + name + "' is denied (" + reason + "; role=" + role + ")";
     }

@@ -2727,23 +2727,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   });
 
-  ipcMain.handle('backlog:startDevelopment', async (_event, itemId: unknown) => {
-    const id = requireString(itemId, 'itemId');
-    const res = await fetch(
-      `${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/start-development`,
-      { method: 'POST' });
-    // 409 = the item already left `created` (started elsewhere, or a click that
-    // beat the poll). Benign — return no task so the renderer just resyncs the
-    // stale list instead of surfacing an error.
-    if (res.status === 409) {
-      return { taskId: null };
-    }
-    if (!res.ok) {
-      throw new Error(`backend POST start-development returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
-  });
-
   // ── Thread signals (trunk Notifications tab) ─────────────────────────
   ipcMain.handle('signals:list', async (_event, threadId: unknown) => {
     const id = requireString(threadId, 'threadId');
@@ -2901,42 +2884,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   }
 
-  ipcMain.handle('threads:tasks:retry-ci', async (_event, args: unknown) => {
-    const params = args as { threadId?: unknown; taskId?: unknown };
-    const threadId = params?.threadId;
-    const taskId = params?.taskId;
-    if (typeof threadId !== 'string' || threadId.trim().length === 0
-        || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('threadId and taskId must be non-empty strings');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
-        + `/tasks/${encodeURIComponent(taskId)}/retry-ci`,
-      { method: 'POST' });
-  });
-
-  ipcMain.handle('development-flow:ci:recover', async (_event, args: unknown) => {
-    const params = args as {
-      taskId?: unknown;
-      episodeId?: unknown;
-      command?: unknown;
-    };
-    if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
-        || typeof params?.episodeId !== 'string' || params.episodeId.trim().length === 0
-        || params.command === null || typeof params.command !== 'object') {
-      throw new Error('taskId, episodeId, and command are required');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
-        + `/ci-repair/${encodeURIComponent(params.episodeId)}/recover`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params.command),
-      },
-    );
-  });
-
   ipcMain.handle(
     'development-flow:branch-sync:recover',
     async (_event, args: unknown) => {
@@ -3087,7 +3034,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     );
   });
 
-  ipcMain.handle('development-flow:remote-repair-brain:recover', async (_event, args: unknown) => {
+  ipcMain.handle('development-flow:branch-sync-brain:recover', async (_event, args: unknown) => {
     const params = args as {
       taskId?: unknown;
       failedTurnId?: unknown;

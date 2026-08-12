@@ -28,8 +28,6 @@ import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.PlanToLocalHandoff;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
-import com.bytequay.app.developmentflow.stage.RemoteCiFailureClassifier;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
@@ -57,10 +55,8 @@ import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
-import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
-import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.ReviewBuildOutcomeService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -112,17 +108,6 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands, TaskManager.Store store)
     {
         return new TaskManager(commands, store);
-    }
-
-    /** Command-side bean only; no production controller routes Task creation here yet. */
-    @Bean
-    public TaskCreationHandoff taskCreationHandoff(
-            TaskCommandExecutor commands,
-            TrunkManager trunks,
-            TaskManager tasks,
-            IdGenerator ids)
-    {
-        return new TaskCreationHandoff(commands, trunks, tasks, ids);
     }
 
     @Bean
@@ -246,20 +231,6 @@ public class DevelopmentFlowDomainConfig
     }
 
     @Bean
-    public RemoteCiRepairRuntimeCoordinator remoteCiRepairRuntimeCoordinator(
-            TaskCommandExecutor commands,
-            SqliteRemoteRuntimeStore store,
-            RemoteCiFailureClassifier classifier,
-            RemoteRepairTurnRuntime repairs,
-            ObjectMapper json)
-    {
-        return new RemoteCiRepairRuntimeCoordinator(
-                commands, store, classifier,
-                new SqliteRemoteRuntimeStore.CiBudgets(1, 3, 3, 3),
-                repairs, json, Clock.systemUTC());
-    }
-
-    @Bean
     public BranchSyncRuntimeCoordinator branchSyncRuntimeCoordinator(
             TaskCommandExecutor commands,
             SqliteRemoteRuntimeStore store,
@@ -286,15 +257,13 @@ public class DevelopmentFlowDomainConfig
     public RemoteObservationDomainHooks remoteObservationDomainHooks(
             SqliteRemoteDevelopmentRuntimeStore store,
             RemoteDevelopmentStageManager remote,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
             BranchSyncRuntimeCoordinator branchSync,
             RemoteMergeObservationCoordinator mergeObservation,
             RemoteMergeRuntimeCoordinator merges,
             PRService prs)
     {
         return new RemoteObservationDomainHooks(
-                store, remote, ciRepair, branchSync, mergeObservation, merges,
-                prs);
+                store, remote, branchSync, mergeObservation, merges, prs);
     }
 
     @Bean
@@ -307,7 +276,7 @@ public class DevelopmentFlowDomainConfig
         return new RemoteDevelopmentObservationConsumer(
                 store, feedback, remote,
                 new RemoteDevelopmentObservationConsumer.Hooks(
-                        hooks::acceptCiInCommand,
+                        hooks::acceptLifecycleInCommand,
                         hooks::acceptBranchInCommand,
                         hooks::acceptMergeInCommand,
                         hooks::acceptReadinessInCommand),

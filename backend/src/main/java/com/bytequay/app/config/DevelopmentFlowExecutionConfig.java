@@ -87,7 +87,6 @@ import com.bytequay.app.developmentflow.stage.MergeResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
@@ -97,7 +96,6 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackTurnResultDeliveryPo
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
-import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
@@ -106,13 +104,12 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBase
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
-import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
+import com.bytequay.app.developmentflow.task.creation.V2TrunkPreparationService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
@@ -204,7 +201,6 @@ public class DevelopmentFlowExecutionConfig
             SqliteCleanupOperationStore cleanupStore,
             CleanupCompletionHandoff cleanupCompletion,
             TrunkManager trunks,
-            RemoteCiRepairRuntimeCoordinator remoteCi,
             BranchSyncRuntimeCoordinator branchSync,
             RemoteRepairTurnRuntime remoteRepairTurns,
             RemoteDevelopmentStageManager remoteManager,
@@ -269,13 +265,9 @@ public class DevelopmentFlowExecutionConfig
                         trunks, codec, json, Clock.systemUTC());
         ExecutionPorts.ResultDeliveryPort observations =
                 remoteObservations::deliver;
-        ExecutionPorts.ResultDeliveryPort ciRerun = remoteCi::deliverRerun;
-        ExecutionPorts.ResultDeliveryPort ciEffects = remoteCi::deliverEffect;
         ExecutionPorts.ResultDeliveryPort branches = branchSync::deliver;
         RemoteRepairTurnResultDeliveryPort repairTurns =
                 new RemoteRepairTurnResultDeliveryPort(codec, remoteRepairTurns);
-        ExecutionPorts.ResultDeliveryPort repairAdoption =
-                remoteRepairTurns::deliverAdoption;
         MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
                 commands, remoteManager, mergeOperations, json);
         ReviewAssignmentTurnResultDeliveryPort reviews =
@@ -321,24 +313,12 @@ public class DevelopmentFlowExecutionConfig
                         taskTurns),
                 Map.entry(RemoteObservationOperationHandler.CALLBACK_ROUTE,
                         observations),
-                Map.entry("REMOTE_CI_RERUN_RESULT", ciRerun),
-                Map.entry("REMOTE_CI_VALIDATION_RESULT", ciEffects),
-                Map.entry("REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT",
-                        ciEffects),
-                Map.entry("REMOTE_CI_PUSH_RESULT", ciEffects),
-                Map.entry(RemoteRepairTurnRuntime.CI_STAGE_CALLBACK, repairTurns),
-                Map.entry(RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK, repairTurns),
                 Map.entry(RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
                         repairTurns),
                 Map.entry(RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
                         repairTurns),
                 Map.entry(RemoteRepairTurnRuntime.STEERING_CALLBACK,
                         repairTurns),
-                Map.entry(RemoteRepairTurnRuntime.NORMALIZATION_CALLBACK,
-                        repairTurns),
-                Map.entry(
-                        RemoteRepairCommitAdoptionOperationHandler.CALLBACK_ROUTE,
-                        repairAdoption),
                 Map.entry("BRANCH_SYNC_FETCH_RESULT", branches),
                 Map.entry("BRANCH_SYNC_REBASE_RESULT", branches),
                 Map.entry("BRANCH_SYNC_VALIDATION_RESULT", branches),
@@ -477,21 +457,6 @@ public class DevelopmentFlowExecutionConfig
     {
         return new RemoteEffectOperationHandler(
                 operations, effects, writers, json);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(RemoteRepairCommitAdoptionOperationHandler.class)
-    public RemoteRepairCommitAdoptionOperationHandler
-            v2RemoteRepairCommitAdoptionOperationHandler(
-                    SqliteRemoteRepairNormalizationStore operations,
-                    WorktreeWriterLeaseManager writers,
-                    GitRunner git,
-                    CodeFingerprints fingerprints,
-                    ObjectMapper json)
-    {
-        return new RemoteRepairCommitAdoptionOperationHandler(
-                operations, writers, git, fingerprints, json,
-                Clock.systemUTC());
     }
 
     @Bean
@@ -705,7 +670,6 @@ public class DevelopmentFlowExecutionConfig
             RemoteMarkReadyOperationHandler markReady,
             RemoteObservationOperationHandler observations,
             RemoteEffectOperationHandler remoteFiniteEffects,
-            RemoteRepairCommitAdoptionOperationHandler repairAdoption,
             MergeOperationHandler merge)
     {
         Map<String, ExecutionPorts.OperationHandler> handlers = Map.ofEntries(
@@ -759,15 +723,6 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(RemoteMarkReadyOperationHandler.OPERATION_KIND, markReady),
                 Map.entry(RemoteObservationOperationHandler.OPERATION_KIND,
                         observations),
-                Map.entry(RemoteEffectOperationHandler.RERUN_CI,
-                        remoteFiniteEffects),
-                Map.entry(RemoteEffectOperationHandler.VALIDATE_CI_REPAIR,
-                        remoteFiniteEffects),
-                Map.entry(RemoteEffectOperationHandler
-                                .REWRITE_VALIDATE_BASE_CI_REPAIR,
-                        remoteFiniteEffects),
-                Map.entry(RemoteEffectOperationHandler.PUSH_CI_REPAIR,
-                        remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.FETCH_BRANCH,
                         remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.REBASE_BRANCH,
@@ -776,9 +731,6 @@ public class DevelopmentFlowExecutionConfig
                         remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.PUSH_BRANCH,
                         remoteFiniteEffects),
-                Map.entry(
-                        RemoteRepairCommitAdoptionOperationHandler.OPERATION_KIND,
-                        repairAdoption),
                 Map.entry(MergeOperationHandler.OPERATION_KIND, merge));
         return operationKind -> {
             ExecutionPorts.OperationHandler handler = handlers.get(
@@ -855,13 +807,12 @@ public class DevelopmentFlowExecutionConfig
             TaskManager tasks,
             TaskManager.Store store,
             DispatchTicketControl tickets,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc,
             V2UserWaitStore userWaits,
             TaskPolicyRevisionRedriver policyRedriver)
     {
         return new V2TaskControlService(
-                tasks, store, tickets, ciRepair, jdbc, userWaits,
+                tasks, store, tickets, jdbc, userWaits,
                 policyRedriver);
     }
 
@@ -921,9 +872,9 @@ public class DevelopmentFlowExecutionConfig
             ExecutionPorts.ResultDeliveryPort resultDelivery,
             ExecutionPorts.ExecutionEvidencePort evidence,
             List<ExecutionPorts.MaintenanceWork> maintenanceWork,
-            V2TaskCreationService taskCreation)
+            V2TrunkPreparationService trunkPreparation)
     {
-        taskCreation.repairExistingTrunkEngineSnapshots();
+        trunkPreparation.repairExistingTrunkEngineSnapshots();
         return new ExecutionDispatcher(
                 capacityManager,
                 tickets,

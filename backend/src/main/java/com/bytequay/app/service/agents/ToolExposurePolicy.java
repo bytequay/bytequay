@@ -46,7 +46,7 @@ public class ToolExposurePolicy
             "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
             "recall_memory", "lookup_memory", "read_workspace_memory", "recall_thread",
             "list_prs", "read_pr", "read_issue", "read_task", "read_current_repository",
-            "read_file", "sync_repo", "create_task", "propose_backlog_items",
+            "read_file", "sync_repo", "propose_backlog_items",
             "list_terms", "lookup_term");
 
     private static final Set<String> BRAIN = ImmutableSet.of(

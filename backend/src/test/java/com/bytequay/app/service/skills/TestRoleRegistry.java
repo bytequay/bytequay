@@ -44,8 +44,8 @@ class TestRoleRegistry
                 .contains("ByteQuay role · Trunk")
                 .contains("Role version: `trunk@1`")
                 .contains("Character:")
-                .contains("do not edit files, run builds or tests, commit, push, or publish")
-                .contains("create_task")
+                .contains("do not edit files, run builds or tests, commit, push, publish, or create Tasks")
+                .doesNotContain("create_task")
                 .doesNotContain("AGENTS.md", "CLAUDE.md");
     }
 

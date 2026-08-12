@@ -14,8 +14,8 @@
 package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.CommandResult;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
+import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ReadinessEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RemoteContext;
@@ -29,14 +29,13 @@ import java.util.Objects;
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
 import static java.util.Objects.requireNonNull;
 
-/** Explicit owner-to-owner commands emitted while one accepted snapshot is folded. */
+/** Branch, merge, and readiness commands emitted for accepted legacy snapshots. */
 public final class RemoteObservationDomainHooks
 {
     private static final String ACTOR = "remote-observer";
 
     private final SqliteRemoteDevelopmentRuntimeStore store;
     private final RemoteDevelopmentStageManager remote;
-    private final RemoteCiRepairRuntimeCoordinator ciRepair;
     private final BranchSyncRuntimeCoordinator branchSync;
     private final RemoteMergeObservationCoordinator mergeObservation;
     private final RemoteMergeRuntimeCoordinator merges;
@@ -45,7 +44,6 @@ public final class RemoteObservationDomainHooks
     public RemoteObservationDomainHooks(
             SqliteRemoteDevelopmentRuntimeStore store,
             RemoteDevelopmentStageManager remote,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
             BranchSyncRuntimeCoordinator branchSync,
             RemoteMergeObservationCoordinator mergeObservation,
             RemoteMergeRuntimeCoordinator merges,
@@ -53,7 +51,6 @@ public final class RemoteObservationDomainHooks
     {
         this.store = requireNonNull(store, "store is null");
         this.remote = requireNonNull(remote, "remote is null");
-        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
         this.branchSync = requireNonNull(branchSync, "branchSync is null");
         this.mergeObservation = requireNonNull(
                 mergeObservation, "mergeObservation is null");
@@ -61,14 +58,10 @@ public final class RemoteObservationDomainHooks
         this.prs = requireNonNull(prs, "prs is null");
     }
 
-    public ObservationDisposition acceptCiInCommand(Candidate candidate)
+    /** Advances neutral Remote lifecycle facts without starting legacy CI repair. */
+    public void acceptLifecycleInCommand(Candidate candidate)
     {
         requireCurrent(candidate);
-        ObservationDisposition disposition =
-                ciRepair.acceptObservationInCommand(candidate);
-        if (disposition == ObservationDisposition.DEFER_UNTIL_PUSH_DELIVERY) {
-            return disposition;
-        }
         RemoteContext context = store.requireContext(
                 candidate.context().taskId(), candidate.context().stageId());
         boolean changed = !Objects.equals(
@@ -85,10 +78,8 @@ public final class RemoteObservationDomainHooks
                     candidate.context().taskId(), candidate.context().stageId());
         }
         if (candidate.ciEvaluation().outcome()
-                != RemoteCiPolicy.PolicyOutcome.ACCEPTED) {
-            return disposition;
-        }
-        if ("WAITING_CI".equals(context.checkpoint())) {
+                == RemoteCiPolicy.PolicyOutcome.ACCEPTED
+                && "WAITING_CI".equals(context.checkpoint())) {
             remote.acceptCiEvidenceInCommand(gate(
                     context, candidate.evidence().ciEvaluationId(),
                     candidate.evidence().headSha(), candidate.evidence().baseSha(),
@@ -103,12 +94,10 @@ public final class RemoteObservationDomainHooks
                     context, candidate.evidence().snapshotId(),
                     candidate.evidence().headSha(), candidate.evidence().baseSha(),
                     "accept-open-pr"));
-            if (accepted.disposition()
-                    != CommandResult.Disposition.SUPERSEDED) {
+            if (accepted.disposition() != CommandResult.Disposition.SUPERSEDED) {
                 projectRemoteOpen(context.taskId());
             }
         }
-        return disposition;
     }
 
     private void projectRemoteOpen(String taskId)
@@ -158,6 +147,12 @@ public final class RemoteObservationDomainHooks
                 "squash", 3));
     }
 
+    private static void requireCurrent(Candidate candidate)
+    {
+        requireNonNull(candidate, "candidate is null");
+        TaskCommandExecutor.requireCurrent(candidate.context().taskId());
+    }
+
     private static RemoteDevelopmentStageManager.RemoteGateCommand gate(
             RemoteContext context,
             String proofId,
@@ -171,11 +166,5 @@ public final class RemoteObservationDomainHooks
                         context.taskEpoch(), context.stageId(),
                         context.stageGeneration(), context.stageVersion()),
                 proofId, headSha, baseSha);
-    }
-
-    private static void requireCurrent(Candidate candidate)
-    {
-        requireNonNull(candidate, "candidate is null");
-        TaskCommandExecutor.requireCurrent(candidate.context().taskId());
     }
 }

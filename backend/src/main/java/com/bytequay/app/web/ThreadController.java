@@ -19,7 +19,6 @@ import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFile;
@@ -31,14 +30,12 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
 import com.bytequay.app.service.threads.MessageAttachments;
-import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.ScopeWorkModel;
@@ -109,8 +106,6 @@ public class ThreadController
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointTrigger checkpointTrigger;
     private final WorkModelResolver workModelResolver;
-    private final PrTaskLinkService prTaskLink;
-    private final TaskStore taskStore;
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
     private V2UserWaitService v2Waits;
@@ -122,8 +117,6 @@ public class ThreadController
             ThreadCheckpointStore checkpoints,
             CheckpointTrigger checkpointTrigger,
             WorkModelResolver workModelResolver,
-            PrTaskLinkService prTaskLink,
-            TaskStore taskStore,
             ChatAttachmentStore attachmentStore,
             ObjectMapper mapper)
     {
@@ -132,8 +125,6 @@ public class ThreadController
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
-        this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -204,8 +195,7 @@ public class ThreadController
      * on the trunk (planning); the optional {@code initialPrompt} is
      * routed as a trunk turn and the title is derived from it when
      * omitted. No worktree, no branch, no Task. Use
-     * {@code POST /api/threads/{id}/tasks} to materialise a Task
-     * later when work turns branch-worthy.
+     * Greenfield Tasks start only through the repository-scoped Task command.
      */
     @PostMapping
     public Thread create(@RequestBody NewTaskBody body)
@@ -238,60 +228,6 @@ public class ThreadController
                 body.workspaceId(),
                 ScopeWorkModel.effortOnly(engine, body.workModel()))
                 .withDescription(body.description()), body.engines());
-    }
-
-    /**
-     * POST /api/threads/{id}/tasks — materialise a Task under an
-     * existing thread (cuts a dev branch + worktree). The body
-     * carries the same shape as the thread-create body but {@code
-     * workingDir} is required here. Used by the assign-dev-task
-     * action today; the trunk's agent-proposed "looks like it'll
-     * touch code, start a task?" prompt will route through here too
-     * once it lands.
-     */
-    @PostMapping("/{id}/tasks")
-    public Task materialiseTask(
-            @PathVariable String id,
-            @RequestBody NewTaskBody body)
-    {
-        requireNonNull(body, "body is null");
-        if (body.kind() == null) {
-            throw new IllegalArgumentException("kind is required");
-        }
-        if (body.workingDir() == null || body.workingDir().isBlank()) {
-            throw new IllegalArgumentException("workingDir is required");
-        }
-        // Author + 1:1-active gate when linking to an existing PR: only
-        // your own PR, and only when no active task already owns it.
-        // Throws 422 / 409 before the task is cut. Empty = the worktree
-        // doesn't map to a watched repo, so there's nothing to link.
-        Optional<String> linkPrRef = body.linkedPrNumber() == null
-                ? Optional.empty()
-                : prTaskLink.assertCanCreateDevTaskForWorktree(
-                        body.workingDir(), body.linkedPrNumber());
-        Task created = threads.materialiseTask(id, new ThreadService.NewTaskRequest(
-                body.kind(),
-                body.provider() == null ? "claude-code" : body.provider(),
-                body.model(),
-                body.title(),
-                body.workingDir(),
-                body.branchName(),
-                body.initialPrompt(),
-                body.initialGroupIds() == null ? List.of() : body.initialGroupIds(),
-                body.taskType(),
-                body.linkedPrNumber(),
-                body.linkedIssueNumber(),
-                /* flow */ null,
-                // materialiseTask doesn't read workspaceId on the request,
-                // but the record requires it — surface the body value
-                // anyway so a future code path picks it up.
-                body.workspaceId(),
-                body.workModel(),
-                body.trunkPlan()));
-        // Permanent task→PR link (drives the 1:1-active index + the PR
-        // card's linked-task chip).
-        linkPrRef.ifPresent(ref -> taskStore.linkTaskToPr(created.id(), ref));
-        return created;
     }
 
     /** GET /api/threads/{id} */

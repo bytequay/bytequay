@@ -12,8 +12,6 @@
  * limitations under the License.
  */
 import type {
-  CiHarnessPhase,
-  CiHarnessWatchSnapshotDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickEventDto,
   UpstreamCherryPickJobDto,
@@ -45,32 +43,17 @@ export const isLiveSync = (job: UpstreamCherryPickJobDto): boolean =>
 export const isClosedSync = (job: UpstreamCherryPickJobDto): boolean =>
   job.closedAt !== null;
 
-/**
- * Phase 2 keeps moving long after phase 1 says COMPLETED — the harness watch
- * is what runs it. Without this the cockpit stops polling the moment the last
- * pick lands and a run that is still working reads as finished.
- */
-export const isWatchingSync = (job: UpstreamCherryPickJobDto): boolean =>
-  job.closedAt === null && job.harnessWatchId !== null;
-
 /** The label the run carries everywhere — sidebar, Today, and its own header. */
 export function syncTitle(job: UpstreamCherryPickJobDto): string {
   return `Sync run — ${job.resultBranch}`;
 }
 
-/**
- * Phase 1 picks and pushes; phase 2 is the harness driving the pull request
- * green. The watch is what marks the boundary, so the pill follows it.
- */
 export function syncPhase(job: UpstreamCherryPickJobDto): string {
   if (job.closedAt !== null) return 'CLOSED';
   if (job.status === 'FAILED') return 'FAILED';
-  if (job.status === 'PAUSED_CONFLICT') return 'PHASE 1 · PARKED';
-  if (job.harnessWatchId !== null) {
-    return job.status === 'COMPLETED' ? 'PHASE 2 · CI HARNESS' : 'PHASE 1 · PICKING';
-  }
-  if (job.status === 'COMPLETED') return 'PHASE 1 · COMPLETE';
-  return job.pauseRequested ? 'PHASE 1 · PAUSING' : 'PHASE 1 · PICKING';
+  if (job.status === 'PAUSED_CONFLICT') return 'PARKED';
+  if (job.status === 'COMPLETED') return 'COMPLETE';
+  return job.pauseRequested ? 'PAUSING' : 'PICKING';
 }
 
 export function syncProgress(job: UpstreamCherryPickJobDto): {
@@ -145,66 +128,10 @@ export function fixupsByPick(
   return byPick;
 }
 
-/** What phase 2 is doing, for a reader who only wants to know if it is alive. */
-export type HarnessLine = {
-  label: string;
-  detail: string | null;
-  tone: 'live' | 'wait' | 'green' | 'attention';
-  /** When the harness last finished looking at CI, epoch ms. */
-  checkedAtMs: number | null;
-};
-
-const PHASE_WORK: Record<CiHarnessPhase, string> = {
-  probe: 'Reading the latest CI checks',
-  parse: 'Reading the failed job logs',
-  classify: 'Sorting what is worth fixing',
-  fix: 'Agent fixing the failures',
-  verify: 'Verifying the fix',
-  commit: 'Pushing the round',
-  rebase: 'Rebasing onto the target branch',
-  done: 'Finishing the round',
-};
-
-export function harnessLine(snapshot: CiHarnessWatchSnapshotDto): HarnessLine {
-  const newest = snapshot.cycles.at(0) ?? null;
-  const base = {
-    detail: snapshot.runStatusTail,
-    checkedAtMs: newest === null ? null : newest.finishedAtMs ?? newest.startedAtMs,
-  };
-  switch (snapshot.status) {
-    case 'bootstrap':
-      return { ...base, label: 'Setting up — reading how this repo runs CI', tone: 'wait' };
-    case 'running':
-      return {
-        ...base,
-        label: PHASE_WORK[snapshot.activeCycle?.phase ?? 'probe'],
-        tone: 'live',
-      };
-    case 'watching':
-      return { ...base, label: 'Waiting for CI to finish', tone: 'wait' };
-    case 'handoff':
-      return { ...base, label: 'Waiting for the fix to reach the remote', tone: 'wait' };
-    case 'needs_attention':
-      // `reason` is the machine code ("needs_attention"); `detail` is the
-      // sentence saying what actually stopped it, which is the whole point.
-      return {
-        ...base,
-        label: 'Stopped — nothing runs until you restart it',
-        detail: snapshot.handoff?.detail ?? snapshot.runStatusTail,
-        tone: 'attention',
-      };
-    case 'green':
-      return { ...base, label: 'All checks green — yours to merge', tone: 'green' };
-    default:
-      return { ...base, label: 'Watch stopped', tone: 'attention' };
-  }
-}
-
 /** What the run is doing right now, in words rather than a spinner. */
 export function syncNowLine(
   job: UpstreamCherryPickJobDto,
   queue: SyncQueue,
-  harness?: CiHarnessWatchSnapshotDto | null,
 ): string {
   if (job.closedAt !== null) {
     return 'Run closed — the worktree was removed; the branch and this log are kept';
@@ -217,17 +144,12 @@ export function syncNowLine(
         job.conflictPaths.length === 1 ? '' : 's'}`;
   }
   if (job.status === 'COMPLETED') {
-    // The range being picked is not the run being over — phase 2 takes it from
-    // here, and saying "parked for your review" while it works is a lie.
-    if (harness !== undefined && harness !== null) {
-      return `Phase 2 — ${harnessLine(harness).label.toLowerCase()}`;
-    }
     return job.prNumber === null
       ? `Range complete — ${job.appliedCount} picked on ${job.resultBranch}`
       : `Range complete — draft PR #${job.prNumber} parked for your review`;
   }
   if (job.pauseRequested) return 'Pausing — stopping after the pick in flight';
-  if (queue.current === null) return 'Opening the pull request and starting the watch';
+  if (queue.current === null) return 'Opening the pull request and finishing the run';
   return `Picking ${queue.current.subject} — pick ${queue.current.index + 1} of ${
     job.requestedCount}`;
 }

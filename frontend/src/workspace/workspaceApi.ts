@@ -22,7 +22,6 @@ import type {
   LocalFileDiffDto,
   LocalRepoStatusDto,
   PullRequestDto,
-  StartDevelopmentResponse,
   WorkspaceCardDto,
   WorkspaceDto,
 } from '../types';
@@ -460,166 +459,6 @@ export type UpstreamCherryPickRunDto = {
   events: UpstreamCherryPickEventDto[];
 };
 
-export type CiHarnessStatus =
-  | 'bootstrap' | 'watching' | 'running' | 'needs_attention'
-  | 'handoff' | 'green' | 'stopped';
-
-export type CiHarnessPhase =
-  | 'probe' | 'parse' | 'classify' | 'fix' | 'verify' | 'commit' | 'rebase' | 'done';
-
-export type CiHarnessPhaseDto = {
-  phase: CiHarnessPhase;
-  status: string;
-};
-
-export type CiHarnessCycleDto = {
-  id: string;
-  ordinal: number;
-  triggerKind: string;
-  status: string;
-  phase: CiHarnessPhase;
-  headSha: string | null;
-  costMilliUsd: number;
-  backupRef: string | null;
-  netNeutralProof: CiHarnessNetNeutralProofDto | null;
-  runStatusTail: string | null;
-  startedAtMs: number;
-  finishedAtMs: number | null;
-  phaseStates: CiHarnessPhaseDto[];
-};
-
-export type CiHarnessMilestoneDto = {
-  id: number;
-  cycleId: string | null;
-  phase: CiHarnessPhase | null;
-  kind: string;
-  message: string;
-  detailJson: string | null;
-  createdAtMs: number;
-};
-
-export type CiHarnessEditDto = {
-  path: string;
-  find: string;
-  replace: string | null;
-};
-
-export type CiHarnessDiagnosisDto = {
-  rootCause: string;
-  culpritCommit: string | null;
-  targetSubject: string | null;
-  edits: CiHarnessEditDto[];
-  signaturePattern: string;
-  bucket: string;
-  binding: string;
-  verifyHint: string[];
-  confidence: number;
-  needsHuman: boolean;
-  rationale: string;
-};
-
-export type CiHarnessVerificationDto = {
-  passed: boolean;
-  reproducible: boolean;
-  commands: {
-    command: string;
-    exitCode: number;
-    timedOut: boolean;
-    outputTail: string | null;
-  }[];
-  reason: string | null;
-};
-
-export type CiHarnessFailureDto = {
-  id: string;
-  cycleId: string;
-  status: string;
-  bucket: string;
-  jobName: string;
-  module: string;
-  testClass: string | null;
-  testMethod: string | null;
-  signature: string;
-  logExcerpt: string;
-  targetSubject: string | null;
-  ruleId: string | null;
-  diagnosis: CiHarnessDiagnosisDto | null;
-  fix: {
-    filesChanged: string[];
-    targetSubject: string | null;
-    verifyCommands: string[];
-    source: string | null;
-  } | null;
-  verification: CiHarnessVerificationDto | null;
-  updatedAtMs: number;
-};
-
-export type CiHarnessStatsDto = {
-  failuresByState: Record<string, number>;
-  cycleCostMilliUsd: number;
-  watchCostMilliUsd: number;
-};
-
-export type CiHarnessNetNeutralProofDto = {
-  beforeHead: string;
-  afterHead: string;
-  beforeTree: string;
-  afterTree: string;
-  emptyTreeDiff: boolean;
-  rangeEquivalent: boolean;
-  remoteUndiverged: boolean;
-  detail: string | null;
-};
-
-export type CiHarnessWatchSnapshotDto = {
-  watchId: string;
-  workspaceId: string;
-  status: CiHarnessStatus;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  localPrId: string | null;
-  branch: string | null;
-  title: string | null;
-  headSha: string | null;
-  bootstrapStatus: string;
-  bootstrapProfile: CiHarnessBootstrapProfileDto | null;
-  budget: {
-    limitMilliUsd: number;
-    spentMilliUsd: number;
-    cycleMilliUsd: number;
-    remainingMilliUsd: number;
-  };
-  activeCycle: CiHarnessCycleDto | null;
-  cycles: CiHarnessCycleDto[];
-  milestones: CiHarnessMilestoneDto[];
-  failures: CiHarnessFailureDto[];
-  stats: CiHarnessStatsDto;
-  backupRef: string | null;
-  netNeutralProof: CiHarnessNetNeutralProofDto | null;
-  handoff: {
-    reason: string;
-    failureId: string | null;
-    command: string | null;
-    detail: string | null;
-  } | null;
-  handoffCommand: string | null;
-  runStatusTail: string | null;
-};
-
-export type CiHarnessBootstrapProfileDto = {
-  forge: string;
-  ecosystems: string[];
-  workflowFiles: string[];
-  verifySteps: Record<string, string[]>;
-  aggregatorJobs: string[];
-  infraJobs: string[];
-  modules: Record<string, string>;
-  runtimeMetadata: Record<string, string>;
-  verificationEnvironment: Record<string, string>;
-  warnings: string[];
-};
-
 export type StartIssueResultDto = {
   trunkId: string;
   turnId: string;
@@ -841,12 +680,6 @@ export const workspaceApi = {
       method: 'PATCH',
       body: input,
     }),
-  startBacklogItem: (workspaceId: string, key: string, trunkId?: string) =>
-    window.bridge.workspaceApi<StartDevelopmentResponse>({
-      path: `/api/workspaces/${enc(workspaceId)}/backlog/${enc(key)}/start`,
-      method: 'POST',
-      body: trunkId === undefined ? {} : { trunkId },
-    }),
   discardBacklogItem: (workspaceId: string, key: string, reason?: string) =>
     window.bridge.workspaceApi<WorkspaceBacklogItemDto>({
       path: `/api/workspaces/${enc(workspaceId)}/backlog/${enc(key)}/discard`,
@@ -983,8 +816,7 @@ export const workspaceApi = {
       targetBranch: string;
       prDescription: string | null;
       openDraftPr: boolean;
-      createHarnessWatch: boolean;
-      budgetMilliUsd: number | null;
+      budgetMilliUsd: number;
     },
   ) => window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
     path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks`,
@@ -1049,20 +881,6 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/guidance`,
       method: 'POST',
       body: { text },
-    }),
-  harnessWatch: (workspaceId: string, watchId: string) =>
-    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}`,
-    }),
-  /** Run a harness cycle now. With fixNow the round works on the checks that
-   *  have already failed instead of waiting for the board to settle. */
-  runHarnessWatch: (
-    workspaceId: string, watchId: string, fixNow = false, steeringText?: string,
-  ) =>
-    window.bridge.workspaceApi<unknown>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/run`,
-      method: 'POST',
-      body: steeringText === undefined ? { fixNow } : { fixNow, steeringText },
     }),
   refreshRepository: (workspaceId: string) =>
     window.bridge.workspaceApi<LocalRepoStatusDto>({

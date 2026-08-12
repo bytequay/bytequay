@@ -223,7 +223,7 @@ describe('TaskBrainRoute', () => {
     expect(resumePausedTask).not.toHaveBeenCalled();
   });
 
-  it('retries the exact failed Remote repair Brain review without resuming the Task', async () => {
+  it('retries the exact failed BranchSync Brain review without resuming the Task', async () => {
     const taskId = 'task-remote-brain-retry';
     const base = buildMockBrainView(0);
     const view: TaskBrainViewData = {
@@ -237,7 +237,7 @@ describe('TaskBrainRoute', () => {
         blockerId: 'remote-brain-blocker-1', failedTurnId: 'remote-brain-turn-1',
       },
     };
-    const recoverV2RemoteRepairBrainReview = vi.fn().mockResolvedValue({});
+    const recoverV2BranchSyncBrainReview = vi.fn().mockResolvedValue({});
     const resumePausedTask = vi.fn().mockResolvedValue({});
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(view),
@@ -247,7 +247,7 @@ describe('TaskBrainRoute', () => {
       getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
       listTaskCommits: vi.fn().mockResolvedValue([]),
       getAgentReview: vi.fn().mockResolvedValue(null),
-      recoverV2RemoteRepairBrainReview,
+      recoverV2BranchSyncBrainReview,
       resumePausedTask,
     };
 
@@ -256,16 +256,16 @@ describe('TaskBrainRoute', () => {
     fireEvent.click(await screen.findByRole('button', {
       name: 'Retry Brain review · NEEDS ATTENTION',
     }));
-    await waitFor(() => expect(screen.getByText('Retry Remote repair Brain review?')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Retry Branch sync Brain review?')).toBeTruthy());
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
       name: 'Retry Brain review',
     }));
-    await waitFor(() => expect(recoverV2RemoteRepairBrainReview).toHaveBeenCalledWith(
+    await waitFor(() => expect(recoverV2BranchSyncBrainReview).toHaveBeenCalledWith(
       taskId,
       'remote-brain-turn-1',
       expect.objectContaining({
         blockerId: 'remote-brain-blocker-1',
-        reason: 'Explicit Retry Remote repair Brain review action from the Task run control',
+        reason: 'Explicit Retry Branch sync Brain review action from the Task run control',
       }),
     ));
     expect(resumePausedTask).not.toHaveBeenCalled();
@@ -756,7 +756,6 @@ describe('StageDetailRoute', () => {
       recovery: {
         replacement: null,
         failure: null,
-        ci: null,
         cleanup: null,
         localPublishBaseSync: null,
         branchSync: null,
@@ -889,7 +888,7 @@ describe('StageDetailRoute', () => {
     expect(onOpenStage).toHaveBeenCalledWith('stage-dev');
   });
 
-  it('requires confirmation and uses the explicit retry action for exhausted CI', async () => {
+  it('does not expose the retired retry action for exhausted CI', async () => {
     const now = '2026-07-21T00:00:00Z';
     const base = buildMockBrainView(0);
     const view: TaskBrainViewData = {
@@ -916,7 +915,6 @@ describe('StageDetailRoute', () => {
       realtimeCi: null, ciFixHistory: [], pr: null,
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
     };
-    const retryFailedCi = vi.fn().mockResolvedValue(undefined);
     const resumePausedTask = vi.fn().mockResolvedValue(undefined);
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(view),
@@ -925,18 +923,13 @@ describe('StageDetailRoute', () => {
       getTaskRounds: vi.fn().mockResolvedValue([]),
       getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
       listTaskCommits: vi.fn().mockResolvedValue([]),
-      retryFailedCi,
       resumePausedTask,
     };
 
     render(<StageDetailRoute threadId="t1" taskId="task-ci" stageId="stage-remote" />);
 
-    fireEvent.click(await screen.findByRole('button', {
-      name: 'Retry CI · CI FIX ATTEMPTS EXHAUSTED (5/5)',
-    }));
-    expect(retryFailedCi).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry CI' }));
-    await waitFor(() => expect(retryFailedCi).toHaveBeenCalledWith('t1', 'task-ci'));
+    await screen.findByText('CI FIX ATTEMPTS EXHAUSTED (5/5)');
+    expect(screen.queryByRole('button', { name: /Retry CI/ })).toBeNull();
     expect(resumePausedTask).not.toHaveBeenCalled();
   });
 
@@ -1030,7 +1023,7 @@ describe('StageDetailRoute', () => {
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
-      recovery: { replacement: null, failure: null, ci: null, cleanup: null },
+      recovery: { replacement: null, failure: null, cleanup: null },
     };
     const recoverV2DevelopmentBrainReview = vi.fn().mockResolvedValue({});
     const steerStage = vi.fn().mockResolvedValue({ turnId: 'unexpected' });
@@ -1099,7 +1092,6 @@ describe('StageDetailRoute', () => {
       devPhases: [],
       recovery: {
         replacement: { stageTurnId: 'turn-stalled', reason: 'Strict stage result could not be delivered' },
-        ci: null,
         cleanup: null,
       },
     };
@@ -1174,7 +1166,6 @@ describe('StageDetailRoute', () => {
           stageTurnId: 'turn-failed', blockerId: 'blocker-failed',
           reason: "You've hit your session limit · resets 12:40am (Asia/Singapore)",
         },
-        ci: null,
         cleanup: null,
       },
     };
@@ -1184,7 +1175,6 @@ describe('StageDetailRoute', () => {
       recovery: {
         replacement: null,
         failure: null,
-        ci: null,
         cleanup: null,
       },
     };

@@ -1349,15 +1349,11 @@ public final class V2DevelopmentFlowProjection
                       operation.expected_code_fingerprint
                   AND code.head_sha = operation.expected_head_sha
                   AND code.base_sha = operation.expected_base_sha
-                  AND ((operation.family = 'CI'
-                        AND operation.episode_status = 'AWAITING_PUSH_CI'
-                        AND failed.purpose = 'REMOTE_CI_BRAIN_REVIEW')
-                    OR (operation.family = 'BRANCH'
-                        AND operation.episode_status = 'BRAIN_REVIEW'
+                  AND operation.episode_status = 'BRAIN_REVIEW'
                         AND operation.branch_step_status = 'FAILED'
                         AND operation.branch_step_attempt =
                             operation.semantic_attempt
-                        AND failed.purpose = 'BRANCH_SYNC_BRAIN_REVIEW'))
+                        AND failed.purpose = 'BRANCH_SYNC_BRAIN_REVIEW'
                   AND failed.task_id = task.id
                   AND failed.task_epoch = task.epoch
                   AND failed.trigger_stage_id = operation.stage_id
@@ -1381,9 +1377,7 @@ public final class V2DevelopmentFlowProjection
                         AND live.trigger_stage_id = operation.stage_id
                         AND live.trigger_stage_generation =
                             operation.stage_generation
-                        AND live.purpose IN (
-                            'REMOTE_CI_BRAIN_REVIEW',
-                            'BRANCH_SYNC_BRAIN_REVIEW')
+                        AND live.purpose = 'BRANCH_SYNC_BRAIN_REVIEW'
                         AND live.status IN (
                             'REQUESTED','QUEUED','CLAIMED','RUNNING'))
                 """, (rs, ignored) -> new TaskBrainViewData.RecoveryAction(

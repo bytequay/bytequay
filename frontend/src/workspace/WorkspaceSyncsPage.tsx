@@ -22,15 +22,10 @@ import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
 const PR_RETRY_MS = 3_000;
 
 /**
- * The CI Harness surface: every sync run in the workspace, the run you are
- * looking at, and its pull request beside it.
- *
- * <p>There is no separate watch dashboard any more. Phase 1 and phase 2 are one
- * run by design, so the run's own cockpit is the whole page — the harness shows
- * through it as the phase 2 status in the queue column rather than as a second
- * screen with its own vocabulary.
+ * Every upstream cherry-pick run in the workspace, the selected run, and its
+ * pull request beside it.
  */
-export default function WorkspaceHarnessPage({
+export default function WorkspaceSyncsPage({
   workspaceId,
   jobId,
   onOpenSync,
@@ -102,7 +97,7 @@ export default function WorkspaceHarnessPage({
   }
 
   return (
-    <div className="ci-harness-page">
+    <div className="workspace-syncs-page">
       <WorkspaceSyncRunPage
         workspaceId={workspaceId}
         jobId={selected}

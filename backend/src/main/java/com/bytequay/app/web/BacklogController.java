@@ -18,7 +18,6 @@ import com.bytequay.app.beans.backlog.BatchCreateBacklogRequest;
 import com.bytequay.app.beans.backlog.BatchCreateBacklogResponse;
 import com.bytequay.app.beans.backlog.CreateBacklogItemRequest;
 import com.bytequay.app.beans.backlog.SkipBacklogItemRequest;
-import com.bytequay.app.beans.backlog.StartDevelopmentResponse;
 import com.bytequay.app.beans.backlog.UpdateBacklogItemRequest;
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.BacklogItem.Link;
@@ -40,8 +39,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * REST surface for the per-thread backlog (the trunk's Backlog tab). List
- * / create are thread-scoped; update / delete / start-development address
- * a single item. "Start development" cuts a task seeded from the item.
+ * / create are thread-scoped; update and delete address a single item.
  */
 @RestController
 public class BacklogController
@@ -174,25 +172,6 @@ public class BacklogController
         return BacklogItemDto.from(backlog.revive(itemId));
     }
 
-    @PostMapping("/api/backlog/{itemId}/start-development")
-    public StartDevelopmentResponse startDevelopment(@PathVariable String itemId)
-    {
-        BacklogServiceImpl.StartResult result = backlog.startDevelopment(itemId);
-        return new StartDevelopmentResponse(BacklogItemDto.from(result.item()), result.taskId());
-    }
-
-    @PostMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}/start")
-    public StartDevelopmentResponse startFromWorkspace(
-            @PathVariable String workspaceId,
-            @PathVariable String itemKey,
-            @RequestBody(required = false) StartBacklogBody body)
-    {
-        BacklogServiceImpl.StartResult result = backlog.startDevelopmentForWorkspace(
-                workspaceId, itemKey, body == null ? null : body.trunkId());
-        return new StartDevelopmentResponse(
-                BacklogItemDto.from(result.item()), result.taskId());
-    }
-
     @PostMapping("/api/workspaces/{workspaceId}/backlog/{itemKey}/discard")
     public BacklogItemDto discardFromWorkspace(
             @PathVariable String workspaceId,
@@ -228,6 +207,4 @@ public class BacklogController
             List<String> tags,
             String priority,
             List<Link> links) {}
-
-    public record StartBacklogBody(String trunkId) {}
 }

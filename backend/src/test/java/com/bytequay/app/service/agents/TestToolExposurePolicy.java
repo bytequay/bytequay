@@ -31,8 +31,9 @@ class TestToolExposurePolicy
     void trunkCannotSeeRetiredQueueTools()
     {
         assertThat(policy.activeTools(ByteQuayRole.TRUNK, null))
-                .contains("create_task")
-                .doesNotContain("queue_task", "reorder_queue", "drop_queued_task");
+                .doesNotContain(
+                        "create_task", "queue_task", "reorder_queue",
+                        "drop_queued_task");
     }
 
     @Test
@@ -80,7 +81,7 @@ class TestToolExposurePolicy
         assertThat(policy.completionSummaryTools())
                 .contains("read_commit_summary", "read_diff_summary")
                 .doesNotContain(
-                        "create_task", "record_plan", "record_review_verdict",
+                        "record_plan", "record_review_verdict",
                         "approval_prompt", "ask_user_question", "push");
     }
 
@@ -96,7 +97,7 @@ class TestToolExposurePolicy
     void everyV2CatalogExcludesLegacyLifecycleAndArtifactMutators()
     {
         Set<String> retired = ImmutableSet.of(
-                "create_task", "record_plan", "record_review_verdict",
+                "record_plan", "record_review_verdict",
                 "record_round_reply", "validate", "record_iteration_summary",
                 "record_dev_report", "record_pr_progress",
                 "record_pr_description", "record_pr_commit",

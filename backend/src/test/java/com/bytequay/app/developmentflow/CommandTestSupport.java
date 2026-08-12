@@ -17,15 +17,12 @@ import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskManager;
-import com.bytequay.app.developmentflow.task.creation.ProvisionTarget;
-import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -115,13 +112,6 @@ final class CommandTestSupport
         }
 
         @Override
-        public boolean matchesTaskCreationAuthorization(
-                TrunkManager.TaskCreationCommand command)
-        {
-            return false;
-        }
-
-        @Override
         public Optional<TrunkManager.ThreadTurnRequestReceipt>
                 findThreadTurnRequest(String trunkId, String commandId)
         {
@@ -172,15 +162,6 @@ final class CommandTestSupport
                 TrunkManager.State updated,
                 String acceptance,
                 String terminalStatus)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TrunkManager.State authorizeTaskCreation(
-                TrunkManager.TaskCreationCommand command,
-                TrunkManager.State expected,
-                TrunkManager.State updated)
         {
             throw new UnsupportedOperationException();
         }
@@ -285,50 +266,9 @@ final class CommandTestSupport
         }
 
         @Override
-        public boolean matchesRepositoryRoot(
-                TaskCreationInput input, Path repositoryRoot)
-        {
-            return false;
-        }
-
-        @Override
-        public long nextTaskSequence(String trunkId)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<TaskManager.TaskCreationReceipt> findTaskCreation(
-                String trunkId, String commandId)
-        {
-            return Optional.empty();
-        }
-
-        @Override
         public boolean hasTaskCreationReceipt(String taskId, String commandId)
         {
             return false;
-        }
-
-        @Override
-        public boolean matchesTaskCreation(
-                TrunkManager.TaskCreationCommand command,
-                TrunkManager.AuthorizedTaskCreation authorization,
-                TaskManager.TaskCreationReceipt receipt,
-                ProvisionTarget target)
-        {
-            return false;
-        }
-
-        @Override
-        public TaskManager.TaskCreationReceipt createTask(
-                TrunkManager.TaskCreationCommand command,
-                TrunkManager.AuthorizedTaskCreation authorization,
-                TaskManager.State state,
-                long taskSequence,
-                ProvisionTarget target)
-        {
-            throw new UnsupportedOperationException();
         }
 
         @Override

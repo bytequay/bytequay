@@ -1680,14 +1680,6 @@ export type BacklogItemDto = {
   links?: Array<{ type: string; id: string }>;
 };
 
-/** Result of starting development on a backlog item: the updated item
- *  and the materialised task id (null when it queued behind a running
- *  task). */
-export type StartDevelopmentResponse = {
-  item: BacklogItemDto;
-  taskId: string | null;
-};
-
 /** One multiple-choice option on an agent question. */
 export type AgentQuestionOptionDto = { id: string; label: string; extra: string | null };
 
@@ -2884,7 +2876,6 @@ export type Bridge = {
   deleteBacklogItem: (itemId: string) => Promise<void>;
   /** Begin trunk exploration of the item (posts its content to the trunk and
    *  marks it in-progress). The returned taskId is null — no task is cut. */
-  startBacklogDevelopment: (itemId: string) => Promise<StartDevelopmentResponse>;
   /** Mark a backlog item not-to-proceed, with an optional reason. */
   skipBacklogItem: (itemId: string, reason?: string) => Promise<BacklogItemDto>;
   /** Restore a not-to-proceed item to created. */
@@ -2972,9 +2963,6 @@ export type Bridge = {
   pauseTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Resume a paused, errored, or archived task back to IDLE so it can run again. */
   resumePausedTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
-  /** Explicitly restart an exhausted post-ship CI loop. Unlike ordinary
-   *  Resume, this action may rerun failed GitHub Actions. */
-  retryFailedCi: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Replace one exact failed Plan draft operation without resuming the Task. */
   recoverV2Plan: (
     taskId: string,
@@ -2987,8 +2975,8 @@ export type Bridge = {
     failedTurnId: string,
     command: { blockerId: string; commandId: string; reason: string },
   ) => Promise<unknown>;
-  /** Replace one exact failed CI/branch Remote repair Brain TaskTurn. */
-  recoverV2RemoteRepairBrainReview: (
+  /** Replace one exact malformed BranchSync Brain TaskTurn. */
+  recoverV2BranchSyncBrainReview: (
     taskId: string,
     failedTurnId: string,
     command: { blockerId: string; commandId: string; reason: string },
@@ -2998,20 +2986,6 @@ export type Bridge = {
     taskId: string,
     failedTurnId: string,
     command: { blockerId: string; commandId: string; reason: string },
-  ) => Promise<unknown>;
-  /** Execute one exact owner-scoped V2 CI recovery command. */
-  recoverV2Ci: (
-    taskId: string,
-    episodeId: string,
-    command: {
-      commandId: string;
-      blockerId?: string | null;
-      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
-      rerunDelta: number;
-      fixDelta: number;
-      pushDelta: number;
-      reason: string;
-    },
   ) => Promise<unknown>;
   /** Suppress one exact exhausted BranchSync episode without calling CI. */
   recoverV2BranchSync: (
@@ -3196,13 +3170,6 @@ export type Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
-  /** The same, for phase 2 — its turns run under the harness watch. */
-  subscribeHarnessStream: (
-    watchId: string,
-    onEvent: (event: ThreadStreamEvent) => void,
-    onClose?: (reason: string) => void,
-  ) => () => void;
-
   // ── Brain agent (per-task read-only conversational surface) ──────
   /** Full brain-view payload for a task: aggregate strip, stages,
    *  brain feed, right rail, scrubbers. Polled by the brain view. */

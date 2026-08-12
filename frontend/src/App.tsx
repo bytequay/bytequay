@@ -31,7 +31,7 @@ import NewThreadDialog from './workspace/NewThreadDialog';
 import { useWorkspaceNav } from './pages/useWorkspaceNav';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import WorkspaceCreationToasts from './workspace/WorkspaceCreationToasts';
-import WorkspaceHarnessPage from './workspace/WorkspaceHarnessPage';
+import WorkspaceSyncsPage from './workspace/WorkspaceSyncsPage';
 import {
   parseWorkspaceRoute, workspaceRouteHash, type Nav, type WorkspaceNavigation,
 } from './workspace/workspaceRoutes';
@@ -666,7 +666,7 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'ci-harness';
+    || nav.view === 'stage-detail' || nav.view === 'syncs';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
@@ -728,7 +728,7 @@ function App() {
       case 'workspaces-landing': return 'workspaces';
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
       case 'thread-detail': case 'task-brain': case 'stage-detail': return 'trunks';
-      case 'ci-harness': return 'ci-harness';
+      case 'syncs': return 'syncs';
       case 'pulls': return 'pulls';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -743,7 +743,7 @@ function App() {
   // selected task's live plan.
   const ownsTaskSidebar = (nav.view as string) === 'task-brain'
     || (nav.view as string) === 'stage-detail'
-    || (nav.view as string) === 'ci-harness';
+    || (nav.view as string) === 'syncs';
   const usesSharedCollapsedRail = railCollapsed
     && (nav.view === 'task-brain' || nav.view === 'stage-detail');
 
@@ -775,7 +775,7 @@ function App() {
       case 'backlog': setNav({ view: 'workspace', section: 'backlog' }); break;
       case 'branches': setNav({ view: 'workspace', section: 'branches' }); break;
       case 'commits': setNav({ view: 'workspace', section: 'commits' }); break;
-      case 'ci-harness': setNav({ view: 'ci-harness' }); break;
+      case 'syncs': setNav({ view: 'syncs' }); break;
       case 'sessions': setNav({ view: 'workspace', section: 'sessions' }); break;
       case 'memory': setNav({ view: 'workspace', section: 'memory' }); break;
       case 'insights': setNav({ view: 'workspace', section: 'insights' }); break;
@@ -799,7 +799,7 @@ function App() {
     || nav.view === 'thread-detail'
     || nav.view === 'task-brain'
     || nav.view === 'stage-detail'
-    || nav.view === 'ci-harness';
+    || nav.view === 'syncs';
   const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
     || nav.view === 'repository' || nav.view === 'local-repo';
 
@@ -1003,11 +1003,11 @@ function App() {
             onSwitchWorkspace={openSidebarWorkspaceToday}
           />
         )}
-        {nav.view === 'ci-harness' && activeWorkspaceId && (
-          <WorkspaceHarnessPage
+        {nav.view === 'syncs' && activeWorkspaceId && (
+          <WorkspaceSyncsPage
             workspaceId={activeWorkspaceId}
             jobId={nav.jobId}
-            onOpenSync={jobId => setNav({ view: 'ci-harness', jobId })}
+            onOpenSync={jobId => setNav({ view: 'syncs', jobId })}
             onNewSync={() => setNav({ view: 'workspace', section: 'commits' })}
             onBack={openSidebarWorkspaceToday}
           />
@@ -1054,7 +1054,7 @@ function App() {
             sessionId={nav.sessionId}
             backlogKey={nav.backlogKey}
             settingsSection={nav.settingsSection}
-            onOpenSync={jobId => setNav({ view: 'ci-harness', jobId })}
+            onOpenSync={jobId => setNav({ view: 'syncs', jobId })}
             onSelectSettingsSection={settingsSection => setNav({
               view: 'workspace', section: 'settings', settingsSection,
             })}

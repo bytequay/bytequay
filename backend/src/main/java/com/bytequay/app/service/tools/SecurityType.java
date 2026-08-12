@@ -46,7 +46,7 @@ public enum SecurityType
     VCS_PUBLISH,
     /** Read thread / task state from the local DB. */
     TASK_READ,
-    /** Mutate thread / task state: create_task, ship_task, park, etc. */
+    /** Mutate thread / task lifecycle state. */
     TASK_MANAGE,
     /** Read workspace memory / brain. */
     MEMORY_READ,

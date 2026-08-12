@@ -244,20 +244,14 @@ describe('WorkspaceBacklogPage', () => {
     })));
   });
 
-  it('starts work through the shared trunk picker', async () => {
+  it('does not advertise the retired start-development action', async () => {
     const workspaceApi = mockBridge([item()]);
-    const onOpenThread = vi.fn();
-    render(<WorkspaceBacklogPage workspaceId="w1" onOpenThread={onOpenThread} />);
+    render(<WorkspaceBacklogPage workspaceId="w1" />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start work under a trunk' }));
-    fireEvent.click(screen.getByRole('button', { name: /Backend cleanup/ }));
-
-    await waitFor(() =>
-      expect(workspaceApi).toHaveBeenCalledWith({
-        path: '/api/workspaces/w1/backlog/BQ-1/start',
-        method: 'POST',
-        body: { trunkId: 't1' },
-      }));
-    expect(onOpenThread).toHaveBeenCalledWith('t1');
+    await screen.findByText('Reply templates');
+    expect(screen.queryByRole('button', { name: 'Start work under a trunk' })).toBeNull();
+    expect(workspaceApi).not.toHaveBeenCalledWith(expect.objectContaining({
+      path: expect.stringContaining('/start'),
+    }));
   });
 });

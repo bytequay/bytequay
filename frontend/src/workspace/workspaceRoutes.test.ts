@@ -63,8 +63,8 @@ describe('workspaceRoutes', () => {
       workspaceId: 'w1',
     },
     { nav: { view: 'workspace', section: 'commits' }, workspaceId: 'w1' },
-    { nav: { view: 'ci-harness' }, workspaceId: 'w1' },
-    { nav: { view: 'ci-harness', jobId: 'job/2 31' }, workspaceId: 'w1' },
+    { nav: { view: 'syncs' }, workspaceId: 'w1' },
+    { nav: { view: 'syncs', jobId: 'job/2 31' }, workspaceId: 'w1' },
     { nav: { view: 'workspace', section: 'memory' }, workspaceId: 'w1' },
     { nav: { view: 'workspace', section: 'insights' }, workspaceId: 'w1' },
     { nav: { view: 'workspace', section: 'notifications' }, workspaceId: 'w1' },
@@ -114,6 +114,13 @@ describe('workspaceRoutes', () => {
     });
     expect(parseWorkspaceRoute('#/repos')).toEqual({
       nav: { view: 'workspaces-landing' }, workspaceId: null,
+    });
+  });
+
+  it('does not keep the removed CI harness route as an alias', () => {
+    const removedSegment = ['ci', 'harness'].join('-');
+    expect(parseWorkspaceRoute(`#/workspace/w1/${removedSegment}`)).toEqual({
+      nav: { view: 'workspace', section: 'today' }, workspaceId: 'w1',
     });
   });
 

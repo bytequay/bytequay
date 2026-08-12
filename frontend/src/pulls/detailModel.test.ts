@@ -209,7 +209,7 @@ describe('buildTimeline', () => {
     expect(items[0]).toMatchObject({ id: 'remote-ci', kind: 'ci', status: 'passed' });
     expect(items[1]).toEqual(
       expect.objectContaining({
-        id: 'harness', kind: 'ci-harness', message: 'Committed a verified fixup',
+        id: 'harness', kind: 'legacy-ci-autofix', message: 'Committed a verified fixup',
         phase: 'commit', status: 'verified', sha: 'abcdef0',
       }),
     );

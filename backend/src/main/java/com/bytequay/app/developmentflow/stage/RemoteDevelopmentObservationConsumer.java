@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.ObservationDisposition;
+import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ObservedInboxItem;
@@ -77,10 +77,7 @@ public final class RemoteDevelopmentObservationConsumer
                 != ObservationDisposition.CONTINUE) {
             return Consumption.ACCEPTED;
         }
-        if (hooks.ci().acceptInCommand(candidate)
-                != ObservationDisposition.CONTINUE) {
-            return Consumption.ACCEPTED;
-        }
+        hooks.lifecycle().acceptInCommand(candidate);
         store.findFeedbackBatchAwaitingHead(
                         candidate.context().stageId(), candidate.evidence().headSha(),
                         candidate.evidence().baseSha())
@@ -238,14 +235,14 @@ public final class RemoteDevelopmentObservationConsumer
     }
 
     public record Hooks(
-            CiObservationHook ci,
+            AcceptedObservationHook lifecycle,
             CiObservationHook branch,
             AcceptedObservationHook merge,
             ReadinessAcceptedHook readinessAccepted)
     {
         public Hooks
         {
-            requireNonNull(ci, "ci hook is null");
+            requireNonNull(lifecycle, "lifecycle hook is null");
             requireNonNull(branch, "branch hook is null");
             requireNonNull(merge, "merge hook is null");
             requireNonNull(

@@ -107,8 +107,7 @@ function navSubtitle(job: UpstreamCherryPickJobDto): string {
 
 function todayMeta(job: UpstreamCherryPickJobDto, tone: string): string {
   if (tone === 'running') {
-    const phase = job.harnessWatchId === null ? 'phase 1' : 'phase 2';
-    return `picking ${job.appliedCount + 1} of ${job.requestedCount} · ${phase} · running ${
+    return `picking ${job.appliedCount + 1} of ${job.requestedCount} · running ${
       elapsedLabel(job.createdAt)}`;
   }
   if (tone === 'attention') {

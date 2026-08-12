@@ -21,7 +21,7 @@ export type BacklogItemData = {
   body?: string;
   tags?: CardTag[];
   createdLabel?: string;
-  /** Set once "Start development" has moved this item out of the ready queue. */
+  /** Set once the item has moved out of the ready queue. */
   started?: boolean;
   /** Label shown for a progressed item, such as "In progress". */
   progressLabel?: string;
@@ -32,9 +32,9 @@ export type BacklogItemData = {
 
 /**
  * The Backlog tab (trunk only) — a JIRA-like parking lot. Each item is
- * the unified {@link Card} in its backlog variant (tags + bright-orange
- * "Start development →" CTA); the caller decides which lifecycle slice to
- * show. A dashed "add item" dropzone sits on top.
+ * the unified {@link Card} in its backlog variant; the caller decides which
+ * lifecycle slice and actions to show. A dashed "add item" dropzone sits on
+ * top.
  */
 export function BacklogTabContent(
   { items, emptyLabel = 'No backlog items match.', onAddItem, onStartDevelopment, onDrop, onReopen,

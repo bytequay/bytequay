@@ -70,7 +70,6 @@ public class SqliteAgentResultSubmissionStore
                   AND turn.purpose IN (
                       'DEVELOPMENT_BRAIN_REVIEW',
                       'DEVELOPMENT_BRAIN_RESULT_REPAIR',
-                      'REMOTE_CI_BRAIN_REVIEW',
                       'BRANCH_SYNC_BRAIN_REVIEW',
                       'REMOTE_FEEDBACK_BRAIN_REVIEW')
                 """, (rs, row) -> rs.getString(1), turnId, operationId);
@@ -112,14 +111,12 @@ public class SqliteAgentResultSubmissionStore
     }
 
     /**
-     * The task owning a CI or branch-conflict repair StageTurn, including a
+     * The task owning a branch-conflict repair StageTurn, including a
      * steering successor, which carries its predecessor's purpose. The stage
      * carries the task; the purpose is what says this Turn reports a summary.
      *
      * <p>Separate from {@link #requireFeedbackRepairTurnTaskId} on purpose. Both
-     * shapes share a table, so a single lookup would let a CI repair record
-     * reply drafts that its delivery never reads — accepted and silently
-     * discarded, which is the failure this whole change exists to remove.
+     * shapes share a table, so their result authority remains separate.
      */
     public String requireStageRepairTurnTaskId(String turnId, String operationId)
     {
@@ -128,7 +125,7 @@ public class SqliteAgentResultSubmissionStore
                 FROM stage_turn turn
                 JOIN stage ON stage.id = turn.stage_id
                 WHERE turn.id = ? AND turn.operation_id = ?
-                  AND turn.purpose IN ('REMOTE_CI_REPAIR', 'BRANCH_CONFLICT_REPAIR')
+                  AND turn.purpose = 'BRANCH_CONFLICT_REPAIR'
                 """, turnId, operationId);
     }
 

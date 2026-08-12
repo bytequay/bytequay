@@ -24,11 +24,6 @@ import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageEndReason;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
-import com.bytequay.app.developmentflow.task.creation.ProvisionTarget;
-import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
-import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
-import com.bytequay.app.developmentflow.trunk.TrunkManager;
-import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.google.common.collect.ImmutableSet;
 
@@ -57,99 +52,6 @@ public final class TaskManager
     {
         this.commands = requireNonNull(commands, "commands is null");
         this.store = requireNonNull(store, "store is null");
-    }
-
-    /** Creates one epoch-one PROVISIONING Task from exact Trunk authority. */
-    public TaskCreationResult createTaskInCommand(
-            TrunkManager.AuthorizedTaskCreation authorization,
-            Path repositoryRoot,
-            IdGenerator ids)
-    {
-        requireNonNull(authorization, "authorization is null");
-        requireNonNull(repositoryRoot, "repositoryRoot is null");
-        requireNonNull(ids, "ids is null");
-        TrunkManager.TaskCreationCommand command = authorization.command();
-        TaskCreationInput input = command.input();
-        String trunkId = input.assignment().identity().trunkId();
-        TaskCommandExecutor.requireCurrent("v2-trunk/" + trunkId);
-
-        Optional<TaskCreationReceipt> persisted = store.findTaskCreation(
-                trunkId, command.commandId());
-        if (persisted.isPresent()) {
-            TaskCreationReceipt receipt = persisted.orElseThrow();
-            if (store.findCommandResult(
-                    receipt.state().id(), command.commandId()).isPresent()) {
-                throw rejected(COMMAND_ID_CONFLICT,
-                        "Command id is also used by an ordinary Task command");
-            }
-            if (store.hasPolicyCommandReceipt(
-                    receipt.state().id(), command.commandId())) {
-                throw rejected(COMMAND_ID_CONFLICT,
-                        "Command id is also used by a Task policy command");
-            }
-            if (authorization.disposition() != CommandResult.Disposition.DUPLICATE) {
-                throw rejected(COMMAND_ID_CONFLICT,
-                        "Task receipt exists without replayed Trunk authorization");
-            }
-            ProvisionTarget target = replayTarget(
-                    receipt, input.base().repositories());
-            if (!store.matchesTaskCreation(
-                    command, authorization, receipt, target)) {
-                throw rejected(COMMAND_ID_CONFLICT,
-                        "Command id was already used for another Task creation");
-            }
-            return new TaskCreationResult(
-                    receipt, target, CommandResult.Disposition.DUPLICATE);
-        }
-
-        Path normalizedRoot = repositoryRoot.normalize();
-        if (!repositoryRoot.isAbsolute()
-                || !store.matchesRepositoryRoot(input, normalizedRoot)) {
-            throw rejected(INVALID_STATE,
-                    "Repository root does not match the exact Workspace repository");
-        }
-
-        long taskSequence = store.nextTaskSequence(trunkId);
-        String taskId = ids.newTaskId(trunkId, taskSequence);
-        ProvisionTarget target = ProvisionTarget.derive(
-                taskId, repositoryRoot, input.base().repositories());
-        State state = new State(
-                taskId, trunkId, TaskLifecycle.PROVISIONING, 1, 0,
-                null, null, null, null, null);
-        TaskCreationReceipt receipt = store.createTask(
-                command, authorization, state, taskSequence, target);
-        return new TaskCreationResult(
-                receipt, target, CommandResult.Disposition.APPLIED);
-    }
-
-    private static ProvisionTarget replayTarget(
-            TaskCreationReceipt receipt,
-            TaskAssignment.RepositoryRouting repositories)
-    {
-        try {
-            Path worktree = Path.of(receipt.worktreePath()).normalize();
-            Path worktrees = worktree.getParent();
-            Path repositoryRoot = worktrees == null ? null : worktrees.getParent();
-            if (!worktree.isAbsolute()
-                    || worktrees == null
-                    || repositoryRoot == null
-                    || !receipt.state().id().equals(worktree.getFileName().toString())
-                    || worktrees.getFileName() == null
-                    || !".worktrees".equals(worktrees.getFileName().toString())) {
-                throw new IllegalArgumentException("invalid persisted worktree path");
-            }
-            ProvisionTarget target = ProvisionTarget.derive(
-                    receipt.state().id(), repositoryRoot, repositories);
-            if (!receipt.branchName().equals(target.branchName())
-                    || !worktree.equals(target.worktreePath())) {
-                throw new IllegalArgumentException("persisted target is inconsistent");
-            }
-            return target;
-        }
-        catch (RuntimeException failure) {
-            throw rejected(COMMAND_ID_CONFLICT,
-                    "Persisted Task creation target is invalid");
-        }
     }
 
     public CommandResult<State> requestPause(Command command)
@@ -2339,55 +2241,6 @@ public final class TaskManager
         }
     }
 
-    public record TaskCreationReceipt(
-            State state,
-            long taskSequence,
-            String authorizationId,
-            String assignmentId,
-            String policyRevisionId,
-            String taskBrainId,
-            String provisionOperationId,
-            String dispatchTicketId,
-            String operationId,
-            String branchName,
-            String worktreePath)
-    {
-        public TaskCreationReceipt
-        {
-            requireNonNull(state, "state is null");
-            if (taskSequence < 1) {
-                throw new IllegalArgumentException("taskSequence must be positive");
-            }
-            requireText(authorizationId, "authorizationId");
-            requireText(assignmentId, "assignmentId");
-            requireText(policyRevisionId, "policyRevisionId");
-            requireText(taskBrainId, "taskBrainId");
-            requireText(provisionOperationId, "provisionOperationId");
-            requireText(dispatchTicketId, "dispatchTicketId");
-            requireText(operationId, "operationId");
-            requireText(branchName, "branchName");
-            requireText(worktreePath, "worktreePath");
-        }
-    }
-
-    public record TaskCreationResult(
-            TaskCreationReceipt receipt,
-            ProvisionTarget target,
-            CommandResult.Disposition disposition)
-    {
-        public TaskCreationResult
-        {
-            requireNonNull(receipt, "receipt is null");
-            requireNonNull(target, "target is null");
-            requireNonNull(disposition, "disposition is null");
-        }
-
-        public State task()
-        {
-            return receipt.state();
-        }
-    }
-
     public enum BrainVerdict
     {
         APPROVED,
@@ -2761,27 +2614,7 @@ public final class TaskManager
                     "Task policy revision is not supported");
         }
 
-        boolean matchesRepositoryRoot(TaskCreationInput input, Path repositoryRoot);
-
-        long nextTaskSequence(String trunkId);
-
-        Optional<TaskCreationReceipt> findTaskCreation(
-                String trunkId, String commandId);
-
         boolean hasTaskCreationReceipt(String taskId, String commandId);
-
-        boolean matchesTaskCreation(
-                TrunkManager.TaskCreationCommand command,
-                TrunkManager.AuthorizedTaskCreation authorization,
-                TaskCreationReceipt receipt,
-                ProvisionTarget target);
-
-        TaskCreationReceipt createTask(
-                TrunkManager.TaskCreationCommand command,
-                TrunkManager.AuthorizedTaskCreation authorization,
-                State state,
-                long taskSequence,
-                ProvisionTarget target);
 
         Optional<ProvisioningResult> findAcceptedProvisioningResult(
                 String taskId, String operationId);

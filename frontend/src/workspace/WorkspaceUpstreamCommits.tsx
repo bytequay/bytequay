@@ -126,7 +126,6 @@ export function UpstreamCherryPicker({
   const byRange = fromSha !== undefined && toSha !== undefined;
   const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits, fromSha, toSha));
   const [openDraftPr, setOpenDraftPr] = useState(true);
-  const [createHarnessWatch, setCreateHarnessWatch] = useState(true);
   const [budgetUsd, setBudgetUsd] = useState('5.00');
   const [prDescription, setPrDescription] = useState('');
   const [skipStartsWith, setSkipStartsWith] = useState('');
@@ -142,8 +141,8 @@ export function UpstreamCherryPicker({
   const [error, setError] = useState<string | null>(null);
   const skipped = commits.filter(commit => commit.picked).length;
   const parsedBudget = Number(budgetUsd);
-  const budgetValid = !createHarnessWatch
-    || (Number.isFinite(parsedBudget) && parsedBudget >= 0.10 && parsedBudget <= 100);
+  const budgetValid = Number.isFinite(parsedBudget)
+    && parsedBudget >= 0.10 && parsedBudget <= 100;
 
   useEffect(() => {
     let cancelled = false;
@@ -279,20 +278,17 @@ export function UpstreamCherryPicker({
             </div>
             <CherryOption label="Open a draft PR"
               detail={`${repo.fullName}/${defaultBranch(repo)} ← ${targetBranch || 'new branch'} · one Upstream-PR trailer per pick.`}
-              checked={openDraftPr} onChange={value => {
-                setOpenDraftPr(value);
-                if (!value) setCreateHarnessWatch(false);
-              }} />
-            <CherryOption label="Watch with CI Harness"
-              detail="Reads each failed CI run, fixes what it can as a fixup on the pick that owns
-                it, pushes, and waits for the next run — until it is green, then parks for your
-                review. It never merges."
-              checked={createHarnessWatch} disabled={!openDraftPr}
-              extra={<label className="wu-upstream-cherry__budget">budget $<input aria-label="Harness budget in dollars"
+              checked={openDraftPr} onChange={setOpenDraftPr} />
+            <label className="wu-upstream-cherry__branch">
+              <strong>CONFLICT-REPAIR BUDGET</strong>
+              <span className="wu-upstream-cherry__budget">$<input
+                aria-label="Conflict repair budget in dollars"
                 aria-invalid={!budgetValid} inputMode="decimal" value={budgetUsd}
-                onChange={event => setBudgetUsd(event.target.value)} /></label>}
-              onChange={setCreateHarnessWatch} />
-            {!budgetValid && <span className="wu-form-error">Harness budget must be $0.10–$100.00.</span>}
+                onChange={event => setBudgetUsd(event.target.value)} />
+                <small>Agent ceiling for resolving and verifying cherry-pick conflicts.</small>
+              </span>
+            </label>
+            {!budgetValid && <span className="wu-form-error">Repair budget must be $0.10–$100.00.</span>}
             {openDraftPr && (
               <label className="wu-upstream-cherry__branch">
                 <strong>PULL REQUEST DESCRIPTION</strong>
@@ -328,7 +324,7 @@ export function UpstreamCherryPicker({
           </div>
         )}
         <footer>
-          <span>{createHarnessWatch ? 'Creates a Harness watch on the draft PR.' : 'No remote is changed without confirmation.'}</span>
+          <span>No remote is changed without confirmation.</span>
           <button type="button" onClick={onClose}>{job === null
             ? 'Cancel'
             : job.status === 'QUEUED' || job.status === 'RUNNING' ? 'Close' : 'Done'}</button>
@@ -344,8 +340,7 @@ export function UpstreamCherryPicker({
                   ...selection,
                   prDescription: prDescription.trim() === '' ? null : prDescription.trim(),
                   openDraftPr,
-                  createHarnessWatch,
-                  budgetMilliUsd: createHarnessWatch ? Math.round(parsedBudget * 1000) : null,
+                  budgetMilliUsd: Math.round(parsedBudget * 1000),
                 }).then(setJob)
                   .catch(reason => setError(message(reason)))
                   .finally(() => setBusy(false));
@@ -378,8 +373,7 @@ export function UpstreamCherryPicker({
             }}>{busy ? 'Retrying…' : 'Retry cherry-pick'}</button>
           )}
           {job !== null && (
-            // The run's own cockpit is the CI Harness surface, so a started run
-            // opens there whether or not phase 2 has a watch yet.
+            // A started run opens in its own upstream-sync cockpit.
             <button type="button" className="wu-primary-button"
               onClick={() => onOpenSync?.(job.jobId)}>Open sync run</button>
           )}

@@ -15,7 +15,6 @@ package com.bytequay.app.developmentflow.trunk;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.CommandResult;
-import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.time.Instant;
@@ -435,74 +434,6 @@ public final class TrunkManager
         };
     }
 
-    /** Authorizes one exact assignment without making Trunk conversation busy. */
-    public AuthorizedTaskCreation authorizeTaskCreationInCommand(
-            TaskCreationCommand command)
-    {
-        requireNonNull(command, "command is null");
-        String scope = scope(command.input().assignment().identity().trunkId());
-        TaskCommandExecutor.requireCurrent(scope);
-
-        if (store.findCommandResult(
-                command.input().assignment().identity().trunkId(),
-                command.commandId()).isPresent()) {
-            throw rejected(COMMAND_ID_CONFLICT,
-                    "Command id was already used for another Trunk command");
-        }
-
-        if (store.isThreadTurnCommandUsed(
-                command.input().assignment().identity().trunkId(),
-                command.commandId())
-                || store.isPlanningBaseCommandUsed(
-                command.input().assignment().identity().trunkId(),
-                command.commandId())
-                || store.isTaskOutcomeCommandUsed(
-                command.input().assignment().identity().trunkId(),
-                command.commandId())) {
-            throw rejected(COMMAND_ID_CONFLICT,
-                    "Command id was already used for a ThreadTurn command");
-        }
-
-        Optional<TaskCreationAuthorizationReceipt> duplicate =
-                store.findTaskCreationAuthorization(
-                        command.input().assignment().identity().trunkId(),
-                        command.commandId());
-        if (duplicate.isPresent()) {
-            TaskCreationAuthorizationReceipt receipt = duplicate.orElseThrow();
-            if (!receipt.actor().equals(command.actor())
-                    || receipt.expectedVersion() != command.expectedTrunkVersion()
-                    || !receipt.assignmentId().equals(
-                            command.input().assignment().identity().id())
-                    || !receipt.authorizationId().equals(
-                            command.input().assignment().identity()
-                                    .creationAuthorizationId())
-                    || !receipt.policyRevisionId().equals(command.input().policy().id())
-                    || !store.matchesTaskCreationAuthorization(command)) {
-                throw rejected(COMMAND_ID_CONFLICT,
-                        "Command id was already used for another Task creation");
-            }
-            return new AuthorizedTaskCreation(
-                    command, CommandResult.Disposition.DUPLICATE, receipt.state());
-        }
-
-        String trunkId = command.input().assignment().identity().trunkId();
-        State current = store.findById(trunkId)
-                .orElseThrow(() -> rejected(NOT_FOUND, "Trunk not found: " + trunkId));
-        if (current.version() != command.expectedTrunkVersion()) {
-            throw rejected(STALE_VERSION, "Stale Trunk version for " + trunkId);
-        }
-        if (current.lifecycle() == TrunkLifecycle.ARCHIVED) {
-            throw rejected(INVALID_STATE,
-                    "Archived Trunk cannot authorize Task creation");
-        }
-
-        State updated = new State(
-                current.id(), current.lifecycle(), current.version() + 1);
-        State authorized = store.authorizeTaskCreation(command, current, updated);
-        return new AuthorizedTaskCreation(
-                command, CommandResult.Disposition.APPLIED, authorized);
-    }
-
     private CommandResult<State> apply(
             Command command, TrunkLifecycle target, String cause)
     {
@@ -599,23 +530,6 @@ public final class TrunkManager
             if (version < 0) {
                 throw new IllegalArgumentException("version is negative");
             }
-        }
-    }
-
-    public record TaskCreationCommand(
-            String commandId,
-            String actor,
-            long expectedTrunkVersion,
-            TaskCreationInput input)
-    {
-        public TaskCreationCommand
-        {
-            requireText(commandId, "commandId");
-            requireText(actor, "actor");
-            if (expectedTrunkVersion < 0) {
-                throw new IllegalArgumentException("expectedTrunkVersion is negative");
-            }
-            requireNonNull(input, "input is null");
         }
     }
 
@@ -1141,31 +1055,6 @@ public final class TrunkManager
         }
     }
 
-    /** Opaque proof that Trunk authorized this exact creation command. */
-    public static final class AuthorizedTaskCreation
-    {
-        private final TaskCreationCommand command;
-        private final CommandResult.Disposition disposition;
-        private final State trunkState;
-
-        private AuthorizedTaskCreation(
-                TaskCreationCommand command,
-                CommandResult.Disposition disposition,
-                State trunkState)
-        {
-            this.command = requireNonNull(command, "command is null");
-            this.disposition = requireNonNull(disposition, "disposition is null");
-            this.trunkState = requireNonNull(trunkState, "trunkState is null");
-        }
-
-        public TaskCreationCommand command() { return command; }
-
-        public CommandResult.Disposition disposition() { return disposition; }
-
-        public State trunkState() { return trunkState; }
-    }
-
-    /** Immutable replay result, stored separately from versioned transition audit. */
     public record CommandReceipt(
             State state,
             String cause,
@@ -1331,8 +1220,6 @@ public final class TrunkManager
                     "TaskOutcome summary persistence is unavailable");
         }
 
-        boolean matchesTaskCreationAuthorization(TaskCreationCommand command);
-
         Optional<ThreadTurnRequestReceipt> findThreadTurnRequest(
                 String trunkId, String commandId);
 
@@ -1362,9 +1249,6 @@ public final class TrunkManager
                 State updated,
                 String acceptance,
                 String terminalStatus);
-
-        State authorizeTaskCreation(
-                TaskCreationCommand command, State expected, State updated);
 
         State commit(
                 String commandId,

@@ -450,19 +450,6 @@ export type StageDetailData = {
       stageTurnId: string;
       reason: string;
     } | null;
-    ci: {
-      episodeId: string;
-      blockerId?: string | null;
-      blockerType?: string | null;
-      message?: string | null;
-      rerunCount: number;
-      rerunLimit: number;
-      fixAttemptCount: number;
-      fixAttemptLimit: number;
-      pushCount: number;
-      pushLimit: number;
-      actions: Array<'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION'>;
-    } | null;
     cleanup: {
       stepId: string;
       kind: string;

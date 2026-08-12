@@ -21,44 +21,6 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'bridge');
 });
 
-it('sends the projected CI episode instead of inferring a latest failure', async () => {
-  const recoverV2Ci = vi.fn().mockResolvedValue({});
-  (window as unknown as { bridge: unknown }).bridge = { recoverV2Ci };
-  const complete = vi.fn();
-
-  render(<StageRecoveryPrompt
-    taskId="task-exact"
-    recovery={{
-      ci: {
-        episodeId: 'episode-exact',
-        rerunCount: 1,
-        rerunLimit: 1,
-        fixAttemptCount: 2,
-        fixAttemptLimit: 2,
-        pushCount: 1,
-        pushLimit: 1,
-        actions: ['EXTEND_BUDGET', 'CONTINUE_WITH_PER_PUSH_APPROVAL'],
-      },
-      cleanup: null,
-    }}
-    onComplete={complete}
-    onError={() => {}}
-  />);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Extend budget' }));
-  await waitFor(() => expect(recoverV2Ci).toHaveBeenCalledWith(
-    'task-exact',
-    'episode-exact',
-    expect.objectContaining({
-      action: 'EXTEND_BUDGET',
-      rerunDelta: 1,
-      fixDelta: 1,
-      pushDelta: 1,
-    }),
-  ));
-  expect(complete).toHaveBeenCalledOnce();
-});
-
 it('offers only the exact Cleanup actions projected by the owner', async () => {
   const recoverV2Cleanup = vi.fn().mockResolvedValue({});
   (window as unknown as { bridge: unknown }).bridge = { recoverV2Cleanup };
@@ -66,7 +28,6 @@ it('offers only the exact Cleanup actions projected by the owner', async () => {
   render(<StageRecoveryPrompt
     taskId="task-exact"
     recovery={{
-      ci: null,
       cleanup: {
         stepId: 'cleanup-step-exact',
         kind: 'DELETE_REMOTE_BRANCH',
@@ -103,7 +64,6 @@ it('approves the projected local publish blocker without a generic CI command', 
   };
   const onComplete = vi.fn();
   const recovery: NonNullable<StageDetailData['recovery']> = {
-    ci: null,
     cleanup: null,
     replacement: null,
     failure: null,
@@ -144,7 +104,6 @@ it('extends only the exact exhausted local base-sync episode by one attempt', as
   render(<StageRecoveryPrompt
     taskId="task-1"
     recovery={{
-      ci: null,
       cleanup: null,
       replacement: null,
       failure: null,
@@ -177,16 +136,13 @@ it('extends only the exact exhausted local base-sync episode by one attempt', as
 
 it('routes exhausted BranchSync controls through the BranchSync owner', async () => {
   const recoverV2BranchSync = vi.fn().mockResolvedValue({});
-  const recoverV2Ci = vi.fn();
   (window as unknown as { bridge: unknown }).bridge = {
     recoverV2BranchSync,
-    recoverV2Ci,
   };
 
   render(<StageRecoveryPrompt
     taskId="task-branch"
     recovery={{
-      ci: null,
       cleanup: null,
       branchSync: {
         episodeId: 'branch-episode-1',
@@ -212,7 +168,6 @@ it('routes exhausted BranchSync controls through the BranchSync owner', async ()
       commandId: expect.any(String),
     }),
   ));
-  expect(recoverV2Ci).not.toHaveBeenCalled();
 });
 
 it('requests only the projected exact worktree quarantine repair', async () => {
@@ -223,7 +178,6 @@ it('requests only the projected exact worktree quarantine repair', async () => {
   render(<StageRecoveryPrompt
     taskId="task-worktree"
     recovery={{
-      ci: null,
       cleanup: null,
       worktreeQuarantine: {
         quarantineId: 'quarantine-1',
@@ -274,16 +228,6 @@ it('shows only quarantine repair when other recovery actions coexist', () => {
   render(<StageRecoveryPrompt
     taskId="task-worktree"
     recovery={{
-      ci: {
-        episodeId: 'ci-episode',
-        rerunCount: 1,
-        rerunLimit: 1,
-        fixAttemptCount: 1,
-        fixAttemptLimit: 1,
-        pushCount: 1,
-        pushLimit: 1,
-        actions: ['EXTEND_BUDGET'],
-      },
       cleanup: {
         stepId: 'cleanup-step',
         kind: 'REMOVE_WORKTREE',

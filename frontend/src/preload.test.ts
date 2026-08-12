@@ -95,19 +95,19 @@ describe('Development Brain recovery preload bridge', () => {
     );
   });
 
-  it('forwards an exact failed Remote repair Brain TaskTurn over IPC', async () => {
+  it('forwards an exact failed BranchSync Brain TaskTurn over IPC', async () => {
     const command = {
       blockerId: 'remote-blocker-1',
       commandId: 'remote-command-1',
-      reason: 'Explicit Retry Remote repair Brain review action',
+      reason: 'Explicit Retry Branch sync Brain review action',
     };
     electron.invoke.mockResolvedValue({ replacementTurnId: 'turn-2' });
 
-    await bridge.recoverV2RemoteRepairBrainReview(
+    await bridge.recoverV2BranchSyncBrainReview(
       'task-1', 'turn-1', command);
 
     expect(electron.invoke).toHaveBeenCalledWith(
-      'development-flow:remote-repair-brain:recover',
+      'development-flow:branch-sync-brain:recover',
       { taskId: 'task-1', failedTurnId: 'turn-1', command },
     );
   });
@@ -191,7 +191,7 @@ describe('Development Brain recovery preload bridge', () => {
       failedTurnId: string,
       command: { blockerId: string; commandId: string; reason: string },
     ) => Promise<unknown>>();
-    expectTypeOf<Bridge['recoverV2RemoteRepairBrainReview']>().toEqualTypeOf<(
+    expectTypeOf<Bridge['recoverV2BranchSyncBrainReview']>().toEqualTypeOf<(
       taskId: string,
       failedTurnId: string,
       command: { blockerId: string; commandId: string; reason: string },

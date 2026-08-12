@@ -42,7 +42,6 @@ import java.util.function.Function;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.STAGE_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.TASK_TURN;
-import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.STAGE_OPERATION_KIND;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OPERATION_KIND;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OUTCOME_SUMMARY_OPERATION_KIND;
@@ -225,96 +224,6 @@ class TestAgentTurnOperationHandler
         verify(writers, never()).acquire(any(), any());
     }
 
-    @Test
-    void remoteRepairResultNormalizationIsFreshToolFreeAndStrict()
-            throws Exception
-    {
-        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
-        AgentTurnOperationHandler.ExactTurn turn = withBrainIdentity(
-                withPurpose(
-                        turn(TASK_TURN, toolFreeLaunchInput()),
-                        REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE),
-                "claude", "claude-opus-4-1");
-        provider.result = successfulRemoteStage();
-        provider.onStart = () -> assertThat(contexts.find(
-                        "trunk-1",
-                        AgentTurnOperationHandler.mcpAgentKey(
-                                TASK_TURN, "task-turn-1", "operation-1"))
-                .orElseThrow().toolNames()).isEmpty();
-
-        DispatchTicket.DispatchResult result = handler(turn, contexts)
-                .execute(context(envelope(TASK_TURN, false)));
-
-        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
-        assertThat(provider.request.access())
-                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
-        assertThat(provider.request.toolEndpoint().approvalPromptTool()).isNull();
-        assertThat(provider.request.permissionPromptTool()).isNull();
-        assertThat(provider.request.images()).isEmpty();
-        assertThat(provider.request.resumeSessionId()).isNull();
-        assertThat(provider.request.fallbackPrompt()).isNull();
-        assertThat(provider.request.priorCumulativeInputTokens()).isZero();
-        assertThat(provider.request.priorCumulativeOutputTokens()).isZero();
-        verify(writers, never()).acquire(any(), any());
-
-        provider.onStart = () -> {};
-        provider.result = new AgentTurnProviderSession.Result(
-                AgentTurnProviderSession.Completion.SUCCEEDED,
-                "session-2", "{\"schemaVersion\":1,\"summary\":\"fixed\"} prose",
-                1, 1, 0, 124L, null);
-        DispatchTicket.DispatchResult malformed = handler(turn)
-                .execute(context(envelope(TASK_TURN, false)));
-        assertThat(malformed.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
-        assertThat(MAPPER.readTree(malformed.payloadJson()).path("disposition")
-                .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
-    }
-
-    @Test
-    void remoteRepairResultNormalizationRejectsContinuationAndImages()
-            throws Exception
-    {
-        String resumed = launchInput().replace(
-                "\"toolEndpoint\"",
-                "\"resumeSessionId\":\"session-1\","
-                        + "\"fallbackPrompt\":\"history\",\"toolEndpoint\"");
-        String withImage = launchInput().replace(
-                "\"toolEndpoint\"",
-                "\"images\":[{\"path\":\"/tmp/input.png\","
-                        + "\"mediaType\":\"image/png\","
-                        + "\"digest\":\""
-                        + "0".repeat(64)
-                        + "\"}],\"toolEndpoint\"");
-
-        for (String input : List.of(resumed, withImage)) {
-            AgentTurnOperationHandler.ExactTurn turn = withPurpose(
-                    turn(TASK_TURN, input),
-                    REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE);
-            DispatchTicket.DispatchResult result = handler(turn)
-                    .execute(context(envelope(TASK_TURN, false)));
-
-            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
-            assertThat(result.error()).contains("fresh text-only turn");
-        }
-        assertThat(provider.opens).isZero();
-    }
-
-    @Test
-    void remoteRepairResultNormalizationRejectsAnApprovalGate()
-            throws Exception
-    {
-        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
-                turn(TASK_TURN, launchInput()),
-                REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE);
-
-        DispatchTicket.DispatchResult result = handler(turn)
-                .execute(context(envelope(TASK_TURN, false)));
-
-        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
-        assertThat(result.error()).contains("exact typed Turn");
-        assertThat(provider.opens).isZero();
-    }
-
-    @Test
     void successfulPlanTurnRemainsReadOnlyAndNeedsNoOutputCodeSubject()
             throws Exception
     {

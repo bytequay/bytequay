@@ -21,7 +21,6 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
-import com.bytequay.app.service.threads.ThreadService;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatusCode;
@@ -42,8 +41,6 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class BacklogServiceImpl
 {
-    public record StartResult(BacklogItem item, String taskId) {}
-
     public record NewBacklogItem(
             String title, String body, List<String> tags, String priority) {}
 
@@ -51,20 +48,17 @@ public class BacklogServiceImpl
             List<String> backlogItemIds, String relatedBacklogGroupId) {}
 
     private final SqliteBacklogStore store;
-    private final ThreadService threadService;
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
     private final DistillationSignalServiceImpl distillation;
 
     public BacklogServiceImpl(
             SqliteBacklogStore store,
-            ThreadService threadService,
             ThreadStore threadStore,
             TaskStore taskStore,
             DistillationSignalServiceImpl distillation)
     {
         this.store = requireNonNull(store, "store is null");
-        this.threadService = requireNonNull(threadService, "threadService is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.distillation = requireNonNull(distillation, "distillation is null");
@@ -333,58 +327,6 @@ public class BacklogServiceImpl
                 "backlog-revive", revived.id(), "revived", null,
                 Map.of("title", revived.title()), revived.threadId(), revived.workspaceId());
         return revived;
-    }
-    public StartResult startDevelopment(String id)
-    {
-        return startDevelopment(id, null);
-    }
-    public StartResult startDevelopment(String id, String trunkId)
-    {
-        BacklogItem item = require(id);
-        return startItem(item, trunkId);
-    }
-    public StartResult startDevelopmentForWorkspace(
-            String workspaceId, String itemKey, String trunkId)
-    {
-        return startItem(requireForWorkspace(workspaceId, itemKey), trunkId);
-    }
-
-    private StartResult startItem(BacklogItem item, String trunkId)
-    {
-        if (!BacklogItem.STATUS_CREATED.equals(item.status())) {
-            throw status(409, "backlog item is not open (can't start exploration)");
-        }
-        // Hand the item to the trunk as a fresh planning prompt. The trunk
-        // either cuts the task when its understanding is solid or asks the
-        // user to confirm the direction first; none of that happens here. The
-        // id prefix is the only way the trunk can later tell create_task which
-        // item to resolve — nothing else carries it into that conversation.
-        if (trunkId != null && !trunkId.isBlank()) {
-            String workspaceId = item.workspaceId();
-            Thread selected = requireTrunkInWorkspace(workspaceId, trunkId);
-            item = item.withThread(selected.id());
-        }
-        String content = item.detail() == null || item.detail().isBlank()
-                ? item.summary()
-                : item.summary() + "\n\n" + item.detail();
-        String key = item.itemKey() == null ? item.id() : item.itemKey();
-        String prompt = "(backlog item " + key + " — pass this as backlog_item_id if you cut a "
-                + "task from it)\n\n"
-                + "Before cutting a task from this backlog item, read enough code/context to state "
-                + "the goal, intended direction, and effort/risk.\n\n"
-                + "If the direction is clear and you are confident, call create_task with backlog_item_id="
-                + item.id() + " and include the plan you would hand to the task.\n\n"
-                + "If any important direction is uncertain, do not cut the task yet. Use "
-                + "ask_user_question to ask the user to confirm/approve the task direction with "
-                + "your understanding, intended approach, risk/effort, and the specific "
-                + "uncertainty.\n\n"
-                + content;
-        BacklogItem updated = store.save(item.markInProgress(Instant.now()));
-        threadService.sendTrunk(updated.threadId(), prompt);
-        distillation.record(
-                "backlog-start", updated.id(), "started", null,
-                Map.of("title", updated.title()), updated.threadId(), updated.workspaceId());
-        return new StartResult(updated, /* taskId — none cut yet */ null);
     }
     public BacklogItem cancelExploration(String id)
     {

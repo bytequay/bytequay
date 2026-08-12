@@ -122,9 +122,7 @@ class TestMcpPermissionFilter
         assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
         assertThat(envelope.path("message").asText())
                 .contains("TRUNK")
-                .contains("Do not retry this tool")
-                .contains("ask_user_question")
-                .contains("create_task");
+                .contains("Do not retry this tool");
     }
 
     @Test
@@ -144,9 +142,9 @@ class TestMcpPermissionFilter
         assertThat(toolNames(tools)).contains(
                 "approval_prompt", "codegraph_explore", "record_plan",
                 "read_plan_summary", "read_diff_summary");
-        // The brain stays read-only: no create_task / publish tools leak in.
+        // The brain stays read-only: no publish tools leak in.
         assertThat(toolNames(tools))
-                .doesNotContain("create_task", "queue_task", "push", "post_comment");
+                .doesNotContain("queue_task", "push", "post_comment");
     }
 
     @Test
@@ -202,7 +200,7 @@ class TestMcpPermissionFilter
                 ImmutableSet.of("approval_prompt", "recall_thread", "read_current_repository",
                         "push", "post_comment", "request_review", "codegraph_explore",
                         "record_plan", "read_plan_summary", "read_diff_summary",
-                        "create_task", "queue_task")));
+                        "queue_task")));
         return key;
     }
 

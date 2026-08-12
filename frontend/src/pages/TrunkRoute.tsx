@@ -43,7 +43,6 @@ const ACTIVE_TURN_STATUSES = new Set<ThreadTurnDto['status']>(['QUEUED', 'RUNNIN
 const TERMINAL_TURN_STATUSES = new Set<ThreadTurnDto['status']>(['COMPLETED', 'FAILED', 'CANCELLED']);
 
 const DIRECT_CONTINUATION = /^(?:(?:do you )?want (?:me|us) to|would you like (?:me|us) to|shall (?:i|we)|should (?:i|we)|may i|can (?:i|we)|ready for (?:me|us) to|is it (?:ok|okay) if (?:i|we)|(?:do you want|would you like|are you ready) to (?:continue|proceed|start))\b/i;
-const CUT_TASK_CONFIRMATION = /^cut\s+(?:this|that|it)\s+(?:as|into)\s+(?:(?:an?|the)\s+)?[^?]*\btask(?:s)?\b(?:\s+(?:now|next))?$/i;
 
 /** True only for a direct yes/no offer to continue. A generic trailing
  *  question ("Which branch?") needs a real answer, not "go ahead". */
@@ -57,8 +56,7 @@ function offersToContinue(text: string): boolean {
     if (at >= 0) questionStart = Math.max(questionStart, at + separator.length);
   }
   const question = beforeQuestion.slice(questionStart).trim();
-  return !/\bor\b/i.test(question)
-    && (DIRECT_CONTINUATION.test(question) || CUT_TASK_CONFIRMATION.test(question));
+  return !/\bor\b/i.test(question) && DIRECT_CONTINUATION.test(question);
 }
 
 /**
@@ -295,10 +293,6 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
     }
   };
 
-  // Tasks are cut by the trunk agent (create_task) — proposed to the user via
-  // an ask_user_question card and confirmed by selecting it — not by a manual
-  // button. So there's no user-driven cut path here.
-
   // The foreground task — the one actually running now — is echoed as a
   // Label the working indicator with the current activity — if the latest
   // trunk message is a tool call, say which tool is running AND (for a shell
@@ -470,7 +464,7 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       )}
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
-        placeholder: 'Do anything — ask the brain, cut a task, or paste an error…',
+        placeholder: 'Ask the brain, plan work, or paste an error…',
         suggestedReply,
         images, onImagesChange: setImages,
         modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2" />,

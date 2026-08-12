@@ -46,6 +46,39 @@ public class SqliteDispatchTicketStore
         this.dataSource = requireNonNull(dataSource, "dataSource is null");
     }
 
+    /** Excludes only retired legacy CI-repair owners; neutral observations remain live. */
+    static String executableTicketPredicate(String ticketAlias)
+    {
+        if (!ticketAlias.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            throw new IllegalArgumentException("ticketAlias is invalid");
+        }
+        return """
+              AND %1$s.operation_kind NOT IN (
+                  'RERUN_REMOTE_CI',
+                  'VALIDATE_REMOTE_CI_REPAIR',
+                  'REWRITE_VALIDATE_REMOTE_CI_BASE_REPAIR',
+                  'PUSH_REMOTE_CI_REPAIR')
+              AND NOT EXISTS (
+                  SELECT 1 FROM stage_turn retired_stage
+                  WHERE %1$s.owner_kind = 'STAGE_TURN'
+                    AND retired_stage.id = %1$s.owner_id
+                    AND retired_stage.purpose = 'REMOTE_CI_REPAIR')
+              AND NOT EXISTS (
+                  SELECT 1 FROM task_turn retired_brain
+                  WHERE %1$s.owner_kind = 'TASK_TURN'
+                    AND retired_brain.id = %1$s.owner_id
+                    AND retired_brain.purpose = 'REMOTE_CI_BRAIN_REVIEW')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM remote_repair_result_normalization_operation_v322 retired_normalization
+                  WHERE retired_normalization.dispatch_ticket_id = %1$s.id)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM remote_repair_commit_adoption_operation_v322 retired_adoption
+                  WHERE retired_adoption.dispatch_ticket_id = %1$s.id)
+              """.formatted(ticketAlias);
+    }
+
     @Override
     public ExecutionPorts.TicketScanPage findEligiblePage(
             Instant now,
@@ -121,6 +154,7 @@ public class SqliteDispatchTicketStore
                               OR (preceding.created_at_ms = d.created_at_ms
                                 AND preceding.id < d.id))))
                       %s
+                      %s
                 ),
                 class_ranked AS (
                     SELECT eligible.*,
@@ -155,7 +189,9 @@ public class SqliteDispatchTicketStore
                 ORDER BY candidate_round, trunk_round, workspace_order_key,
                     trunk_order_key, created_at_ms, id
                 LIMIT ?
-                """.formatted(planningGate, cursorClause);
+                """.formatted(
+                        executableTicketPredicate("d"), planningGate,
+                        cursorClause);
 
         return SqliteTransactions.withConnection(
                 dataSource, transactionConnection, connection -> {
@@ -217,9 +253,10 @@ public class SqliteDispatchTicketStore
                 SELECT * FROM dispatch_ticket
                 WHERE status IN ('CLAIMED', 'RUNNING')
                     AND claim_expires_at_ms <= ?
+                    %s
                 ORDER BY claim_expires_at_ms, id
                 LIMIT ?
-                """, statement -> {
+                """.formatted(executableTicketPredicate("dispatch_ticket")), statement -> {
                     statement.setLong(1, now.toEpochMilli());
                     statement.setInt(2, limit);
                 });
@@ -233,11 +270,13 @@ public class SqliteDispatchTicketStore
         requireNonNull(now, "now is null");
         positiveLimit(limit);
         return queryClaims("""
-                SELECT * FROM dispatch_delivery_claim
-                WHERE expires_at_ms <= ?
-                ORDER BY expires_at_ms, ticket_id
+                SELECT claim.* FROM dispatch_delivery_claim claim
+                JOIN dispatch_ticket d ON d.id = claim.ticket_id
+                WHERE claim.expires_at_ms <= ?
+                    %s
+                ORDER BY claim.expires_at_ms, claim.ticket_id
                 LIMIT ?
-                """, statement -> {
+                """.formatted(executableTicketPredicate("d")), statement -> {
                     statement.setLong(1, now.toEpochMilli());
                     statement.setInt(2, limit);
                 });
@@ -350,7 +389,9 @@ public class SqliteDispatchTicketStore
                         AND NOT EXISTS (
                             SELECT 1 FROM dispatch_delivery_claim c
                             WHERE c.ticket_id = dispatch_ticket.id)
-                    """, statement -> {
+                        %s
+                    """.formatted(
+                            executableTicketPredicate("dispatch_ticket")), statement -> {
                         statement.setString(1, claimOwner);
                         statement.setLong(2, claimedAt.toEpochMilli());
                         statement.setLong(3, claimedAt.toEpochMilli());

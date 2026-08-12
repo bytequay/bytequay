@@ -16,7 +16,6 @@ package com.bytequay.app.developmentflow.compatibility;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailData.BranchSyncRecovery;
-import com.bytequay.app.beans.stage.StageDetailData.CiRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.CleanupRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.ConversationRow;
 import com.bytequay.app.beans.stage.StageDetailData.DetailTask;
@@ -176,167 +175,6 @@ public final class V2StageApiService
 
     private RecoveryOptions recovery(StageFacts stage)
     {
-        CiRecovery ci = jdbc.query("""
-                SELECT episode.id, blocker.id AS blocker_id,
-                       blocker.blocker_type,
-                       episode.rerun_count, episode.rerun_limit,
-                       episode.fix_attempt_count, episode.fix_attempt_limit,
-                       episode.push_count, episode.push_limit
-                  FROM ci_repair_episode episode
-                  JOIN tasks task ON task.id = episode.task_id
-                  JOIN task_current_stage current ON current.task_id = task.id
-                  JOIN stage owner ON owner.id = current.stage_id
-                  JOIN task_current_code_subject_v230 code
-                    ON code.task_id = task.id
-                  JOIN remote_development_stage remote
-                    ON remote.stage_id = episode.remote_development_stage_id
-                  JOIN task_blocker blocker
-                    ON blocker.task_id = episode.task_id
-                   AND blocker.stage_id = episode.remote_development_stage_id
-                   AND blocker.status = 'OPEN'
-                   AND ((blocker.owner_kind = 'EPISODE'
-                         AND blocker.owner_id = episode.id)
-                     OR (blocker.blocker_type = 'CI_BRANCH_SYNC_REQUIRED'
-                         AND blocker.owner_kind = 'STAGE'
-                         AND blocker.owner_id =
-                             episode.remote_development_stage_id
-                         AND blocker.subject_revision =
-                             remote.accepted_snapshot_id)
-                     OR (blocker.blocker_type =
-                            'WORKTREE_RESTORE_QUARANTINED'
-                         AND blocker.owner_kind = 'OPERATION'
-                         AND EXISTS (
-                           SELECT 1
-                             FROM agent_turn_worktree_quarantine_v318 quarantine
-                            WHERE quarantine.id = blocker.subject_revision
-                              AND quarantine.status = 'OPEN'
-                              AND quarantine.task_id = episode.task_id
-                              AND quarantine.stage_id =
-                                  episode.remote_development_stage_id
-                              AND quarantine.source_operation_id =
-                                  blocker.owner_id
-                              AND (EXISTS (
-                                    SELECT 1
-                                      FROM ci_repair_operation source
-                                     WHERE source.ci_repair_episode_id =
-                                           episode.id
-                                       AND source.operation_id =
-                                           quarantine.source_operation_id)
-                                OR EXISTS (
-                                    SELECT 1
-                                      FROM ci_repair_fix_continuation_operation_v318
-                                           source
-                                     WHERE source.ci_repair_episode_id =
-                                           episode.id
-                                       AND source.operation_id =
-                                           quarantine.source_operation_id)))))
-                 WHERE episode.task_id = ?
-                   AND episode.remote_development_stage_id = ?
-                   AND ((episode.status = 'EXHAUSTED'
-                         AND blocker.blocker_type = 'CI_BUDGET_EXHAUSTED')
-                     OR (episode.status = 'OPEN'
-                         AND episode.classification = 'BASE_DETERMINISTIC'
-                         AND blocker.blocker_type =
-                             'CI_BASE_REPAIR_REQUIRED')
-                     OR (episode.status NOT IN (
-                             'SUCCEEDED', 'EXHAUSTED', 'STOPPED')
-                         AND blocker.blocker_type IN (
-                             'CI_REPAIR_NO_CHANGE',
-                             'CI_REPAIR_NO_CHANGE_RETRY_EXHAUSTED',
-                             'CI_REPAIR_OUTPUT_PROOF_MISSING',
-                             'CI_REPAIR_OUTPUT_MALFORMED',
-                             'CI_REPAIR_TURN_FAILED',
-                             'CI_BRANCH_SYNC_REQUIRED'))
-                     OR (episode.status = 'STOPPED'
-                         AND blocker.blocker_type =
-                             'WORKTREE_RESTORE_QUARANTINED'))
-                   AND task.workflow_version = 'V2'
-                   AND task.lifecycle_state = 'ACTIVE'
-                   AND task.epoch = episode.task_epoch
-                   AND current.stage_id = episode.remote_development_stage_id
-                   AND current.stage_generation = episode.stage_generation
-                   AND owner.task_id = task.id
-                   AND owner.kind = 'REMOTE_DEVELOPMENT'
-                   AND owner.generation = episode.stage_generation
-                   AND owner.completed_at_ms IS NULL
-                 ORDER BY CASE WHEN blocker.blocker_type =
-                                      'WORKTREE_RESTORE_QUARANTINED'
-                               THEN 0 ELSE 1 END,
-                          COALESCE(episode.completed_at_ms,
-                                   episode.opened_at_ms) DESC,
-                          episode.id
-                """, (rs, row) -> {
-                    String blockerType = rs.getString("blocker_type");
-                    boolean baseRepair = "CI_BASE_REPAIR_REQUIRED".equals(
-                            blockerType);
-                    boolean noChange = "CI_REPAIR_NO_CHANGE".equals(
-                            blockerType);
-                    boolean branchSync = "CI_BRANCH_SYNC_REQUIRED".equals(
-                            blockerType);
-                    boolean missingProof =
-                            "CI_REPAIR_OUTPUT_PROOF_MISSING".equals(
-                                    blockerType);
-                    boolean malformedOutput =
-                            "CI_REPAIR_OUTPUT_MALFORMED".equals(blockerType);
-                    boolean failedTurn =
-                            "CI_REPAIR_TURN_FAILED".equals(blockerType);
-                    boolean noChangeRetryExhausted =
-                            "CI_REPAIR_NO_CHANGE_RETRY_EXHAUSTED".equals(
-                                    blockerType);
-                    boolean quarantined =
-                            "WORKTREE_RESTORE_QUARANTINED".equals(
-                                    blockerType);
-                    return new CiRecovery(
-                        rs.getString("id"), rs.getString("blocker_id"),
-                        blockerType,
-                        baseRepair
-                                ? "A proven base-owned CI failure needs approval"
-                                : noChange
-                                    ? "Two CI repair turns made no committed tree change"
-                                : branchSync
-                                    ? "CI repair needs the Task branch synchronized first"
-                                : missingProof
-                                    ? "CI repair output lacks exact writer proof"
-                                : malformedOutput
-                                    ? "CI repair returned malformed strict output"
-                                : failedTurn
-                                    ? "CI repair execution failed on this exact subject"
-                                : quarantined
-                                    ? "CI repair could not restore the exact Task worktree"
-                                : noChangeRetryExhausted
-                                    ? "The final authorized CI repair still made no committed tree change"
-                                : "The CI fixing budget is exhausted",
-                        rs.getInt("rerun_count"), rs.getInt("rerun_limit"),
-                        rs.getInt("fix_attempt_count"),
-                        rs.getInt("fix_attempt_limit"),
-                        rs.getInt("push_count"), rs.getInt("push_limit"),
-                        baseRepair
-                                ? List.of("START_BASE_REPAIR",
-                                        "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : noChange
-                                    ? List.of("RETRY_ONCE", "MANUAL_TAKEOVER",
-                                            "STOP_AUTOMATION")
-                                : branchSync
-                                    ? List.of("START_BRANCH_SYNC",
-                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : missingProof
-                                    ? List.of(
-                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : malformedOutput || failedTurn
-                                    ? List.of(
-                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : quarantined
-                                    ? List.of(
-                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : noChangeRetryExhausted
-                                    ? List.of(
-                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
-                                : List.of("EXTEND_BUDGET",
-                                        "CONTINUE_WITH_PER_PUSH_APPROVAL",
-                                        "MANUAL_TAKEOVER", "STOP_AUTOMATION"));
-                },
-                stage.taskId(), stage.id()).stream().findFirst().orElse(null);
-
         CleanupRecovery cleanup = jdbc.query("""
                 SELECT step.id, step.kind, step.requirement,
                        step.attempt_count, step.attempt_limit, step.last_error,
@@ -457,15 +295,9 @@ public final class V2StageApiService
                                 AND request.task_epoch = task.epoch
                                 AND request.stage_generation = owner.generation))
                      OR (owner.kind = 'REMOTE_DEVELOPMENT'
-                         AND turn.purpose IN ('REMOTE_CI_REPAIR',
-                             'BRANCH_CONFLICT_REPAIR',
+                         AND turn.purpose IN ('BRANCH_CONFLICT_REPAIR',
                              'ADDRESS_REMOTE_FEEDBACK')
-                         AND ((turn.purpose = 'REMOTE_CI_REPAIR' AND EXISTS (
-                                  SELECT 1 FROM ci_repair_operation operation
-                                   WHERE operation.stage_turn_id = turn.id
-                                     AND operation.operation_id = turn.operation_id
-                                     AND operation.status = 'DISPATCHED'))
-                           OR (turn.purpose = 'BRANCH_CONFLICT_REPAIR' AND EXISTS (
+                         AND ((turn.purpose = 'BRANCH_CONFLICT_REPAIR' AND EXISTS (
                                   SELECT 1 FROM branch_sync_dispatch_operation operation
                                    WHERE operation.stage_turn_id = turn.id
                                      AND operation.operation_id = turn.operation_id
@@ -491,9 +323,6 @@ public final class V2StageApiService
                         WHERE receipt.operation_id = turn.operation_id)
                    AND NOT EXISTS (
                        SELECT 1 FROM remote_runtime_delivery_receipt receipt
-                        WHERE receipt.operation_id = turn.operation_id)
-                   AND NOT EXISTS (
-                       SELECT 1 FROM ci_repair_delivery_receipt receipt
                         WHERE receipt.operation_id = turn.operation_id)
                    AND NOT EXISTS (
                        SELECT 1 FROM branch_sync_delivery_receipt receipt
@@ -749,7 +578,7 @@ public final class V2StageApiService
                 },
                 stage.taskId(), stage.id()).stream().findFirst().orElse(null);
         return new RecoveryOptions(
-                ci, cleanup, replacement, failure, localPublishBaseSync,
+                null, cleanup, replacement, failure, localPublishBaseSync,
                 branchSync, worktreeQuarantine);
     }
 

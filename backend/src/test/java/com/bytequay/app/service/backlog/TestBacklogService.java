@@ -21,11 +21,9 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
-import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -38,7 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -50,7 +47,6 @@ class TestBacklogService
     private static final Instant NOW = Instant.parse("2026-06-24T09:00:00Z");
 
     private SqliteBacklogStore store;
-    private ThreadService threadService;
     private ThreadStore threadStore;
     private TaskStore taskStore;
     private DistillationSignalServiceImpl distillation;
@@ -60,11 +56,10 @@ class TestBacklogService
     void setUp()
     {
         store = mock(SqliteBacklogStore.class);
-        threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
         distillation = mock(DistillationSignalServiceImpl.class);
-        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore, distillation);
+        service = new BacklogServiceImpl(store, threadStore, taskStore, distillation);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -128,69 +123,6 @@ class TestBacklogService
                 .isInstanceOf(ResponseStatusException.class);
     }
 
-    @Test
-    void startDevelopmentPostsToTrunkAndMarksInProgress()
-    {
-        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        when(threadService.sendTrunk(eq("thread-1"), any())).thenReturn("turn-1");
-
-        BacklogServiceImpl.StartResult result = service.startDevelopment("b1");
-
-        // The item content is posted into the trunk as a planning prompt; no
-        // task is cut here. The prompt carries the backlog id plus the
-        // confidence-or-confirm contract the trunk must follow before cutting.
-        ArgumentCaptor<BacklogItem> saved = ArgumentCaptor.forClass(BacklogItem.class);
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        InOrder order = inOrder(store, threadService);
-        order.verify(store).save(saved.capture());
-        order.verify(threadService).sendTrunk(eq("thread-1"), prompt.capture());
-        assertThat(saved.getValue().status()).isEqualTo(BacklogItem.STATUS_IN_PROGRESS);
-        assertThat(prompt.getValue())
-                .contains("(backlog item b1")
-                .contains("backlog_item_id=b1")
-                .contains("If the direction is clear and you are confident")
-                .contains("If any important direction is uncertain")
-                .contains("ask_user_question")
-                .contains("confirm/approve the task direction")
-                .contains("Title\n\nBody");
-        verify(threadService, never()).materialiseTask(any(), any());
-        assertThat(result.taskId()).isNull();
-        assertThat(result.item().status()).isEqualTo("in-progress");
-        assertThat(result.item().inProgressAt()).isNotNull();
-        verify(distillation).record(
-                eq("backlog-start"), eq("b1"), eq("started"), any(), any(), any(), any());
-    }
-
-    @Test
-    void startDevelopmentStaysInProgressWhenTrunkDispatchFails()
-    {
-        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
-        when(threadService.sendTrunk(eq("thread-1"), any()))
-                .thenThrow(new IllegalStateException("scheduler unavailable"));
-
-        assertThatThrownBy(() -> service.startDevelopment("b1"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("scheduler unavailable");
-
-        ArgumentCaptor<BacklogItem> saved = ArgumentCaptor.forClass(BacklogItem.class);
-        InOrder order = inOrder(store, threadService);
-        order.verify(store).save(saved.capture());
-        order.verify(threadService).sendTrunk(eq("thread-1"), any());
-        assertThat(saved.getValue().status()).isEqualTo(BacklogItem.STATUS_IN_PROGRESS);
-        verify(distillation, never()).record(
-                eq("backlog-start"), any(), any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void startDevelopmentOnANonCreatedItemIs409()
-    {
-        when(store.findById("b1")).thenReturn(Optional.of(item("b1", true, "task-1")));
-        assertThatThrownBy(() -> service.startDevelopment("b1"))
-                .isInstanceOf(ResponseStatusException.class);
-        verify(threadService, never()).sendTrunk(any(), any());
-    }
-
-    @Test
     void cancelExplorationRestoresAnInProgressItemToOpen()
     {
         when(store.findById("b1")).thenReturn(

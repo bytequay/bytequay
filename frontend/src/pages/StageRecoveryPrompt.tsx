@@ -16,24 +16,11 @@ import type { StageDetailData } from '../types/brainView';
 import { WarnTriangleIcon } from '../ui/TaskBrainDesignIcons';
 
 type Recovery = NonNullable<StageDetailData['recovery']>;
-type CiAction = Recovery['ci'] extends infer T
-  ? T extends { actions: Array<infer A> } ? A : never
-  : never;
 type CleanupAction = Recovery['cleanup'] extends infer T
   ? T extends { actions: Array<infer A> } ? A : never
   : never;
 type BranchAction = NonNullable<Recovery['branchSync']>['actions'][number];
 type WorktreeAction = NonNullable<Recovery['worktreeQuarantine']>['actions'][number];
-
-const CI_LABEL: Record<CiAction, string> = {
-  EXTEND_BUDGET: 'Extend budget',
-  CONTINUE_WITH_PER_PUSH_APPROVAL: 'Approve each push',
-  START_BASE_REPAIR: 'Approve base repair',
-  START_BRANCH_SYNC: 'Sync branch and continue',
-  RETRY_ONCE: 'Retry once',
-  MANUAL_TAKEOVER: 'Take over manually',
-  STOP_AUTOMATION: 'Stop automation',
-};
 
 const CLEANUP_LABEL: Record<CleanupAction, string> = {
   RETRY: 'Retry cleanup step',
@@ -57,32 +44,6 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
   onError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-
-  const runCi = async (action: CiAction) => {
-    const ci = recovery.ci;
-    if (ci === null) return;
-    setBusy(action);
-    onError('');
-    try {
-      const extend = action === 'EXTEND_BUDGET';
-      await window.bridge.recoverV2Ci(taskId, ci.episodeId, {
-        commandId: crypto.randomUUID(),
-        blockerId: ci.blockerId ?? null,
-        action,
-        rerunDelta: extend ? 1 : 0,
-        fixDelta: extend ? 1 : 0,
-        pushDelta: extend ? 1 : 0,
-        reason: `Explicit ${CI_LABEL[action]} action from the Stage recovery card`,
-      });
-      onComplete();
-    }
-    catch (reason: unknown) {
-      onError(reason instanceof Error ? reason.message : 'Could not recover CI');
-    }
-    finally {
-      setBusy(null);
-    }
-  };
 
   const runCleanup = async (action: CleanupAction) => {
     const cleanup = recovery.cleanup;
@@ -195,22 +156,20 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
   const baseSync = recovery.localPublishBaseSync ?? null;
   const branchSync = recovery.branchSync ?? null;
   const quarantine = recovery.worktreeQuarantine ?? null;
-  if (recovery.ci === null && recovery.cleanup === null && baseSync === null
-      && branchSync === null && quarantine === null) {
+  if (recovery.cleanup === null && baseSync === null && branchSync === null
+      && quarantine === null) {
     return null;
   }
 
   const title = quarantine !== null ? 'Task worktree is quarantined'
     : branchSync !== null ? 'Branch sync needs a decision'
     : baseSync !== null ? 'Local publish needs a decision'
-    : recovery.ci !== null ? 'CI automation needs a decision' : 'Cleanup needs a decision';
+    : 'Cleanup needs a decision';
   const detail = quarantine !== null ? quarantine.message
     : branchSync !== null
       ? `${branchSync.message} · attempts ${branchSync.attemptCount}/${branchSync.attemptLimit}`
     : baseSync !== null ? baseSync.message
-    : recovery.ci !== null
-      ? recovery.ci.message ?? `Reruns ${recovery.ci.rerunCount}/${recovery.ci.rerunLimit} · fixes ${recovery.ci.fixAttemptCount}/${recovery.ci.fixAttemptLimit} · pushes ${recovery.ci.pushCount}/${recovery.ci.pushLimit}`
-      : `${recovery.cleanup!.kind.replaceAll('_', ' ').toLowerCase()} · attempts ${recovery.cleanup!.attemptCount}/${recovery.cleanup!.attemptLimit}`;
+    : `${recovery.cleanup!.kind.replaceAll('_', ' ').toLowerCase()} · attempts ${recovery.cleanup!.attemptCount}/${recovery.cleanup!.attemptLimit}`;
 
   return (
     <div className="review-callout" data-testid="stage-recovery-card">
@@ -249,17 +208,6 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
                       : 'Approve base sync'}
               </button>
             )}
-            {recovery.ci?.actions.map(action => (
-              <button
-                key={action}
-                type="button"
-                className="review-callout__btn"
-                disabled={busy !== null}
-                onClick={() => { void runCi(action); }}
-              >
-                {busy === action ? 'Working…' : CI_LABEL[action]}
-              </button>
-            ))}
             {recovery.cleanup?.actions.map(action => (
               <button
                 key={action}

@@ -14,7 +14,7 @@
 package com.bytequay.app.domain;
 
 /**
- * Lifecycle state of a single {@link Stage} instance: strictly
+ * Lifecycle state of a single {@link StageInstance}: strictly
  * {@link #OPEN} ⇄ {@link #CLOSED}. Whether an operation is executing is
  * a runtime fact (the stage's turns), not a stage state.
  */

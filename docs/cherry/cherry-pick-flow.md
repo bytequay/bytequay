@@ -313,12 +313,21 @@ new process group: `ProcessBuilder` cannot do it, and neither `/bin/sh -c` nor
   recorded tree still exists". No native code, works today, and slightly weaker —
   a process that reparents itself between the walk and the signal escapes.
 
-The third is the one that shipped — see `ProcessTree`, which captures the tree,
-signals leaves-up, and returns the survivor rather than a boolean because "no
-survivor" is what admits the next writer. It also pins each pid to its start time,
-because a recycled pid would otherwise report a dead agent as alive forever and
-wedge the Task. The reparent-between-capture-and-signal hole is documented in the
-class rather than assumed away.
+**None of the three was needed.** A shell in job-control mode (`set -m`) puts each
+background job in its own process group, with the group id equal to the job's pid.
+So a three-line `/bin/sh` wrapper gets real group semantics with no native code,
+no FFM call, and no bundled executable — and `ProcessGroup` is built on it.
+
+That matters beyond convenience: **a process group survives reparenting where a
+tree walk does not.** Leaving a group requires a deliberate `setpgid`, whereas
+outliving your parent is free. So the group is the authoritative receipt and
+`ProcessTree` is diagnostics — it stays useful for inspecting what a turn held,
+and it still pins each pid to its start time so a recycled pid cannot report a
+dead agent as alive forever, but it is not what admits a successor writer.
+
+The group id is written to a file rather than stdout, so the agent's output stays
+exactly what the CLI produced, and it is readable before the prompt is delivered —
+an id learned only at the end would be lost by the crash that makes it matter.
 
 ### The launch binding, and what a CLI run cannot prove
 

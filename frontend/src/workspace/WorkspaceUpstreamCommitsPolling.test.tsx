@@ -74,6 +74,40 @@ const snapshot: UpstreamCommitsDto = {
 };
 
 describe('UpstreamCherryPicker dry run', () => {
+  it('starts a pick-only run with a draft PR and independent repair budget', async () => {
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks'
+          && input.method === 'POST') return running;
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+    fireEvent.change(screen.getByLabelText('Conflict repair budget in dollars'), {
+      target: { value: '7.50' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
+    await flush();
+
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/workspaces/fork/upstream/cherry-picks',
+      method: 'POST',
+      body: {
+        sourceBranch: 'master',
+        targetBranch: 'bump-widget-aaaaaaa',
+        shas: [commit.sha],
+        skipStartsWith: [],
+        skipContains: [],
+        prDescription: null,
+        openDraftPr: true,
+        budgetMilliUsd: 7_500,
+      },
+    });
+  });
+
   it('splits the plan into a picked list and a skipped list that carries reasons', async () => {
     const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
       if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];

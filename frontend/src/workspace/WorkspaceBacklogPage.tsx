@@ -30,7 +30,6 @@ type Props = {
   selectedKey?: string;
   onOpenItem?: (key?: string) => void;
   onOpenThread?: (threadId: string) => void;
-  onRequestNewTrunk?: (itemKey: string) => void;
 };
 
 const FILTERS: Array<{ value: BacklogFilter; label: string }> = [
@@ -46,7 +45,6 @@ export default function WorkspaceBacklogPage({
   selectedKey,
   onOpenItem,
   onOpenThread,
-  onRequestNewTrunk,
 }: Props) {
   const [items, setItems] = useState<WorkspaceBacklogItemDto[]>([]);
   const [trunks, setTrunks] = useState<WorkspaceTrunkDto[]>([]);
@@ -110,13 +108,6 @@ export default function WorkspaceBacklogPage({
     onOpenItem?.(undefined);
   };
 
-  const started = async (item: WorkspaceBacklogItemDto, trunkId: string) => {
-    await workspaceApi.startBacklogItem(workspaceId, item.key, trunkId);
-    closeEditor();
-    await load();
-    onOpenThread?.(trunkId);
-  };
-
   return (
     <section className="wu-backlog">
       <header className="wu-backlog__header">
@@ -162,10 +153,7 @@ export default function WorkspaceBacklogPage({
                 key={item.id}
                 item={item}
                 threadName={threadNames.get(item.threadId)}
-                trunks={trunks}
                 onOpen={() => open(item)}
-                onStart={trunkId => void started(item, trunkId)}
-                onNewTrunk={() => onRequestNewTrunk?.(item.key)}
               />
             ))}
           </div>
@@ -191,9 +179,7 @@ export default function WorkspaceBacklogPage({
             closeEditor();
             await load();
           }}
-          onStarted={started}
           onOpenThread={onOpenThread}
-          onRequestNewTrunk={onRequestNewTrunk}
         />
       )}
     </section>
@@ -203,17 +189,11 @@ export default function WorkspaceBacklogPage({
 function BacklogRow({
   item,
   threadName,
-  trunks,
   onOpen,
-  onStart,
-  onNewTrunk,
 }: {
   item: WorkspaceBacklogItemDto;
   threadName?: string;
-  trunks: WorkspaceTrunkDto[];
   onOpen: () => void;
-  onStart: (trunkId: string) => void;
-  onNewTrunk: () => void;
 }) {
   return (
     <article
@@ -252,14 +232,6 @@ function BacklogRow({
         </div>
       </div>
       <div className="wu-backlog-row__action" onClick={event => event.stopPropagation()}>
-        {item.status === 'open' && (
-          <TrunkPicker
-            trunks={trunks}
-            label="Start work under a trunk"
-            onSelect={onStart}
-            onNewTrunk={onNewTrunk}
-          />
-        )}
         {item.status === 'in-progress' && (
           <span className="wu-backlog-row__exploring"><i />trunk exploring</span>
         )}
@@ -286,9 +258,7 @@ export function BacklogEditor({
   onClose,
   onSaved,
   onDiscarded,
-  onStarted,
   onOpenThread,
-  onRequestNewTrunk,
 }: {
   workspaceId: string;
   item: WorkspaceBacklogItemDto | null;
@@ -302,9 +272,7 @@ export function BacklogEditor({
   onClose: () => void;
   onSaved: (item: WorkspaceBacklogItemDto) => Promise<void>;
   onDiscarded: () => Promise<void>;
-  onStarted: (item: WorkspaceBacklogItemDto, trunkId: string) => Promise<void>;
   onOpenThread?: (threadId: string) => void;
-  onRequestNewTrunk?: (itemKey: string) => void;
 }) {
   const initialTrunk = fixedTrunkId
     ?? item?.links.find(link => link.type === 'trunk')?.id
@@ -324,7 +292,7 @@ export function BacklogEditor({
   const [links, setLinks] = useState(item?.links ?? (
     initialTrunk.length === 0 ? [] : [{ type: 'trunk', id: initialTrunk }]
   ));
-  const [trunkId, setTrunkId] = useState(initialTrunk);
+  const trunkId = initialTrunk;
   const [linkEditor, setLinkEditor] = useState<'trunk' | 'task' | 'backlog' | null>(null);
   const [linkOptions, setLinkOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [knownThreadNames, setKnownThreadNames] = useState(() => new Map(threadNames));
@@ -372,31 +340,6 @@ export function BacklogEditor({
     catch (cause) {
       setError(messageOf(cause, 'Unable to save this backlog item.'));
       return null;
-    }
-    finally {
-      setBusy(false);
-    }
-  };
-
-  const start = async (selectedTrunkId: string) => {
-    setTrunkId(selectedTrunkId);
-    setBusy(true);
-    try {
-      const saved = item === null
-        ? await workspaceApi.createBacklogItem(workspaceId, {
-            ...input(),
-            trunkId: selectedTrunkId,
-            links: linksForTrunk(selectedTrunkId),
-          })
-        : await workspaceApi.updateBacklogItem(workspaceId, item.key, {
-            ...input(),
-            trunkId: selectedTrunkId,
-            links: linksForTrunk(selectedTrunkId),
-          });
-      await onStarted(saved, selectedTrunkId);
-    }
-    catch (cause) {
-      setError(messageOf(cause, 'Unable to start this backlog item.'));
     }
     finally {
       setBusy(false);
@@ -691,29 +634,6 @@ export function BacklogEditor({
           </button>
           <span />
           <button type="button" className="save" disabled={busy || !valid} onClick={() => void persist()}>Save</button>
-          {(item === null || item.status === 'open') && (
-            fixedTrunkId === undefined
-              ? (
-                <TrunkPicker
-                  trunks={trunks}
-                  label="Start work under a trunk"
-                  disabled={busy || title.trim().length === 0 || persistedSummary.length === 0}
-                  onSelect={selected => void start(selected)}
-                  onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
-                />
-              )
-              : (
-                <div className="wu-backlog-trunk-picker">
-                  <button
-                    type="button"
-                    disabled={busy || title.trim().length === 0 || persistedSummary.length === 0}
-                    onClick={() => void start(fixedTrunkId)}
-                  >
-                    Start development <span aria-hidden>→</span>
-                  </button>
-                </div>
-              )
-          )}
         </footer>}
       </section>
     </div>
@@ -763,57 +683,6 @@ function EditableField({
   );
 }
 
-function TrunkPicker({
-  trunks,
-  label,
-  disabled = false,
-  onSelect,
-  onNewTrunk,
-}: {
-  trunks: BacklogTrunk[];
-  label: string;
-  disabled?: boolean;
-  onSelect: (trunkId: string) => void;
-  onNewTrunk?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="wu-backlog-trunk-picker">
-      <button type="button" disabled={disabled || trunks.length === 0} onClick={() => setOpen(value => !value)}>
-        {label}
-        {label === 'Start work under a trunk' && <ChevronIcon />}
-      </button>
-      {open && (
-        <div className="wu-backlog-trunk-picker__menu">
-          <small>Choose a trunk</small>
-          {trunks.map(trunk => (
-            <button
-              key={trunk.id}
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onSelect(trunk.id);
-              }}
-            >
-              <i className={trunk.status.toLowerCase()} />
-              <span title={trunk.description ?? undefined}>{trunk.title}</span>
-              <em>{trunk.kind}</em>
-            </button>
-          ))}
-          {onNewTrunk !== undefined && (
-            <button type="button" className="new" onClick={() => {
-              setOpen(false);
-              onNewTrunk();
-            }}>
-              <PlusIcon /> New trunk
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Tag({ value }: { value: string }) {
   const tone = tagTone(value);
   return <span className={`wu-backlog-tag ${tone}`}>{value}</span>;
@@ -859,10 +728,6 @@ function BacklogIcon() {
 
 function CloseIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden><path d="m6 6 12 12M18 6 6 18" /></svg>;
-}
-
-function ChevronIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>;
 }
 
 function tagTone(value: string): string {

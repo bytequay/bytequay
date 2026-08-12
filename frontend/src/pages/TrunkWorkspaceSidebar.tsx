@@ -245,8 +245,8 @@ export function TrunkWorkspaceSidebar({
             <WorkspaceItem icon={<BranchIcon />} label="Branches" disabled
               onClick={() => onNavigate?.('branches')} />
             <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
-            <WorkspaceItem icon={<HarnessIcon />} label="CI Harness"
-              onClick={() => onNavigate?.('ci-harness')} />
+            <WorkspaceItem icon={<SyncIcon />} label="Upstream syncs"
+              onClick={() => onNavigate?.('syncs')} />
             <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
               onClick={() => onNavigate?.('sessions')} />
             <WorkspaceItem icon={<MemoryIcon />} label="Memory" disabled
@@ -368,7 +368,7 @@ function CommitIcon() {
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="3.5" /><path d="M2 12h6.5M15.5 12H22" /></svg>;
 }
 
-function HarnessIcon() {
+function SyncIcon() {
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 4v5h-5" /></svg>;
 }
 

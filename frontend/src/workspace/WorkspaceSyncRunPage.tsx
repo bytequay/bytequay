@@ -22,13 +22,12 @@ import {
 import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
 import WorkspaceSyncRunQueue from './WorkspaceSyncRunQueue';
 import {
-  elapsedLabel, fixupsByPick, isClosedSync, isLiveSync, isWatchingSync, money, syncNowLine,
+  elapsedLabel, fixupsByPick, isClosedSync, isLiveSync, money, syncNowLine,
   syncPhase, syncQueue, sessionTranscriptPath, transcriptEntries,
   type TranscriptEntry,
 } from './syncRunModel';
 import {
   workspaceApi,
-  type CiHarnessWatchSnapshotDto,
   type UpstreamCherryPickJobDto,
   type UpstreamCherryPickRunDto,
 } from './workspaceApi';
@@ -58,8 +57,7 @@ export default function WorkspaceSyncRunPage({
   onBack?: () => void;
   onOpenSync?: (jobId: string) => void;
   onNewSync?: () => void;
-  /** Rendered beside the cockpit. The CI Harness passes its pull request pane
-   *  here so one run reads as one page across both phases. */
+  /** Rendered beside the cockpit so one run and its draft PR read as one page. */
   rightPane?: ReactNode;
 }) {
   const [run, setRun] = useState<UpstreamCherryPickRunDto | null>(null);
@@ -73,8 +71,6 @@ export default function WorkspaceSyncRunPage({
   const atBottomRef = useRef(true);
   /** What the current agent turn has said and run, as it arrives. */
   const [agentLive, setAgentLive] = useState<TranscriptEntry[]>([]);
-  /** Phase 2's watch, so the run says what it is doing after the picks land. */
-  const [harness, setHarness] = useState<CiHarnessWatchSnapshotDto | null>(null);
   const [prOpen, setPrOpen] = useState(true);
   const { sidebarWidth: queueWidth, shellRef, onResize: onQueueResize } =
     useSidebarWidth(QUEUE_WIDTH_KEY, 300);
@@ -103,44 +99,15 @@ export default function WorkspaceSyncRunPage({
   }, [load]);
 
   const live = run !== null && (isLiveSync(run.job) || run.job.pauseRequested);
-  // Phase 2 runs on after the picks land, so the refresh outlives phase 1.
-  const watchId = run !== null && isWatchingSync(run.job) ? run.job.harnessWatchId : null;
-  // A stopped watch is the one status nothing more happens under. Green is not:
-  // the harness keeps looking, and a branch can go red again under a green.
-  const harnessStatus = harness?.status ?? null;
-  const moving = live || (watchId !== null && harnessStatus !== 'stopped');
   useEffect(() => {
-    if (!moving) return undefined;
+    if (!live) return undefined;
     const timer = window.setInterval(() => {
       // A dropped poll keeps the last complete run on screen rather than
       // blanking a view someone may have walked away from.
       void load().catch(() => {});
-    // Phase 2 adds nothing to this log and can last hours; re-reading the whole
-    // run every two seconds through it is work nobody sees.
-    }, live ? REFRESH_MS : REFRESH_MS * 5);
+    }, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [moving, live, load]);
-
-  // What phase 2 is doing. Its own cadence is a cycle every five minutes, so
-  // this is deliberately slower than the run poll — the status word is all it
-  // feeds, and the live stream carries anything happening between cycles.
-  useEffect(() => {
-    if (watchId === null) {
-      setHarness(null);
-      return undefined;
-    }
-    let cancelled = false;
-    const read = () => workspaceApi.harnessWatch(workspaceId, watchId)
-      .then(next => { if (!cancelled) setHarness(next); })
-      .catch(() => { /* keep the last status rather than blanking it */ });
-    void read();
-    if (harnessStatus === 'stopped') return () => { cancelled = true; };
-    const timer = window.setInterval(() => { void read(); }, REFRESH_MS * 2);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [watchId, workspaceId, harnessStatus]);
+  }, [live, load]);
 
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
@@ -159,25 +126,9 @@ export default function WorkspaceSyncRunPage({
     });
   }, [live, jobId]);
 
-  // The same, for a harness round. Its turns are the ones a reader has had no
-  // way to watch: the round used to say "handing over" and then nothing.
   useEffect(() => {
-    if (watchId === null) return undefined;
-    return window.bridge.subscribeHarnessStream(watchId, event => {
-      const entries = transcriptEntries(event.data);
-      if (entries.length === 0) return;
-      if (entries.some(entry => entry.kind === 'result')) {
-        setAgentLive([]);
-        return;
-      }
-      setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
-    });
-  }, [watchId]);
-
-  // Nothing is running under either key, so the panel has nothing to show.
-  useEffect(() => {
-    if (!live && watchId === null) setAgentLive([]);
-  }, [live, watchId]);
+    if (!live) setAgentLive([]);
+  }, [live]);
 
   // Follow the log only while the reader is already at the end, so scrolling
   // back through a three-hour run is not yanked forward by the next command.
@@ -232,10 +183,8 @@ export default function WorkspaceSyncRunPage({
           : `${queueWidth}px minmax(0, 1fr)`,
       }}>
       <WorkspaceSyncRunQueue job={job} commits={run.commits} onBack={onBack}
-        fixups={fixupsByPick(run.events)} harness={harness}
-        syncs={syncs} onOpenSync={onOpenSync} onNewSync={onNewSync}
-        onFixNow={watchId === null ? undefined : () => act(
-          () => workspaceApi.runHarnessWatch(workspaceId, watchId, true))} />
+        fixups={fixupsByPick(run.events)} syncs={syncs}
+        onOpenSync={onOpenSync} onNewSync={onNewSync} />
       <ResizeHandle className="sr-resize" ariaLabel="Resize the commit queue"
         onResize={onQueueResize} style={{ left: queueWidth - 2 }} />
       <div className="sr-main">
@@ -277,7 +226,7 @@ export default function WorkspaceSyncRunPage({
           )}
           {!closed && (
             <button type="button" className="sr-topbar__action" disabled={busy}
-              title="Stop the run, stop its watch, and release everything it holds"
+              title="Stop the run and release everything it holds"
               onClick={() => setClosing(true)}>
               <CloseIcon />Close run
             </button>
@@ -312,7 +261,7 @@ export default function WorkspaceSyncRunPage({
               <span className="sr-now__label">
                 {closed ? 'CLOSED' : parked || failed ? 'PARKED' : 'NOW'}
               </span>
-              <span className="sr-now__copy">{syncNowLine(job, queue, harness)}</span>
+              <span className="sr-now__copy">{syncNowLine(job, queue)}</span>
               <span className="sr-now__meta">
                 {job.appliedCount} picked · {elapsedLabel(
                   job.createdAt, running ? undefined : job.updatedAt)}
@@ -325,8 +274,7 @@ export default function WorkspaceSyncRunPage({
                 atBottomRef.current = element.scrollHeight - element.scrollTop
                   - element.clientHeight < 40;
               }}>
-              <WorkspaceSyncRunLog events={run.events} commits={run.commits}
-                harness={harness?.milestones} />
+              <WorkspaceSyncRunLog events={run.events} commits={run.commits} />
               {agentLive.length > 0 && (
                 // The turn in flight. Without this a pick that compiles for
                 // minutes reads as a stalled run — the log's next line only
@@ -391,11 +339,7 @@ export default function WorkspaceSyncRunPage({
                   const text = guidance.trim();
                   if (text.length === 0) return;
                   setGuidance('');
-                  // Phase 2's agent takes steering through its own round; the
-                  // job's guidance field is only read while the picks run.
-                  act(() => (watchId === null
-                    ? workspaceApi.guideUpstreamCherryPick(workspaceId, jobId, text)
-                    : workspaceApi.runHarnessWatch(workspaceId, watchId, true, text))
+                  act(() => workspaceApi.guideUpstreamCherryPick(workspaceId, jobId, text)
                     .catch(reason => {
                       setGuidance(text);
                       throw reason;
@@ -440,10 +384,9 @@ export default function WorkspaceSyncRunPage({
       {closing && (
         <ConfirmDialog
           title="Close this sync run?"
-          body={'The picker stops at the next commit boundary'
-            + (job.harnessWatchId === null ? '' : ', its CI Harness watch is stopped')
-            + ', and everything it holds locally is released: its isolated worktree,'
-            + ' the agent\u2019s session and stored transcripts, and its cached CI logs.'
+          body={'The picker stops at the next commit boundary, and everything it holds'
+            + ' locally is released: its isolated worktree and the agent\u2019s session'
+            + ' and stored transcripts.'
             + '\n\n'
             + closeKeeps(job)
             + ' A conflict you were resolving by hand in the worktree does not survive.'}

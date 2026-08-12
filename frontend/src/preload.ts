@@ -70,11 +70,10 @@ import type {
   CredentialTestResult,
   AgentQuestionDto,
   BacklogItemDto,
-  StartDevelopmentResponse,
   ThreadSignalDto,
 } from './types';
 
-type AgentStreamScope = 'thread' | 'stage' | 'sync' | 'harness';
+type AgentStreamScope = 'thread' | 'stage' | 'sync';
 
 function subscribeAgentStream(
   scope: AgentStreamScope,
@@ -483,8 +482,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('questions:list', threadId),
   answerQuestion: (questionId: string, answerOptionId?: string, answerFreeForm?: string): Promise<AgentQuestionDto> =>
     ipcRenderer.invoke('questions:answer', { questionId, answerOptionId, answerFreeForm }),
-  startBacklogDevelopment: (itemId: string): Promise<StartDevelopmentResponse> =>
-    ipcRenderer.invoke('backlog:startDevelopment', itemId),
   listThreadSignals: (threadId: string): Promise<ThreadSignalDto[]> =>
     ipcRenderer.invoke('signals:list', threadId),
   markSignalRead: (signalId: string): Promise<void> =>
@@ -503,8 +500,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:pause', { threadId, taskId }),
   resumePausedTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:resume', { threadId, taskId }),
-  retryFailedCi: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
-    ipcRenderer.invoke('threads:tasks:retry-ci', { threadId, taskId }),
   recoverV2Plan: (
     taskId: string,
     failedTurnId: string,
@@ -519,12 +514,12 @@ const bridge: Bridge = {
     'development-flow:development-brain:recover', {
       taskId, failedTurnId, command,
     }),
-  recoverV2RemoteRepairBrainReview: (
+  recoverV2BranchSyncBrainReview: (
     taskId: string,
     failedTurnId: string,
     command: { blockerId: string; commandId: string; reason: string },
   ): Promise<unknown> => ipcRenderer.invoke(
-    'development-flow:remote-repair-brain:recover', {
+    'development-flow:branch-sync-brain:recover', {
       taskId, failedTurnId, command,
     }),
   recoverV2Stage: (
@@ -535,20 +530,6 @@ const bridge: Bridge = {
     'development-flow:local-stage:recover', {
       taskId, failedTurnId, command,
     }),
-  recoverV2Ci: (
-    taskId: string,
-    episodeId: string,
-    command: {
-      commandId: string;
-      blockerId?: string | null;
-      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
-      rerunDelta: number;
-      fixDelta: number;
-      pushDelta: number;
-      reason: string;
-    },
-  ): Promise<unknown> => ipcRenderer.invoke(
-    'development-flow:ci:recover', { taskId, episodeId, command }),
   recoverV2BranchSync: (
     taskId: string,
     episodeId: string,
@@ -700,12 +681,6 @@ const bridge: Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => subscribeAgentStream('sync', jobId, onEvent, onClose),
-  subscribeHarnessStream: (
-    watchId: string,
-    onEvent: (event: ThreadStreamEvent) => void,
-    onClose?: (reason: string) => void,
-  ) => subscribeAgentStream('harness', watchId, onEvent, onClose),
-
   // ── Brain agent ──────────────────────────────────────────────────
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
   sendBrainMessage: (taskId: string, text: string, images?: string[]) =>

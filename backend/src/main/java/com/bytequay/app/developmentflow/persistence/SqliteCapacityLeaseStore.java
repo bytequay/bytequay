@@ -97,10 +97,14 @@ public class SqliteCapacityLeaseStore
     {
         requireNonNull(now, "now is null");
         return query("""
-                SELECT * FROM capacity_lease
-                WHERE released_at_ms IS NULL AND expires_at_ms > ?
-                ORDER BY acquired_at_ms, id
-                """, statement -> statement.setLong(1, now.toEpochMilli()));
+                SELECT lease.* FROM capacity_lease lease
+                JOIN dispatch_ticket d ON d.id = lease.ticket_id
+                WHERE lease.released_at_ms IS NULL AND lease.expires_at_ms > ?
+                    %s
+                ORDER BY lease.acquired_at_ms, lease.id
+                """.formatted(
+                        SqliteDispatchTicketStore.executableTicketPredicate("d")),
+                statement -> statement.setLong(1, now.toEpochMilli()));
     }
 
     @Override
@@ -111,10 +115,13 @@ public class SqliteCapacityLeaseStore
         requireText(operationId, "operationId");
         requireNonNull(now, "now is null");
         return one("""
-                SELECT * FROM capacity_lease
-                WHERE operation_id = ? AND released_at_ms IS NULL
-                    AND expires_at_ms > ?
-                """, statement -> {
+                SELECT lease.* FROM capacity_lease lease
+                JOIN dispatch_ticket d ON d.id = lease.ticket_id
+                WHERE lease.operation_id = ? AND lease.released_at_ms IS NULL
+                    AND lease.expires_at_ms > ?
+                    %s
+                """.formatted(
+                        SqliteDispatchTicketStore.executableTicketPredicate("d")), statement -> {
                     statement.setString(1, operationId);
                     statement.setLong(2, now.toEpochMilli());
                 });
@@ -258,10 +265,14 @@ public class SqliteCapacityLeaseStore
             List<CapacityManager.CapacityLease> expired = query(
                     connection,
                     """
-                    SELECT * FROM capacity_lease
-                    WHERE released_at_ms IS NULL AND expires_at_ms <= ?
-                    ORDER BY expires_at_ms, id
-                    """,
+                    SELECT lease.* FROM capacity_lease lease
+                    JOIN dispatch_ticket d ON d.id = lease.ticket_id
+                    WHERE lease.released_at_ms IS NULL
+                        AND lease.expires_at_ms <= ?
+                        %s
+                    ORDER BY lease.expires_at_ms, lease.id
+                    """.formatted(
+                            SqliteDispatchTicketStore.executableTicketPredicate("d")),
                     statement -> statement.setLong(1, now.toEpochMilli()));
             List<CapacityManager.CapacityLease> updated = new ArrayList<>();
             for (CapacityManager.CapacityLease lease : expired) {

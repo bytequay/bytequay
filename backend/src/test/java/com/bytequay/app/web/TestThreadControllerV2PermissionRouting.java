@@ -17,13 +17,11 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.PermissionDecision;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
-import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,8 +49,6 @@ class TestThreadControllerV2PermissionRouting
                 mock(ThreadCheckpointStore.class),
                 mock(CheckpointTrigger.class),
                 mock(WorkModelResolver.class),
-                mock(PrTaskLinkService.class),
-                mock(TaskStore.class),
                 mock(ChatAttachmentStore.class),
                 new ObjectMapper());
         controller.setV2Waits(typed);

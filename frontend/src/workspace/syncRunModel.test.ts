@@ -92,12 +92,12 @@ describe('sync run model', () => {
   });
 
   it('names the phase from what the run has actually reached', () => {
-    expect(syncPhase(job)).toBe('PHASE 1 · PICKING');
-    expect(syncPhase({ ...job, pauseRequested: true })).toBe('PHASE 1 · PAUSING');
-    expect(syncPhase({ ...job, status: 'PAUSED_CONFLICT' })).toBe('PHASE 1 · PARKED');
-    expect(syncPhase({ ...job, status: 'COMPLETED' })).toBe('PHASE 1 · COMPLETE');
+    expect(syncPhase(job)).toBe('PICKING');
+    expect(syncPhase({ ...job, pauseRequested: true })).toBe('PAUSING');
+    expect(syncPhase({ ...job, status: 'PAUSED_CONFLICT' })).toBe('PARKED');
+    expect(syncPhase({ ...job, status: 'COMPLETED' })).toBe('COMPLETE');
     expect(syncPhase({ ...job, status: 'COMPLETED', harnessWatchId: 'watch-1' }))
-      .toBe('PHASE 2 · CI HARNESS');
+      .toBe('COMPLETE');
   });
 
   it('says what the run is doing rather than that it is busy', () => {

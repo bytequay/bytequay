@@ -34,7 +34,7 @@ export type WsNavKey =
   | 'home' | 'workspaces' | 'pulls' | 'automations'
   | 'repos' | 'email' | 'bug-report' | 'notifications' | 'settings'
   | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'backlog'
-  | 'branches' | 'commits' | 'ci-harness' | 'sessions' | 'memory' | 'insights';
+  | 'branches' | 'commits' | 'syncs' | 'sessions' | 'memory' | 'insights';
 
 /** The Workspaces nav row's icon, as a crisp SVG — the ▦ glyph above
  *  renders as a near-solid blob at 15px in this font, so it's swapped

@@ -46,8 +46,8 @@ const ROLES: {
     name: 'Trunk',
     sub: 'fixed template',
     usage: 'build',
-    desc: 'Orchestrates planning; cuts tasks but never writes code or pushes.',
-    can: ['create_task', 'search', 'recall'],
+    desc: 'Orchestrates planning but never writes code or pushes.',
+    can: ['search', 'recall'],
     cant: ['edit files', 'push'],
   },
   {
@@ -58,7 +58,7 @@ const ROLES: {
     usage: 'build',
     desc: 'Composed at task creation from the task’s repo / branch / PR, then frozen so behaviour is reproducible.',
     can: ['edit files', 'push (gated)', 'comment'],
-    cant: ['create_task', 'change role'],
+    cant: ['change role'],
   },
   {
     id: 'reviewer',
@@ -68,7 +68,7 @@ const ROLES: {
     usage: 'review',
     desc: 'A panel seat’s reviewing voice. Reads the diff and reports findings; never writes.',
     can: ['read diff', 'comment'],
-    cant: ['edit files', 'push', 'create_task'],
+    cant: ['edit files', 'push'],
   },
   {
     id: 'lead',

@@ -17,9 +17,6 @@ import com.bytequay.app.developmentflow.task.V2RecoveryControlService;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryAction;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryResult;
-import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryAction;
-import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryCommand;
-import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryResult;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryAction;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryResult;
@@ -117,36 +114,6 @@ class TestTaskRecoveryController
         verify(recovery).extendLocalPublishBaseSync(
                 "task-1", "base-sync-episode-3", "base-sync-blocker-3",
                 command);
-    }
-
-    @Test
-    void routesAnExactCiRecoveryChoice()
-            throws Exception
-    {
-        CiRecoveryCommand command = new CiRecoveryCommand(
-                "ci-command-1", CiRecoveryAction.EXTEND_BUDGET,
-                1, 2, 3, "allow another repair");
-        when(recovery.recoverCi("task-1", "episode-1", command))
-                .thenReturn(new CiRecoveryResult(
-                        "task-1", "episode-1", "ci-command-1",
-                        CiRecoveryAction.EXTEND_BUDGET, "OPEN",
-                        2, 3, 4, "observation-2"));
-
-        mvc.perform(post("/api/tasks/task-1/ci-repair/episode-1/recover")
-                        .contentType("application/json")
-                        .content("""
-                                {"commandId":"ci-command-1",
-                                 "action":"EXTEND_BUDGET",
-                                 "rerunDelta":1,"fixDelta":2,"pushDelta":3,
-                                 "reason":"allow another repair"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.episodeId").value("episode-1"))
-                .andExpect(jsonPath("$.action").value("EXTEND_BUDGET"))
-                .andExpect(jsonPath("$.observationOperationId")
-                        .value("observation-2"));
-
-        verify(recovery).recoverCi("task-1", "episode-1", command);
     }
 
     @Test

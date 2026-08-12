@@ -241,13 +241,6 @@ public class TaskService
         return projectV2Task(taskId);
     }
 
-    public Task retryFailedCi(String threadId, String taskId)
-    {
-        requireV2Task(threadId, taskId);
-        requireV2Controls().retryFailedCi(taskId);
-        return projectV2Task(taskId);
-    }
-
     private V2TaskControlService requireV2Controls()
     {
         if (v2Controls == null) {

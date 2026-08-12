@@ -74,20 +74,6 @@ class TestTaskResumeControllers
         verify(taskService).resumeTask("thread-1", "task-1");
     }
 
-    @Test
-    void retryCiUsesTheExplicitTaskAction()
-            throws Exception
-    {
-        when(taskService.retryFailedCi("thread-1", "task-1"))
-                .thenReturn(task("task-1", "thread-1"));
-
-        mvc.perform(post("/api/threads/thread-1/tasks/task-1/retry-ci"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("task-1"));
-
-        verify(taskService).retryFailedCi("thread-1", "task-1");
-    }
-
     private static Task task(String id, String threadId)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");

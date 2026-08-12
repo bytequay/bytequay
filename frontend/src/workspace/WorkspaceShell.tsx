@@ -28,7 +28,6 @@ import WorkspaceTodayPage from './WorkspaceTodayPage';
 import WorkspaceNotificationsPage from './WorkspaceNotificationsPage';
 import WorkspaceMemoryPage from './WorkspaceMemoryPage';
 import WorkspaceSettingsPage, { type WorkspaceSettingsSection } from './WorkspaceSettingsPage';
-import { workspaceApi } from './workspaceApi';
 
 export type WorkspaceSection =
   | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'sessions'
@@ -123,7 +122,6 @@ function WorkspaceShell({
   settingsSection, onSelectSettingsSection, onOpenSync,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const [pendingBacklogStartKey, setPendingBacklogStartKey] = useState<string | null>(null);
 
   const { activeWorkspace, rawThreads } = useWorkspaceNav(workspaceId);
   const loaded = activeWorkspace !== null;
@@ -187,10 +185,6 @@ function WorkspaceShell({
             selectedKey={backlogKey}
             onOpenItem={onOpenBacklog}
             onOpenThread={onOpenThread}
-            onRequestNewTrunk={itemKey => {
-              setPendingBacklogStartKey(itemKey);
-              setNewThreadOpen(true);
-            }}
           />
         )}
         {activeSection === 'memory' && (
@@ -223,15 +217,9 @@ function WorkspaceShell({
           workspaceName={name}
           onClose={() => {
             setNewThreadOpen(false);
-            setPendingBacklogStartKey(null);
           }}
-          onCreated={async (threadId) => {
+          onCreated={(threadId) => {
             setNewThreadOpen(false);
-            if (pendingBacklogStartKey !== null) {
-              await workspaceApi.startBacklogItem(
-                workspaceId, pendingBacklogStartKey, threadId);
-              setPendingBacklogStartKey(null);
-            }
             onOpenThread?.(threadId);
           }}
         />

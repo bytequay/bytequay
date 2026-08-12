@@ -23,17 +23,14 @@ import java.util.Set;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.REJECTED;
 import static java.util.Objects.requireNonNull;
 
-/** Route-specific dispatcher boundary for CI and branch repair typed Turns. */
+/** Route-specific dispatcher boundary for branch repair typed Turns. */
 public final class RemoteRepairTurnResultDeliveryPort
         implements ExecutionPorts.ResultDeliveryPort
 {
     private static final Set<String> ROUTES = ImmutableSet.of(
-            RemoteRepairTurnRuntime.CI_STAGE_CALLBACK,
-            RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK,
             RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
             RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
-            RemoteRepairTurnRuntime.STEERING_CALLBACK,
-            RemoteRepairTurnRuntime.NORMALIZATION_CALLBACK);
+            RemoteRepairTurnRuntime.STEERING_CALLBACK);
 
     private final AgentTurnOwnerResultCodec codec;
     private final RemoteRepairTurnRuntime runtime;

@@ -18,7 +18,7 @@ const REFRESH_MS = 5_000;
 
 /**
  * The workspace's sync runs, newest first. Both entry points — Today and the CI
- * Harness surface — read them from here so a live run's progress ticks in one
+ * Sync surface — read them from here so a live run's progress ticks in one
  * place rather than two competing polls.
  *
  * @return null until the first answer arrives, so a caller can tell "none" from

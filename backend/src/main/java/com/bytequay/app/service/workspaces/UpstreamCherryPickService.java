@@ -20,8 +20,6 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.harness.HarnessRetrospectiveWriter;
-import com.bytequay.app.service.harness.HarnessService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -71,9 +69,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Conflicts are expected, not exceptional: a range off an upstream a fork has
  * drifted from produces them by the dozen. A conflicted pick is therefore staged,
- * committed and carried into the pull request rather than blocked on locally, and
- * the CI harness watching that pull request is what judges and repairs it. The
- * job only pauses when git itself cannot finish the pick.
+ * committed and carried into the pull request rather than blocked on locally.
+ * The job pauses only when git itself cannot finish the pick.
  */
 @Service
 public class UpstreamCherryPickService
@@ -90,8 +87,6 @@ public class UpstreamCherryPickService
     private final PatResolver pats;
     private final PullRequestRepository pullRequests;
     private final PRSyncService prSync;
-    private final ObjectProvider<HarnessService> harnessHandoff;
-    private final ObjectProvider<HarnessRetrospectiveWriter> retrospective;
     private final SyncRunStream stream;
     private final ObjectProvider<ConflictRepairAgent> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
@@ -104,8 +99,6 @@ public class UpstreamCherryPickService
             PatResolver pats,
             PullRequestRepository pullRequests,
             PRSyncService prSync,
-            ObjectProvider<HarnessService> harnessHandoff,
-            ObjectProvider<HarnessRetrospectiveWriter> retrospective,
             ObjectProvider<ConflictRepairAgent> repairAdvisor,
             SyncRunStream stream)
     {
@@ -116,8 +109,6 @@ public class UpstreamCherryPickService
         this.pats = requireNonNull(pats, "pats is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
-        this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
-        this.retrospective = requireNonNull(retrospective, "retrospective is null");
         this.stream = requireNonNull(stream, "stream is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
     }
@@ -202,10 +193,10 @@ public class UpstreamCherryPickService
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "targetBranch is not a valid git branch name");
         }
-        if (request.createHarnessWatch() && !request.openDraftPr()) {
+        if (request.createHarnessWatch()) {
             throw new ResponseStatusException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "a harness watch requires a draft pull request");
+                    HttpStatus.GONE,
+                    "CI harness watches are retired");
         }
         long budget = request.budgetMilliUsd() == null
                 ? 5_000L
@@ -287,11 +278,11 @@ public class UpstreamCherryPickService
                     result_branch, commit_specs_json,
                     applied_shas_json, skipped_shas_json,
                     next_commit_index, conflict_paths_json, worktree_path,
-                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    create_harness_watch, open_draft_pr, budget_milli_usd,
                     pr_description, skip_filters_json, compile_script,
                     created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?,
-                    '[]', ?, 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    '[]', ?, 0, '[]', ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 workspaceId,
@@ -305,7 +296,6 @@ public class UpstreamCherryPickService
                 json(preSkipped),
                 worktree.toString(),
                 request.openDraftPr() ? 1 : 0,
-                request.createHarnessWatch() ? 1 : 0,
                 budget,
                 normalizedDescription(request.prDescription()),
                 json(filters),
@@ -416,8 +406,8 @@ public class UpstreamCherryPickService
     }
 
     /**
-     * Ends the run for good: the picker stops at the next commit boundary, the
-     * harness watch it created is stopped, and its isolated worktree is removed.
+     * Ends the run for good: the picker stops at the next commit boundary and
+     * its isolated worktree is removed.
      * Nothing that was committed is touched — the result branch and this run's
      * log both survive, so a closed run stays readable.
      *
@@ -461,7 +451,7 @@ public class UpstreamCherryPickService
     /**
      * A run closes for exactly two reasons: the user closed it, or the pull
      * request it produced was merged or closed on the remote. Either way the
-     * picker stops, the watch stops, and the worktree goes.
+     * picker stops and the worktree goes.
      */
     private void closeRun(JobRow row, String reason)
     {
@@ -480,11 +470,8 @@ public class UpstreamCherryPickService
                 WHERE id = ? AND closed_at_ms IS NULL
                 """, now(), now(), row.id());
         record(row.id(), null, "closed",
-                "Run closed " + reason + (row.harnessWatchId() == null
-                        ? " — worktree removed"
-                        : " — watch stopped and worktree removed"),
+                "Run closed " + reason + " — worktree removed",
                 "the result branch and this log are kept", null, null);
-        stopWatch(row);
         if (!activeJobs.contains(row.id())) {
             removeWorktree(requireRow(row.id()));
         }
@@ -589,14 +576,6 @@ public class UpstreamCherryPickService
                         .filter(status -> PR.STATUS_MERGED.equals(status)
                                 || PR.STATUS_CLOSED.equals(status))
                         .ifPresent(status -> {
-                            // A merge is the run's last chance to remember anything:
-                            // the worktree still holds the merged history, the session
-                            // still remembers what it tried, and whatever a reviewer
-                            // corrected before merging is visible nowhere else. So the
-                            // retrospective runs before teardown, never after.
-                            if (PR.STATUS_MERGED.equals(status)) {
-                                writeRetrospective(requireRow(row.id()));
-                            }
                             closeRun(
                                     requireRow(row.id()),
                                     "— pull request #" + row.prNumber() + " was "
@@ -608,61 +587,6 @@ public class UpstreamCherryPickService
                 log.warn("checking pull request state for sync run {} failed: {}",
                         row.id(), e.getMessage());
             }
-        }
-    }
-
-    /**
-     * The run's last act: what this range taught the fork, written by the session
-     * that lived through it. Distinct from the per-failure memories phase 2 writes
-     * — this one is about the range as a whole, and it is the only moment anything
-     * a reviewer changed before merging is still there to read.
-     *
-     * <p>Best-effort by design. A retrospective that fails loses a memory; it must
-     * never leave a worktree behind, so nothing here can stop the teardown.
-     */
-    private void writeRetrospective(JobRow row)
-    {
-        HarnessRetrospectiveWriter writer = retrospective.getIfAvailable();
-        String session = agentSessionId(row.id());
-        if (writer == null || row.worktreePath() == null || session == null) {
-            // No session means no picks were repaired and nothing was chased —
-            // there is no run to look back over.
-            return;
-        }
-        Path worktree = Path.of(row.worktreePath());
-        if (!Files.isDirectory(worktree)) {
-            return;
-        }
-        try {
-            writer.write(
-                    worktree, row.workspaceId(), row.prNumber(),
-                    Math.max(0, row.budgetMilliUsd() - spentMilliUsd(row.id())),
-                    session);
-            record(row.id(), null, "note",
-                    "Wrote what this range taught the repository", null, null, null);
-        }
-        catch (RuntimeException e) {
-            log.warn("retrospective for sync run {} failed: {}", row.id(), e.getMessage());
-        }
-    }
-
-    private void stopWatch(JobRow row)
-    {
-        if (row.harnessWatchId() == null) {
-            return;
-        }
-        HarnessService handoff = harnessHandoff.getIfAvailable();
-        if (handoff == null) {
-            return;
-        }
-        try {
-            handoff.stopWatch(row.workspaceId(), row.harnessWatchId());
-        }
-        catch (RuntimeException e) {
-            // The run is closed either way; a watch that cannot be stopped is
-            // worth a log line, not a failed close the user cannot retry.
-            log.warn("stopping harness watch {} failed: {}",
-                    row.harnessWatchId(), e.getMessage());
         }
     }
 
@@ -1112,6 +1036,10 @@ public class UpstreamCherryPickService
         if (!LIVE_STATUSES.contains(row.status()) || row.closedAt() != null) {
             return;
         }
+        if (row.createHarnessWatch()) {
+            fail(id, "CI harness watches are retired; this historical run cannot resume");
+            return;
+        }
         running(id);
         try {
             WorkspaceRelationService.ResolvedRelation relation =
@@ -1265,34 +1193,6 @@ public class UpstreamCherryPickService
                 record(id, null, "pr",
                         "Opened draft pull request #" + pr.number(), pr.htmlUrl(), null, null);
                 row = requireRow(id);
-            }
-            if (row.createHarnessWatch() && row.harnessWatchId() == null) {
-                HarnessService handoff = harnessHandoff.getIfAvailable();
-                if (handoff == null) {
-                    throw new IllegalStateException(
-                            "CI harness watch service is unavailable");
-                }
-                if (row.prNumber() == null) {
-                    throw new IllegalStateException(
-                            "cannot create a harness watch without a pull request");
-                }
-                String watchId = handoff.create(
-                        row.workspaceId(),
-                        relation.target().fullName(),
-                        row.prNumber(),
-                        requireLocalPrId(row, relation),
-                        row.resultBranch(),
-                        row.worktreePath(),
-                        row.budgetMilliUsd(),
-                        agentSessionId(id));
-                jdbc.update("""
-                        UPDATE upstream_cherry_pick_job
-                        SET harness_watch_id = ?, updated_at_ms = ?
-                        WHERE id = ?
-                        """, watchId, now(), id);
-                record(id, null, "watch",
-                        "CI Harness watch created — phase 2 drives the pull request green",
-                        null, null, null);
             }
             record(id, null, "done",
                     "Range complete — " + row.appliedShas().size() + " picked, "

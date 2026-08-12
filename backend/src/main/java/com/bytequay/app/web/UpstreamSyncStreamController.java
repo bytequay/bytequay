@@ -52,18 +52,6 @@ public class UpstreamSyncStreamController
         return open(jobId);
     }
 
-    /**
-     * Phase 2's turns, which run under the watch rather than the job. Same
-     * stream, different key: the run's cockpit opens both so a round reads live
-     * the way the picks do.
-     */
-    @GetMapping(value = "/api/ci-harness/watches/{watchId}/stream",
-            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter watchStream(@PathVariable String watchId)
-    {
-        return open(watchId);
-    }
-
     private SseEmitter open(String key)
     {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);

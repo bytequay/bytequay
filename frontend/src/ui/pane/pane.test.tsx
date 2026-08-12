@@ -33,4 +33,10 @@ describe('BacklogTabContent', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start development/ }));
     expect(onStart).toHaveBeenCalledWith('b1');
   });
+
+  it('does not render a start action without a callback', () => {
+    render(<BacklogTabContent items={[{ id: 'b1', title: 'Idea' }]} />);
+
+    expect(screen.queryByRole('button', { name: /Start development/ })).toBeNull();
+  });
 });

@@ -220,7 +220,7 @@ public final class SqliteStageSteeringStore
                   AND ticket.owner_kind = 'STAGE_TURN'
                   AND ticket.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELED')
                   AND turn.status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
-                  AND turn.purpose IN ('REMOTE_CI_REPAIR',
+                  AND turn.purpose IN (
                       'BRANCH_CONFLICT_REPAIR', 'ADDRESS_REMOTE_FEEDBACK')
                   AND task.workflow_version = 'V2'
                   AND task.lifecycle_state = 'ACTIVE' AND task.epoch = ?
@@ -228,12 +228,7 @@ public final class SqliteStageSteeringStore
                   AND current.stage_generation = ?
                   AND owner.kind = 'REMOTE_DEVELOPMENT'
                   AND owner.generation = ? AND owner.completed_at_ms IS NULL
-                  AND ((turn.purpose = 'REMOTE_CI_REPAIR' AND EXISTS (
-                        SELECT 1 FROM ci_repair_operation operation
-                        WHERE operation.stage_turn_id = turn.id
-                          AND operation.operation_id = turn.operation_id
-                          AND operation.status = 'DISPATCHED'))
-                    OR (turn.purpose = 'BRANCH_CONFLICT_REPAIR' AND EXISTS (
+                  AND ((turn.purpose = 'BRANCH_CONFLICT_REPAIR' AND EXISTS (
                         SELECT 1 FROM branch_sync_dispatch_operation operation
                         WHERE operation.stage_turn_id = turn.id
                           AND operation.operation_id = turn.operation_id
@@ -329,7 +324,6 @@ public final class SqliteStageSteeringStore
             String purpose = requireNonNull(request.predecessor(),
                     "Remote steering predecessor is null").purpose();
             String family = switch (purpose) {
-                case "REMOTE_CI_REPAIR" -> "CI_REPAIR";
                 case "BRANCH_CONFLICT_REPAIR" -> "BRANCH_REPAIR";
                 case "ADDRESS_REMOTE_FEEDBACK" -> "REMOTE_FEEDBACK";
                 default -> throw new IllegalArgumentException(

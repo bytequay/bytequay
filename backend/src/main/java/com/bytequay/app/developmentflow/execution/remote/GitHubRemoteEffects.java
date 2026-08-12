@@ -17,17 +17,10 @@ import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisioningGit;
-import com.bytequay.app.developmentflow.stage.BaseCiHistoryRewriter;
 import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
-import com.bytequay.app.domain.PrCheckRunState;
-import com.bytequay.app.domain.PrRawDetail;
-import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,9 +29,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.Disposition.CONFLICT;
@@ -46,45 +37,32 @@ import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandle
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.Disposition.SUCCEEDED;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.FETCH_BRANCH;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.PUSH_BRANCH;
-import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.PUSH_CI_REPAIR;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.REBASE_BRANCH;
-import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.RERUN_CI;
-import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.REWRITE_VALIDATE_BASE_CI_REPAIR;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.VALIDATE_BRANCH;
-import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.VALIDATE_CI_REPAIR;
 import static java.util.Objects.requireNonNull;
 
-/** Exact Git/GitHub effects for the finite V2 CI and branch-sync protocols. */
+/** Exact Git effects for the finite branch-sync protocol. */
 @Component
 public final class GitHubRemoteEffects
         implements RemoteEffectOperationHandler.EffectPort
 {
     private final GitRunner git;
     private final GitRunnerProvisioningGit remotes;
-    private final BaseCiHistoryRewriter baseHistory;
     private final CodeFingerprints fingerprints;
     private final RepoTestValidationCheck check;
-    private final PullRequestRepository pullRequests;
-    private final PatResolver pats;
     private final ObjectMapper json;
 
     public GitHubRemoteEffects(
             GitRunner git,
             GitRunnerProvisioningGit remotes,
-            BaseCiHistoryRewriter baseHistory,
             CodeFingerprints fingerprints,
             RepoTestValidationCheck check,
-            PullRequestRepository pullRequests,
-            PatResolver pats,
             ObjectMapper json)
     {
         this.git = requireNonNull(git, "git is null");
         this.remotes = requireNonNull(remotes, "remotes is null");
-        this.baseHistory = requireNonNull(baseHistory, "baseHistory is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
         this.check = requireNonNull(check, "check is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pats = requireNonNull(pats, "pats is null");
         this.json = requireNonNull(json, "json is null");
     }
 
@@ -100,72 +78,14 @@ public final class GitHubRemoteEffects
         requireNonNull(mode, "mode is null");
         requireNonNull(execution, "execution is null");
         return switch (request.operationKind()) {
-            case RERUN_CI -> rerun(request, mode, execution, writerFence);
             case FETCH_BRANCH -> fetch(request, execution, writerFence);
             case REBASE_BRANCH -> rebase(request, execution, writerFence);
-            case REWRITE_VALIDATE_BASE_CI_REPAIR ->
-                    rewriteAndValidate(request, mode, execution, writerFence);
-            case VALIDATE_CI_REPAIR, VALIDATE_BRANCH ->
+            case VALIDATE_BRANCH ->
                     validate(request, execution, writerFence);
-            case PUSH_CI_REPAIR -> push(
-                    request, execution, writerFence,
-                    request.prepublishBranchSyncEpisodeId() != null);
-            case PUSH_BRANCH -> push(request, execution, writerFence, true);
+            case PUSH_BRANCH -> push(request, execution, writerFence);
             default -> throw new IllegalArgumentException(
                     "Unsupported Remote effect " + request.operationKind());
         };
-    }
-
-    private RemoteEffectOperationHandler.Result rerun(
-            RemoteEffectOperationHandler.Request request,
-            RemoteEffectOperationHandler.Mode mode,
-            ExecutionContext execution,
-            WorktreeWriterLeaseManager.MutationFence writerFence)
-            throws Exception
-    {
-        requireNoWriter(writerFence);
-        RepoRef repository = RepoRef.parse(request.repositoryId());
-        PullRequestRef pullRequest = PullRequestRef.of(
-                repository.owner(), repository.repo(), request.pullRequestNumber());
-        String pat = pats.resolve(repository.fullName());
-        requireRemoteSubject(request, pat, pullRequest);
-        requireActive(execution);
-        if (mode == RemoteEffectOperationHandler.Mode.PROBE) {
-            List<PrCheckRunState> observed = pullRequests.fetchPrCheckRunsStrict(
-                    pat, repository.owner(), repository.repo(),
-                    request.expectedHeadSha());
-            boolean running = observed.stream().anyMatch(check -> {
-                String status = normalize(check.status());
-                return "QUEUED".equals(status)
-                        || "IN_PROGRESS".equals(status)
-                        || "PENDING".equals(status);
-            });
-            boolean allPassed = !observed.isEmpty() && observed.stream()
-                    .allMatch(check -> "COMPLETED".equals(normalize(check.status()))
-                            && successfulConclusion(check.conclusion()));
-            if (!running && !allPassed) {
-                throw new ExecutionPorts.IndeterminateExecutionException(
-                        "CI rerun is not yet independently observable");
-            }
-            return succeeded(request, null, request.expectedHeadSha(),
-                    request.expectedBaseSha(), write(observed));
-        }
-        try {
-            int rerun = pullRequests.rerunFailedChecks(
-                    pat, repository, request.expectedHeadSha());
-            if (rerun < 1) {
-                return failed(request, null, request.expectedHeadSha(),
-                        request.expectedBaseSha(),
-                        "GitHub found no failed workflow run on the exact head");
-            }
-            return succeeded(request, null, request.expectedHeadSha(),
-                    request.expectedBaseSha(),
-                    "rerun-failed-workflows:" + rerun);
-        }
-        catch (RuntimeException failure) {
-            throw new ExecutionPorts.IndeterminateExecutionException(
-                    "GitHub CI rerun outcome is unknown", failure);
-        }
     }
 
     private RemoteEffectOperationHandler.Result fetch(
@@ -253,11 +173,6 @@ public final class GitHubRemoteEffects
         requireNoWriter(writerFence);
         Path worktree = Path.of(request.worktreePath());
         CodeSubject before = requireSubject(request, worktree);
-        if (!preservesBaseRepairHistory(request, worktree)) {
-            return failed(request, before.fingerprint(), before.headSha(),
-                    request.expectedBaseSha(),
-                    "base repair did not preserve the exact Task commit series");
-        }
         requireActive(execution);
         List<ValidationFailure> failures = check.run(request.taskId(), worktree);
         CodeSubject after = requireSubject(request, worktree);
@@ -275,142 +190,15 @@ public final class GitHubRemoteEffects
                 request.expectedBaseSha(), "validation passed");
     }
 
-    private RemoteEffectOperationHandler.Result rewriteAndValidate(
+    private RemoteEffectOperationHandler.Result push(
             RemoteEffectOperationHandler.Request request,
-            RemoteEffectOperationHandler.Mode mode,
             ExecutionContext execution,
             WorktreeWriterLeaseManager.MutationFence writerFence)
             throws Exception
     {
         Path worktree = requireWriter(request, writerFence);
-        requireCleanBranch(request, worktree);
-        requireActive(execution);
-        String currentHead = git.headSha(worktree);
-        if (mode == RemoteEffectOperationHandler.Mode.PROBE
-                && currentHead.equals(request.expectedHeadSha())) {
-            CodeSubject unchanged = requireSubject(request, worktree);
-            RemoteEffectOperationHandler.BaseRewriteEvidence evidence =
-                    new RemoteEffectOperationHandler.BaseRewriteEvidence(
-                            "CI_BASE_REWRITE_V1",
-                            request.baseRepairAuthorizationId(),
-                            request.baseRepairManifestDigest(), null,
-                            List.of(new ValidationFailure(
-                                    "base-repair-reconcile",
-                                    "History rewrite was not observed")));
-            return result(request, FAILED, unchanged.fingerprint(),
-                    unchanged.headSha(), request.expectedBaseSha(),
-                    write(evidence), "base history rewrite was not applied");
-        }
-        if (mode == RemoteEffectOperationHandler.Mode.EXECUTE) {
-            requireSubject(request, worktree);
-        }
-        try {
-            List<String> originals = git.commitShasInRange(
-                    worktree, request.expectedBaseSha(),
-                    request.baseRepairOriginalHeadSha());
-            BaseCiHistoryRewriter.Request rewriteRequest =
-                    new BaseCiHistoryRewriter.Request(
-                            worktree, request.headRef(),
-                            request.expectedBaseSha(),
-                            request.baseRepairOriginalHeadSha(), originals,
-                            request.expectedHeadSha());
-            BaseCiHistoryRewriter.Result rewritten =
-                    mode == RemoteEffectOperationHandler.Mode.PROBE
-                            ? baseHistory.recover(rewriteRequest)
-                            : baseHistory.rewrite(rewriteRequest);
-            CodeSubject beforeValidation = new CodeSubject(
-                    fingerprints.fingerprint(worktree), rewritten.headSha());
-            requireCleanBranch(request, worktree);
-            requireActive(execution);
-            List<ValidationFailure> failures =
-                    new ArrayList<>(check.run(request.taskId(), worktree));
-            CodeSubject afterValidation = new CodeSubject(
-                    fingerprints.fingerprint(worktree), git.headSha(worktree));
-            if (!beforeValidation.equals(afterValidation)
-                    || git.hasUncommittedChanges(worktree)) {
-                git.resetHard(worktree, rewritten.headSha());
-                afterValidation = new CodeSubject(
-                        fingerprints.fingerprint(worktree), rewritten.headSha());
-                failures.add(new ValidationFailure(
-                        "base-repair-subject",
-                        "Validation changed the code subject"));
-            }
-            RemoteEffectOperationHandler.BaseRewriteEvidence evidence =
-                    new RemoteEffectOperationHandler.BaseRewriteEvidence(
-                            "CI_BASE_REWRITE_V1",
-                            request.baseRepairAuthorizationId(),
-                            request.baseRepairManifestDigest(), rewritten.proof(),
-                            List.copyOf(failures));
-            if (!failures.isEmpty()) {
-                RemoteEffectOperationHandler.Result failed = result(
-                        request, FAILED, afterValidation.fingerprint(),
-                        afterValidation.headSha(), request.expectedBaseSha(),
-                        write(evidence), failures.size()
-                                + " validation failure(s)");
-                restoreStageTurnSubject(request, worktree);
-                return failed;
-            }
-            return succeeded(request, afterValidation.fingerprint(),
-                    afterValidation.headSha(), request.expectedBaseSha(),
-                    write(evidence));
-        }
-        catch (Exception failure) {
-            restoreStageTurnSubject(request, worktree, failure);
-            throw failure;
-        }
-    }
-
-    private void restoreStageTurnSubject(
-            RemoteEffectOperationHandler.Request request, Path worktree)
-            throws IOException, InterruptedException
-    {
-        git.resetHard(worktree, request.expectedHeadSha());
-        requireSubject(request, worktree);
-    }
-
-    private void restoreStageTurnSubject(
-            RemoteEffectOperationHandler.Request request,
-            Path worktree,
-            Exception failure)
-    {
-        boolean interrupted = failure instanceof InterruptedException
-                || Thread.currentThread().isInterrupted();
-        if (interrupted) {
-            Thread.interrupted();
-        }
-        boolean restoreInterrupted = false;
-        try {
-            restoreStageTurnSubject(request, worktree);
-        }
-        catch (InterruptedException restore) {
-            restoreInterrupted = true;
-            failure.addSuppressed(restore);
-        }
-        catch (IOException | RuntimeException restore) {
-            failure.addSuppressed(restore);
-        }
-        finally {
-            if (interrupted || restoreInterrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
-    private RemoteEffectOperationHandler.Result push(
-            RemoteEffectOperationHandler.Request request,
-            ExecutionContext execution,
-            WorktreeWriterLeaseManager.MutationFence writerFence,
-            boolean forceWithLease)
-            throws Exception
-    {
-        Path worktree = requireWriter(request, writerFence);
         CodeSubject subject = requireSubject(request, worktree);
         requireCleanBranch(request, worktree);
-        if (!preservesBaseRepairHistory(request, worktree)) {
-            return failed(request, subject.fingerprint(), subject.headSha(),
-                    request.expectedBaseSha(),
-                    "base repair history changed after validation");
-        }
         requireActive(execution);
         git.fetchRemote(worktree, "origin");
         Optional<String> observed = git.remoteHeadSha(
@@ -427,21 +215,10 @@ public final class GitHubRemoteEffects
                     "remote head moved outside the exact push authorization");
         }
         try {
-            if (request.baseRepairAuthorizationId() != null) {
-                GitRunner.GitResult pushed = git.pushRewrittenBranch(
-                        worktree, request.headRef(),
-                        request.forceWithLeaseExpectedSha());
-                pushed.requireSuccess();
-            }
-            else if (forceWithLease) {
-                GitRunner.GitResult pushed = git.pushRewrittenBranch(
-                        worktree, request.headRef(),
-                        request.forceWithLeaseExpectedSha());
-                pushed.requireSuccess();
-            }
-            else {
-                git.push(worktree);
-            }
+            GitRunner.GitResult pushed = git.pushRewrittenBranch(
+                    worktree, request.headRef(),
+                    request.forceWithLeaseExpectedSha());
+            pushed.requireSuccess();
         }
         catch (IOException | RuntimeException failure) {
             return recoverPush(request, subject, worktree, failure);
@@ -457,19 +234,7 @@ public final class GitHubRemoteEffects
                     "push returned but the exact remote head is not observable");
         }
         return succeeded(request, subject.fingerprint(), subject.headSha(),
-                request.expectedBaseSha(), forceWithLease
-                        ? "force-with-lease push proven" : "CI repair push proven");
-    }
-
-    private boolean preservesBaseRepairHistory(
-            RemoteEffectOperationHandler.Request request, Path worktree)
-            throws IOException, InterruptedException
-    {
-        return request.baseRepairOriginalHeadSha() == null
-                || git.preservesBaseRepairHistory(
-                        worktree, request.expectedBaseSha(),
-                        request.baseRepairOriginalHeadSha(),
-                        request.expectedHeadSha());
+                request.expectedBaseSha(), "force-with-lease push proven");
     }
 
     private RemoteEffectOperationHandler.Result recoverPush(
@@ -493,21 +258,6 @@ public final class GitHubRemoteEffects
         }
         throw new ExecutionPorts.IndeterminateExecutionException(
                 "push outcome is not independently proven", failure);
-    }
-
-    private void requireRemoteSubject(
-            RemoteEffectOperationHandler.Request request,
-            String pat,
-            PullRequestRef pullRequest)
-    {
-        PrRawDetail detail = requireNonNull(
-                pullRequests.fetchPrDetail(pat, pullRequest),
-                "GitHub returned no pull request detail");
-        if (!request.expectedHeadSha().equals(detail.headSha())
-                || !request.expectedBaseSha().equals(detail.baseSha())) {
-            throw new IllegalStateException(
-                    "remote PR moved outside the exact effect subject");
-        }
     }
 
     private CodeSubject requireSubject(
@@ -622,19 +372,6 @@ public final class GitHubRemoteEffects
         catch (JsonProcessingException e) {
             throw new IllegalStateException("Serializing Remote evidence failed", e);
         }
-    }
-
-    private static boolean successfulConclusion(String conclusion)
-    {
-        return switch (normalize(conclusion)) {
-            case "SUCCESS", "NEUTRAL", "SKIPPED" -> true;
-            default -> false;
-        };
-    }
-
-    private static String normalize(String value)
-    {
-        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private static String requireText(String value, String name)

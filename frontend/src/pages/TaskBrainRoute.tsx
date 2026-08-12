@@ -92,9 +92,9 @@ export function TaskBrainRoute({
   const { task, brainFeed, stages, subStages } = data;
   const developmentBrainRecovery = data.recovery?.kind === 'RETRY_DEVELOPMENT_BRAIN_REVIEW'
     ? data.recovery : null;
-  const remoteRepairBrainRecovery = data.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
+  const branchSyncBrainRecovery = data.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
     ? data.recovery : null;
-  const brainRecovery = developmentBrainRecovery ?? remoteRepairBrainRecovery;
+  const brainRecovery = developmentBrainRecovery ?? branchSyncBrainRecovery;
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
@@ -394,10 +394,6 @@ export function TaskBrainRoute({
       .catch((reason: unknown) => setActionError(
         reason instanceof Error ? reason.message : 'Could not update the task'));
   };
-  const retryingExhaustedCi = task.paused
-    && task.currentPhase === 'NEEDS_ATTENTION'
-    && ['ci fix attempts exhausted', 'ci fix no changes'].some(
-      reason => task.statusLabel.toLowerCase().startsWith(reason));
   const planRecovery = data.recovery?.kind === 'RETRY_PLAN_DRAFT'
     ? data.recovery : null;
   const planRecoveryCommandId = useMemo(
@@ -423,15 +419,15 @@ export function TaskBrainRoute({
   const retryBrainReview = brainRecovery === null ? undefined : () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     setActionError(null);
-    const recovery = remoteRepairBrainRecovery === null
+    const recover = branchSyncBrainRecovery === null
       ? bridge?.recoverV2DevelopmentBrainReview
-      : bridge?.recoverV2RemoteRepairBrainReview;
-    recovery?.(task.id, brainRecovery.failedTurnId, {
+      : bridge?.recoverV2BranchSyncBrainReview;
+    recover?.(task.id, brainRecovery.failedTurnId, {
       blockerId: brainRecovery.blockerId,
       commandId: brainRecoveryCommandId,
-      reason: remoteRepairBrainRecovery === null
+      reason: branchSyncBrainRecovery === null
         ? 'Explicit Retry Development Brain review action from the Task run control'
-        : 'Explicit Retry Remote repair Brain review action from the Task run control',
+        : 'Explicit Retry Branch sync Brain review action from the Task run control',
     })
       .then(() => pollFast())
       .catch((reason: unknown) => setActionError(
@@ -896,25 +892,18 @@ export function TaskBrainRoute({
         paused: task.paused,
         terminal: task.terminal,
         onPause: task.paused ? undefined : runAction(bridge?.pauseTask),
-        onResume: retryingExhaustedCi
-          ? runAction(bridge?.retryFailedCi)
-          : retryBrainReview
+        onResume: retryBrainReview
             ?? retryPlanDraft
             ?? (canResumeTask ? runAction(bridge?.resumePausedTask) : undefined),
-        resumeLabel: retryingExhaustedCi ? 'Retry CI'
-          : brainRecovery !== null ? 'Retry Brain review'
+        resumeLabel: brainRecovery !== null ? 'Retry Brain review'
             : planRecovery !== null ? 'Retry Plan' : undefined,
-        resumeConfirmation: retryingExhaustedCi ? {
-          title: 'Retry failed CI?',
-          body: `This asks GitHub Actions to rerun the failed checks for PR #${task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
-          confirmLabel: 'Retry CI',
-        } : brainRecovery !== null ? {
-          title: remoteRepairBrainRecovery === null
+        resumeConfirmation: brainRecovery !== null ? {
+          title: branchSyncBrainRecovery === null
             ? 'Retry Development Brain review?'
-            : 'Retry Remote repair Brain review?',
-          body: remoteRepairBrainRecovery === null
+            : 'Retry Branch sync Brain review?',
+          body: branchSyncBrainRecovery === null
             ? 'This supersedes the malformed Brain result and starts one fresh review from the exact durable development context. The failed provider session will not be resumed.'
-            : 'This consumes the failed Remote Brain result and starts one fresh review from the exact durable CI or branch-repair context. It does not consume CI-fix budget, and the failed provider session will not be resumed.',
+            : 'This supersedes the malformed Brain result and starts one fresh review from the exact durable branch-sync context. The failed provider session will not be resumed.',
           confirmLabel: 'Retry Brain review',
         } : undefined,
         onClose: closeTask,

@@ -15,8 +15,8 @@ package com.bytequay.app.service.tools;
 
 /**
  * Agent role the caller plays in the conversation. Used by the
- * registry to filter {@code tools/list}: a trunk agent shouldn't see
- * code-editing tools, a task agent shouldn't see create_task, etc.
+ * registry to filter {@code tools/list}: a trunk agent should not see
+ * code-editing tools, while a task agent should not see trunk tools.
  *
  * <p>{@link #ANY} on a tool's {@code roles} array means "available to
  * every role" — useful for the discovery tools and the approval gate.

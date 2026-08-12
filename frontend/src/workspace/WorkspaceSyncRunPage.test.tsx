@@ -27,10 +27,9 @@ const flush = () => act(async () => { await Promise.resolve(); });
 
 type Props = ComponentProps<typeof WorkspaceSyncRunPage>;
 
-function mount(run = syncRun(), harness?: unknown, rightPane?: ReactNode, extra?: Partial<Props>) {
+function mount(run = syncRun(), rightPane?: ReactNode, extra?: Partial<Props>) {
   const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
     if (input.path.includes('/run?events=')) return run;
-    if (input.path.includes('/ci-harness/watches/')) return harness;
     return run.job;
   });
   (window as unknown as { bridge: unknown }).bridge = {
@@ -38,7 +37,6 @@ function mount(run = syncRun(), harness?: unknown, rightPane?: ReactNode, extra?
     // The live agent panel subscribes while the run is going; the stub returns
     // its unsubscribe so the effect cleans up like the real bridge.
     subscribeSyncRunStream: () => () => {},
-    subscribeHarnessStream: () => () => {},
   };
   render(<WorkspaceSyncRunPage workspaceId="fork" jobId="job-1" rightPane={rightPane}
     {...extra} />);
@@ -135,7 +133,7 @@ describe('sync run view', () => {
     await flush();
 
     expect(screen.queryByRole('button', { name: /Pause after this pick/ })).toBeNull();
-    expect(document.querySelector('.sr-phase')?.textContent).toBe('PHASE 1 · PARKED');
+    expect(document.querySelector('.sr-phase')?.textContent).toBe('PARKED');
 
     fireEvent.click(screen.getByRole('button', { name: /Skip this commit/ }));
     await flush();
@@ -155,7 +153,6 @@ describe('sync run view', () => {
     // Everything a close now releases, named before the click asks for it.
     expect(dialog.textContent).toContain('isolated worktree');
     expect(dialog.textContent).toContain('session and stored transcripts');
-    expect(dialog.textContent).toContain('cached CI logs');
     // This fixture never pushed, so its branch is the only copy and is kept.
     expect(dialog.textContent).toContain('upstream-2-31');
     expect(dialog.textContent).toContain('Nothing was pushed');
@@ -195,45 +192,23 @@ describe('sync run view', () => {
     expect(document.querySelector('.sr-now__label')?.textContent).toBe('CLOSED');
   });
 
-  it('says what phase 2 is doing once the picks have landed', async () => {
-    const watching = syncRun();
-    watching.job = {
-      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
+  it('treats a historical watch id as inert after a pick-only run completes', async () => {
+    const completed = syncRun();
+    completed.job = {
+      ...completed.job,
+      status: 'COMPLETED',
+      harnessWatchId: 'historical-watch',
+      prNumber: 2,
     };
-    mount(watching, {
-      watchId: 'watch-1', status: 'watching', activeCycle: null,
-      cycles: [{ ordinal: 1, startedAtMs: Date.now() - 60_000, finishedAtMs: null }],
-      runStatusTail: 'core / test — in progress',
-      handoff: null, runStatusTailAt: null,
-    });
+    const request = mount(completed);
     await flush();
 
-    // A completed range is not a finished run — the harness is still driving it.
-    const phase2 = document.querySelector('.sr-queue__phase2');
-    expect(phase2?.querySelector('strong')?.textContent).toBe('Waiting for CI to finish');
-    expect(phase2?.className).toContain('is-wait');
-    expect(phase2?.textContent).toContain('core / test — in progress');
+    expect(document.querySelector('.sr-phase')?.textContent).toBe('COMPLETE');
     expect(document.querySelector('.sr-now__copy')?.textContent)
-      .toBe('Phase 2 — waiting for ci to finish');
-  });
-
-  it('can stop waiting for the board and fix what has already failed', async () => {
-    const watching = syncRun();
-    watching.job = {
-      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
-    };
-    const request = mount(watching, {
-      watchId: 'watch-1', status: 'watching', activeCycle: null, cycles: [],
-      runStatusTail: 'pt (default, suite-iceberg): in progress', handoff: null,
-    });
-    await flush();
-
-    fireEvent.click(screen.getByRole('button', { name: /Fix what has failed so far/ }));
-    await flush();
-
-    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
-    expect(call?.[0].method).toBe('POST');
-    expect(call?.[0].body).toEqual({ fixNow: true });
+      .toContain('draft PR #2 parked for your review');
+    const removedSegment = ['ci', 'harness'].join('-');
+    expect(request.mock.calls.every(([input]) => !input.path.includes(removedSegment)))
+      .toBe(true);
   });
 
   it('folds one pick’s conversation away without touching the others', async () => {
@@ -259,8 +234,7 @@ describe('sync run view', () => {
       ...pushed.job, prNumber: 3, harnessWatchId: 'watch-1',
       prUrl: 'https://github.com/fork/repo/pull/3',
     };
-    mount(pushed, { watchId: 'watch-1', status: 'watching', activeCycle: null, cycles: [],
-      runStatusTail: null, handoff: null }, <p>pull request #3</p>);
+    mount(pushed, <p>pull request #3</p>);
     await flush();
 
     // The pane is the pull request; the rail button hides and shows it, and
@@ -275,7 +249,7 @@ describe('sync run view', () => {
   it('lists the workspace\u2019s runs at the top of the run\u2019s own column', async () => {
     const other = { ...syncRun().job, jobId: 'job-2', resultBranch: 'upstream-2-32' };
     const onOpenSync = vi.fn();
-    mount(syncRun(), undefined, undefined, {
+    mount(syncRun(), undefined, {
       syncs: [syncRun().job, other], onOpenSync,
     });
     await flush();
@@ -294,74 +268,6 @@ describe('sync run view', () => {
     expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: /Syncs/ }));
     expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(2);
-  });
-
-  it('says why a stopped harness stopped, and offers to restart it', async () => {
-    const stalled = syncRun();
-    stalled.job = {
-      ...stalled.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
-    };
-    const request = mount(stalled, {
-      watchId: 'watch-1', status: 'needs_attention', activeCycle: null, cycles: [],
-      runStatusTail: 'build-success: failure',
-      // `reason` is the machine code; the sentence is in `detail`.
-      handoff: { reason: 'needs_attention', failureId: null, command: null,
-        detail: 'No actionable log was available for the failed checks' },
-    });
-    await flush();
-
-    const phase2 = document.querySelector('.sr-queue__phase2');
-    expect(phase2?.querySelector('strong')?.textContent)
-      .toBe('Stopped — nothing runs until you restart it');
-    expect(phase2?.textContent).toContain('No actionable log was available');
-    expect(phase2?.textContent).not.toContain('needs_attention');
-
-    // Nothing polls a stopped watch, so the restart has to be reachable here.
-    fireEvent.click(screen.getByRole('button', { name: /Try again on what is failing/ }));
-    await flush();
-    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
-    expect(call?.[0].body).toEqual({ fixNow: true });
-  });
-
-  it('reads a harness round back in the log and steers it from the composer', async () => {
-    const watching = syncRun();
-    watching.job = {
-      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
-    };
-    const turn = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: 'Bumped the plugin to match upstream.' }] },
-    });
-    const request = mount(watching, {
-      watchId: 'watch-1', status: 'running', activeCycle: { phase: 'fix' }, cycles: [],
-      runStatusTail: null, handoff: null,
-      milestones: [
-        { id: 1, cycleId: 'c1', phase: 'fix', kind: 'phase_started',
-          message: 'Handing 6 failure(s) to the agent', detailJson: null,
-          createdAtMs: Date.parse('2026-08-06T17:20:00Z') },
-        { id: 2, cycleId: 'c1', phase: 'fix', kind: 'agent_log',
-          message: turn, detailJson: null,
-          createdAtMs: Date.parse('2026-08-06T17:22:00Z') },
-      ],
-    });
-    await flush();
-
-    // The round is in the same log as the picks, transcript and all — it used
-    // to be a black box between "handing over" and a one-line verdict.
-    expect(screen.getByText('Handing 6 failure(s) to the agent')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Agent transcript/ }));
-    expect(screen.getByText('Bumped the plugin to match upstream.')).toBeTruthy();
-
-    // Steering reaches phase 2's agent rather than the picks' guidance field.
-    fireEvent.change(screen.getByLabelText('Steer the run'), {
-      target: { value: 'skip the flaky iceberg suite' },
-    });
-    fireEvent.click(screen.getByLabelText('Send guidance'));
-    await flush();
-
-    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
-    expect(call?.[0].body).toEqual({ fixNow: true, steeringText: 'skip the flaky iceberg suite' });
-    expect(request.mock.calls.some(([input]) => input.path.endsWith('/guidance'))).toBe(false);
   });
 
   it('records steering guidance on the run', async () => {

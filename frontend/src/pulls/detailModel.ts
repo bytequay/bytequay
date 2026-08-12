@@ -123,7 +123,7 @@ export type TimelineItem =
   | { kind: 'ci'; id: string; at: number; time: string; status: string;
       previousStatus: string | null; headSha: string | null; checkCount: number | null;
       name: string | null; trigger: string | null }
-  | { kind: 'ci-harness'; id: string; at: number; time: string; message: string;
+  | { kind: 'legacy-ci-autofix'; id: string; at: number; time: string; message: string;
       phase: string | null; status: string | null; sha: string | null }
   | { kind: 'milestone'; id: string; at: number; time: string; label: string;
       tone: 'neutral' | 'attention' | 'success'; sha: string | null }
@@ -204,7 +204,7 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
  * Maps the local timeline + comments to the template's card shapes: commit
  * rows, review lifecycle rows, review cards, local conversation threads,
  * remote PR-level comment cards, aggregate CI transitions, sparse local CI
- * Harness and V2 lifecycle milestones, and a synthetic merged row. Event types with no template
+ * Legacy autofix and V2 lifecycle milestones, and a synthetic merged row. Event types with no template
  * counterpart (amend/branch/follow-up/plan-finalized, plus `comment`
  * events which render from `comments`) are omitted.
  */
@@ -306,8 +306,8 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     }
     if (event.eventType === 'ci' && event.actor === 'ci-harness') {
       items.push({
-        kind: 'ci-harness', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
-        message: str(event.payload, 'message') ?? 'CI Harness updated the local branch',
+        kind: 'legacy-ci-autofix', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+        message: str(event.payload, 'message') ?? 'Legacy CI autofix updated the local branch',
         phase: str(event.payload, 'phase'), status: str(event.payload, 'status'),
         sha: str(event.payload, 'sha')?.slice(0, 7) ?? null,
       });

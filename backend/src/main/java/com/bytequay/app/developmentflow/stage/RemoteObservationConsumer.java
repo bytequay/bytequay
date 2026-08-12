@@ -30,6 +30,12 @@ public interface RemoteObservationConsumer
         SUPERSEDED
     }
 
+    enum ObservationDisposition
+    {
+        CONTINUE,
+        DEFER_UNTIL_BRANCH_FRESH
+    }
+
     @FunctionalInterface
     interface SubjectAcceptance
     {

@@ -14,17 +14,15 @@
 package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
+import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchControlReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchEffectDelivery;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchEpisode;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchStep;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiLocalPrecondition;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CodeSubject;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.EffectDeliveryReceipt;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ManualCiBranchSyncAuthorization;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.RemoteContext;
 import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager.Policy;
@@ -147,51 +145,6 @@ public final class BranchSyncRuntimeCoordinator
         return store.findBranchEpisode(episode.id()).orElseThrow();
     }
 
-    /** Consumes one exact user blocker to admit a CI base-freshness precondition. */
-    public CiPreconditionStart startCiPrecondition(
-            String taskId,
-            String episodeId,
-            String blockerId,
-            String commandId,
-            String actor,
-            String reason)
-    {
-        requireText(taskId, "taskId");
-        requireText(episodeId, "episodeId");
-        requireText(blockerId, "blockerId");
-        requireText(commandId, "commandId");
-        requireText(actor, "actor");
-        requireText(reason, "reason");
-        return commands.execute(taskId, () -> {
-            SqliteRemoteRuntimeStore.CiEpisode episode =
-                    store.requireCiEpisode(taskId, episodeId);
-            ManualCiBranchSyncAuthorization replay = store
-                    .findCiBranchSyncManualAuthorization(commandId)
-                    .orElse(null);
-            if (replay != null) {
-                requireSameCiPrecondition(
-                        replay, taskId, episode.stageId(), episodeId,
-                        blockerId, actor, reason);
-                return new CiPreconditionStart(
-                        episode, replay, store.requireObservationRequest(
-                                replay.observationOperationId()));
-            }
-            SqliteRemoteRuntimeStore.ObservationRequest observation =
-                    store.findLiveObservation(episode.stageId())
-                            .orElseGet(() -> store.insertObservation(
-                                    store.requireRemoteContext(
-                                            taskId, episode.stageId()),
-                                    clock.instant()));
-            ManualCiBranchSyncAuthorization authorization =
-                    store.claimCiBranchSyncManualAuthorization(
-                            taskId, episode.stageId(), episodeId,
-                            blockerId, commandId, observation, actor, reason,
-                            clock.instant());
-            return new CiPreconditionStart(
-                    episode, authorization, observation);
-        });
-    }
-
     /** Records one terminal exact-subject decision for exhausted BranchSync. */
     public BranchControlReceipt controlExhausted(
             String taskId,
@@ -212,26 +165,6 @@ public final class BranchSyncRuntimeCoordinator
         return commands.execute(taskId, () -> store.controlBranchExhaustion(
                 taskId, episodeId, blockerId, commandId, action.name(), actor,
                 reason, clock.instant()));
-    }
-
-    private static void requireSameCiPrecondition(
-            ManualCiBranchSyncAuthorization authorization,
-            String taskId,
-            String stageId,
-            String episodeId,
-            String blockerId,
-            String actor,
-            String reason)
-    {
-        if (!taskId.equals(authorization.taskId())
-                || !stageId.equals(authorization.stageId())
-                || !episodeId.equals(authorization.episodeId())
-                || !blockerId.equals(authorization.blockerId())
-                || !actor.equals(authorization.actor())
-                || !reason.equals(authorization.reason())) {
-            throw new IllegalArgumentException(
-                    "CI branch-sync command was already used with other values");
-        }
     }
 
     /** Completes only after the pushed head is independently observed. */
@@ -282,162 +215,30 @@ public final class BranchSyncRuntimeCoordinator
                 candidate.context().taskId(), candidate.context().stageId());
         store.resolveStaleBranchSyncExhaustions(current, code, clock.instant());
         if (Objects.equals(code.baseSha(), candidate.evidence().baseSha())) {
-            store.resolveOpenCiBranchSyncBlockers(
-                    candidate.context().stageId(),
-                    "Task code already uses the accepted Remote base",
-                    clock.instant());
             return ObservationDisposition.CONTINUE;
         }
 
         Policy policy = policies.armOnFirstPushInCommand(
                 candidate.context().taskId());
-        String autoApprovePolicyId = store.findCurrentAutoApprovePolicyId(
-                candidate.context().taskId()).orElse(null);
-        ManualCiBranchSyncAuthorization manual = store
-                .findClaimedCiBranchSyncManualAuthorization(
-                        candidate.context().stageId())
-                .orElse(null);
-        SqliteRemoteRuntimeStore.CiEpisode liveCi = store.findLiveCiEpisode(
-                candidate.context().stageId()).orElse(null);
-        if (candidate.ciEvaluation().outcome()
-                    == RemoteCiPolicy.PolicyOutcome.ACCEPTED
-                && (manual != null
-                    || (liveCi != null
-                        && store.hasPendingCiTurnIntent(liveCi.id())))) {
-            // CI owns green closure and cancellation of every pending repair
-            // or manual precondition intent. Do not launch a base writer first.
-            return ObservationDisposition.CONTINUE;
-        }
         if (store.hasExactBranchSyncExhaustion(current, code)) {
             return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
         }
-        if (manual != null) {
-            if (candidate.evidence().revision()
-                        <= manual.predecessorObservationRevision()
-                    || candidate.evidence().snapshotId().equals(
-                            manual.predecessorSnapshotId())) {
-                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-            }
-            SqliteRemoteRuntimeStore.CiEpisode ciEpisode =
-                    store.requireCiEpisode(
-                            candidate.context().taskId(), manual.episodeId());
-            if (isTerminal(ciEpisode)) {
-                store.resolveOpenCiBranchSyncBlockers(
-                        candidate.context().stageId(),
-                        "CI repair completed before branch sync started",
-                        clock.instant());
-                return ObservationDisposition.CONTINUE;
-            }
-            store.requestCancelLiveCiWork(
-                    candidate.context().stageId(),
-                    "manual CI base precondition requires the Task writer",
-                    clock.instant());
-            if (store.hasUnsettledCiWork(candidate.context().stageId())) {
-                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-            }
-            Policy manualPolicy = policies.armOnFirstPushInCommand(
-                    candidate.context().taskId());
-            BranchEpisode started;
-            if (!Objects.equals(code.headSha(), candidate.evidence().headSha())) {
-                CiLocalPrecondition local = store
-                        .findPendingCiLocalPrecondition(
-                                candidate.context().stageId())
-                        .orElse(null);
-                if (local == null
-                        || !local.episode().id().equals(manual.episodeId())
-                        || !local.episode().subjectHeadSha().equals(
-                                candidate.evidence().headSha())) {
-                    return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-                }
-                started = store.insertCiLocalPreconditionBranchEpisode(
-                        current, local, manual.commandId(), manualPolicy.id(),
-                        manualPolicy.attemptLimit(), "MANUAL", manual.id(),
-                        clock.instant());
-            }
-            else {
-                started = store.insertManualCiPreconditionBranchEpisode(
-                        current, ciEpisode, manual.commandId(),
-                        manualPolicy.id(), manualPolicy.attemptLimit(),
-                        manual.id(), clock.instant());
-            }
-            store.consumeCiBranchSyncManualAuthorization(
-                    manual, started, clock.instant());
-            schedule(current, started, 1, code.codeFingerprint(),
-                    code.headSha(), code.baseSha(), clock.instant());
-            return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-        }
-
         if (!Objects.equals(code.headSha(), candidate.evidence().headSha())) {
-            CiLocalPrecondition precondition = store
-                    .findPendingCiLocalPrecondition(candidate.context().stageId())
-                    .orElse(null);
-            if (precondition == null) {
-                return ObservationDisposition.CONTINUE;
-            }
-            if (!precondition.episode().subjectHeadSha().equals(
-                        candidate.evidence().headSha())) {
-                store.openCiBranchSyncBlocker(candidate, clock.instant());
-                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-            }
-            if (autoApprovePolicyId == null) {
-                store.openCiBranchSyncBlocker(candidate, clock.instant());
-                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-            }
-            store.requestCancelLiveCiWork(
-                    candidate.context().stageId(),
-                    "local CI base precondition requires the Task writer",
-                    clock.instant());
-            if (store.hasUnsettledCiWork(candidate.context().stageId())) {
-                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-            }
-            String commandId = PlanRuntimeCoordinator.id(
-                    "ci-local-base-precondition-command",
-                    candidate.evidence().snapshotId() + ":"
-                            + precondition.intentKind() + ":"
-                            + precondition.intentId());
-            BranchEpisode started = store
-                    .insertCiLocalPreconditionBranchEpisode(
-                            current, precondition, commandId, policy.id(),
-                            policy.attemptLimit(), "AUTO_APPROVE_POLICY",
-                            autoApprovePolicyId, clock.instant());
-            schedule(current, started, 1, code.codeFingerprint(),
-                    code.headSha(), code.baseSha(), clock.instant());
-            return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
+            return ObservationDisposition.CONTINUE;
         }
 
-        if (!policy.enabled() && autoApprovePolicyId == null) {
-            if (candidate.ciEvaluation().outcome()
-                        == RemoteCiPolicy.PolicyOutcome.FAILED
-                    || candidate.observation().mergeability()
-                        == RemoteObservationOperationHandler.Mergeability
-                                .CONFLICTING) {
-                store.openCiBranchSyncBlocker(candidate, clock.instant());
-            }
+        if (!policy.enabled()) {
             return ObservationDisposition.CONTINUE;
         }
         String commandId = PlanRuntimeCoordinator.id(
                 "branch-sync-observation-command",
                 candidate.evidence().snapshotId());
-        BranchEpisode started = policy.enabled()
-                ? store.insertObservedBranchEpisode(
-                        current, commandId, policy.id(), policy.source(),
-                        policy.attemptLimit(), clock.instant())
-                : store.insertCiPreconditionBranchEpisode(
-                        current, commandId, policy.id(), policy.attemptLimit(),
-                        "AUTO_APPROVE_POLICY", autoApprovePolicyId,
-                        clock.instant());
+        BranchEpisode started = store.insertObservedBranchEpisode(
+                current, commandId, policy.id(), policy.source(),
+                policy.attemptLimit(), clock.instant());
         schedule(current, started, 1, null, code.headSha(), code.baseSha(),
                 clock.instant());
         return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
-    }
-
-    private static boolean isTerminal(
-            SqliteRemoteRuntimeStore.CiEpisode episode)
-    {
-        return switch (episode.status()) {
-            case "SUCCEEDED", "EXHAUSTED", "STOPPED" -> true;
-            default -> false;
-        };
     }
 
     public DispatchTicket.DeliveryReceipt deliver(
@@ -564,10 +365,6 @@ public final class BranchSyncRuntimeCoordinator
                 store.skipBranchStep(
                         store.requireBranchStep(episode.id(), 3),
                         "mechanical rebase had no conflict", now);
-                if ("CI_PRECONDITION_LOCAL".equals(episode.purpose())) {
-                    completeLocalCiPrecondition(episode, result, now);
-                    return;
-                }
                 schedule(
                         context, store.findBranchEpisode(episode.id()).orElseThrow(),
                         4, result.codeFingerprint(), result.headSha(),
@@ -600,34 +397,6 @@ public final class BranchSyncRuntimeCoordinator
             }
             default -> throw new IllegalStateException(
                     "Unsupported branch effect ordinal " + delivered.ordinal());
-        }
-    }
-
-    private void completeLocalCiPrecondition(
-            BranchEpisode episode,
-            RemoteEffectOperationHandler.Result result,
-            Instant at)
-    {
-        for (int ordinal = 4; ordinal <= 6; ordinal++) {
-            store.skipBranchStep(
-                    store.requireBranchStep(episode.id(), ordinal),
-                    "local CI base precondition publishes only through its pending repair",
-                    at);
-        }
-        store.succeedLocalCiPrecondition(
-                episode,
-                new CodeSubject(
-                        requireNonNull(result.codeFingerprint(),
-                                "local precondition codeFingerprint is null"),
-                        requireNonNull(result.headSha(),
-                                "local precondition headSha is null"),
-                        requireNonNull(result.baseSha(),
-                                "local precondition baseSha is null")),
-                at);
-        RemoteContext context = store.requireRemoteContext(
-                episode.taskId(), episode.stageId());
-        if (store.findLiveObservation(episode.stageId()).isEmpty()) {
-            store.insertObservation(context, at);
         }
     }
 
@@ -724,11 +493,6 @@ public final class BranchSyncRuntimeCoordinator
                 BranchStep step,
                 RemoteEffectOperationHandler.Result validationResult);
     }
-
-    public record CiPreconditionStart(
-            SqliteRemoteRuntimeStore.CiEpisode episode,
-            ManualCiBranchSyncAuthorization authorization,
-            SqliteRemoteRuntimeStore.ObservationRequest observation) {}
 
     public enum BranchControlAction
     {

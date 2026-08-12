@@ -243,7 +243,6 @@ export function TrunkPage({
                 onOpenActivity={openActivity}
                 onRefresh={pane.refresh}
                 onOpenBacklog={item => setSelectedBacklogId(item.id)}
-                onStartBacklog={itemId => { void pane.startDevelopment(itemId); }}
                 onDropBacklog={itemId => { void pane.skip(itemId); }}
                 onReopenBacklog={itemId => { void pane.revive(itemId); }}
                 onOpenTask={onOpenTask}
@@ -283,10 +282,6 @@ export function TrunkPage({
             setSelectedBacklogId(null);
             pane.refresh();
           }}
-          onStarted={async saved => {
-            await pane.startDevelopment(saved.id);
-            setSelectedBacklogId(null);
-          }}
         />
       )}
     </div>
@@ -306,7 +301,6 @@ function WorkspaceOverviewPanel({
   onOpenActivity,
   onRefresh,
   onOpenBacklog,
-  onStartBacklog,
   onDropBacklog,
   onReopenBacklog,
   onOpenTask,
@@ -326,7 +320,6 @@ function WorkspaceOverviewPanel({
   onOpenActivity: (item: TrunkActivityItemDto) => void;
   onRefresh: () => void;
   onOpenBacklog: (item: BacklogItemDto) => void;
-  onStartBacklog: (itemId: string) => void;
   onDropBacklog: (itemId: string) => void;
   onReopenBacklog: (itemId: string) => void;
   onOpenTask?: (taskId: string) => void;
@@ -442,7 +435,6 @@ function WorkspaceOverviewPanel({
                   const item = trunkBacklog.find(candidate => candidate.id === itemId);
                   if (item !== undefined) onOpenBacklog(item);
                 }}
-                onStartDevelopment={onStartBacklog}
                 onDrop={onDropBacklog}
                 onReopen={onReopenBacklog}
                 onOpenLinked={itemId => {

@@ -16,9 +16,7 @@ package com.bytequay.app.developmentflow.task;
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -30,7 +28,6 @@ import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.N
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_EPOCH;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static java.util.Objects.requireNonNull;
-import static org.springframework.http.HttpStatus.CONFLICT;
 
 /**
  * HTTP-facing V2 Task controls. The Task manager records intent first; exact
@@ -45,7 +42,6 @@ public final class V2TaskControlService
     private final TaskManager tasks;
     private final TaskManager.Store store;
     private final DispatchTicketControl tickets;
-    private final RemoteCiRepairRuntimeCoordinator ciRepair;
     private final JdbcTemplate jdbc;
     private final V2UserWaitStore userWaits;
     private final PolicyRevisionRedriver policyRedriver;
@@ -54,7 +50,6 @@ public final class V2TaskControlService
             TaskManager tasks,
             TaskManager.Store store,
             DispatchTicketControl tickets,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc,
             V2UserWaitStore userWaits,
             PolicyRevisionRedriver policyRedriver)
@@ -62,7 +57,6 @@ public final class V2TaskControlService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.store = requireNonNull(store, "store is null");
         this.tickets = requireNonNull(tickets, "tickets is null");
-        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.userWaits = requireNonNull(userWaits, "userWaits is null");
         this.policyRedriver = requireNonNull(
@@ -156,38 +150,6 @@ public final class V2TaskControlService
             }
             throw raced;
         }
-    }
-
-    /** One explicit user action extends each independent CI repair budget once. */
-    public TaskManager.State retryFailedCi(String taskId)
-    {
-        TaskManager.State current = requireTask(taskId);
-        String episodeId = jdbc.query("""
-                SELECT episode.id
-                FROM ci_repair_episode episode
-                JOIN tasks task ON task.id = episode.task_id
-                JOIN task_current_stage current ON current.task_id = task.id
-                JOIN stage owner ON owner.id = current.stage_id
-                WHERE episode.task_id = ?
-                  AND episode.status = 'EXHAUSTED'
-                  AND task.workflow_version = 'V2'
-                  AND task.lifecycle_state = 'ACTIVE'
-                  AND task.epoch = episode.task_epoch
-                  AND current.stage_id = episode.remote_development_stage_id
-                  AND current.stage_generation = episode.stage_generation
-                  AND owner.kind = 'REMOTE_DEVELOPMENT'
-                  AND owner.completed_at_ms IS NULL
-                ORDER BY episode.completed_at_ms DESC
-                LIMIT 1
-                """, (rs, row) -> rs.getString("id"), taskId)
-                .stream().findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        CONFLICT, "task " + taskId
-                                + " has no current exhausted CI repair episode"));
-        ciRepair.extendBudget(
-                taskId, episodeId, UUID.randomUUID().toString(),
-                1, 1, 1, ACTOR, "explicit Retry CI action");
-        return current;
     }
 
     public boolean isAutoApprove(String taskId)

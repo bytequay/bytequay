@@ -16,7 +16,6 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.harness.HarnessService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,7 +50,6 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestUpstreamCherryPickService
@@ -95,7 +93,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class),
                 new SyncRunStream());
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
@@ -211,7 +209,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class),
                 new SyncRunStream());
 
         service.guide("fork-ws", "job-1", "prefer our fork's config names");
@@ -338,7 +336,7 @@ class TestUpstreamCherryPickService
                 jdbc, new ObjectMapper(), mock(WorkspaceRelationService.class),
                 mock(GitRunner.class), mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class),
                 new SyncRunStream());
 
         assertThat(service.list("fork-ws", 20))
@@ -388,7 +386,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class),
                 new SyncRunStream());
 
         assertThatThrownBy(() -> service.enqueue(
@@ -437,7 +435,6 @@ class TestUpstreamCherryPickService
         GitRunner git = mock(GitRunner.class);
         PatResolver pats = mock(PatResolver.class);
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-        ObjectProvider<HarnessService> handoff = mock(ObjectProvider.class);
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
@@ -466,8 +463,6 @@ class TestUpstreamCherryPickService
                 pats,
                 pullRequests,
                 mock(PRSyncService.class),
-                handoff,
-                mock(ObjectProvider.class),
                 mock(ObjectProvider.class),
                 new SyncRunStream());
         service.recover();
@@ -547,7 +542,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class),
                 new SyncRunStream());
 
         assertThatThrownBy(() -> service.retry("other-ws", "job-1"))
@@ -596,7 +591,6 @@ class TestUpstreamCherryPickService
         GitRunner git = mock(GitRunner.class);
         PatResolver pats = mock(PatResolver.class);
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-        ObjectProvider<HarnessService> handoff = mock(ObjectProvider.class);
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
@@ -633,8 +627,8 @@ class TestUpstreamCherryPickService
 
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, pats, pullRequests,
-                mock(PRSyncService.class), handoff, mock(ObjectProvider.class),
-                mock(ObjectProvider.class), new SyncRunStream());
+                mock(PRSyncService.class), mock(ObjectProvider.class),
+                new SyncRunStream());
         service.recover();
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitStatus(
@@ -649,80 +643,7 @@ class TestUpstreamCherryPickService
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
                 .containsExactly("job-1");
         // Nothing is published from a parked run.
-        verifyNoInteractions(handoff);
         verify(pullRequests, never()).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void harnessHandoffCarriesTheSyncedLocalPrId(@TempDir Path root)
-            throws Exception
-    {
-        Path target = Files.createDirectory(root.resolve("target"));
-        Path upstream = Files.createDirectory(root.resolve("upstream"));
-        Path worktree = Files.createDirectory(root.resolve("worktree"));
-        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
-        createTable(jdbc);
-        jdbc.update("""
-                INSERT INTO upstream_cherry_pick_job (
-                    id, workspace_id, upstream_workspace_id, status,
-                    source_branch, source_ref, base_branch, base_ref,
-                    result_branch, commit_specs_json, applied_shas_json,
-                    skipped_shas_json, next_commit_index,
-                    conflict_paths_json, worktree_path,
-                    open_draft_pr, create_harness_watch, budget_milli_usd,
-                    pr_number, pr_url, created_at_ms, updated_at_ms)
-                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'QUEUED',
-                    'main', 'source-sha', 'main', 'base-sha',
-                    'pick-release', '[]', '[]', '[]', 0, '[]', ?,
-                    1, 1, 5000, 123, 'https://example.test/pr/123', 1, 1)
-                """, worktree.toString());
-
-        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
-        GitRunner git = mock(GitRunner.class);
-        PRSyncService prSync = mock(PRSyncService.class);
-        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
-        HarnessService handoff = mock(HarnessService.class);
-        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
-                new WorkspaceRepositoryResolver.RepositoryIdentity(
-                        "acme", "fork", "acme/fork", "main");
-        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
-                new WorkspaceRepositoryResolver.RepositoryIdentity(
-                        "acme", "upstream", "acme/upstream", "main");
-        WorkspaceRelationService.WorkspaceRelationDto relationDto =
-                new WorkspaceRelationService.WorkspaceRelationDto(
-                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, null, 15, 0);
-        when(relations.requireResolved("fork-ws"))
-                .thenReturn(new WorkspaceRelationService.ResolvedRelation(
-                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
-        when(git.cherryPickInProgress(worktree)).thenReturn(false);
-        when(git.listCommits(worktree, "base-sha..HEAD", 5_000)).thenReturn(List.of());
-        when(git.listCommits(target, "base-sha", 5_000)).thenReturn(List.of());
-        PR localPr = PR.createExternal(
-                "local-pr-1", "acme/fork", 123, "https://example.test/pr/123",
-                "octocat", "pick-release", "main", "Release pick", "",
-                PR.STATUS_REMOTE_DRAFTED, Instant.now(), null, null);
-        when(prSync.syncExternalPR("acme/fork", 123)).thenReturn(Optional.of(localPr));
-        when(provider.getIfAvailable()).thenReturn(handoff);
-        when(handoff.create(
-                "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
-                worktree.toString(), 5_000L, null)).thenReturn("watch-1");
-        UpstreamCherryPickService service = new UpstreamCherryPickService(
-                jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
-                mock(PullRequestRepository.class), prSync, provider,
-                mock(ObjectProvider.class), mock(ObjectProvider.class), new SyncRunStream());
-
-        service.recover();
-        UpstreamCherryPickService.UpstreamCherryPickJobDto completed =
-                awaitTerminal(service);
-
-        assertThat(completed.status()).isEqualTo("COMPLETED");
-        assertThat(completed.harnessWatchId()).isEqualTo("watch-1");
-        verify(prSync).syncExternalPR("acme/fork", 123);
-        verify(handoff).create(
-                "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
-                worktree.toString(), 5_000L, null);
     }
 
     @Test
@@ -1051,8 +972,6 @@ class TestUpstreamCherryPickService
 
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         GitRunner git = mock(GitRunner.class);
-        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
-        HarnessService handoff = mock(HarnessService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -1066,11 +985,10 @@ class TestUpstreamCherryPickService
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
-        when(provider.getIfAvailable()).thenReturn(handoff);
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
-                mock(PullRequestRepository.class), mock(PRSyncService.class), provider,
-                mock(ObjectProvider.class), mock(ObjectProvider.class), new SyncRunStream());
+                mock(PullRequestRepository.class), mock(PRSyncService.class),
+                mock(ObjectProvider.class), new SyncRunStream());
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto closed =
                 service.close("fork-ws", "job-1");
@@ -1080,8 +998,7 @@ class TestUpstreamCherryPickService
         // so closing must not invent one — closedAt is the terminal marker and
         // the status stays as honest history of how the run ended.
         assertThat(closed.status()).isEqualTo("PAUSED_CONFLICT");
-        // The agent side stops with the run, and the isolated worktree goes.
-        verify(handoff).stopWatch("fork-ws", "watch-1");
+        // The isolated worktree goes with the closed run.
         verify(git).worktreeRemove(target, worktree);
         verify(git).worktreePrune(target);
         // This run never pushed, so its branch holds the only copy of the picks
@@ -1098,9 +1015,8 @@ class TestUpstreamCherryPickService
                 });
         assertThatThrownBy(() -> service.guide("fork-ws", "job-1", "carry on"))
                 .isInstanceOf(ResponseStatusException.class);
-        // Closing twice is a no-op rather than a second stop or removal.
+        // Closing twice is a no-op rather than a second removal.
         service.close("fork-ws", "job-1");
-        verify(handoff).stopWatch("fork-ws", "watch-1");
         // The slot is free again: a closed run no longer blocks the next sync.
         insertJob(jdbc, "job-2", "fork-ws", "QUEUED", root.resolve("next"));
         assertThat(service.list("fork-ws", 10)).hasSize(2);
@@ -1191,18 +1107,14 @@ class TestUpstreamCherryPickService
 
         GitRunner git = mock(GitRunner.class);
         when(git.refExists(target, "pick-release")).thenReturn(true);
-        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
-        HarnessService handoff = mock(HarnessService.class);
-        when(provider.getIfAvailable()).thenReturn(handoff);
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations(target, upstream), git,
                 mock(PatResolver.class), mock(PullRequestRepository.class),
-                mock(PRSyncService.class), provider, mock(ObjectProvider.class),
-                mock(ObjectProvider.class), new SyncRunStream());
+                mock(PRSyncService.class), mock(ObjectProvider.class),
+                new SyncRunStream());
 
         service.delete("fork-ws", "job-1");
 
-        verify(handoff).stopWatch("fork-ws", "watch-1");
         verify(git).worktreeRemove(target, worktree);
         verify(git).worktreePrune(target);
         // Pushed, so the local branch is redundant and goes with the rest.
@@ -1237,7 +1149,7 @@ class TestUpstreamCherryPickService
                 jdbc, new ObjectMapper(), relations(target, upstream), mock(GitRunner.class),
                 mock(PatResolver.class), mock(PullRequestRepository.class),
                 mock(PRSyncService.class), mock(ObjectProvider.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), new SyncRunStream());
+                new SyncRunStream());
 
         service.close("fork-ws", "job-1");
 
@@ -1280,8 +1192,6 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         GitRunner git = mock(GitRunner.class);
         PRSyncService prSync = mock(PRSyncService.class);
-        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
-        HarnessService handoff = mock(HarnessService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -1295,11 +1205,10 @@ class TestUpstreamCherryPickService
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
-        when(provider.getIfAvailable()).thenReturn(handoff);
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
-                mock(PullRequestRepository.class), prSync, provider,
-                mock(ObjectProvider.class), mock(ObjectProvider.class), new SyncRunStream());
+                mock(PullRequestRepository.class), prSync,
+                mock(ObjectProvider.class), new SyncRunStream());
 
         // Still open on the remote: the run keeps its worktree.
         when(prSync.syncExternalPR("acme/fork", 123)).thenReturn(Optional.of(externalPr(
@@ -1314,7 +1223,6 @@ class TestUpstreamCherryPickService
         service.closeRunsWhosePullRequestEnded();
 
         assertThat(service.require("fork-ws", "job-1").closedAt()).isNotNull();
-        verify(handoff).stopWatch("fork-ws", "watch-1");
         verify(git).worktreeRemove(target, worktree);
         assertThat(service.run("fork-ws", "job-1", 100).events())
                 .filteredOn(event -> "closed".equals(event.kind()))
@@ -1323,7 +1231,6 @@ class TestUpstreamCherryPickService
 
         // A second sweep has nothing left to close.
         service.closeRunsWhosePullRequestEnded();
-        verify(handoff).stopWatch("fork-ws", "watch-1");
     }
 
     private static PR externalPr(String status)
@@ -1422,7 +1329,7 @@ class TestUpstreamCherryPickService
         return new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, new GitRunner(),
                 mock(PatResolver.class), pullRequests, mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), advisorProvider,
+                advisorProvider,
                 new SyncRunStream());
     }
 

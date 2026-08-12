@@ -32,7 +32,6 @@ import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,9 +68,6 @@ public final class AgentTurnOperationHandler
     public static final String STAGE_OPERATION_KIND = "EXECUTE_STAGE_TURN";
     public static final String TASK_OUTCOME_SUMMARY_OPERATION_KIND =
             "GENERATE_TASK_OUTCOME_SUMMARY";
-    public static final String REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE =
-            "REMOTE_REPAIR_RESULT_NORMALIZATION";
-
     private static final int PAYLOAD_VERSION = 1;
 
     private final Store store;
@@ -83,7 +79,6 @@ public final class AgentTurnOperationHandler
     private final ToolExposurePolicy tools;
     private final ObjectMapper mapper;
     private final ObjectReader launchReader;
-    private final ObjectReader remoteStageResultReader;
 
     public AgentTurnOperationHandler(
             Store store,
@@ -105,10 +100,6 @@ public final class AgentTurnOperationHandler
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.launchReader = mapper.readerFor(LaunchInput.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        this.remoteStageResultReader = mapper.readerFor(RemoteStageResult.class)
-                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
     }
 
     @Override
@@ -136,17 +127,11 @@ public final class AgentTurnOperationHandler
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
                     "invalid frozen Agent Turn launch input: " + e.getMessage());
         }
-        String normalizationError = remoteRepairNormalizationInputError(turn, input);
-        if (normalizationError != null) {
-            return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
-                    normalizationError);
-        }
         if (!Path.of(turn.worktreePath()).equals(Path.of(input.workingDirectory()))) {
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
                     "launch working directory is not the Task worktree");
         }
         if (turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
-                && !remoteRepairResultNormalization(turn)
                 && (!turn.brainProvider().equals(input.provider())
                 || !turn.brainModel().equals(input.model()))) {
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
@@ -156,15 +141,12 @@ public final class AgentTurnOperationHandler
                 turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
                         ? AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY
                         : AgentTurnProviderSession.ToolProfile.STAGE_DEVELOPMENT;
-        boolean toolFreeNormalization = remoteRepairResultNormalization(turn);
         AgentTurnProviderSession.OwnerToolEndpoint endpoint = input.toolEndpoint();
         if (endpoint.ownerKind() != turn.ownerKind()
                 || !endpoint.ownerId().equals(turn.turnId())
                 || !endpoint.operationId().equals(turn.operationId())
                 || endpoint.profile() != expectedProfile
-                || (toolFreeNormalization
-                    ? endpoint.approvalPromptTool() != null
-                    : endpoint.approvalPromptTool() == null)) {
+                || endpoint.approvalPromptTool() == null) {
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
                     "tool endpoint is not scoped to the exact typed Turn");
         }
@@ -318,8 +300,7 @@ public final class AgentTurnOperationHandler
 
     private Set<String> runtimeTools(ExactTurn turn)
     {
-        if (developmentBrainResultRepair(turn)
-                || remoteRepairResultNormalization(turn)) {
+        if (developmentBrainResultRepair(turn)) {
             return ImmutableSet.of();
         }
         if (completionSummary(turn)) {
@@ -406,22 +387,11 @@ public final class AgentTurnOperationHandler
                     OutputCodeSubject output = null;
                     if (result.completion()
                             == AgentTurnProviderSession.Completion.SUCCEEDED) {
-                        String protocolError = remoteResultProtocolError(
-                                turn, result.finalText());
+                        String protocolError = remoteResultProtocolError(turn);
                         if (protocolError == null) {
                             requireOutputGitState(turn);
                             checkpointProviderChanges(turn);
                             output = observeOutput(turn);
-                        }
-                        else if (remoteCiRepairStage(turn)) {
-                            // Freeze a recoverable append-only candidate while
-                            // the writer fence is still live. The malformed
-                            // owner result still fails, and the source is
-                            // restored before releasing the worktree.
-                            requireOutputGitState(turn);
-                            checkpointProviderChanges(turn);
-                            output = observeMalformedRemoteCiOutput(turn);
-                            restoreExactSource(turn);
                         }
                         else {
                             // A provider-successful StageTurn still owns no
@@ -513,17 +483,6 @@ public final class AgentTurnOperationHandler
 
     private OutputCodeSubject observeOutput(ExactTurn turn)
     {
-        return observeOutput(turn, false);
-    }
-
-    private OutputCodeSubject observeMalformedRemoteCiOutput(ExactTurn turn)
-    {
-        return observeOutput(turn, true);
-    }
-
-    private OutputCodeSubject observeOutput(
-            ExactTurn turn, boolean requireDirectChildCandidate)
-    {
         Path worktree = Path.of(turn.worktreePath());
         try {
             String headSha = git.headSha(worktree);
@@ -537,52 +496,6 @@ public final class AgentTurnOperationHandler
                     : git.commitTreeSha(worktree, turn.expectedHeadSha());
             String resultTreeSha = sourceTreeSha == null
                     ? null : git.commitTreeSha(worktree, headSha);
-            String discardedNoChangeHeadSha = null;
-            String restoredHeadSha = null;
-            String sourceHeadMergeBaseSha = null;
-            String candidateParentSha = null;
-            if ("REMOTE_CI_REPAIR".equals(turn.purpose())
-                    && sourceTreeSha != null) {
-                if (sourceTreeSha.equals(resultTreeSha)
-                        && !turn.expectedHeadSha().equals(headSha)) {
-                    discardedNoChangeHeadSha = headSha;
-                    restoreExactSource(turn);
-                    headSha = git.headSha(worktree);
-                    clean = !git.hasUncommittedChanges(worktree);
-                    resultTreeSha = git.commitTreeSha(worktree, headSha);
-                    mergeBaseSha = turn.expectedBaseSha() == null
-                            ? null
-                            : git.mergeBase(
-                                    worktree, headSha, turn.expectedBaseSha())
-                                    .orElse(null);
-                    restoredHeadSha = headSha;
-                    sourceHeadMergeBaseSha = turn.expectedHeadSha();
-                }
-                else if (!sourceTreeSha.equals(resultTreeSha)) {
-                    sourceHeadMergeBaseSha = git.mergeBase(
-                            worktree, headSha,
-                            turn.expectedHeadSha()).orElse(null);
-                    if (!turn.expectedHeadSha().equals(
-                            sourceHeadMergeBaseSha)) {
-                        throw new OutputLineageException(
-                                "CI repair output rewrote or discarded its expected Task head");
-                    }
-                    if (requireDirectChildCandidate) {
-                        List<String> parents = git.commitParentShas(
-                                worktree, headSha);
-                        if (parents.size() != 1
-                                || !turn.expectedHeadSha().equals(
-                                        parents.getFirst())) {
-                            throw new OutputLineageException(
-                                    "malformed CI repair candidate must be exactly one direct child of its expected Task head");
-                        }
-                        candidateParentSha = parents.getFirst();
-                    }
-                }
-                else {
-                    sourceHeadMergeBaseSha = turn.expectedHeadSha();
-                }
-            }
             // Measured against the Turn's input head, not the Stage base, so
             // this is what THIS Turn wrote rather than the cumulative Stage
             // diff. Additions only: a Turn that only deletes has nothing to
@@ -593,8 +506,7 @@ public final class AgentTurnOperationHandler
                     fingerprints.fingerprint(worktree), headSha,
                     turn.expectedBaseSha(), clean, mergeBaseSha,
                     sourceTreeSha, resultTreeSha,
-                    discardedNoChangeHeadSha, restoredHeadSha,
-                    sourceHeadMergeBaseSha, candidateParentSha,
+                    null, null, null, null,
                     git.currentBranch(worktree), addedLines);
         }
         catch (IOException e) {
@@ -774,7 +686,7 @@ public final class AgentTurnOperationHandler
         boolean providerSucceeded = result.completion()
                 == AgentTurnProviderSession.Completion.SUCCEEDED;
         String protocolError = providerSucceeded
-                ? remoteResultProtocolError(turn, result.finalText()) : null;
+                ? remoteResultProtocolError(turn) : null;
         boolean succeeded = providerSucceeded && protocolError == null;
         Disposition disposition = protocolError != null
                 ? Disposition.OWNER_OUTPUT_MALFORMED
@@ -823,33 +735,20 @@ public final class AgentTurnOperationHandler
      * the result tool land its row" for every Turn that has one — same gate,
      * same disposition, same recovery downstream, but asking about the artifact
      * the contract actually produces instead of about the phrasing of a
-     * sentence. Only the result normalizer still answers in its final message:
-     * it is launched deliberately tool-free, because its whole job is to restate
-     * a frozen malformed result that a tool call cannot carry.
+     * sentence.
      */
-    private String remoteResultProtocolError(ExactTurn turn, String finalText)
+    private String remoteResultProtocolError(ExactTurn turn)
     {
         try {
-            if (remoteRepairResultNormalization(turn)) {
-                RemoteStageResult result = remoteStageResultReader.readValue(
-                        requireText(finalText, "Remote repair Stage result"));
-                if (result.schemaVersion() != 1) {
-                    throw new IllegalArgumentException(
-                            "unsupported Remote repair Stage result version");
-                }
-                requireText(result.summary(), "Remote repair Stage summary");
-            }
-            else if (turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
-                    && ("REMOTE_CI_REPAIR".equals(turn.purpose())
-                        || "BRANCH_CONFLICT_REPAIR".equals(turn.purpose()))
+            if (turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
+                    && "BRANCH_CONFLICT_REPAIR".equals(turn.purpose())
                     && !store.hasRepairSubmission(turn.turnId())) {
                 throw new IllegalArgumentException(
                         "Remote repair StageTurn succeeded without "
                                 + "record_repair_summary");
             }
             else if (turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
-                    && ("REMOTE_CI_BRAIN_REVIEW".equals(turn.purpose())
-                        || "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose()))
+                    && "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose())
                     && !store.hasBrainVerdict(turn.turnId())) {
                 throw new IllegalArgumentException(
                         "Remote repair Brain succeeded without "
@@ -857,7 +756,7 @@ public final class AgentTurnOperationHandler
             }
             return null;
         }
-        catch (JsonProcessingException | RuntimeException e) {
+        catch (RuntimeException e) {
             return "OWNER_OUTPUT_MALFORMED: " + Objects.toString(
                     e.getMessage(), "Remote repair result was not reported");
         }
@@ -1266,46 +1165,13 @@ public final class AgentTurnOperationHandler
     private static boolean automaticTaskBrainReview(ExactTurn turn)
     {
         return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
-                && ImmutableSet.of(
-                        "REMOTE_CI_BRAIN_REVIEW",
-                        "BRANCH_SYNC_BRAIN_REVIEW").contains(turn.purpose());
+                && "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose());
     }
 
     private static boolean developmentBrainResultRepair(ExactTurn turn)
     {
         return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
                 && "DEVELOPMENT_BRAIN_RESULT_REPAIR".equals(turn.purpose());
-    }
-
-    private static boolean remoteRepairResultNormalization(ExactTurn turn)
-    {
-        return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
-                && REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE.equals(turn.purpose());
-    }
-
-    private static boolean remoteCiRepairStage(ExactTurn turn)
-    {
-        return turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
-                && "REMOTE_CI_REPAIR".equals(turn.purpose());
-    }
-
-    private static String remoteRepairNormalizationInputError(
-            ExactTurn turn, LaunchInput input)
-    {
-        if (!REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE.equals(turn.purpose())) {
-            return null;
-        }
-        if (turn.ownerKind() != DispatchTicket.OwnerKind.TASK_TURN) {
-            return "Remote repair result normalization requires a TaskTurn";
-        }
-        if (!input.images().isEmpty()
-                || input.resumeSessionId() != null
-                || input.fallbackPrompt() != null
-                || input.priorCumulativeInputTokens() != 0
-                || input.priorCumulativeOutputTokens() != 0) {
-            return "Remote repair result normalization must be a fresh text-only turn";
-        }
-        return null;
     }
 
     private static boolean terminalTaskBrainConversation(ExactTurn turn)
@@ -1790,8 +1656,6 @@ public final class AgentTurnOperationHandler
             requireNonNull(result, "result is null");
         }
     }
-
-    private record RemoteStageResult(int schemaVersion, String summary) {}
 
     private static final class ProviderRunException
             extends RuntimeException

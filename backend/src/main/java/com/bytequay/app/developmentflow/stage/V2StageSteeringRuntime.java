@@ -594,11 +594,10 @@ public final class V2StageSteeringRuntime
     {
         if (predecessor == null
                 || !"STAGE_TURN".equals(predecessor.ownerKind())
-                || !(predecessor.purpose().equals("REMOTE_CI_REPAIR")
-                    || predecessor.purpose().equals("BRANCH_CONFLICT_REPAIR")
+                || !(predecessor.purpose().equals("BRANCH_CONFLICT_REPAIR")
                     || predecessor.purpose().equals("ADDRESS_REMOTE_FEEDBACK"))) {
-            throw rejected("Remote steering requires an exact active CI, branch, "
-                    + "or feedback StageTurn owner; " + describe(owner));
+            throw rejected("Remote steering requires an exact active branch or "
+                    + "feedback StageTurn owner; " + describe(owner));
         }
     }
 
@@ -615,10 +614,6 @@ public final class V2StageSteeringRuntime
             return;
         }
         RemoteRepairTurnRuntime repairs = remoteRepairs.getObject();
-        if (owner.purpose().equals("REMOTE_CI_REPAIR")
-                && !repairs.prepareCiSteeringInCommand(request)) {
-            return;
-        }
         SqliteRemoteRepairTurnStore.TurnRequest admitted =
                 repairs.admitSteeringInCommand(request);
         store.markAdmitted(

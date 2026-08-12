@@ -24,12 +24,8 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator
 import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.PlanDraftRetryReceipt;
-import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
-import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore.Admission;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEpisode;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationRequest;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -48,8 +44,6 @@ public final class V2RecoveryControlService
     private static final String ACTOR = "user";
 
     private final TaskCommandExecutor commands;
-    private final RemoteCiRepairRuntimeCoordinator ciRepair;
-    private final RemoteObservationRuntimeCoordinator observations;
     private final SqliteCleanupOperationStore cleanup;
     private final DispatchTicketControl tickets;
     private final PlanRuntimeCoordinator plans;
@@ -63,22 +57,18 @@ public final class V2RecoveryControlService
     @Autowired
     public V2RecoveryControlService(
             TaskCommandExecutor commands,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
-            RemoteObservationRuntimeCoordinator observations,
             SqliteCleanupOperationStore cleanup,
             DispatchTicketControl tickets,
             PlanRuntimeCoordinator plans,
             LocalDevelopmentRuntimeCoordinator localStages,
             RemoteRepairTurnRuntime remoteRepairs)
     {
-        this(commands, ciRepair, observations, cleanup, tickets, plans,
+        this(commands, cleanup, tickets, plans,
                 localStages, remoteRepairs, Clock.systemUTC());
     }
 
     V2RecoveryControlService(
             TaskCommandExecutor commands,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
-            RemoteObservationRuntimeCoordinator observations,
             SqliteCleanupOperationStore cleanup,
             DispatchTicketControl tickets,
             PlanRuntimeCoordinator plans,
@@ -87,8 +77,6 @@ public final class V2RecoveryControlService
             Clock clock)
     {
         this.commands = requireNonNull(commands, "commands is null");
-        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
-        this.observations = requireNonNull(observations, "observations is null");
         this.cleanup = requireNonNull(cleanup, "cleanup is null");
         this.tickets = requireNonNull(tickets, "tickets is null");
         this.plans = requireNonNull(plans, "plans is null");
@@ -309,85 +297,6 @@ public final class V2RecoveryControlService
         }
     }
 
-    public CiRecoveryResult recoverCi(
-            String taskId, String episodeId, CiRecoveryCommand command)
-    {
-        requireText(taskId, "taskId");
-        requireText(episodeId, "episodeId");
-        requireNonNull(command, "command is null");
-        requireText(command.commandId(), "commandId");
-        requireText(command.reason(), "reason");
-        requireNonNull(command.action(), "action is null");
-        if ((command.action() == CiRecoveryAction.START_BASE_REPAIR
-                || command.action() == CiRecoveryAction.RETRY_ONCE
-                || command.action() == CiRecoveryAction.START_BRANCH_SYNC)
-                && (command.blockerId() == null
-                    || command.blockerId().isBlank())) {
-            throw new IllegalArgumentException(
-                    "blockerId is required for " + command.action());
-        }
-        validateDeltas(command);
-        try {
-            if (command.action() == CiRecoveryAction.START_BRANCH_SYNC) {
-                var start = requireBranchSync().startCiPrecondition(
-                        taskId, episodeId, command.blockerId(),
-                        command.commandId(), ACTOR, command.reason());
-                CiEpisode episode = start.episode();
-                return new CiRecoveryResult(
-                        taskId, episodeId, command.commandId(), command.action(),
-                        episode.status(), episode.rerunLimit(),
-                        episode.fixAttemptLimit(), episode.pushLimit(),
-                        start.observation().operationId());
-            }
-            CiEpisode episode = switch (command.action()) {
-                case EXTEND_BUDGET -> ciRepair.extendBudget(
-                        taskId, episodeId, command.commandId(),
-                        command.rerunDelta(), command.fixDelta(),
-                        command.pushDelta(), ACTOR, command.reason());
-                case CONTINUE_WITH_PER_PUSH_APPROVAL ->
-                        ciRepair.continueWithPerPushApproval(
-                                taskId, episodeId, command.commandId(),
-                                ACTOR, command.reason());
-                case MANUAL_TAKEOVER -> ciRepair.manualTakeover(
-                        taskId, episodeId, command.commandId(),
-                        ACTOR, command.reason());
-                case STOP_AUTOMATION -> ciRepair.stopAutomation(
-                        taskId, episodeId, command.commandId(),
-                        ACTOR, command.reason());
-                case START_BASE_REPAIR -> ciRepair.startBaseRepair(
-                        taskId, episodeId, command.blockerId(),
-                        command.commandId(),
-                        ACTOR, command.reason());
-                case RETRY_ONCE -> ciRepair.retryNoChange(
-                        taskId, episodeId, command.blockerId(),
-                        command.commandId(), ACTOR, command.reason());
-                case START_BRANCH_SYNC -> throw new AssertionError(
-                        "START_BRANCH_SYNC is handled before CI switch");
-            };
-            String observationOperationId = null;
-            if (command.action() == CiRecoveryAction.EXTEND_BUDGET
-                    || command.action()
-                    == CiRecoveryAction.CONTINUE_WITH_PER_PUSH_APPROVAL
-                    || command.action() == CiRecoveryAction.RETRY_ONCE) {
-                ObservationRequest observation = observations.requestObservation(
-                        taskId, episode.stageId());
-                observationOperationId = observation.operationId();
-            }
-            return new CiRecoveryResult(
-                    taskId, episodeId, command.commandId(), command.action(),
-                    episode.status(), episode.rerunLimit(),
-                    episode.fixAttemptLimit(), episode.pushLimit(),
-                    observationOperationId);
-        }
-        catch (DataAccessException | IllegalStateException failure) {
-            throw conflict("CI recovery does not own the exact exhausted episode",
-                    failure);
-        }
-        catch (IllegalArgumentException failure) {
-            throw conflict(failure.getMessage(), failure);
-        }
-    }
-
     /** Terminalizes one exact exhausted BranchSync episode; it never calls CI. */
     public BranchSyncRecoveryResult recoverBranchSync(
             String taskId,
@@ -512,26 +421,6 @@ public final class V2RecoveryControlService
         }
     }
 
-    private static void validateDeltas(CiRecoveryCommand command)
-    {
-        boolean valid = command.rerunDelta() >= 0
-                && command.fixDelta() >= 0
-                && command.pushDelta() >= 0;
-        if (command.action() == CiRecoveryAction.EXTEND_BUDGET) {
-            valid &= command.rerunDelta() + command.fixDelta()
-                    + command.pushDelta() > 0;
-        }
-        else {
-            valid &= command.rerunDelta() == 0
-                    && command.fixDelta() == 0
-                    && command.pushDelta() == 0;
-        }
-        if (!valid) {
-            throw new IllegalArgumentException(
-                    "Only EXTEND_BUDGET accepts positive CI budget deltas");
-        }
-    }
-
     private static ResponseStatusException conflict(
             String message, RuntimeException cause)
     {
@@ -572,50 +461,6 @@ public final class V2RecoveryControlService
             throw new IllegalArgumentException(name + " must not be blank");
         }
     }
-
-    public enum CiRecoveryAction
-    {
-        EXTEND_BUDGET,
-        CONTINUE_WITH_PER_PUSH_APPROVAL,
-        START_BASE_REPAIR,
-        START_BRANCH_SYNC,
-        RETRY_ONCE,
-        MANUAL_TAKEOVER,
-        STOP_AUTOMATION
-    }
-
-    public record CiRecoveryCommand(
-            String commandId,
-            String blockerId,
-            CiRecoveryAction action,
-            int rerunDelta,
-            int fixDelta,
-            int pushDelta,
-            String reason)
-    {
-        public CiRecoveryCommand(
-                String commandId,
-                CiRecoveryAction action,
-                int rerunDelta,
-                int fixDelta,
-                int pushDelta,
-                String reason)
-        {
-            this(commandId, null, action, rerunDelta, fixDelta, pushDelta,
-                    reason);
-        }
-    }
-
-    public record CiRecoveryResult(
-            String taskId,
-            String episodeId,
-            String commandId,
-            CiRecoveryAction action,
-            String status,
-            int rerunLimit,
-            int fixAttemptLimit,
-            int pushLimit,
-            String observationOperationId) {}
 
     public enum BranchSyncRecoveryAction
     {

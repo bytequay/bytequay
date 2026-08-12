@@ -127,14 +127,6 @@ public class TaskController
         return taskService.resumeTask(threadId, taskId);
     }
 
-    /** Retry exhausted post-ship CI. Kept separate from Resume because this
-     *  action causes the coordinator to rerun GitHub Actions. */
-    @PostMapping("/{taskId}/retry-ci")
-    public Task retryCi(@PathVariable String threadId, @PathVariable String taskId)
-    {
-        return taskService.retryFailedCi(threadId, taskId);
-    }
-
     /** Rename a task. Trimmed; an empty / null body clears the
      *  rename and reverts to the humanised branch-derived label. */
     @PatchMapping("/{taskId}/name")

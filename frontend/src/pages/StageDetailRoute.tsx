@@ -148,9 +148,9 @@ export function StageDetailRoute({
   const { data: brain, error: brainError, pollFast } = useBrainViewData(taskId);
   const developmentBrainRecovery = brain.recovery?.kind === 'RETRY_DEVELOPMENT_BRAIN_REVIEW'
       && brain.recovery.stageId === stageId ? brain.recovery : null;
-  const remoteRepairBrainRecovery = brain.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
+  const branchSyncBrainRecovery = brain.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
       && brain.recovery.stageId === stageId ? brain.recovery : null;
-  const brainRecovery = developmentBrainRecovery ?? remoteRepairBrainRecovery;
+  const brainRecovery = developmentBrainRecovery ?? branchSyncBrainRecovery;
   const worktreeQuarantined = data?.recovery?.worktreeQuarantine != null;
   const recoveryInteractionPending = stageRecoveryPending
     || brainRecovery !== null || worktreeQuarantined;
@@ -729,8 +729,7 @@ export function StageDetailRoute({
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {data?.recovery !== undefined
-          && (data.recovery.ci !== null || data.recovery.cleanup !== null
-            || data.recovery.localPublishBaseSync != null
+          && (data.recovery.cleanup !== null || data.recovery.localPublishBaseSync != null
             || data.recovery.branchSync != null
             || data.recovery.worktreeQuarantine != null) && (
           <StageRecoveryPrompt
@@ -910,10 +909,6 @@ export function StageDetailRoute({
     ?? data?.stage.metrics.wallTimeSec
     ?? (data === null ? 0 : Math.max(0, Math.round((Date.parse(data.stage.closedAt ?? new Date().toISOString())
       - Date.parse(data.stage.openedAt)) / 1000)));
-  const retryingExhaustedCi = data?.recovery?.ci == null && brain.task.paused
-    && brain.task.currentPhase === 'NEEDS_ATTENTION'
-    && ['ci fix attempts exhausted', 'ci fix no changes'].some(
-      reason => brain.task.statusLabel.toLowerCase().startsWith(reason));
   const stageFailureCommandId = useMemo(
     () => `${globalThis.crypto.randomUUID()}:${stageFailure?.blockerId ?? 'none'}`,
     [stageFailure?.blockerId],
@@ -1033,9 +1028,9 @@ export function StageDetailRoute({
         onResume: worktreeQuarantined
           || (stageReplacement === null && stageFailure === null
           && brainRecovery === null
-          && (data?.recovery?.ci != null || data?.recovery?.cleanup != null
+          && (data?.recovery?.cleanup != null
             || data?.recovery?.localPublishBaseSync != null
-            || (!retryingExhaustedCi && planRecovery === null && !canResumeTask))) ? undefined : () => {
+            || (planRecovery === null && !canResumeTask))) ? undefined : () => {
           setActionError(null);
           const action = stageFailure !== null
             ? window.bridge.recoverV2Stage(taskId, stageFailure.stageTurnId, {
@@ -1049,19 +1044,17 @@ export function StageDetailRoute({
                 stageReplacement.stageTurnId,
               )
               : brainRecovery !== null
-                ? (remoteRepairBrainRecovery === null
+                ? (branchSyncBrainRecovery === null
                   ? window.bridge.recoverV2DevelopmentBrainReview
-                  : window.bridge.recoverV2RemoteRepairBrainReview)(
+                  : window.bridge.recoverV2BranchSyncBrainReview)(
                   taskId, brainRecovery.failedTurnId, {
                     blockerId: brainRecovery.blockerId,
                     commandId: brainRecoveryCommandId,
-                    reason: remoteRepairBrainRecovery === null
+                    reason: branchSyncBrainRecovery === null
                       ? 'Explicit Retry Development Brain review action from the Stage run control'
-                      : 'Explicit Retry Remote repair Brain review action from the Stage run control',
+                      : 'Explicit Retry Branch sync Brain review action from the Stage run control',
                   })
-                : retryingExhaustedCi
-                  ? window.bridge.retryFailedCi(threadId, taskId)
-                  : planRecovery !== null
+                : planRecovery !== null
                     ? window.bridge.recoverV2Plan(taskId, planRecovery.failedTurnId, {
                       blockerId: planRecovery.blockerId,
                       commandId: planRecoveryCommandId,
@@ -1075,14 +1068,12 @@ export function StageDetailRoute({
                 : stageFailure !== null || stageReplacement !== null ? 'Could not retry the stage'
                   : brainRecovery !== null
                     ? 'Could not retry the Brain review'
-                    : retryingExhaustedCi ? 'Could not retry CI'
-                      : planRecovery !== null ? 'Could not retry the Plan'
+                    : planRecovery !== null ? 'Could not retry the Plan'
                         : 'Could not resume the task'));
         },
         resumeLabel: stageFailure !== null || stageReplacement !== null ? 'Retry stage'
           : brainRecovery !== null ? 'Retry Brain review'
-            : retryingExhaustedCi ? 'Retry CI'
-              : planRecovery !== null ? 'Retry Plan' : undefined,
+            : planRecovery !== null ? 'Retry Plan' : undefined,
         resumeConfirmation: stageFailure !== null ? {
           title: 'Retry this failed stage turn?',
           body: `This starts one fresh turn from the original durable stage context. The failed provider session will not be resumed.\n\n${stageFailure.reason}`,
@@ -1092,17 +1083,13 @@ export function StageDetailRoute({
           body: `This supersedes the stalled stage turn and starts a fresh turn from the stage's durable context.\n\n${stageReplacement.reason}`,
           confirmLabel: 'Retry stage',
         } : brainRecovery !== null ? {
-          title: remoteRepairBrainRecovery === null
+          title: branchSyncBrainRecovery === null
             ? 'Retry Development Brain review?'
-            : 'Retry Remote repair Brain review?',
-          body: remoteRepairBrainRecovery === null
+            : 'Retry Branch sync Brain review?',
+          body: branchSyncBrainRecovery === null
             ? 'This supersedes the malformed Brain result and starts one fresh review from the exact durable development context. The failed provider session will not be resumed.'
-            : 'This consumes the failed Remote Brain result and starts one fresh review from the exact durable CI or branch-repair context. It does not consume CI-fix budget, and the failed provider session will not be resumed.',
+            : 'This supersedes the malformed Brain result and starts one fresh review from the exact durable branch-sync context. The failed provider session will not be resumed.',
           confirmLabel: 'Retry Brain review',
-        } : retryingExhaustedCi ? {
-          title: 'Retry failed CI?',
-          body: `This asks GitHub Actions to rerun the failed checks for PR #${brain.task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
-          confirmLabel: 'Retry CI',
         } : undefined,
       }}
       error={actionError ?? prError ?? stageError ?? brainError ?? roundsError ?? runsError}

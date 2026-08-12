@@ -197,7 +197,7 @@ function BacklogMeta(
       )}
       {started === true
         ? <span className="start-dev-btn started">{progressLabel ?? 'Started'} <span className="arrow" aria-hidden>→</span></span>
-        : (
+        : onStartDevelopment !== undefined && (
           <button type="button" className="start-dev-btn" onClick={stop(onStartDevelopment)}>
             Start development <span className="arrow" aria-hidden>→</span>
           </button>

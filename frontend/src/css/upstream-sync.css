@@ -362,81 +362,6 @@
 .sr-queue__tail span { color: #9ba0a6; font-size: 11px; }
 .sr-queue__tail code { color: #9ba0a6; font-size: 10px; }
 
-/* ── Phase 2, pinned above the safety footer ────────────────── */
-
-.sr-queue__phase2 {
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 9px 14px;
-}
-
-.sr-queue__phase2-head {
-  align-items: center;
-  color: #8b9198;
-  display: flex;
-  font-size: 9px;
-  font-weight: 700;
-  gap: 6px;
-  letter-spacing: 0.07em;
-}
-
-.sr-queue__phase2-head em {
-  color: #9ba0a6;
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 500;
-  letter-spacing: 0;
-  margin-left: auto;
-}
-
-.sr-queue__phase2-dot {
-  background: #8b9198;
-  border-radius: 50%;
-  flex-shrink: 0;
-  height: 6px;
-  width: 6px;
-}
-
-.sr-queue__phase2.is-live .sr-queue__phase2-dot {
-  animation: sr-pulse 1.6s ease-in-out infinite;
-  background: #8250df;
-}
-
-.sr-queue__phase2.is-wait .sr-queue__phase2-dot { background: #bf8700; }
-.sr-queue__phase2.is-attention .sr-queue__phase2-dot { background: #cf222e; }
-
-.sr-queue__phase2 strong {
-  color: #454c54;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.sr-queue__phase2-now {
-  align-self: flex-start;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  border-radius: 7px;
-  color: #454c54;
-  cursor: pointer;
-  font: inherit;
-  font-size: 10.5px;
-  font-weight: 600;
-  margin-top: 5px;
-  padding: 4px 9px;
-}
-
-.sr-queue__phase2-now:hover { background: #f6f8fa; color: #1f2328; }
-
-.sr-queue__phase2 > span {
-  color: #9ba0a6;
-  font-size: 9.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .sr-queue__safety {
   align-items: flex-start;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -640,10 +565,6 @@
 }
 
 .sr-pick { margin-top: 10px; }
-
-.sr-pick.is-phase2 { border-left-color: rgba(124, 58, 237, 0.35); }
-.sr-pick__head.is-static { cursor: default; }
-.sr-pick__head.is-static strong { color: #6e747c; font-weight: 500; }
 
 /* A button so the whole pick folds; it must still read as the heading it was. */
 .sr-pick__head {

@@ -16,8 +16,6 @@ package com.bytequay.app.web;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryResult;
-import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryCommand;
-import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryResult;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryResult;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.DevelopmentBrainRecoveryCommand;
@@ -49,15 +47,6 @@ public class TaskRecoveryController
     public TaskRecoveryController(V2RecoveryControlService recovery)
     {
         this.recovery = requireNonNull(recovery, "recovery is null");
-    }
-
-    @PostMapping("/api/tasks/{taskId}/ci-repair/{episodeId}/recover")
-    public CiRecoveryResult recoverCi(
-            @PathVariable String taskId,
-            @PathVariable String episodeId,
-            @RequestBody CiRecoveryCommand command)
-    {
-        return recovery.recoverCi(taskId, episodeId, command);
     }
 
     @PostMapping("/api/tasks/{taskId}/branch-sync/{episodeId}/recover")

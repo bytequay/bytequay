@@ -17,8 +17,6 @@ import com.bytequay.app.beans.workspace.WorkspaceAutomationStatusDto;
 import com.bytequay.app.beans.workspace.WorkspaceCreationDto;
 import com.bytequay.app.beans.workspace.WorkspaceOnboardingDto;
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
-import com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor;
-import com.bytequay.app.scheduler.WorkspaceQualityScanCoordinator;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceCreationService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,8 +26,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import static java.util.Objects.requireNonNull;
+import static org.springframework.http.HttpStatus.GONE;
 
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}")
@@ -37,20 +37,14 @@ public class WorkspaceConfigurationController
 {
     private final WorkspaceConfigurationService configuration;
     private final WorkspaceCreationService creations;
-    private final WorkspaceQualityScanCoordinator qualityScans;
-    private final WorkspaceIssueIntakeMonitor issueIntake;
 
     public WorkspaceConfigurationController(
             WorkspaceConfigurationService configuration,
-            WorkspaceCreationService creations,
-            WorkspaceQualityScanCoordinator qualityScans,
-            WorkspaceIssueIntakeMonitor issueIntake)
+            WorkspaceCreationService creations)
     {
         this.configuration = requireNonNull(
                 configuration, "configuration is null");
         this.creations = requireNonNull(creations, "creations is null");
-        this.qualityScans = requireNonNull(qualityScans, "qualityScans is null");
-        this.issueIntake = requireNonNull(issueIntake, "issueIntake is null");
     }
 
     @GetMapping("/settings")
@@ -64,39 +58,24 @@ public class WorkspaceConfigurationController
             @PathVariable String workspaceId,
             @RequestBody WorkspaceSettingsDto settings)
     {
+        if (settings.qualityScanEnabled()
+                || settings.remoteIssueIntakeEnabled()) {
+            throw new ResponseStatusException(
+                    GONE, "Automatic legacy Task creation is retired");
+        }
         return configuration.saveSettings(workspaceId, settings);
     }
 
     @GetMapping("/automation")
     public WorkspaceAutomationStatusDto automation(@PathVariable String workspaceId)
     {
-        WorkspaceQualityScanCoordinator.QualityScanStatus quality =
-                qualityScans.status(workspaceId);
-        WorkspaceIssueIntakeMonitor.MonitorStatus intake =
-                issueIntake.status(workspaceId);
         return new WorkspaceAutomationStatusDto(
                 new WorkspaceAutomationStatusDto.QualityScan(
-                        quality.enabled(),
-                        quality.eligible(),
-                        quality.reason(),
-                        quality.running(),
-                        quality.lastRunAt(),
-                        quality.expectedNextRunAt(),
-                        quality.lastOutcome(),
-                        quality.findingsProposed(),
-                        quality.lastError()),
+                        false, false, "Automatic Task creation is retired",
+                        false, null, null, "RETIRED", 0, null),
                 new WorkspaceAutomationStatusDto.RemoteIssueIntake(
-                        intake.enabled(),
-                        intake.eligible(),
-                        intake.reason(),
-                        intake.running(),
-                        intake.lastRunAt(),
-                        intake.expectedNextRunAt(),
-                        intake.lastOutcome(),
-                        intake.issuesExamined(),
-                        intake.tasksQueued(),
-                        intake.implementationsStarted(),
-                        intake.lastError()));
+                        false, false, "Automatic Task creation is retired",
+                        false, null, null, "RETIRED", 0, 0, 0, null));
     }
 
     @GetMapping("/onboarding")

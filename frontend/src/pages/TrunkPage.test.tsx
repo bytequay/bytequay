@@ -167,7 +167,6 @@ function mockBridge({
     startAgentReview: vi.fn().mockResolvedValue({}),
     recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
-    startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
     skipBacklogItem: vi.fn().mockResolvedValue(undefined),
     openInAppBrowser: vi.fn().mockResolvedValue(undefined),
     markNotificationRead: vi.fn().mockResolvedValue({ id: 'n1', status: 'read' }),
@@ -335,7 +334,7 @@ describe('TrunkPage', () => {
 
   it('keeps trunk backlog cards local, shows lifecycle details, and folds after three', async () => {
     window.location.hash = '#/workspace/ws-1/trunks/t1';
-    const bridge = mockBridge({
+    mockBridge({
       backlog: [
         backlogItem({ startedAt: 2, summary: 'Remove legacy endpoint' }),
         backlogItem({
@@ -367,13 +366,9 @@ describe('TrunkPage', () => {
 
     fireEvent.click(item);
     const dialog = screen.getByRole('dialog', { name: 'Backlog item BQ-1' });
-    expect(within(dialog).getByRole('button', { name: /Start development/ })).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: /Start development/ })).toBeNull();
     expect(window.location.hash).toBe('#/workspace/ws-1/trunks/t1');
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-
-    const openCard = await screen.findByRole('button', { name: /Remove legacy endpoint/ });
-    fireEvent.click(within(openCard).getByRole('button', { name: /Start development/ }));
-    await waitFor(() => expect(bridge.startBacklogDevelopment).toHaveBeenCalledWith('b1'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Load 2 more' }));
     expect(screen.getByText('Fourth phase')).toBeTruthy();

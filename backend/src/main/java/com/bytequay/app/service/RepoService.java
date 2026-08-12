@@ -34,6 +34,10 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubIssueRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
@@ -46,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
@@ -101,7 +106,10 @@ public class RepoService
             "+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes");
 
     private final WatchedRepoStore watchedRepoStore;
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubIssueRepository issues;
+    private final GitHubAccountRepository accounts;
     private final PrViewStateStore viewStateStore;
     private final RepoListCache repoListCache;
     private final RepoMetaStore repoMetaStore;
@@ -113,9 +121,13 @@ public class RepoService
     private final Executor ioExecutor;
     private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
+    @Autowired
     public RepoService(
             WatchedRepoStore watchedRepoStore,
-            PullRequestRepository gitHub,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubIssueRepository issues,
+            GitHubAccountRepository accounts,
             PrViewStateStore viewStateStore,
             RepoListCache repoListCache,
             RepoMetaStore repoMetaStore,
@@ -127,7 +139,10 @@ public class RepoService
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
@@ -137,6 +152,24 @@ public class RepoService
         this.issueOrigins = requireNonNull(issueOrigins, "issueOrigins is null");
         this.watchedRepoPurger = requireNonNull(watchedRepoPurger, "watchedRepoPurger is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
+    }
+
+    RepoService(
+            WatchedRepoStore watchedRepoStore,
+            PullRequestRepository gitHub,
+            PrViewStateStore viewStateStore,
+            RepoListCache repoListCache,
+            RepoMetaStore repoMetaStore,
+            SqliteGithubHomeCacheStore homeCache,
+            AppSettingsStore settingsStore,
+            PatResolver patResolver,
+            IssueOriginService issueOrigins,
+            WatchedRepoPurger watchedRepoPurger,
+            Executor ioExecutor)
+    {
+        this(watchedRepoStore, gitHub, gitHub, gitHub, gitHub, viewStateStore, repoListCache,
+                repoMetaStore, homeCache, settingsStore, patResolver, issueOrigins,
+                watchedRepoPurger, ioExecutor);
     }
 
     public List<WatchedRepo> listWatchedRepos()
@@ -171,7 +204,7 @@ public class RepoService
 
         String pat = patResolver.resolve();
         try {
-            ContributionCalendar fresh = gitHub.fetchContributionCalendar(pat, login);
+            ContributionCalendar fresh = accounts.fetchContributionCalendar(pat, login);
             contributionCalendarCache.put(login, new CachedContributionCalendar(fresh, Instant.now()));
             return fresh;
         }
@@ -197,7 +230,7 @@ public class RepoService
         if (isoDate == null || !ISO_DATE.matcher(isoDate).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be yyyy-MM-dd");
         }
-        return gitHub.fetchUserCommitsOnDate(pat, login, isoDate);
+        return accounts.fetchUserCommitsOnDate(pat, login, isoDate);
     }
 
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
@@ -230,11 +263,11 @@ public class RepoService
     public UserProfile refreshUserProfileFromGitHub()
     {
         String pat = patResolver.resolve();
-        UserProfile rest = gitHub.fetchUserProfile(pat);
+        UserProfile rest = accounts.fetchUserProfile(pat);
         // hasSponsors lives in GraphQL only — overlay it onto the REST result.
-        // Failure-path returns false from GitHubClient, which means the
+        // Failure-path returns false from the GitHub account client, which means the
         // Sponsors row simply hides on the home page.
-        boolean hasSponsors = gitHub.fetchHasSponsorsListing(pat);
+        boolean hasSponsors = accounts.fetchHasSponsorsListing(pat);
         UserProfile fresh = new UserProfile(
                 rest.login(),
                 rest.name(),
@@ -264,7 +297,7 @@ public class RepoService
         // read — that way "Mark handled" / snooze clicks reflect
         // immediately, without waiting for the 2-min TTL to expire.
         List<PullRequest> base = repoListCache.getPulls(ref,
-                () -> gitHub.listPullRequests(pat, ref, ListPullRequestsQuery.openPullRequests()));
+                () -> pullRequests.listPullRequests(pat, ref, ListPullRequestsQuery.openPullRequests()));
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
         return base.stream()
                 .map(pr -> overlayViewState(pr, stateByPrId.get(pr.id())))
@@ -279,7 +312,7 @@ public class RepoService
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
     {
         String pat = patResolver.resolve(owner + "/" + repo);
-        PullRequest fresh = gitHub.getPullRequest(pat, PullRequestRef.of(owner, repo, number));
+        PullRequest fresh = pullRequests.getPullRequest(pat, PullRequestRef.of(owner, repo, number));
         PrViewState state = viewStateStore.findAll().get(fresh.id());
         return overlayViewState(fresh, state);
     }
@@ -308,7 +341,7 @@ public class RepoService
         // default, which matches typical "type a memorable phrase" UX.
         String trimmed = query.trim();
         String searchQuery = "repo:" + owner + "/" + repo + " type:pr in:title " + trimmed;
-        List<PullRequest> hits = gitHub.searchPullRequests(pat, searchQuery);
+        List<PullRequest> hits = pullRequests.searchPullRequests(pat, searchQuery);
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
         return hits.stream()
                 .map(pr -> overlayViewState(pr, stateByPrId.get(pr.id())))
@@ -359,7 +392,7 @@ public class RepoService
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef ref = RepoRef.of(owner, repo);
         String normalized = (state == null || state.isBlank()) ? "open" : state;
-        return repoListCache.getIssues(ref, normalized, () -> gitHub.fetchRepoIssues(pat, ref, normalized)).stream()
+        return repoListCache.getIssues(ref, normalized, () -> issues.fetchRepoIssues(pat, ref, normalized)).stream()
                 .map(issue -> issueOrigins.attribute(ref, issue))
                 .toList();
     }
@@ -376,7 +409,7 @@ public class RepoService
     {
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef ref = RepoRef.of(owner, repo);
-        RepoIssueIntakePage first = gitHub.fetchRepoIssueIntakePage(
+        RepoIssueIntakePage first = issues.fetchRepoIssueIntakePage(
                 pat, ref, 1, ISSUE_INTAKE_PAGE_SIZE);
         int nextCursor = Math.max(cursor == null ? 0 : cursor, first.newestNumber());
         if (cursor == null || first.newestNumber() == 0) {
@@ -394,7 +427,7 @@ public class RepoService
             if (!page.hasMore() || page.oldestNumber() <= cursor) {
                 break;
             }
-            page = gitHub.fetchRepoIssueIntakePage(
+            page = issues.fetchRepoIssueIntakePage(
                     pat, ref, ++pageNumber, ISSUE_INTAKE_PAGE_SIZE);
             if (page.newestNumber() == 0) {
                 break;
@@ -417,10 +450,10 @@ public class RepoService
     {
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef ref = RepoRef.of(owner, repo);
-        IssueDetail base = gitHub.fetchIssueDetail(pat, ref, number);
-        List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
-        List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
-        boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
+        IssueDetail base = issues.fetchIssueDetail(pat, ref, number);
+        List<IssueDetail.Comment> comments = issues.fetchIssueDetailComments(pat, ref, number);
+        List<IssueTimelineEvent> timeline = issues.fetchIssueTimeline(pat, ref, number);
+        boolean subscribed = issues.fetchIssueSubscription(pat, ref, number);
         IssueDetail detail = new IssueDetail(
                 base.id(),
                 base.number(),
@@ -451,12 +484,12 @@ public class RepoService
     {
         String pat = patResolver.resolve(owner + "/" + repo);
         requireNotBlank(body, "Comment body must not be blank");
-        return gitHub.postIssueComment(pat, RepoRef.of(owner, repo), number, body);
+        return issues.postIssueComment(pat, RepoRef.of(owner, repo), number, body);
     }
 
     /**
      * Toggles an issue's state. Returns the post-flip detail with the
-     * existing comment list spliced back in — GitHubClient drops the
+     * existing comment list spliced back in — the GitHub issue client drops the
      * comments to keep its method one-fetch-per-call, so we re-attach
      * here using the cached fetch path. The frontend uses the result
      * to update both detail.state and any derived UI (close
@@ -470,13 +503,13 @@ public class RepoService
                     "state must be \"open\" or \"closed\"; got: " + state);
         }
         RepoRef ref = RepoRef.of(owner, repo);
-        IssueDetail flipped = gitHub.setIssueState(pat, ref, number, state);
+        IssueDetail flipped = issues.setIssueState(pat, ref, number, state);
         // Re-fetch comments + timeline so the close/reopen event GitHub
         // emits and any closedAt timestamps surface without a second
         // round-trip from the frontend.
-        List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
-        List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
-        boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
+        List<IssueDetail.Comment> comments = issues.fetchIssueDetailComments(pat, ref, number);
+        List<IssueTimelineEvent> timeline = issues.fetchIssueTimeline(pat, ref, number);
+        boolean subscribed = issues.fetchIssueSubscription(pat, ref, number);
         IssueDetail detail = new IssueDetail(
                 flipped.id(),
                 flipped.number(),
@@ -506,7 +539,7 @@ public class RepoService
     public void setIssueSubscription(String owner, String repo, int number, boolean subscribe)
     {
         String pat = patResolver.resolve(owner + "/" + repo);
-        gitHub.setIssueSubscription(pat, RepoRef.of(owner, repo), number, subscribe);
+        issues.setIssueSubscription(pat, RepoRef.of(owner, repo), number, subscribe);
     }
 
     /**
@@ -524,7 +557,7 @@ public class RepoService
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "reaction content must be one of " + ALLOWED_REACTION_CONTENT);
         }
-        gitHub.addIssueCommentReaction(pat, owner, repo, commentId, content);
+        pullRequestWrites.addIssueCommentReaction(pat, owner, repo, commentId, content);
     }
 
     /**
@@ -557,7 +590,7 @@ public class RepoService
                 return s.meta();
             }
         }
-        RepoMeta fresh = gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+        RepoMeta fresh = issues.fetchRepoMeta(pat, RepoRef.of(owner, repo));
         repoMetaStore.save(owner, repo, fresh, now);
         return fresh;
     }
@@ -566,7 +599,7 @@ public class RepoService
     {
         String pat = patResolver.resolve(owner + "/" + repo);
         try {
-            RepoMeta fresh = gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+            RepoMeta fresh = issues.fetchRepoMeta(pat, RepoRef.of(owner, repo));
             repoMetaStore.save(owner, repo, fresh, Instant.now());
         }
         catch (Exception e) {
@@ -578,13 +611,13 @@ public class RepoService
     {
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef ref = RepoRef.of(owner, repo);
-        return repoListCache.getActivity(ref, () -> gitHub.fetchRepoActivity(pat, ref));
+        return repoListCache.getActivity(ref, () -> issues.fetchRepoActivity(pat, ref));
     }
 
     public List<UserRepo> getUserRepos()
     {
         String pat = patResolver.resolve();
-        return gitHub.fetchUserRepos(pat);
+        return accounts.fetchUserRepos(pat);
     }
 
     /**
@@ -613,7 +646,7 @@ public class RepoService
         String pat = patResolver.resolve();
         List<UserOrg> fresh;
         try {
-            fresh = ImmutableList.copyOf(gitHub.fetchUserOrgs(pat));
+            fresh = ImmutableList.copyOf(accounts.fetchUserOrgs(pat));
         }
         catch (ResponseStatusException e) {
             int status = e.getStatusCode().value();
@@ -644,18 +677,18 @@ public class RepoService
             String owner = trimmed.substring(0, slash).trim();
             String name = trimmed.substring(slash + 1).trim();
             if (!owner.isEmpty() && !name.isEmpty()) {
-                Optional<UserRepo> exact = gitHub.fetchRepository(pat, owner, name);
+                Optional<UserRepo> exact = accounts.fetchRepository(pat, owner, name);
                 if (exact.isPresent()) {
                     return ImmutableList.of(exact.get());
                 }
                 // Exact miss (typo, no access) — fall back to a search
                 // scoped to that owner so a near-match still surfaces.
-                return gitHub.searchRepositories(pat, name + " in:name user:" + owner);
+                return accounts.searchRepositories(pat, name + " in:name user:" + owner);
             }
         }
         // Bare term — bias toward name matches so a specific repo isn't
         // buried under description/readme hits.
-        return gitHub.searchRepositories(pat, trimmed + " in:name");
+        return accounts.searchRepositories(pat, trimmed + " in:name");
     }
 
     public List<GitHubUserMatch> searchUsers(String query)
@@ -666,7 +699,7 @@ public class RepoService
             // empty list so the autocomplete doesn't error on "a" / "ab".
             return Collections.emptyList();
         }
-        return gitHub.searchUsers(pat, query.trim());
+        return accounts.searchUsers(pat, query.trim());
     }
 
     /**
@@ -697,7 +730,7 @@ public class RepoService
         String pat = patResolver.resolve();
         Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        List<RecentEvent> fresh = gitHub.fetchUserEvents(pat, login, 100).stream()
+        List<RecentEvent> fresh = accounts.fetchUserEvents(pat, login, 100).stream()
                 .filter(e -> e.createdAt() != null && !e.createdAt().isBefore(monthStart))
                 .collect(toImmutableList());
         homeCache.putEvents(login, EventFeed.RECENT, fresh, Instant.now());
@@ -711,7 +744,7 @@ public class RepoService
     public List<RecentEvent> refreshFollowingEventsFromGitHub(String login)
     {
         String pat = patResolver.resolve();
-        List<RecentEvent> all = gitHub.fetchReceivedEvents(pat, login, 30);
+        List<RecentEvent> all = accounts.fetchReceivedEvents(pat, login, 30);
         List<RecentEvent> fresh = ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
         homeCache.putEvents(login, EventFeed.FOLLOWING, fresh, Instant.now());
         return fresh;
@@ -720,7 +753,7 @@ public class RepoService
     public UserProfile updateUserProfile(String name, String bio, String location)
     {
         String pat = patResolver.resolve();
-        gitHub.updateUserProfile(pat, name, bio, location);
+        accounts.updateUserProfile(pat, name, bio, location);
         // Re-fetch + persist via the same path the scheduler uses so the
         // hasSponsors overlay is re-applied and the cache reflects the edit
         // on the very next read.

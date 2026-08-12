@@ -18,6 +18,8 @@ import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -30,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
@@ -110,19 +113,22 @@ public class UpstreamCherryPickService
     private final WorkspaceRelationService relations;
     private final GitRunner git;
     private final PatResolver pats;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
     private final PRSyncService prSync;
     private final SyncRunStream stream;
     private final ObjectProvider<ConflictRepairAgent> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
+    @Autowired
     public UpstreamCherryPickService(
             JdbcTemplate jdbc,
             ObjectMapper mapper,
             WorkspaceRelationService relations,
             GitRunner git,
             PatResolver pats,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
             PRSyncService prSync,
             ObjectProvider<ConflictRepairAgent> repairAdvisor,
             SyncRunStream stream)
@@ -133,9 +139,24 @@ public class UpstreamCherryPickService
         this.git = requireNonNull(git, "git is null");
         this.pats = requireNonNull(pats, "pats is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
         this.stream = requireNonNull(stream, "stream is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
+    }
+
+    UpstreamCherryPickService(
+            JdbcTemplate jdbc,
+            ObjectMapper mapper,
+            WorkspaceRelationService relations,
+            GitRunner git,
+            PatResolver pats,
+            PullRequestRepository gitHub,
+            PRSyncService prSync,
+            ObjectProvider<ConflictRepairAgent> repairAdvisor,
+            SyncRunStream stream)
+    {
+        this(jdbc, mapper, relations, git, pats, gitHub, gitHub, prSync, repairAdvisor, stream);
     }
 
     /**
@@ -1641,7 +1662,7 @@ public class UpstreamCherryPickService
                 ? provenance
                 : row.prDescription() + "\n\n---\n\n" + provenance;
         try {
-            return pullRequests.createPullRequest(
+            return pullRequestWrites.createPullRequest(
                     pat,
                     target,
                     CreatePullRequestCommand.draft(

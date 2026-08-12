@@ -16,7 +16,7 @@ package com.bytequay.app.service.learning;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -63,10 +63,10 @@ public class MergedPrCatalog
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ISO_LOCAL_DATE;
 
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
     private final ObjectMapper json;
 
-    public MergedPrCatalog(PullRequestRepository gitHub, ObjectMapper json)
+    public MergedPrCatalog(GitHubPullRequestReadRepository gitHub, ObjectMapper json)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.json = requireNonNull(json, "json is null");

@@ -123,7 +123,7 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
@@ -375,7 +375,7 @@ public class DevelopmentFlowExecutionConfig
             SqliteProvisionTaskOperationStore operations,
             GitRunnerProvisioningGit git,
             WorktreeWriterLeaseManager writers,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
             PatResolver pats,
             ObjectMapper json)
     {

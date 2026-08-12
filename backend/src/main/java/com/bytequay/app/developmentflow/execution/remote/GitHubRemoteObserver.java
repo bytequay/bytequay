@@ -36,17 +36,21 @@ import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogCapture;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogStatus;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsWorkflowJob;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsWorkflowJobSetEvidence;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsWorkflowRun;
+import com.bytequay.app.repository.GitHubActionsRepository.CheckRunAnnotation;
+import com.bytequay.app.repository.GitHubActionsRepository.CheckRunAnnotationEvidence;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubMergeRepository.MergeQueueInfo;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository.FileBlob;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository.ReviewThreadMeta;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogCapture;
-import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogStatus;
-import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJob;
-import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJobSetEvidence;
-import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowRun;
-import com.bytequay.app.repository.PullRequestRepository.CheckRunAnnotation;
-import com.bytequay.app.repository.PullRequestRepository.CheckRunAnnotationEvidence;
-import com.bytequay.app.repository.PullRequestRepository.FileBlob;
-import com.bytequay.app.repository.PullRequestRepository.MergeQueueInfo;
-import com.bytequay.app.repository.PullRequestRepository.ReviewThreadMeta;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.CollaboratorPermissionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -135,7 +139,10 @@ public final class GitHubRemoteObserver
                     + "the operation was canceled\\.?|"
                     + "no job summary was generated\\.?)$");
 
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubMergeRepository merges;
+    private final GitHubActionsRepository actions;
+    private final GitHubAccountRepository accounts;
     private final PatResolver pats;
     private final CollaboratorPermissionService collaborators;
     private final ObjectMapper json;
@@ -143,22 +150,41 @@ public final class GitHubRemoteObserver
 
     @Autowired
     public GitHubRemoteObserver(
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubMergeRepository merges,
+            GitHubActionsRepository actions,
+            GitHubAccountRepository accounts,
             PatResolver pats,
             CollaboratorPermissionService collaborators,
             ObjectMapper json)
     {
-        this(pullRequests, pats, collaborators, json, Clock.systemUTC());
+        this(pullRequests, merges, actions, accounts, pats, collaborators, json, Clock.systemUTC());
     }
 
     GitHubRemoteObserver(
-            PullRequestRepository pullRequests,
+            PullRequestRepository gitHub,
+            PatResolver pats,
+            CollaboratorPermissionService collaborators,
+            ObjectMapper json,
+            Clock clock)
+    {
+        this(gitHub, gitHub, gitHub, gitHub, pats, collaborators, json, clock);
+    }
+
+    GitHubRemoteObserver(
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubMergeRepository merges,
+            GitHubActionsRepository actions,
+            GitHubAccountRepository accounts,
             PatResolver pats,
             CollaboratorPermissionService collaborators,
             ObjectMapper json,
             Clock clock)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.merges = requireNonNull(merges, "merges is null");
+        this.actions = requireNonNull(actions, "actions is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.pats = requireNonNull(pats, "pats is null");
         this.collaborators = requireNonNull(collaborators, "collaborators is null");
         this.json = requireNonNull(json, "json is null");
@@ -180,9 +206,9 @@ public final class GitHubRemoteObserver
 
         requireActive(execution);
         String viewer = requireText(
-                pullRequests.fetchUserProfile(pat).login(), "GitHub viewer login");
+                accounts.fetchUserProfile(pat).login(), "GitHub viewer login");
         requireActive(execution);
-        boolean viewerCanMerge = pullRequests.fetchViewerCanWrite(pat, repository);
+        boolean viewerCanMerge = accounts.fetchViewerCanWrite(pat, repository);
         requireActive(execution);
         PrRawDetail detail = requireNonNull(
                 pullRequests.fetchPrDetail(pat, pullRequest),
@@ -194,7 +220,7 @@ public final class GitHubRemoteObserver
                 pullRequests.fetchPrReviews(pat, pullRequest));
         requireActive(execution);
         List<PrCheckRunState> checks = List.copyOf(
-                pullRequests.fetchPrCheckRunsStrict(
+                actions.fetchPrCheckRunsStrict(
                         pat, repository.owner(), repository.repo(), detail.headSha()));
         RemoteCiProvenance ciProvenance = ciProvenance(
                 request, execution, repository, pat, detail, checks);
@@ -212,7 +238,7 @@ public final class GitHubRemoteObserver
                 pullRequests.fetchPrIssueComments(pat, pullRequest, Instant.EPOCH));
         requireActive(execution);
         MergeQueueInfo queue = requireNonNull(
-                pullRequests.fetchMergeQueueInfo(pat, pullRequest),
+                merges.fetchMergeQueueInfo(pat, pullRequest),
                 "GitHub returned no merge queue observation");
         requireActive(execution);
         PrRawDetail stableDetail = requireNonNull(
@@ -325,7 +351,7 @@ public final class GitHubRemoteObserver
 
         requireActive(execution);
         List<PrCheckRunState> baseChecks = List.copyOf(
-                pullRequests.fetchPrCheckRunsStrict(
+                actions.fetchPrCheckRunsStrict(
                         pat, repository.owner(), repository.repo(),
                         detail.baseSha()));
         Map<Long, Optional<ActionsWorkflowRun>> workflows = new HashMap<>();
@@ -407,7 +433,7 @@ public final class GitHubRemoteObserver
             ExactRunEvidence exact = cached.get();
             requireActive(execution);
             Optional<ActionsWorkflowRun> latest =
-                    pullRequests.fetchActionsWorkflowRun(
+                    actions.fetchActionsWorkflowRun(
                             pat, repository, exact.run().runId());
             if (latest == null || latest.isEmpty()
                     || !sameCompletedRun(exact.run(), latest.get())) {
@@ -443,7 +469,7 @@ public final class GitHubRemoteObserver
             workflow = workflows.get(runId);
             if (workflow == null) {
                 requireActive(execution);
-                workflow = pullRequests.fetchActionsWorkflowRun(
+                workflow = actions.fetchActionsWorkflowRun(
                         pat, repository, runId);
                 if (workflow == null) {
                     workflow = Optional.empty();
@@ -500,7 +526,7 @@ public final class GitHubRemoteObserver
                 && metadata.annotationCount() != null) {
             requireActive(execution);
             CheckRunAnnotationEvidence annotations =
-                    pullRequests.fetchCheckRunAnnotationsStrict(
+                    actions.fetchCheckRunAnnotationsStrict(
                             pat, repository, check.githubId(),
                             metadata.annotationCount());
             if (annotations != null) {
@@ -621,7 +647,7 @@ public final class GitHubRemoteObserver
         }
 
         requireActive(execution);
-        ActionsJobLogCapture capture = pullRequests.fetchActionsJobLogStrict(
+        ActionsJobLogCapture capture = actions.fetchActionsJobLogStrict(
                 pat, repository, jobs.getFirst().jobId());
         if (capture == null
                 || capture.status() != ActionsJobLogStatus.COMPLETE) {
@@ -690,7 +716,7 @@ public final class GitHubRemoteObserver
                     latest, value.run()));
         }
         requireActive(execution);
-        ActionsWorkflowRun exact = pullRequests.fetchActionsWorkflowRunAttemptStrict(
+        ActionsWorkflowRun exact = actions.fetchActionsWorkflowRunAttemptStrict(
                 pat, repository, latest.runId(), latest.runAttempt());
         if (!sameCompletedRun(latest, exact)) {
             exactRuns.put(key, Optional.empty());
@@ -698,7 +724,7 @@ public final class GitHubRemoteObserver
         }
         requireActive(execution);
         ActionsWorkflowJobSetEvidence jobs =
-                pullRequests.fetchActionsWorkflowAttemptJobsStrict(
+                actions.fetchActionsWorkflowAttemptJobsStrict(
                         pat, repository, exact.runId(), exact.runAttempt());
         if (!validJobSet(exact, jobs)) {
             exactRuns.put(key, Optional.empty());

@@ -603,7 +603,7 @@ public class PRSyncService
         if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
             // The dashboard sweep's initial createExternal has no better guess
             // than "unknown"/the default base — GitHub's search API never
-            // returns head.ref (GitHubClient.toPullRequest). Backfill the real
+            // returns head.ref (GitHubPullRequestReadClient.toPullRequest). Backfill the real
             // names here too, since a PR opened directly (never touched by a
             // dashboard tick first) reaches this path, not syncDashboardDetail.
             if (detail.headRef() != null || detail.baseRef() != null) {

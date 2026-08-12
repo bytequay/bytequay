@@ -35,11 +35,17 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.RequestedReviewers;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository.ReviewThreadMeta;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestRepository.ReviewThreadMeta;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.google.common.collect.ImmutableSet;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -64,21 +70,43 @@ import static java.util.Objects.requireNonNull;
 public final class GitHubUserRemoteActionGateway
         implements UserRemoteActionOperationHandler.Gateway
 {
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubMergeRepository merges;
+    private final GitHubActionsRepository actions;
+    private final GitHubAccountRepository accounts;
     private final PatResolver pats;
     private final GitRunner git;
     private final WorktreeWriterLeaseManager writers;
 
+    @Autowired
     public GitHubUserRemoteActionGateway(
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubMergeRepository merges,
+            GitHubActionsRepository actions,
+            GitHubAccountRepository accounts,
             PatResolver pats,
             GitRunner git,
             WorktreeWriterLeaseManager writers)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.merges = requireNonNull(merges, "merges is null");
+        this.actions = requireNonNull(actions, "actions is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.pats = requireNonNull(pats, "pats is null");
         this.git = requireNonNull(git, "git is null");
         this.writers = requireNonNull(writers, "writers is null");
+    }
+
+    GitHubUserRemoteActionGateway(
+            PullRequestRepository gitHub,
+            PatResolver pats,
+            GitRunner git,
+            WorktreeWriterLeaseManager writers)
+    {
+        this(gitHub, gitHub, gitHub, gitHub, gitHub, pats, git, writers);
     }
 
     @Override
@@ -160,46 +188,46 @@ public final class GitHubUserRemoteActionGateway
             case SUBMIT_REVIEW -> submitReview(action, context);
             case RERUN_FAILED_CHECKS -> rerunFailedChecks(action, context);
             case SET_DRAFT_STATE -> mutateAndProbe(action, context, target ->
-                    pullRequests.setPullRequestDraft(
+                    pullRequestWrites.setPullRequestDraft(
                             target.pat(), target.ref(), selected(action)));
             case UPDATE_TITLE -> mutateAndProbe(action, context, target ->
-                    pullRequests.updatePullRequest(
+                    pullRequestWrites.updatePullRequest(
                             target.pat(), target.ref(), updateTitle(action)));
             case UPDATE_BODY -> mutateAndProbe(action, context, target ->
-                    pullRequests.updatePullRequest(
+                    pullRequestWrites.updatePullRequest(
                             target.pat(), target.ref(), updateBody(action)));
             case CLOSE_PULL_REQUEST -> mutateAndProbe(action, context, target ->
-                    pullRequests.updatePullRequest(
+                    pullRequestWrites.updatePullRequest(
                             target.pat(), target.ref(),
                             UpdatePullRequestCommand.close()));
             case COMMENT_AND_CLOSE -> commentAndClose(action, context);
             case REPLY_REVIEW_THREAD -> replyReviewThread(action, context);
             case EDIT_ISSUE_COMMENT -> mutateAndProbe(action, context, target ->
-                    pullRequests.editIssueComment(
+                    pullRequestWrites.editIssueComment(
                             target.pat(), target.ref().owner(),
                             target.ref().repo(), targetId(action),
                             requireText(action.payload().body(), "comment body")));
             case EDIT_REVIEW_COMMENT -> mutateAndProbe(action, context, target ->
-                    pullRequests.editReviewComment(
+                    pullRequestWrites.editReviewComment(
                             target.pat(), target.ref().owner(),
                             target.ref().repo(), targetId(action),
                             requireText(action.payload().body(), "comment body")));
             case DELETE_ISSUE_COMMENT -> mutateAndProbe(action, context,
-                    target -> pullRequests.deleteIssueComment(
+                    target -> pullRequestWrites.deleteIssueComment(
                             target.pat(), target.ref().owner(),
                             target.ref().repo(), targetId(action)));
             case DELETE_REVIEW_COMMENT -> mutateAndProbe(action, context,
-                    target -> pullRequests.deleteReviewComment(
+                    target -> pullRequestWrites.deleteReviewComment(
                             target.pat(), target.ref().owner(),
                             target.ref().repo(), targetId(action)));
             case ADD_REVIEWER -> mutateReviewer(action, context, true);
             case REMOVE_REVIEWER -> mutateReviewer(action, context, false);
             case SET_ASSIGNEE -> mutateAndProbe(action, context, target ->
-                    pullRequests.setPullRequestAssignee(
+                    pullRequestWrites.setPullRequestAssignee(
                             target.pat(), target.ref(), value(action),
                             selected(action)));
             case SET_LABEL -> mutateAndProbe(action, context, target ->
-                    pullRequests.setPullRequestLabel(
+                    pullRequestWrites.setPullRequestLabel(
                             target.pat(), target.ref(), value(action),
                             selected(action)));
             case CREATE_INLINE_COMMENT -> createInlineComment(action, context);
@@ -208,10 +236,10 @@ public final class GitHubUserRemoteActionGateway
             case SET_THREAD_RESOLUTION -> setThreadResolution(action, context);
             case MERGE -> merge(action, context);
             case ENABLE_AUTO_MERGE -> mutateAndProbe(
-                    action, context, target -> pullRequests.enableAutoMerge(
+                    action, context, target -> merges.enableAutoMerge(
                             target.pat(), target.ref(), mergeMethod(action)));
             case DISABLE_AUTO_MERGE -> mutateAndProbe(
-                    action, context, target -> pullRequests.disableAutoMerge(
+                    action, context, target -> merges.disableAutoMerge(
                             target.pat(), target.ref()));
             case APPLY_SUGGESTION -> applySuggestion(action, context);
             case TRIGGER_CI_EMPTY_COMMIT -> throw new AssertionError();
@@ -267,7 +295,7 @@ public final class GitHubUserRemoteActionGateway
         Target target = requireExactTarget(action);
         try {
             requireActive(context);
-            pullRequests.dequeuePullRequest(target.pat(), target.ref());
+            merges.dequeuePullRequest(target.pat(), target.ref());
             return requireProven(
                     probeDequeue(action),
                     "GitHub still exposes the exact PR in its merge queue");
@@ -287,7 +315,7 @@ public final class GitHubUserRemoteActionGateway
         BranchTarget branch = branchTarget(action);
         try {
             requireActive(context);
-            pullRequests.deleteBranch(
+            merges.deleteBranch(
                     branch.pat(), branch.repository(), action.branchName());
             return requireProven(
                     probeDeletedBranch(action),
@@ -309,7 +337,7 @@ public final class GitHubUserRemoteActionGateway
         try {
             requireActive(context);
             PrTimelineEvent created = requireNonNull(
-                    pullRequests.createIssueComment(
+                    pullRequestWrites.createIssueComment(
                             target.pat(), target.ref(), body),
                     "GitHub returned no issue comment");
             if (created.githubId() == null || created.githubId() < 1
@@ -343,7 +371,7 @@ public final class GitHubUserRemoteActionGateway
         String body = payload.body() == null ? "" : payload.body();
         try {
             requireActive(context);
-            pullRequests.createReview(
+            pullRequestWrites.createReview(
                     target.pat(), target.ref(),
                     new CreateReviewCommand(
                             Optional.of(action.headSha()),
@@ -372,7 +400,7 @@ public final class GitHubUserRemoteActionGateway
         }
         try {
             requireActive(context);
-            int count = pullRequests.rerunFailedChecks(
+            int count = actions.rerunFailedChecks(
                     target.pat(), RepoRef.parse(action.remoteRepositoryId()),
                     action.headSha());
             if (count < 1) {
@@ -643,7 +671,7 @@ public final class GitHubUserRemoteActionGateway
         try {
             requireActive(context);
             PrReviewThreadMessage created = requireNonNull(
-                    pullRequests.replyToReviewComment(
+                    pullRequestWrites.replyToReviewComment(
                             target.pat(), target.ref(), root, body),
                     "GitHub returned no review-thread reply");
             if (created.githubId() < 1 || !body.equals(created.body())
@@ -679,7 +707,7 @@ public final class GitHubUserRemoteActionGateway
                 // The irreversible comment step is now proven. Completing
                 // its ordered close step is recovery, even if the enclosing
                 // Task was canceled between those two remote calls.
-                pullRequests.updatePullRequest(
+                pullRequestWrites.updatePullRequest(
                         target.pat(), target.ref(),
                         UpdatePullRequestCommand.close());
             }
@@ -700,11 +728,11 @@ public final class GitHubUserRemoteActionGateway
             RequestReviewersCommand command = new RequestReviewersCommand(
                     List.of(value(action)), List.of());
             if (add) {
-                pullRequests.requestReviewers(
+                pullRequestWrites.requestReviewers(
                         target.pat(), target.ref(), command);
             }
             else {
-                pullRequests.removeRequestedReviewers(
+                pullRequestWrites.removeRequestedReviewers(
                         target.pat(), target.ref(), command);
             }
         });
@@ -718,7 +746,7 @@ public final class GitHubUserRemoteActionGateway
         ActionPayload payload = action.payload();
         try {
             requireActive(context);
-            pullRequests.createInlineReviewComment(
+            pullRequestWrites.createInlineReviewComment(
                     target.pat(), target.ref(),
                     requireText(payload.body(), "comment body"),
                     requireText(payload.filePath(), "filePath"),
@@ -761,7 +789,7 @@ public final class GitHubUserRemoteActionGateway
         try {
             requireActive(context);
             RepoRef head = headRepository(action);
-            PullRequestRepository.FileBlob blob = pullRequests
+            GitHubPullRequestReadRepository.FileBlob blob = pullRequests
                     .fetchFileBlob(target.pat(), head, path, action.branchName())
                     .orElseThrow(() -> new IllegalStateException(
                             "suggestion target " + path
@@ -774,7 +802,7 @@ public final class GitHubUserRemoteActionGateway
                 return proven(suggestionEffectId(action),
                         "suggestion already present in " + path);
             }
-            pullRequests.commitFileText(
+            pullRequestWrites.commitFileText(
                     target.pat(), head, path, action.branchName(), blob.sha(),
                     patched, suggestionCommitMessage(action, path));
             return requireProven(
@@ -839,14 +867,14 @@ public final class GitHubUserRemoteActionGateway
         try {
             requireActive(context);
             switch (action.semanticAction()) {
-                case REACT_PULL_REQUEST -> pullRequests.addPullRequestReaction(
+                case REACT_PULL_REQUEST -> pullRequestWrites.addPullRequestReaction(
                         target.pat(), target.ref(), content);
                 case REACT_REVIEW_COMMENT ->
-                        pullRequests.addReviewCommentReaction(
+                        pullRequestWrites.addReviewCommentReaction(
                                 target.pat(), target.ref().owner(),
                                 target.ref().repo(), targetId(action), content);
                 case REACT_ISSUE_COMMENT ->
-                        pullRequests.addIssueCommentReaction(
+                        pullRequestWrites.addIssueCommentReaction(
                                 target.pat(), target.ref().owner(),
                                 target.ref().repo(), targetId(action), content);
                 default -> throw new IllegalArgumentException(
@@ -878,11 +906,11 @@ public final class GitHubUserRemoteActionGateway
         try {
             requireActive(context);
             if (selected(action)) {
-                pullRequests.resolveReviewThread(
+                pullRequestWrites.resolveReviewThread(
                         target.pat(), thread.graphqlNodeId());
             }
             else {
-                pullRequests.unresolveReviewThread(
+                pullRequestWrites.unresolveReviewThread(
                         target.pat(), thread.graphqlNodeId());
             }
             return requireProven(
@@ -907,16 +935,16 @@ public final class GitHubUserRemoteActionGateway
         }
         try {
             requireActive(context);
-            Optional<PullRequestRepository.MergeQueueProbe> queue =
-                    pullRequests.probeMergeQueue(target.pat(), target.ref());
+            Optional<GitHubMergeRepository.MergeQueueProbe> queue =
+                    merges.probeMergeQueue(target.pat(), target.ref());
             MergeResult result;
             if (queue.isPresent()) {
-                result = pullRequests.enqueuePullRequest(
+                result = merges.enqueuePullRequest(
                         target.pat(), queue.orElseThrow().pullRequestNodeId(),
                         action.headSha());
             }
             else {
-                result = pullRequests.mergePullRequest(
+                result = merges.mergePullRequest(
                         target.pat(), target.ref(), new MergePullRequestCommand(
                                 mergeMethod(action).toLowerCase(Locale.ROOT),
                                 Optional.empty(), Optional.empty(),
@@ -941,12 +969,12 @@ public final class GitHubUserRemoteActionGateway
             throws RetryableActionException
     {
         Target target = requireExactTarget(action);
-        if (pullRequests.isPullRequestMerged(target.pat(), target.ref())) {
+        if (merges.isPullRequestMerged(target.pat(), target.ref())) {
             return proven(effectIdentity(action, "merged"),
                     "the exact pull request is merged");
         }
-        PullRequestRepository.MergeQueueInfo queue =
-                pullRequests.fetchMergeQueueInfo(target.pat(), target.ref());
+        GitHubMergeRepository.MergeQueueInfo queue =
+                merges.fetchMergeQueueInfo(target.pat(), target.ref());
         return queue != null && queue.entryState() != null
                 && !queue.entryState().isBlank()
                 ? proven(effectIdentity(action, "merge-queue"),
@@ -958,8 +986,8 @@ public final class GitHubUserRemoteActionGateway
             throws RetryableActionException
     {
         Target target = requireExactTarget(action);
-        Optional<PullRequestRepository.AutoMergeStatus> status =
-                pullRequests.fetchAutoMergeStatus(target.pat(), target.ref());
+        Optional<GitHubMergeRepository.AutoMergeStatus> status =
+                merges.fetchAutoMergeStatus(target.pat(), target.ref());
         boolean exact = enabled
                 ? status.map(value -> mergeMethod(action).equalsIgnoreCase(
                         value.mergeMethod())).orElse(false)
@@ -1006,8 +1034,8 @@ public final class GitHubUserRemoteActionGateway
             throws RetryableActionException
     {
         Target target = requireExactTarget(action);
-        PullRequestRepository.MergeQueueInfo queue = requireNonNull(
-                pullRequests.fetchMergeQueueInfo(target.pat(), target.ref()),
+        GitHubMergeRepository.MergeQueueInfo queue = requireNonNull(
+                merges.fetchMergeQueueInfo(target.pat(), target.ref()),
                 "GitHub returned no merge queue state");
         return queue.entryState() == null || queue.entryState().isBlank()
                 ? proven(
@@ -1024,7 +1052,7 @@ public final class GitHubUserRemoteActionGateway
     {
         requireExactTarget(action);
         BranchTarget branch = branchTarget(action);
-        Optional<String> head = pullRequests.fetchBranchHeadSha(
+        Optional<String> head = merges.fetchBranchHeadSha(
                 branch.pat(), branch.repository(), action.branchName());
         if (head.isEmpty()) {
             return proven(
@@ -1119,7 +1147,7 @@ public final class GitHubUserRemoteActionGateway
     {
         Target target = requireExactTarget(action);
         Set<String> before = ImmutableSet.copyOf(baseline(action));
-        List<PrCheckRunState> checks = pullRequests.fetchPrCheckRunsStrict(
+        List<PrCheckRunState> checks = actions.fetchPrCheckRunsStrict(
                 target.pat(), target.ref().owner(), target.ref().repo(),
                 action.headSha());
         boolean restarted = checks.stream().anyMatch(check -> {
@@ -1419,7 +1447,7 @@ public final class GitHubUserRemoteActionGateway
 
     private List<String> checkBaseline(Target target, Action action)
     {
-        return pullRequests.fetchPrCheckRunsStrict(
+        return actions.fetchPrCheckRunsStrict(
                         target.pat(), target.ref().owner(), target.ref().repo(),
                         action.headSha()).stream()
                 .filter(GitHubUserRemoteActionGateway::failedCheck)
@@ -1581,7 +1609,7 @@ public final class GitHubUserRemoteActionGateway
     private String viewer(Target target)
     {
         String login = requireText(
-                pullRequests.fetchUserProfile(target.pat()).login(),
+                accounts.fetchUserProfile(target.pat()).login(),
                 "GitHub viewer login");
         return login;
     }

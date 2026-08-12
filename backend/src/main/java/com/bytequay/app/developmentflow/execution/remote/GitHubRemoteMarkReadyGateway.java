@@ -18,8 +18,11 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import static java.util.Objects.requireNonNull;
@@ -29,14 +32,24 @@ import static java.util.Objects.requireNonNull;
 public final class GitHubRemoteMarkReadyGateway
         implements RemoteMarkReadyOperationHandler.MarkReadyGateway
 {
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
     private final PatResolver pats;
 
+    @Autowired
     public GitHubRemoteMarkReadyGateway(
-            PullRequestRepository pullRequests, PatResolver pats)
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            PatResolver pats)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.pats = requireNonNull(pats, "pats is null");
+    }
+
+    GitHubRemoteMarkReadyGateway(PullRequestRepository gitHub, PatResolver pats)
+    {
+        this(gitHub, gitHub, pats);
     }
 
     @Override
@@ -51,7 +64,7 @@ public final class GitHubRemoteMarkReadyGateway
         if (!before.draft()) {
             return;
         }
-        pullRequests.setPullRequestDraft(target.pat(), target.pullRequest(), false);
+        pullRequestWrites.setPullRequestDraft(target.pat(), target.pullRequest(), false);
     }
 
     private PrRawDetail fetchExact(

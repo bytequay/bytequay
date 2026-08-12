@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.remote.CompositeUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.AuthorizationRequest;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.UnwatchedRepositoryException;
+import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.Action;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
@@ -133,6 +135,36 @@ class TestExternalPrActionRuntimeMigration
                 .isInstanceOf(UnwatchedRepositoryException.class)
                 .hasMessage("ByteQuay must watch acme/widget"
                         + " before publishing to its pull requests");
+    }
+
+    /**
+     * The shared executor resolves an operation against the Task ledger first.
+     * That miss must be an empty answer, never an exception the composite has
+     * to catch: both stores are {@code @Repository} beans, so Spring rewrites a
+     * thrown IllegalStateException into InvalidDataAccessApiUsageException and
+     * a typed catch misses it — which stranded every zero-Task PR action.
+     */
+    @Test
+    void taskLedgerMissResolvesTheExternalActionWithoutThrowing()
+            throws Exception
+    {
+        String url = database("external-action-routing.db");
+        migrate(url);
+        seedExternalPr(url);
+        DataSource dataSource = dataSource(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        SqliteUserRemoteActionStore taskActions = new SqliteUserRemoteActionStore(
+                jdbc,
+                new TransactionTemplate(
+                        new DataSourceTransactionManager(dataSource)),
+                new SqliteDispatchWakeStore(jdbc),
+                new ObjectMapper());
+        Action authorized = store(url).authorize(approve("approve-command"), NOW);
+
+        assertThat(taskActions.find(authorized.operationId())).isEmpty();
+        assertThat(new CompositeUserRemoteActionStore(taskActions, store(url))
+                .require(authorized.operationId()).id())
+                .isEqualTo(authorized.id());
     }
 
     @Test

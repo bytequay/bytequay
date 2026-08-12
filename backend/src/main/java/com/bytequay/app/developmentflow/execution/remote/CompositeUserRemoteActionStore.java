@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -42,12 +43,17 @@ public final class CompositeUserRemoteActionStore
     @Override
     public Action require(String operationId)
     {
-        try {
-            return taskActions.require(operationId);
-        }
-        catch (IllegalStateException taskMissing) {
-            return externalActions.require(operationId);
-        }
+        return find(operationId).orElseThrow(() -> new IllegalStateException(
+                "no Task or zero-Task remote action owns operation "
+                        + operationId));
+    }
+
+    @Override
+    public Optional<Action> find(String operationId)
+    {
+        Optional<Action> taskAction = taskActions.find(operationId);
+        return taskAction.isPresent()
+                ? taskAction : externalActions.find(operationId);
     }
 
     @Override

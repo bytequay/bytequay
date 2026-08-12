@@ -150,6 +150,14 @@ public class SqliteExternalPrActionStore
     @Override
     public Action require(String operationId)
     {
+        return find(operationId).orElseThrow(() -> new IllegalStateException(
+                "exact external PR action is missing"));
+    }
+
+    /** Empty when the operation belongs to the Task ledger instead. */
+    @Override
+    public Optional<Action> find(String operationId)
+    {
         List<Action> rows = jdbc.query("""
                 SELECT action.* FROM external_pr_action_v289 action
                 JOIN external_pr_action_dispatch_v289 dispatch
@@ -157,10 +165,7 @@ public class SqliteExternalPrActionStore
                 WHERE dispatch.operation_id = ?
                   AND action.operation_id = dispatch.operation_id
                 """, (rs, row) -> action(rs), operationId);
-        if (rows.size() != 1) {
-            throw new IllegalStateException("exact external PR action is missing");
-        }
-        return rows.getFirst();
+        return rows.size() == 1 ? Optional.of(rows.getFirst()) : Optional.empty();
     }
 
     @Override

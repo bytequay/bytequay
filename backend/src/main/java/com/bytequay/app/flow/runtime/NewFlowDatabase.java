@@ -201,7 +201,16 @@ public final class NewFlowDatabase
             if (version != SCHEMA_VERSION
                     || !bundleDigest.equals(storedBundle)
                     || !catalogDigest(connection).equals(storedCatalog)) {
-                throw drift("new-flow schema does not match its baseline");
+                // Deliberately fatal, and deliberately not a migration: this
+                // schema is one digest-checked baseline, so drift is either a
+                // changed bundle or a tampered/corrupted database, and the two
+                // are indistinguishable from here. Naming the remedy is the most
+                // that can safely be automated — doing it would turn the tamper
+                // detector into a silent rebuild.
+                throw drift("new-flow schema does not match its baseline. If you"
+                        + " changed db/new-flow/*.sql, delete the new-flow"
+                        + " database file and let it reinstall; it carries no"
+                        + " history worth migrating until a Task exists.");
             }
         }
     }

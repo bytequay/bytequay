@@ -1,0 +1,6 @@
+root = true
+
+[backend/src/{main,test}/java/**/*.java]
+max_line_length = 180
+ij_java_right_margin = 180
+ij_java_keep_line_breaks = true

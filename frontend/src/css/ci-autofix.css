@@ -370,9 +370,9 @@
 /* Capped and scrollable: the body grew a description field and two result
    lists, and without a max-height the dialog ran off the bottom of the window
    and clipped whatever came last. */
-.wu-upstream-cherry { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.3); display: flex; flex-direction: column; max-height: min(88vh, 860px); overflow: hidden; width: min(580px, calc(100vw - 48px)); }
+.wu-upstream-cherry { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.3); display: flex; flex-direction: column; max-height: min(88vh, 860px); min-width: 0; overflow: hidden; width: min(580px, calc(100%)); }
 .wu-upstream-cherry > header, .wu-upstream-cherry > footer { flex: 0 0 auto; }
-.wu-upstream-cherry__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.wu-upstream-cherry__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; }
 .wu-upstream-cherry__branch textarea { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px var(--sans, inherit); line-height: 1.5; padding: 8px 11px; resize: vertical; width: 100%; }
 .wu-upstream-cherry__branch textarea:focus { border-color: #0969da; outline: none; }
 .wu-upstream-cherry__branch > span:has(textarea) { display: grid; gap: 4px; }
@@ -406,38 +406,38 @@
 .wu-upstream-sha-range small { color: #8b949e; font-size: 10.5px; }
 .wu-upstream-cherry > header { align-items: center; border-bottom: 1px solid #eef0f2; display: flex; gap: 8px; padding: 14px 18px; }
 .wu-upstream-cherry > header > span { color: #8250df; font-size: 18px; }
-.wu-upstream-cherry > header h2 { font-size: 14.5px; margin: 0; }
+.wu-upstream-cherry > header h2 { font-size: 14.5px; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wu-upstream-cherry > header button { background: transparent; border: 0; color: #8b949e; cursor: pointer; font-size: 20px; margin-left: auto; }
 .wu-upstream-cherry__body { display: grid; gap: 13px; padding: 16px 18px; }
 .wu-upstream-cherry__summary { background: #fafbfc; border: 1px solid #e7e9ec; border-radius: 10px; display: grid; gap: 5px; padding: 10px 13px; }
 .wu-upstream-cherry__summary strong { font-size: 12.5px; }
 .wu-upstream-cherry__summary code { color: #57606a; font-size: 10.5px; }
-.wu-upstream-cherry__summary span { color: #57606a; font-size: 11.5px; }
+.wu-upstream-cherry__summary span { color: #57606a; font-size: 11.5px; overflow-wrap: anywhere; }
 .wu-upstream-cherry__branch { display: grid; gap: 6px; }
 .wu-upstream-cherry__branch > strong { color: #57606a; font-size: 10px; letter-spacing: .05em; }
-.wu-upstream-cherry__branch > span { align-items: center; display: flex; gap: 8px; }
+.wu-upstream-cherry__branch > span { align-items: center; display: flex; gap: 8px; min-width: 0; }
 .wu-upstream-cherry__branch input { border: 1.5px solid #0969da; border-radius: 8px; flex: 1; font: 12px ui-monospace, monospace; padding: 7px 11px; }
-.wu-upstream-cherry__branch small { color: #8b949e; font-size: 10.5px; }
+.wu-upstream-cherry__branch small { color: #8b949e; font-size: 10.5px; min-width: 0; overflow-wrap: anywhere; }
 .wu-upstream-cherry__option { align-items: flex-start; border: 1px solid #e7e9ec; border-radius: 10px; display: flex; gap: 10px; padding: 10px 12px; }
 .wu-upstream-cherry__option.selected:last-of-type { background: #f2fbf4; border-color: rgba(31,136,61,.35); }
 .wu-upstream-cherry__option.disabled { opacity: .55; }
-.wu-upstream-cherry__option > span { display: grid; flex: 1; gap: 3px; }
+.wu-upstream-cherry__option > span { display: grid; flex: 1; gap: 3px; min-width: 0; }
 .wu-upstream-cherry__option strong { font-size: 12.5px; }
-.wu-upstream-cherry__option small { color: #57606a; font-size: 11.5px; line-height: 1.45; }
-.wu-upstream-cherry__budget { color: #57606a; font: 10.5px ui-monospace, monospace; white-space: nowrap; }
+.wu-upstream-cherry__option small { color: #57606a; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.wu-upstream-cherry__budget { color: #57606a; font: 10.5px ui-monospace, monospace; min-width: 0; white-space: normal; }
 .wu-upstream-cherry__budget input { background: transparent; border: 0; border-bottom: 1px solid #c6cbd1; font: inherit; width: 36px; }
 .wu-upstream-cherry__note {
   background: #f6f8fa; border: 1px solid #e1e5e9; border-radius: 8px; color: #57606a;
   font-size: 11.5px; line-height: 1.5; margin: 4px 0 0; padding: 8px 11px;
 }
 .wu-upstream-cherry__note code { color: #24292f; font-weight: 600; }
-.wu-upstream-cherry__guard { color: #8b949e; font-size: 10.5px; margin: 0; }
+.wu-upstream-cherry__guard { color: #8b949e; font-size: 10.5px; margin: 0; overflow-wrap: anywhere; }
 .wu-upstream-cherry__result { display: grid; gap: 8px; min-height: 130px; padding: 28px; text-align: center; }
 .wu-upstream-cherry__result > strong { font-size: 16px; }
 .wu-upstream-cherry__result p { color: #57606a; font-size: 12px; margin: 0; }
 .wu-upstream-cherry__result button { background: transparent; border: 0; color: #0969da; cursor: pointer; }
 .wu-upstream-cherry > footer { align-items: center; background: #fafbfc; border-top: 1px solid #eef0f2; display: flex; gap: 8px; padding: 12px 18px; }
-.wu-upstream-cherry > footer > span { color: #8b949e; font-size: 11px; margin-right: auto; }
+.wu-upstream-cherry > footer > span { color: #8b949e; font-size: 11px; margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
 .wu-upstream-cherry > footer button { background: #fff; border: 1px solid #d5dbe1; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 600; padding: 6px 13px; }
 
 /* The sync run cockpit owns the window. */

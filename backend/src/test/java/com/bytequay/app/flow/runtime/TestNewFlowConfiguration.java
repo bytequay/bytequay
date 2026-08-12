@@ -85,7 +85,11 @@ class TestNewFlowConfiguration
                         "bytequay.new-flow.database-path=" + newFlowPath,
                         "bytequay.new-flow.worktree-root="
                                 + temporaryDirectory.resolve("worktrees"))
-                .withUserConfiguration(NewFlowConfiguration.class)
+                .withUserConfiguration(
+                        NewFlowConfiguration.class,
+                        // The bodies reach the bridge to serve a CLI run's
+                        // tools, so it is part of the graph this asserts.
+                        NewFlowAgentBridgeConfiguration.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(DataSource.class))

@@ -238,7 +238,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                     TurnResult.End.INTERRUPTED);
         });
         NewFlowAgentBodies bodies = new NewFlowAgentBodies(
-                launches, runner, MAPPER, localChecks);
+                launches, runner, MAPPER, localChecks, null);
 
         var completion = bodies.taskFixReview(
                 binding,
@@ -339,7 +339,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                     TurnResult.End.ABORTED);
         });
         NewFlowAgentBodies bodies = new NewFlowAgentBodies(
-                mockedLaunches, runner, MAPPER, mock(LocalChecks.class));
+                mockedLaunches, runner, MAPPER, mock(LocalChecks.class), null);
 
         var firstCompletion = bodies.initialTask(
                 first, temporaryDirectory, capability, false);
@@ -375,7 +375,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                     TurnResult.End.INTERRUPTED);
         });
         NewFlowAgentBodies readyBodies = new NewFlowAgentBodies(
-                mockedLaunches, readyRunner, MAPPER, mock(LocalChecks.class));
+                mockedLaunches, readyRunner, MAPPER, mock(LocalChecks.class), null);
 
         var readyCompletion = readyBodies.initialTask(
                 review, temporaryDirectory, readyCapability, true);
@@ -416,7 +416,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                     "saved", 1, 1, 0, 1, TurnResult.End.INTERRUPTED);
         });
         NewFlowAgentBodies bodies = new NewFlowAgentBodies(
-                launches, runner, MAPPER, mock(LocalChecks.class));
+                launches, runner, MAPPER, mock(LocalChecks.class), null);
 
         var completion = bodies.learner(
                 binding, List.of("log-1"), capability);

@@ -702,6 +702,29 @@ public final class NewFlowAgentLaunches
         return tools;
     }
 
+    /**
+     * The same tools in MCP's shape, for a subprocess that reaches them over the
+     * loopback bridge rather than being handed them on the wire.
+     *
+     * <p>Built from the same {@code program.tools}, {@link #description} and
+     * {@link #parameters} as the API shapes above, because the point of the
+     * bridge is that a role's tool surface does not depend on which engine the
+     * workspace named. Only the envelope differs — MCP spells the schema
+     * {@code inputSchema} where Anthropic spells it {@code input_schema}.
+     */
+    ArrayNode mcpTools(Program program)
+    {
+        requireNonNull(program, "program is null");
+        ArrayNode tools = mapper.createArrayNode();
+        for (String name : program.tools) {
+            ObjectNode tool = tools.addObject();
+            tool.put("name", name);
+            tool.put("description", description(name));
+            tool.set("inputSchema", parameters(name));
+        }
+        return tools;
+    }
+
     String systemPrompt(Program program)
     {
         return requireNonNull(program, "program is null").systemPrompt;

@@ -58,6 +58,7 @@ import com.bytequay.app.flow.runtime.LocalChecks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -220,6 +221,13 @@ public final class CiFixReviewCoordinator
         public <T> T callTool(Supplier<T> effect)
         {
             return writer.callTool(effect);
+        }
+
+        /** Straight through: the group belongs to the writer turn beneath. */
+        public void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            writer.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
         }
 
         public void runTool(Runnable effect)

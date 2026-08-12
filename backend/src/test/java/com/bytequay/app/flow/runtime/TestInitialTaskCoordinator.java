@@ -460,7 +460,7 @@ class TestInitialTaskCoordinator
             throw new AssertionError("unexpected model turn " + turn);
         });
         NewFlowAgentBodies bodies = new NewFlowAgentBodies(
-                launches, runner, new ObjectMapper(), localChecks);
+                launches, runner, new ObjectMapper(), localChecks, null);
         GitHubInitialRepositoryObserver repositories = mock(
                 GitHubInitialRepositoryObserver.class);
         when(repositories.observe(anyString())).thenAnswer(invocation ->

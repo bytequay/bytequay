@@ -63,17 +63,22 @@ final class NewFlowAgentBodies
     private final TurnRunner runner;
     private final ObjectMapper mapper;
     private final LocalChecks localChecks;
+    private final NewFlowCliTurn cliTurn;
 
     NewFlowAgentBodies(
             NewFlowAgentLaunches launches,
             TurnRunner runner,
             ObjectMapper mapper,
-            LocalChecks localChecks)
+            LocalChecks localChecks,
+            NewFlowCliTurn cliTurn)
     {
         this.launches = requireNonNull(launches, "launches is null");
         this.runner = requireNonNull(runner, "runner is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.localChecks = requireNonNull(localChecks, "localChecks is null");
+        // Null only where no CLI engine can be reached, which the turn path
+        // refuses explicitly rather than silently running on the wrong one.
+        this.cliTurn = cliTurn;
     }
 
     NewFlowAgentLaunches.Binding bindRepair(AgentRun run)
@@ -156,7 +161,9 @@ final class NewFlowAgentBodies
             default -> ToolCallResult.error("tool is not available");
         });
         return sealedWriterCompletion(
-                run(binding, program, executor, terminal), terminal.get());
+                run(binding, program, executor, terminal, worktree,
+                        capability::recordAgentGroup),
+                terminal.get());
     }
 
     NewFlowAgentLaunches.Binding bindCleanup(AgentRun run)
@@ -228,7 +235,8 @@ final class NewFlowAgentBodies
             });
             default -> ToolCallResult.error("tool is not available");
         });
-        return writerCompletion(run(binding, CI_REPAIR, executor, stop));
+        return writerCompletion(run(binding, CI_REPAIR, executor, stop,
+                worktree, capability::recordAgentGroup));
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion cleanup(
@@ -263,7 +271,8 @@ final class NewFlowAgentBodies
             });
             default -> ToolCallResult.error("tool is not available");
         });
-        return writerCompletion(run(binding, CI_CLEANUP, executor, stop));
+        return writerCompletion(run(binding, CI_CLEANUP, executor, stop,
+                worktree, capability::recordAgentGroup));
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion taskFixReview(
@@ -322,7 +331,9 @@ final class NewFlowAgentBodies
             default -> ToolCallResult.error("tool is not available");
         });
         return sealedWriterCompletion(
-                run(binding, program, executor, terminal), terminal.get());
+                run(binding, program, executor, terminal, worktree,
+                        capability::recordAgentGroup),
+                terminal.get());
     }
 
     InProcessReviewerAgentSupervisor.AgentCompletion reviewer(
@@ -386,12 +397,60 @@ final class NewFlowAgentBodies
                 outcome, result.finalText(), failure);
     }
 
+    /**
+     * An API turn. Kept as the no-worktree overload so the two roles that have
+     * no worktree — and therefore no CLI transport — cannot accidentally be
+     * given one.
+     */
     private TurnResult run(
             NewFlowAgentLaunches.Binding binding,
             NewFlowAgentLaunches.Program program,
             ToolExecutor executor,
             AtomicBoolean terminalSeal)
     {
+        return run(binding, program, executor, terminalSeal, null, null);
+    }
+
+    /**
+     * Runs one turn on whichever transport the run is bound to.
+     *
+     * <p>The branch is here rather than in each body because everything above
+     * it — the role, its prompt, the executor — is identical either way. A CLI
+     * run gets that same executor served over the loopback bridge; the only
+     * thing it does not get is a wire.
+     */
+    private TurnResult run(
+            NewFlowAgentLaunches.Binding binding,
+            NewFlowAgentLaunches.Program program,
+            ToolExecutor executor,
+            AtomicBoolean terminalSeal,
+            Path worktree,
+            NewFlowCliTurn.GroupRecorder recorder)
+    {
+        if (!binding.isApi()) {
+            if (cliTurn == null || worktree == null || recorder == null) {
+                // ponytail: only the writer roles carry a worktree and a group
+                // recorder, so only they can run a CLI agent whose death is
+                // provable. Refused rather than downgraded to an API engine,
+                // which would overrule the user's billing and privacy choice,
+                // and rather than run without a receipt. Lift by giving the
+                // reviewer and learner supervisors the same seam.
+                throw new NewFlowAgentLaunches.LaunchUnavailableException(
+                        "this role has no CLI transport; run "
+                                + binding.runId() + " cannot start");
+            }
+            return cliTurn.run(
+                    binding.runId(),
+                    binding,
+                    launches.mcpTools(program),
+                    launches.systemPrompt(program),
+                    executor,
+                    worktree,
+                    recorder,
+                    () -> terminalSeal.get()
+                            || Thread.currentThread().isInterrupted())
+                    .turn();
+        }
         ArrayNode messages = mapper.createArrayNode();
         String system = launches.systemPrompt(program);
         if (binding.transport() == TurnSpec.Transport.OPENAI_COMPAT) {

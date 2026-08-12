@@ -54,6 +54,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -1042,6 +1044,153 @@ class TestInProcessWriterAgentSupervisor
         assertThat(count("flow_runtime_writer_lease")).isOne();
     }
 
+    @Test
+    void aCrashedRunsAgentGroupIsBuriedBeforeAnotherWriterIsConsidered(
+            @TempDir Path groupRoot)
+            throws Exception
+    {
+        // The failure with no recovery: a leftover CLI agent still editing the
+        // worktree the next writer is handed. Revoking a capability cannot reach
+        // it — a subprocess never held one — so only killing the group does.
+        ActiveWriter writer = startWriter("orphaned-agent-group");
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+        runtime.activateInProcessWriterAttempt(
+                attempt.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        ProcessGroup.Spawned agent = ProcessGroup.start(
+                List.of("/bin/sh", "-c", "sh -c 'sleep 300 &' ; sleep 300"),
+                groupRoot,
+                Map.of(),
+                groupRoot.resolve("pgid"));
+        try {
+            runtime.recordInProcessWriterAgentGroup(
+                    attempt.processAttemptId(),
+                    writer.claim(),
+                    writer.fence(),
+                    agent.process().pid(),
+                    agent.pgid(),
+                    agent.leaderStartedAt());
+            assertThat(ProcessGroup.isAlive(agent.pgid())).isTrue();
+
+            var restartedSupervisor = new InProcessWriterAgentSupervisor(
+                    new FlowRuntime(dataSource, clock));
+            assertThatThrownBy(() -> restartedSupervisor.launch(
+                    writer.run().runId(),
+                    writer.claim(),
+                    writer.fence(),
+                    capability -> completed()))
+                    .isInstanceOf(IllegalStateException.class);
+
+            // The reparented grandchild goes too, which is the whole reason the
+            // group is the receipt and a descendants() walk is not.
+            assertThat(ProcessGroup.isAlive(agent.pgid()))
+                    .as("the previous run's agent group must not survive"
+                            + " recovery")
+                    .isFalse();
+            assertThat(runtime.task(writer.claim().taskId()).orElseThrow()
+                    .status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        }
+        finally {
+            ProcessGroup.bury(agent.pgid());
+        }
+    }
+
+    @Test
+    void anUnidentifiableGroupIsLeftAloneRatherThanSignalled(
+            @TempDir Path groupRoot)
+            throws Exception
+    {
+        // Without a recorded start time the number alone cannot say whether the
+        // group is ours, and by now it may be a stranger's. Parking the task is
+        // the safe half; killing processes we cannot identify is not.
+        ActiveWriter writer = startWriter("unidentifiable-agent-group");
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+        runtime.activateInProcessWriterAttempt(
+                attempt.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        ProcessGroup.Spawned bystander = ProcessGroup.start(
+                List.of("sleep", "300"), groupRoot, Map.of(),
+                groupRoot.resolve("pgid"));
+        try {
+            runtime.recordInProcessWriterAgentGroup(
+                    attempt.processAttemptId(),
+                    writer.claim(),
+                    writer.fence(),
+                    bystander.process().pid(),
+                    bystander.pgid(),
+                    null);
+
+            var restartedSupervisor = new InProcessWriterAgentSupervisor(
+                    new FlowRuntime(dataSource, clock));
+            assertThatThrownBy(() -> restartedSupervisor.launch(
+                    writer.run().runId(),
+                    writer.claim(),
+                    writer.fence(),
+                    capability -> completed()))
+                    .isInstanceOf(IllegalStateException.class);
+
+            assertThat(ProcessGroup.isAlive(bystander.pgid()))
+                    .as("a group that cannot be identified must not be killed")
+                    .isTrue();
+            assertThat(runtime.task(writer.claim().taskId()).orElseThrow()
+                    .status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        }
+        finally {
+            ProcessGroup.bury(bystander.pgid());
+        }
+    }
+
+    @Test
+    void anAgentGroupIsRecordedOnceAndNeverSilentlyReplaced()
+    {
+        // Two agents under one attempt is not a state to overwrite quietly: the
+        // group that gets forgotten is the one nothing can bury afterwards.
+        ActiveWriter writer = startWriter("set-once-agent-group");
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+        runtime.activateInProcessWriterAttempt(
+                attempt.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        Instant startedAt = Instant.ofEpochMilli(1_700_000_000_000L);
+        runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(), 4321L, 4321L, startedAt);
+
+        // A redelivery naming the same group is the no-op it looks like.
+        runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(), 4321L, 4321L, startedAt);
+
+        assertThatThrownBy(() -> runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(), 8765L, 8765L, startedAt))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("changed identity");
+        AgentProcessAttempt stored = attempt(writer);
+        assertThat(stored.agentPgid()).isEqualTo(4321L);
+        assertThat(stored.agentStartedAt()).isEqualTo(startedAt);
+    }
+
     private RunningBody launchWaiting(ActiveWriter writer)
     {
         CountDownLatch entered = new CountDownLatch(1);
@@ -1143,6 +1292,9 @@ class TestInProcessWriterAgentSupervisor
                         nullableInstant(result, "jvm_started_at"),
                         nullableLong(result, "thread_id"),
                         result.getString("thread_name"),
+                        nullableLong(result, "agent_pid"),
+                        nullableLong(result, "agent_pgid"),
+                        nullableInstant(result, "agent_started_at"),
                         instant(result, "reserved_at"),
                         nullableInstant(result, "activated_at"),
                         nullableInstant(result, "capability_revoked_at"),

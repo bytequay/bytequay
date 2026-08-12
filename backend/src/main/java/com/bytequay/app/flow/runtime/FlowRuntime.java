@@ -7862,6 +7862,85 @@ public final class FlowRuntime
         });
     }
 
+    /**
+     * Records the process group a CLI body launched, before its prompt is sent.
+     *
+     * <p>Ordering is the whole point: an id learned only when the turn ends is
+     * lost by exactly the crash that makes it matter, leaving a live agent group
+     * that no later JVM can find, let alone bury. Written while the group is
+     * still young and unused, it is what a restart reads before deciding whether
+     * a successor writer may be admitted.
+     *
+     * <p>Set-once. A redelivery naming the same group is the no-op it looks
+     * like; one naming a different group means two agents ran under a single
+     * attempt, which is not a state to overwrite quietly.
+     *
+     * @param agentStartedAt when the group leader began, or null when the OS
+     *         would not say — recorded as absent rather than guessed, because
+     *         recovery treats an unidentifiable group as a stop, and a
+     *         fabricated start time would turn that stop into a false bury
+     */
+    synchronized void recordInProcessWriterAgentGroup(
+            String processAttemptId,
+            Claim claim,
+            WriterFence fence,
+            long agentPid,
+            long agentPgid,
+            Instant agentStartedAt)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        if (agentPid <= 0) {
+            throw new IllegalArgumentException("agentPid must be positive");
+        }
+        if (agentPgid <= 1) {
+            // Group 0 is the caller's own and 1 is init; persisting either would
+            // arm a later restart to signal this JVM, or the system.
+            throw new IllegalArgumentException("agentPgid must be above 1");
+        }
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+            if (!attempt.operationId().equals(claim.operationId())
+                    || attempt.claimGeneration() != claim.generation()) {
+                throw new StaleClaimException(
+                        "process attempt belongs to another claim generation");
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED) {
+                throw new IllegalStateException(
+                        "only an activated attempt owns an agent process group");
+            }
+            if (attempt.agentPgid() != null) {
+                if (!Long.valueOf(agentPid).equals(attempt.agentPid())
+                        || !Long.valueOf(agentPgid).equals(attempt.agentPgid())
+                        || !Objects.equals(
+                                agentStartedAt, attempt.agentStartedAt())) {
+                    throw new IllegalStateException(
+                            "agent process group redelivery changed identity");
+                }
+                return Boolean.TRUE;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET agent_pid = ?, agent_pgid = ?, agent_started_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                        AND agent_pgid IS NULL
+                    """,
+                    agentPid,
+                    agentPgid,
+                    agentStartedAt == null ? null : agentStartedAt.toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "process attempt changed while recording its group");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
     /** Authorizes one tool call for the exact live in-process capability. */
     synchronized void assertInProcessWriterToolCapability(
             String runId,
@@ -13684,6 +13763,9 @@ public final class FlowRuntime
                 nullableInstant(result, "jvm_started_at"),
                 nullableLong(result, "thread_id"),
                 result.getString("thread_name"),
+                nullableLong(result, "agent_pid"),
+                nullableLong(result, "agent_pgid"),
+                nullableInstant(result, "agent_started_at"),
                 instant(result, "reserved_at"),
                 nullableInstant(result, "activated_at"),
                 nullableInstant(result, "capability_revoked_at"),

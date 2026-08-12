@@ -31,6 +31,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
@@ -59,6 +61,8 @@ import static java.util.Objects.requireNonNull;
  */
 public final class InProcessWriterAgentSupervisor
 {
+    private static final Logger log =
+            LoggerFactory.getLogger(InProcessWriterAgentSupervisor.class);
     private static final long JVM_PID = ProcessHandle.current().pid();
     private static final Instant JVM_STARTED_AT = Instant.ofEpochMilli(
             ManagementFactory.getRuntimeMXBean().getStartTime());
@@ -408,6 +412,7 @@ public final class InProcessWriterAgentSupervisor
         }
         if (attempt.state() != ProcessAttemptState.RESERVED) {
             if (attempt.state() == ProcessAttemptState.ACTIVATED) {
+                buryPreviousAgentGroup(attempt);
                 runtime.revokeInProcessWriterCapability(
                         attempt.processAttemptId(), claim, fence);
                 runtime.quarantineInProcessWriterAttempt(
@@ -693,6 +698,64 @@ public final class InProcessWriterAgentSupervisor
                     "in-process execution is not owned by this live JVM");
         }
         return execution;
+    }
+
+    /**
+     * Kills the agent process group a previous JVM left behind.
+     *
+     * <p>An {@code ACTIVATED} attempt with no live execution means the JVM that
+     * owned it died mid-turn, and the caller parks the task on that. For an
+     * in-JVM body parking is enough: the thread went down with the process. A
+     * CLI body's agent did not — it is a process group of its own, and revoking
+     * a capability does not reach it, because a subprocess never held one. Left
+     * alone it keeps editing the worktree while a human investigates, and it is
+     * still there when they resolve the park.
+     *
+     * <p>So this runs for its effect and never decides the outcome: the caller
+     * refuses this launch either way. What varies is what an operator is told —
+     * a group buried, a group that outlived its kill, or one alive that cannot
+     * be shown to be ours and so must not be signalled at all, since the number
+     * may by now belong to a stranger.
+     */
+    private void buryPreviousAgentGroup(AgentProcessAttempt attempt)
+    {
+        Long pgid = attempt.agentPgid();
+        if (pgid == null) {
+            // An in-JVM body, or a CLI body that died before it could report a
+            // group. Either way there is nothing recorded to bury, which is not
+            // the same as a group we failed to prove dead.
+            return;
+        }
+        try {
+            switch (ProcessGroup.reclaim(pgid, attempt.agentStartedAt())) {
+                case GONE -> log.info(
+                        "agent process group {} from a previous run is already"
+                                + " gone", pgid);
+                case UNCERTAIN -> log.error(
+                        "a process group is alive as {} but cannot be identified"
+                                + " as the one this run recorded; leaving it"
+                                + " alone rather than signalling processes that"
+                                + " may not be ours", pgid);
+                case OURS -> {
+                    Optional<Long> alive = ProcessGroup.bury(pgid);
+                    if (alive.isPresent()) {
+                        log.error("the previous run's agent process group {}"
+                                + " outlived its kill and may still be writing"
+                                + " to the worktree", pgid);
+                    }
+                    else {
+                        log.warn("buried orphaned agent process group {} left"
+                                + " behind by a previous run", pgid);
+                    }
+                }
+            }
+        }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            // An interrupt proves nothing about the group. Nothing here reads it
+            // as a death receipt, and the caller refuses the launch regardless.
+            log.warn("interrupted while burying agent process group {}", pgid);
+        }
     }
 
     private static IllegalStateException unavailableExecution(

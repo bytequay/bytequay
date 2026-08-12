@@ -32,6 +32,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.LocalChecks;
 import com.bytequay.app.flow.runtime.LocalChecks.ProfileDefinition;
+import com.bytequay.app.flow.runtime.NewFlowAgentBridgeConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowAgentLaunches;
 import com.bytequay.app.flow.runtime.NewFlowConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowEngineResolver;
@@ -169,7 +170,9 @@ final class TestNewFlowEndToEnd
                 .withPropertyValues(
                         "bytequay.new-flow.database-path=" + database,
                         "bytequay.new-flow.worktree-root=" + worktrees)
-                .withUserConfiguration(NewFlowConfiguration.class)
+                .withUserConfiguration(
+                        NewFlowConfiguration.class,
+                        NewFlowAgentBridgeConfiguration.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     FlowRuntime runtime = context.getBean(FlowRuntime.class);

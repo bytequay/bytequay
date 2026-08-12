@@ -169,6 +169,23 @@ public final class InProcessWriterAgentSupervisor
             });
         }
 
+        /**
+         * Records the process group a CLI body just launched, before its prompt
+         * goes in.
+         *
+         * <p>The seam exists here because the body is handed a capability and
+         * nothing else, while the claim, fence and attempt it has to be written
+         * against live on the execution. Deliberately not a {@link #callTool}
+         * effect: this is the program recording what it started, not the agent
+         * doing anything, and it must still work when the tool surface is
+         * sealed.
+         */
+        public void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            execution.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
+        }
+
         /** Program-bound local checks; the model supplies no command/evidence. */
         public List<LocalCheckRun> runChecks(
                 LocalChecks localChecks,
@@ -893,6 +910,25 @@ public final class InProcessWriterAgentSupervisor
         {
             abortBeforeActivation = true;
             startGate.countDown();
+        }
+
+        private void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            // Only the thread that owns the turn may say what it launched; any
+            // other caller would be naming a group it does not hold.
+            if (Thread.currentThread() != thread) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "recording an agent group requires the owned writer"
+                                + " thread");
+            }
+            runtime.recordInProcessWriterAgentGroup(
+                    attempt.processAttemptId(),
+                    claim,
+                    fence,
+                    agentPid,
+                    agentPgid,
+                    agentStartedAt);
         }
 
         private void awaitStartGate()

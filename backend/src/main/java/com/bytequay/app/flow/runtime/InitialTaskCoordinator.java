@@ -40,6 +40,7 @@ import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCa
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -117,6 +118,13 @@ public final class InitialTaskCoordinator
         public <T> T callTool(Supplier<T> action)
         {
             return writer.callTool(action);
+        }
+
+        /** Straight through: the group belongs to the writer turn beneath. */
+        public void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            writer.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
         }
 
         public String readContext()

@@ -338,10 +338,16 @@ public class NewFlowConfiguration
             NewFlowAgentLaunches launches,
             TurnRunner turnRunner,
             ObjectMapper objectMapper,
-            LocalChecks localChecks)
+            LocalChecks localChecks,
+            NewFlowAgentToolBridge toolBridge,
+            @Value("${server.port:53123}") int serverPort)
     {
         return new NewFlowAgentBodies(
-                launches, turnRunner, objectMapper, localChecks);
+                launches,
+                turnRunner,
+                objectMapper,
+                localChecks,
+                new NewFlowCliTurn(toolBridge, objectMapper, serverPort));
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

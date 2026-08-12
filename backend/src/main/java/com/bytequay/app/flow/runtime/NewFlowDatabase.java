@@ -36,15 +36,13 @@ import java.util.function.IntConsumer;
 
 import static java.util.Objects.requireNonNull;
 
-/** Installs and validates the complete new-flow SQLite baseline. */
+/**
+ * Installs and validates the complete new-flow SQLite baseline.
+ */
 public final class NewFlowDatabase
 {
     static final int SCHEMA_VERSION = 1;
-    private static final List<String> RESOURCES = List.of(
-            "db/new-flow/runtime.sql",
-            "db/new-flow/ci-autofix.sql",
-            "db/new-flow/user-gates.sql",
-            "db/new-flow/github-effects.sql");
+    private static final List<String> RESOURCES = List.of("db/new-flow/runtime.sql", "db/new-flow/ci-autofix.sql", "db/new-flow/user-gates.sql", "db/new-flow/github-effects.sql");
     private static final String MARKER = "flow_schema_baseline";
 
     private final DataSource dataSource;
@@ -56,18 +54,16 @@ public final class NewFlowDatabase
         this(dataSource, clock, ignored -> {});
     }
 
-    NewFlowDatabase(
-            DataSource dataSource,
-            Clock clock,
-            IntConsumer afterResource)
+    NewFlowDatabase(DataSource dataSource, Clock clock, IntConsumer afterResource)
     {
         this.dataSource = requireNonNull(dataSource, "dataSource is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.afterResource = requireNonNull(
-                afterResource, "afterResource is null");
+        this.afterResource = requireNonNull(afterResource, "afterResource is null");
     }
 
-    /** Serializes concurrent starters and either installs or validates. */
+    /**
+     * Serializes concurrent starters and either installs or validates.
+     */
     public void bootstrap()
     {
         String bundleDigest = bundleDigest();
@@ -92,8 +88,7 @@ public final class NewFlowDatabase
             }
         }
         catch (SQLException failure) {
-            throw new IllegalStateException(
-                    "new-flow database bootstrap failed", failure);
+            throw new IllegalStateException("new-flow database bootstrap failed", failure);
         }
     }
 
@@ -116,14 +111,12 @@ public final class NewFlowDatabase
     {
         MessageDigest digest = sha256();
         frame(digest, "new-flow-sqlite-schema:v1");
-        try (PreparedStatement statement = connection.prepareStatement(
-                """
+        try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT type, name, tbl_name, sql
                 FROM sqlite_schema
                 WHERE name NOT LIKE 'sqlite_%'
                 ORDER BY type, name, tbl_name
-                """);
-                ResultSet result = statement.executeQuery()) {
+                """); ResultSet result = statement.executeQuery()) {
             int count = 0;
             while (result.next()) {
                 count++;
@@ -143,11 +136,7 @@ public final class NewFlowDatabase
     {
         for (int index = 0; index < RESOURCES.size(); index++) {
             String path = RESOURCES.get(index);
-            ScriptUtils.executeSqlScript(
-                    connection,
-                    new EncodedResource(
-                            new ClassPathResource(path),
-                            StandardCharsets.UTF_8));
+            ScriptUtils.executeSqlScript(connection, new EncodedResource(new ClassPathResource(path), StandardCharsets.UTF_8));
             afterResource.accept(index + 1);
         }
         execute(connection, """
@@ -160,8 +149,7 @@ public final class NewFlowDatabase
                 )
                 """);
         String catalogDigest = catalogDigest(connection);
-        try (PreparedStatement statement = connection.prepareStatement(
-                """
+        try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO flow_schema_baseline (
                     singleton, schema_version, bundle_digest,
                     catalog_digest, installed_at
@@ -172,23 +160,19 @@ public final class NewFlowDatabase
             statement.setString(3, catalogDigest);
             statement.setLong(4, clock.instant().toEpochMilli());
             if (statement.executeUpdate() != 1) {
-                throw new IllegalStateException(
-                        "new-flow schema marker was not stored");
+                throw new IllegalStateException("new-flow schema marker was not stored");
             }
         }
     }
 
-    private static void validate(
-            Connection connection, String bundleDigest)
+    private static void validate(Connection connection, String bundleDigest)
             throws SQLException
     {
-        try (PreparedStatement statement = connection.prepareStatement(
-                """
+        try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT schema_version, bundle_digest, catalog_digest
                 FROM flow_schema_baseline
                 WHERE singleton = 1
-                """);
-                ResultSet result = statement.executeQuery()) {
+                """); ResultSet result = statement.executeQuery()) {
             if (!result.next()) {
                 throw drift("new-flow schema marker is missing");
             }
@@ -198,19 +182,15 @@ public final class NewFlowDatabase
             if (result.next()) {
                 throw drift("new-flow schema marker is not unique");
             }
-            if (version != SCHEMA_VERSION
-                    || !bundleDigest.equals(storedBundle)
-                    || !catalogDigest(connection).equals(storedCatalog)) {
+            if (version != SCHEMA_VERSION || !bundleDigest.equals(storedBundle) || !catalogDigest(connection).equals(storedCatalog)) {
                 // Deliberately fatal, and deliberately not a migration: this
                 // schema is one digest-checked baseline, so drift is either a
                 // changed bundle or a tampered/corrupted database, and the two
                 // are indistinguishable from here. Naming the remedy is the most
                 // that can safely be automated — doing it would turn the tamper
                 // detector into a silent rebuild.
-                throw drift("new-flow schema does not match its baseline. If you"
-                        + " changed db/new-flow/*.sql, delete the new-flow"
-                        + " database file and let it reinstall; it carries no"
-                        + " history worth migrating until a Task exists.");
+                throw drift("new-flow schema does not match its baseline. If you changed db/new-flow/*.sql, delete the"
+                        + " new-flow database file and let it reinstall; it carries no history worth migrating until a Task exists.");
             }
         }
     }
@@ -218,16 +198,13 @@ public final class NewFlowDatabase
     private static void requireEmpty(Connection connection)
             throws SQLException
     {
-        try (PreparedStatement statement = connection.prepareStatement(
-                """
+        try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT COUNT(*)
                 FROM sqlite_schema
                 WHERE name NOT LIKE 'sqlite_%'
-                """);
-                ResultSet result = statement.executeQuery()) {
+                """); ResultSet result = statement.executeQuery()) {
             if (!result.next() || result.getInt(1) != 0) {
-                throw drift(
-                        "partial new-flow schema exists without its marker");
+                throw drift("partial new-flow schema exists without its marker");
             }
         }
     }
@@ -235,8 +212,7 @@ public final class NewFlowDatabase
     private static boolean markerExists(Connection connection)
             throws SQLException
     {
-        try (PreparedStatement statement = connection.prepareStatement(
-                """
+        try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT COUNT(*) FROM sqlite_schema
                 WHERE type = 'table' AND name = ?
                 """)) {
@@ -251,8 +227,7 @@ public final class NewFlowDatabase
             throws SQLException
     {
         if (!connection.getAutoCommit()) {
-            throw new IllegalStateException(
-                    "new-flow bootstrap requires an unowned connection");
+            throw new IllegalStateException("new-flow bootstrap requires an unowned connection");
         }
     }
 
@@ -260,12 +235,9 @@ public final class NewFlowDatabase
             throws SQLException
     {
         execute(connection, "PRAGMA foreign_keys = ON");
-        try (Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery(
-                        "PRAGMA foreign_keys")) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("PRAGMA foreign_keys")) {
             if (!result.next() || result.getInt(1) != 1 || result.next()) {
-                throw new IllegalStateException(
-                        "new-flow foreign keys are not enabled");
+                throw new IllegalStateException("new-flow foreign keys are not enabled");
             }
         }
     }
@@ -273,19 +245,13 @@ public final class NewFlowDatabase
     private static void validateDatabase(Connection connection)
             throws SQLException
     {
-        try (Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery(
-                        "PRAGMA foreign_key_check")) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("PRAGMA foreign_key_check")) {
             if (result.next()) {
                 throw drift("new-flow database violates a foreign key");
             }
         }
-        try (Statement statement = connection.createStatement();
-                ResultSet result = statement.executeQuery(
-                        "PRAGMA quick_check")) {
-            if (!result.next()
-                    || !"ok".equals(result.getString(1))
-                    || result.next()) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery("PRAGMA quick_check")) {
+            if (!result.next() || !"ok".equals(result.getString(1)) || result.next()) {
                 throw drift("new-flow database integrity check failed");
             }
         }
@@ -299,8 +265,7 @@ public final class NewFlowDatabase
         }
     }
 
-    private static void rollback(
-            Connection connection, Throwable original)
+    private static void rollback(Connection connection, Throwable original)
     {
         try {
             execute(connection, "ROLLBACK");
@@ -312,14 +277,11 @@ public final class NewFlowDatabase
 
     private static byte[] read(String path)
     {
-        try (InputStream input = new ClassPathResource(path)
-                .getInputStream()) {
+        try (InputStream input = new ClassPathResource(path).getInputStream()) {
             return input.readAllBytes();
         }
         catch (IOException failure) {
-            throw new IllegalStateException(
-                    "cannot read new-flow schema resource " + path,
-                    failure);
+            throw new IllegalStateException("cannot read new-flow schema resource " + path, failure);
         }
     }
 
@@ -335,11 +297,8 @@ public final class NewFlowDatabase
 
     private static void frame(MessageDigest digest, String value)
     {
-        byte[] bytes = value == null
-                ? new byte[0]
-                : value.getBytes(StandardCharsets.UTF_8);
-        digest.update(Integer.toString(bytes.length)
-                .getBytes(StandardCharsets.UTF_8));
+        byte[] bytes = value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
+        digest.update(Integer.toString(bytes.length).getBytes(StandardCharsets.UTF_8));
         digest.update((byte) ':');
         digest.update(bytes);
         digest.update((byte) '\n');

@@ -469,6 +469,39 @@ After a restart the program kills and proves the persisted group dead before
 admitting another writer, and uncertain identity is `NEEDS_ATTENTION`, never
 automatic continuation.
 
+### What the CLI body is actually made of
+
+Measured rather than estimated, because the first estimate was wrong by an order
+of magnitude. Three of the four pieces already exist:
+
+- **The vendor command line** is `CliAgentArgv`, shared by both flows. The flags
+  are the expensive part and there is now one copy.
+- **The stream parsers** (`CliStreamParser`, `CodexJsonParser`,
+  `StreamJsonParser`) were already flow-neutral in `service/threads`. Nothing
+  had to move; the greenfield calls them directly.
+- **The process lifecycle** is `ProcessGroup` plus `CliWriterContainment`, which
+  is strictly better than the old adapter's own — that one has no process group,
+  so it cannot prove a reparented grandchild dead.
+
+So the old adapter never needed extracting wholesale. What remains is the tool
+bridge and the body that joins these:
+
+- **An operation-scoped MCP endpoint.** Every existing turn kind has its own
+  ~100-line controller (`StageTurnMcpController`, `ThreadTurnMcpController`, and
+  three others) that does nothing but delegate JSON-RPC to
+  `LoopbackOwnerMcpClient`. The greenfield needs the same shape, pathed on the
+  run rather than a stage, listing `NewFlowAgentLaunches.Program.tools` and
+  dispatching to the same `ToolExecutor` the in-JVM body already builds. That
+  reuse is what keeps a CLI turn and an API turn from drifting into two
+  different tool surfaces for the same role.
+- **The body.** Apply containment, launch through `ProcessGroup`, persist the
+  group id before the prompt, parse, map to the same `AgentCompletion` the
+  in-JVM bodies return, and hold the writer fence until the group is proven
+  absent.
+- **Provider session and usage**, then **restart recovery** that buries a
+  persisted group before admitting a successor writer. Both are unobservable
+  until the body above runs, which is why they moved here.
+
 ### A CLI body still needs operation-scoped tools
 
 The earlier claim — that a CLI agent bypasses `WriterToolCapability` entirely and

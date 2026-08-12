@@ -87,6 +87,7 @@ export function ConfirmDialog({
           <div style={dialogStyles.footerButtons}>
             <button
               type="button"
+              className="ui-hand"
               style={dialogStyles.secondaryBtn}
               onClick={onCancel}
             >
@@ -94,6 +95,7 @@ export function ConfirmDialog({
             </button>
             <button
               type="button"
+              className="ui-hand"
               style={destructive
                 ? (busy ? destructiveBtnDisabledStyle : destructiveBtnStyle)
                 : (busy ? dialogStyles.primaryBtnDisabled : dialogStyles.primaryBtn)}

@@ -29,7 +29,8 @@ afterEach(() => {
 });
 
 const running: UpstreamCherryPickJobDto = {
-  jobId: 'job-1', status: 'RUNNING', sourceBranch: 'master',
+  jobId: 'job-1', runNumber: 1, status: 'RUNNING', sourceBranch: 'master',
+  rangeFromSha: null, rangeToSha: null, prResult: null,
   resultBranch: 'upstream-9-9', baseRef: 'b'.repeat(40), requestedCount: 1,
   appliedCount: 0, skippedCount: 0, conflictedCount: 0, pauseRequested: false,
   budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, agentSessionId: null, conflictPaths: [], worktreePath: '/tmp/job-1',

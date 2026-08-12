@@ -56,6 +56,113 @@ export function syncPhase(job: UpstreamCherryPickJobDto): string {
   return job.pauseRequested ? 'PAUSING' : 'PICKING';
 }
 
+/**
+ * The three phases a run moves through. Phase 2 has no data source until the
+ * range is pushed and CI Autofix takes the pull request over, so a run that has
+ * not pushed reports phase 1 and a pushed one reports at least phase 2.
+ */
+export type SyncPhase = 1 | 2 | 3;
+
+export function syncPhaseNumber(job: UpstreamCherryPickJobDto): SyncPhase {
+  if (job.prResult !== null) return 3;
+  if (job.prNumber !== null) return 2;
+  return 1;
+}
+
+/** The status chip on a run card: what it says, and in which tone. */
+export type SyncChip = {
+  label: string;
+  tone: 'picking' | 'parked' | 'failed' | 'closed' | 'done';
+  /** True while work is actually moving, so the dot pulses. */
+  live: boolean;
+};
+
+export function syncChip(job: UpstreamCherryPickJobDto): SyncChip {
+  if (job.closedAt !== null) {
+    return { label: 'CLOSED', tone: 'closed', live: false };
+  }
+  if (job.status === 'FAILED') {
+    return { label: 'STOPPED · NEEDS YOU', tone: 'failed', live: false };
+  }
+  if (job.status === 'PAUSED_CONFLICT') {
+    return { label: 'PARKED FOR YOUR REVIEW', tone: 'parked', live: false };
+  }
+  if (job.status === 'COMPLETED') {
+    // The range is done. Whether that means "yours to review" or "watching CI"
+    // is phase 2's business, and phase 2 has no state to read yet — so this
+    // says only what is certainly true.
+    return job.prNumber === null
+      ? { label: 'RANGE COMPLETE', tone: 'done', live: false }
+      : { label: 'PARKED FOR YOUR REVIEW', tone: 'parked', live: false };
+  }
+  return {
+    label: job.pauseRequested ? 'PHASE 1 · PAUSING' : 'PHASE 1 · PICKING',
+    tone: 'picking',
+    live: !job.pauseRequested,
+  };
+}
+
+/** The phase label beside the progress bar on a run card. */
+export function syncPhaseLabel(job: UpstreamCherryPickJobDto): string {
+  switch (syncPhaseNumber(job)) {
+    case 3: return 'Cleanup';
+    case 2: return 'CI harness';
+    default: return 'Local cherry-picks';
+  }
+}
+
+/** The one-line detail under a run card's progress bar. */
+export function syncDetailLine(job: UpstreamCherryPickJobDto): string {
+  const queue = `${job.appliedCount - job.conflictedCount} clean · ${
+    job.conflictedCount} carried · ${job.skippedCount} skipped`;
+  if (job.status === 'FAILED' && job.errorMessage !== null) return job.errorMessage;
+  if (job.status === 'PAUSED_CONFLICT' && job.errorMessage !== null) {
+    return job.errorMessage;
+  }
+  return queue;
+}
+
+/** How a finished run ended, for the finished list's RESULT column. */
+export type SyncResult = {
+  label: string;
+  tone: 'merged' | 'closed' | 'done' | 'failed';
+};
+
+export function syncResult(job: UpstreamCherryPickJobDto): SyncResult {
+  if (job.prResult === 'merged') return { label: 'Merged', tone: 'merged' };
+  if (job.prResult === 'closed') return { label: 'Closed', tone: 'closed' };
+  if (job.status === 'FAILED') return { label: 'Stopped', tone: 'failed' };
+  // Closed by hand before the pull request ended either way, or never opened
+  // one — "Closed" would claim something about the PR that is not known.
+  return { label: job.prNumber === null ? 'No PR' : 'Ended', tone: 'done' };
+}
+
+/**
+ * The two lists the home page renders: what is live, and what is over.
+ *
+ * Running keeps the order it arrived in, which is newest-created first. Finished
+ * is re-sorted by when it actually finished, because that is the column it shows
+ * and the two orders genuinely differ — a long run started on Monday can finish
+ * after a short one started on Thursday.
+ */
+export function splitSyncRuns(runs: UpstreamCherryPickJobDto[]): {
+  running: UpstreamCherryPickJobDto[];
+  finished: UpstreamCherryPickJobDto[];
+} {
+  return {
+    running: runs.filter(job => job.closedAt === null),
+    finished: runs.filter(job => job.closedAt !== null)
+      .slice()
+      .sort((left, right) => finishedAt(right) - finishedAt(left)),
+  };
+}
+
+/** An unparseable timestamp sorts last rather than throwing the whole list. */
+function finishedAt(job: UpstreamCherryPickJobDto): number {
+  const parsed = Date.parse(job.closedAt ?? job.updatedAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function syncProgress(job: UpstreamCherryPickJobDto): {
   done: number;
   total: number;
@@ -94,6 +201,128 @@ export function syncQueue(
     cleanCount: commits.filter(commit => commit.state === 'applied').length,
     carriedCount: commits.filter(commit => commit.state === 'conflicted').length,
   };
+}
+
+/**
+ * When the range itself finished, which is what phase 1's duration measures.
+ * The run's `updatedAt` keeps moving for as long as anything touches the run, so
+ * on a pushed run it reports the whole run rather than the picking.
+ *
+ * @return null when the range never completed — a run still picking, or one that
+ *         stopped, has no phase-1 end yet.
+ */
+export function phaseOneEndedAt(
+  events: UpstreamCherryPickEventDto[],
+): string | null {
+  return events.find(event => event.kind === 'done')?.at ?? null;
+}
+
+/**
+ * The run's conversation, grouped the way it reads rather than the way it was
+ * written. A flat log of a 151-commit range is a wall; what a reader wants is
+ * the picking folded into one line, the agent's reasoning as prose, and the
+ * program's steps behind a chip they can open.
+ */
+export type SyncFeedItem =
+  /** Every pick, folded into one openable group. */
+  | { key: string; kind: 'picks'; events: UpstreamCherryPickEventDto[] }
+  /** Consecutive program steps — probes, notes — behind one chip. */
+  | { key: string; kind: 'activity'; title: string; lines: UpstreamCherryPickEventDto[] }
+  /** One agent turn's prose, with its transcript if the run kept one. */
+  | { key: string; kind: 'agent'; event: UpstreamCherryPickEventDto;
+      transcript: UpstreamCherryPickEventDto | null }
+  /** Something the user said to the run. */
+  | { key: string; kind: 'guidance'; event: UpstreamCherryPickEventDto }
+  /** A moment worth its own line: pushed, opened, failed, finished, closed. */
+  | { key: string; kind: 'moment'; event: UpstreamCherryPickEventDto };
+
+/** Kinds that read as one program step rather than a moment of their own. */
+const ACTIVITY_KINDS = new Set(['note', 'watch', 'command', 'skip']);
+
+export function syncFeed(events: UpstreamCherryPickEventDto[]): SyncFeedItem[] {
+  const picks = events.filter(event => event.pickIndex !== null);
+  const runLevel = events.filter(event => event.pickIndex === null);
+  const items: SyncFeedItem[] = [];
+  if (picks.length > 0) {
+    items.push({ key: 'picks', kind: 'picks', events: picks });
+  }
+  for (let index = 0; index < runLevel.length; index++) {
+    const event = runLevel[index];
+    // A transcript belongs to the agent turn above it, not to the stream.
+    if (event.kind === 'agent_log') continue;
+    if (event.kind === 'agent') {
+      const next = runLevel[index + 1];
+      items.push({
+        key: event.id,
+        kind: 'agent',
+        event,
+        transcript: next !== undefined && next.kind === 'agent_log' ? next : null,
+      });
+      continue;
+    }
+    if (event.kind === 'guidance') {
+      items.push({ key: event.id, kind: 'guidance', event });
+      continue;
+    }
+    if (!ACTIVITY_KINDS.has(event.kind)) {
+      items.push({ key: event.id, kind: 'moment', event });
+      continue;
+    }
+    const open = items.at(-1);
+    if (open !== undefined && open.kind === 'activity') {
+      open.lines.push(event);
+      continue;
+    }
+    items.push({ key: event.id, kind: 'activity', title: event.title, lines: [event] });
+  }
+  return items;
+}
+
+/** What a run is asking of the reader, once it has stopped asking of itself. */
+export type SyncDecision = {
+  title: string;
+  body: string;
+  tone: 'parked' | 'failed' | 'done' | 'closed';
+};
+
+/** @return null while the run is still working — there is nothing to decide. */
+export function syncDecision(job: UpstreamCherryPickJobDto): SyncDecision | null {
+  if (job.closedAt !== null) {
+    return {
+      title: 'Run closed',
+      body: 'The worktree is gone. The branch and this log are kept.',
+      tone: 'closed',
+    };
+  }
+  if (job.status === 'FAILED') {
+    return {
+      title: 'Stopped',
+      body: job.errorMessage ?? 'The run stopped. Durable progress is kept.',
+      tone: 'failed',
+    };
+  }
+  if (job.status === 'PAUSED_CONFLICT') {
+    return {
+      title: 'Parked for your review',
+      body: job.errorMessage
+        ?? 'Nothing is pushed until you resume. Take over in the worktree, or reply below to steer.',
+      tone: 'parked',
+    };
+  }
+  if (job.status === 'COMPLETED') {
+    return job.prNumber === null
+      ? {
+        title: `Range complete — ${job.appliedCount} picked`,
+        body: `Everything landed on ${job.resultBranch}. Nothing was pushed.`,
+        tone: 'done',
+      }
+      : {
+        title: 'Range complete — parked for your review',
+        body: `Draft PR #${job.prNumber} is open. Review it, or reply below to steer.`,
+        tone: 'parked',
+      };
+  }
+  return null;
 }
 
 /** Groups the log by the pick each line belongs to, preserving run order. */

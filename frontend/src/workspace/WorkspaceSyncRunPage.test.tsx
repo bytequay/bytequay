@@ -48,11 +48,11 @@ describe('sync run view', () => {
     mount();
     await flush();
 
-    // Queue: done collapses behind a count, the pick in flight has its own card.
-    expect(document.querySelector('.sr-queue__section-label')?.textContent)
-      .toBe('DONE · 2');
-    expect(document.querySelector('.sr-queue__current-subject')?.textContent)
-      .toBe('Refactor expression visitors to a registry');
+    // The left column is the three phases, and phase 1 carries the picking.
+    expect(screen.getByText('Local cherry-picks')).toBeTruthy();
+    expect(screen.getByText('CI harness')).toBeTruthy();
+    expect(screen.getByText('Review & merge')).toBeTruthy();
+    expect(screen.getByText('phase 1 of 3')).toBeTruthy();
     expect(screen.getByText('2 of 5 settled')).toBeTruthy();
 
     // The centre column says what is happening, not that something is.
@@ -79,12 +79,9 @@ describe('sync run view', () => {
       .toContain('fixup! Extract CoordinatorModule config');
     expect(screen.getByText('Repaired — the fixup compiles beside its pick')).toBeTruthy();
 
-    // The queue names that fixup too — knowing a pick once conflicted is not
-    // something the reader can act on; knowing which commit repaired it is.
-    expect(document.querySelector('.sr-queue__note-sha')?.textContent).toBe('5d1ae74');
   });
 
-  it('collapses done to the picks, not to a tail that is all skips', async () => {
+  it('opens phase 1 onto its most recent picks', async () => {
     const bumps = syncRun();
     bumps.commits = [
       ...bumps.commits.slice(0, 2),
@@ -101,24 +98,45 @@ describe('sync run view', () => {
     mount(bumps);
     await flush();
 
-    expect(document.querySelector('.sr-queue__section-label')?.textContent)
-      .toBe('DONE · 10');
-    const collapsed = document.querySelectorAll('.sr-queue__done .sr-queue__row');
-    expect(collapsed).toHaveLength(2);
-    expect(document.querySelector('.sr-queue__done .is-skipped')).toBeNull();
+    // Folded by default: the picks are the phase's detail, not its headline.
+    expect(document.querySelectorAll('.st-pick')).toHaveLength(0);
+    fireEvent.click(document.querySelector('.st-phase__head.is-button') as HTMLElement);
+    expect(document.querySelectorAll('.st-pick')).toHaveLength(3);
+    expect(screen.getByText('View all 13 picks')).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: /View all 10/ }));
-    expect(document.querySelectorAll('.sr-queue__done .is-skipped')).toHaveLength(8);
+  it('keeps the pick-by-pick conversation while the run is still picking', async () => {
+    mount();
+    await flush();
+
+    // Folding phase 1 to "N settled" is right once the run has moved past it.
+    // While it is still picking that summary is the whole page, and it would
+    // hide the conflict repairs someone parked on a conflict came to read.
+    expect(document.querySelector('.sf-group')).toBeNull();
+    expect(document.querySelectorAll('.sr-pick__head').length).toBeGreaterThan(1);
+
+    const pushed = syncRun();
+    pushed.job = { ...pushed.job, status: 'COMPLETED', prNumber: 12 };
+    cleanup();
+    mount(pushed);
+    await flush();
+
+    // Past phase 1, it folds.
+    expect(document.querySelector('.sf-group')).toBeTruthy();
+    expect(document.querySelectorAll('.sr-pick__head')).toHaveLength(0);
   });
 
   it('offers a pause while running and never claims anything was pushed', async () => {
     const request = mount();
     await flush();
 
-    expect(document.querySelector('.sr-queue__safety-copy strong')?.textContent)
-      .toContain('nothing pushed');
-    expect(document.querySelector('.sr-rail__item.is-idle small')?.textContent)
-      .toBe('after push');
+    expect(document.querySelector('.st-foot')?.textContent)
+      .toContain('Isolated worktree');
+    // No pull request yet, so nothing offers one. The old column showed a
+    // permanently-disabled "PR / after push" tile, which was three numbers and
+    // a dead button in a column of their own.
+    expect(document.querySelector('.sr-rail')).toBeNull();
+    expect(screen.queryByLabelText('Toggle the pull request panel')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Pause after this pick/ }));
     await flush();
@@ -237,37 +255,63 @@ describe('sync run view', () => {
     mount(pushed, <p>pull request #3</p>);
     await flush();
 
-    // The pane is the pull request; the rail button hides and shows it, and
-    // nothing here hands the PR to a browser.
+    // The pane is the pull request; the top bar's toggle hides and shows it,
+    // and nothing here hands the PR to a browser.
     expect(screen.getByText('pull request #3')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /PR/ }));
+    const toggle = screen.getByLabelText('Toggle the pull request panel');
+    fireEvent.click(toggle);
     expect(screen.queryByText('pull request #3')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /PR/ }));
+    fireEvent.click(toggle);
     expect(screen.getByText('pull request #3')).toBeTruthy();
+
+    // The session row carries the number, and reopens the pane too.
+    expect(document.querySelector('.sr-session__stat')?.textContent)
+      .toContain('elapsed');
+    expect(screen.getByRole('button', { name: 'PR #3' })).toBeTruthy();
   });
 
-  it('lists the workspace\u2019s runs at the top of the run\u2019s own column', async () => {
-    const other = { ...syncRun().job, jobId: 'job-2', resultBranch: 'upstream-2-32' };
-    const onOpenSync = vi.fn();
-    mount(syncRun(), undefined, {
-      syncs: [syncRun().job, other], onOpenSync,
-    });
+  it('does not list the workspace\u2019s other runs inside one run', async () => {
+    mount();
     await flush();
 
-    const rows = document.querySelectorAll('.sr-queue__syncs .sync-nav__row');
-    expect(rows).toHaveLength(2);
-    // The list doubles as this column's title, so the open run is marked.
-    expect(rows[0].getAttribute('aria-current')).toBe('true');
-    expect(rows[1].getAttribute('aria-current')).toBeNull();
+    // They live on the sync home page. Stacking them here put four other runs
+    // in the column and left a pushed run nowhere to show its remote state.
+    expect(document.querySelector('.sr-queue__syncs')).toBeNull();
+    expect(document.querySelectorAll('.sync-nav__row')).toHaveLength(0);
+  });
 
-    fireEvent.click(rows[1]);
-    expect(onOpenSync).toHaveBeenCalledWith('job-2');
+  it('builds phase 3\u2019s receipt from what the teardown recorded', async () => {
+    const merged = syncRun();
+    merged.job = {
+      ...merged.job, status: 'COMPLETED', prNumber: 9, prResult: 'merged',
+      closedAt: '2026-08-09T12:00:00Z',
+    };
+    merged.events = [
+      ...merged.events,
+      {
+        id: 'c1', ordinal: 90, pickIndex: null, kind: 'cleanup',
+        title: 'Removed the isolated worktree', detail: null,
+        exitCode: null, durationMs: null, at: '2026-08-09T12:00:01Z',
+      },
+      {
+        id: 'c2', ordinal: 91, pickIndex: null, kind: 'cleanup',
+        title: 'Remote upstream-2-31 was not deleted', detail: 'already gone',
+        exitCode: null, durationMs: null, at: '2026-08-09T12:00:02Z',
+      },
+    ];
+    mount(merged);
+    await flush();
 
-    // It folds away — four other runs are not what someone came here to read.
-    fireEvent.click(screen.getByRole('button', { name: /Syncs/ }));
-    expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: /Syncs/ }));
-    expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(2);
+    // The rail's phase 3 is a receipt, so it ticks only what actually happened —
+    // a step the program skipped stays unticked rather than being claimed.
+    const receipt = document.querySelector('.st-receipt') as HTMLElement;
+    expect(receipt).toBeTruthy();
+    expect(receipt.textContent).toContain('Pull request merged');
+    expect(receipt.querySelector('.is-done')?.textContent)
+      .toContain('Pull request merged');
+    const rows = Array.from(receipt.querySelectorAll('li'));
+    const skipped = rows.find(row => row.textContent?.includes('was not deleted'));
+    expect(skipped?.classList.contains('is-done')).toBe(false);
   });
 
   it('records steering guidance on the run', async () => {

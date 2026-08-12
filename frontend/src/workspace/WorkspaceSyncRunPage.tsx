@@ -17,12 +17,13 @@ import { usePaneWidth } from '../ui/shell';
 import { useSidebarWidth } from '../ui/shell/useSidebarWidth';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
-  ParkIcon, PauseIcon, PlayIcon, PullRequestIcon, SendIcon, SkipIcon,
+  ParkIcon, PauseIcon, PlayIcon, SendIcon, SkipIcon,
 } from './WorkspaceSyncIcons';
-import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
-import WorkspaceSyncRunQueue from './WorkspaceSyncRunQueue';
+import WorkspaceSyncFeed from './WorkspaceSyncFeed';
+import { TranscriptTool } from './WorkspaceSyncRunLog';
+import WorkspaceSyncTimeline from './WorkspaceSyncTimeline';
 import {
-  elapsedLabel, fixupsByPick, isClosedSync, isLiveSync, money, syncNowLine,
+  elapsedLabel, isClosedSync, isLiveSync, money, syncNowLine,
   syncPhase, syncQueue, sessionTranscriptPath, transcriptEntries,
   type TranscriptEntry,
 } from './syncRunModel';
@@ -48,15 +49,11 @@ const MAX_LIVE_ENTRIES = 40;
  * request it ends at on the right.
  */
 export default function WorkspaceSyncRunPage({
-  workspaceId, jobId, syncs = [], onBack, onOpenSync, onNewSync, rightPane,
+  workspaceId, jobId, onBack, rightPane,
 }: {
   workspaceId: string;
   jobId: string;
-  /** The workspace's other runs, listed at the top of the queue column. */
-  syncs?: UpstreamCherryPickJobDto[];
   onBack?: () => void;
-  onOpenSync?: (jobId: string) => void;
-  onNewSync?: () => void;
   /** Rendered beside the cockpit so one run and its draft PR read as one page. */
   rightPane?: ReactNode;
 }) {
@@ -73,7 +70,7 @@ export default function WorkspaceSyncRunPage({
   const [agentLive, setAgentLive] = useState<TranscriptEntry[]>([]);
   const [prOpen, setPrOpen] = useState(true);
   const { sidebarWidth: queueWidth, shellRef, onResize: onQueueResize } =
-    useSidebarWidth(QUEUE_WIDTH_KEY, 300);
+    useSidebarWidth(QUEUE_WIDTH_KEY, 292);
   const { paneWidth, bodyRef, onResize: onPaneResize } =
     usePaneWidth(PR_WIDTH_KEY, PR_WIDTH_DEFAULT, PR_WIDTH_MIN, PR_WIDTH_MAX);
   // Both drags measure the same element — the queue from its left edge, the
@@ -182,16 +179,18 @@ export default function WorkspaceSyncRunPage({
           ? `${queueWidth}px minmax(0, 1fr) ${paneWidth}px`
           : `${queueWidth}px minmax(0, 1fr)`,
       }}>
-      <WorkspaceSyncRunQueue job={job} commits={run.commits} onBack={onBack}
-        fixups={fixupsByPick(run.events)} syncs={syncs}
-        onOpenSync={onOpenSync} onNewSync={onNewSync} />
+      <WorkspaceSyncTimeline job={job} commits={run.commits} events={run.events}
+        onBack={onBack} />
       <ResizeHandle className="sr-resize" ariaLabel="Resize the commit queue"
         onResize={onQueueResize} style={{ left: queueWidth - 2 }} />
       <div className="sr-main">
         <header className="sr-topbar">
-          {/* The branch and the worktree path are already the queue column's
-              title and footer; repeating them here only ate the top bar. */}
-          <span className="sr-topbar__badge">SYNC RUN</span>
+          {/* "SYNC RUN" said nothing the surface had not already said. The run's
+              number and what it is doing are what a reader needs here. */}
+          <span className="sr-topbar__run">RUN #{job.runNumber}</span>
+          <span className="sr-topbar__title" title={runTitle(job, run.commits.length)}>
+            {runTitle(job, run.commits.length)}
+          </span>
           <span className="sr-topbar__grow" />
           <span className={`sr-phase is-${phaseTone(job.status)}`}>{syncPhase(job)}</span>
           {running && (
@@ -231,28 +230,60 @@ export default function WorkspaceSyncRunPage({
               <CloseIcon />Close run
             </button>
           )}
-          <button type="button" className="sr-topbar__action" disabled={busy}
-            title="Close the run and remove it from the list"
+          <button type="button" className="sr-topbar__icon" disabled={busy}
+            title="Close the run and remove it from the list" aria-label="Delete run"
             onClick={() => setDeleting(true)}>
-            <TrashIcon />Delete run
+            <TrashIcon />
           </button>
+          {canOpenPr && (
+            <button type="button"
+              className={`sr-topbar__icon${prOpen ? ' is-on' : ''}`}
+              title={prTitle(job.prNumber, canOpenPr, prOpen)}
+              aria-label="Toggle the pull request panel"
+              onClick={() => setPrOpen(open => !open)}>
+              <PanelIcon />
+            </button>
+          )}
         </header>
 
-        {job.agentSessionId !== null && (
-          // The session the whole run shares. `claude --resume` continues a
-          // conversation rather than attaching to a live one, so the way to
-          // watch from a terminal is to tail the session's own transcript.
-          <div className="sr-session">
-            <span>AGENT SESSION</span>
-            <code title={job.agentSessionId}>{job.agentSessionId}</code>
-            {transcriptPath !== null && (
-              <button type="button" className="sr-session__copy"
-                onClick={() => { void navigator.clipboard.writeText(`tail -f ${transcriptPath}`); }}>
-                Copy tail command
-              </button>
-            )}
-          </div>
-        )}
+        {/* The session the whole run shares, and what it has cost. `claude
+            --resume` continues a conversation rather than attaching to a live
+            one, so tailing the session's own transcript is how you watch from a
+            terminal. Elapsed and spend live here rather than in a column of
+            their own, which read as three unrelated numbers. */}
+        <div className="sr-session">
+          {job.agentSessionId !== null && (
+            <>
+              <span>SESSION</span>
+              <code title={job.agentSessionId}>{job.agentSessionId}</code>
+              {transcriptPath !== null && (
+                <button type="button" className="sr-session__copy"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(`tail -f ${transcriptPath}`);
+                  }}>
+                  Copy tail command
+                </button>
+              )}
+            </>
+          )}
+          <span className="sr-topbar__grow" />
+          <span className="sr-session__stat">
+            <ClockIcon />
+            {elapsedLabel(job.createdAt, running ? undefined : job.updatedAt)} elapsed
+          </span>
+          <span className="sr-session__dot" aria-hidden>·</span>
+          <span className="sr-session__stat"
+            title={`${money(job.spentMilliUsd)} of ${money(job.budgetMilliUsd)} budget`}>
+            {money(job.spentMilliUsd)} spent
+          </span>
+          {job.prNumber !== null && (
+            <>
+              <span className="sr-session__dot" aria-hidden>·</span>
+              <button type="button" className="sr-session__pr" disabled={!canOpenPr}
+                onClick={() => setPrOpen(true)}>PR #{job.prNumber}</button>
+            </>
+          )}
+        </div>
 
         <div className="sr-body">
           <div className="sr-stream">
@@ -274,7 +305,8 @@ export default function WorkspaceSyncRunPage({
                 atBottomRef.current = element.scrollHeight - element.scrollTop
                   - element.clientHeight < 40;
               }}>
-              <WorkspaceSyncRunLog events={run.events} commits={run.commits} />
+              <WorkspaceSyncFeed job={job} commits={run.commits} events={run.events}
+                onOpenPr={canOpenPr ? () => setPrOpen(true) : undefined} />
               {agentLive.length > 0 && (
                 // The turn in flight. Without this a pick that compiles for
                 // minutes reads as a stalled run — the log's next line only
@@ -357,28 +389,6 @@ export default function WorkspaceSyncRunPage({
             </div>
           </div>
 
-          <aside className="sr-rail">
-            <button type="button"
-              className={`sr-rail__item${job.prNumber === null ? ' is-idle' : ''}${
-                prOpen ? ' is-on' : ''}`}
-              disabled={!canOpenPr}
-              title={prTitle(job.prNumber, canOpenPr, prOpen)}
-              onClick={() => setPrOpen(open => !open)}>
-              <PullRequestIcon />
-              <span>PR</span>
-              <small>{job.prNumber === null ? 'after push' : `#${job.prNumber}`}</small>
-            </button>
-            <span className="sr-topbar__grow" />
-            <span className="sr-rail__stat">
-              <code>{elapsedLabel(job.createdAt, running ? undefined : job.updatedAt)}</code>
-              <small>ELAPSED</small>
-            </span>
-            <span className="sr-rail__stat"
-              title={`${money(job.spentMilliUsd)} of ${money(job.budgetMilliUsd)} budget`}>
-              <code>{money(job.spentMilliUsd)}</code>
-              <small>SPEND</small>
-            </span>
-          </aside>
         </div>
       </div>
       {closing && (
@@ -432,6 +442,35 @@ export default function WorkspaceSyncRunPage({
       )}
     </div>
   );
+}
+
+/** The design's PR-panel toggle: a pane with a divided right edge. */
+function PanelIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.7" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" />
+    </svg>
+  );
+}
+
+/**
+ * What the run is, in the words the top bar has room for. The range's own shas
+ * are the left column's title, so this says the shape of the work instead.
+ */
+function runTitle(job: UpstreamCherryPickJobDto, commits: number): string {
+  if (commits === 0) return `Sync run on ${job.resultBranch}`;
+  return `Cherry-pick ${job.requestedCount} commit${
+    job.requestedCount === 1 ? '' : 's'} from ${job.sourceBranch}`;
 }
 
 function CloseIcon() {

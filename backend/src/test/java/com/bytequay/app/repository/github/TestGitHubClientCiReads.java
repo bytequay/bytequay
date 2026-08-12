@@ -15,11 +15,12 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogCapture;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogStatus;
+import com.bytequay.app.repository.GitHubActionsRepository.ActionsWorkflowJobSetEvidence;
+import com.bytequay.app.repository.GitHubActionsRepository.CheckRunAnnotationEvidence;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogCapture;
-import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogStatus;
-import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJobSetEvidence;
-import com.bytequay.app.repository.PullRequestRepository.CheckRunAnnotationEvidence;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -634,7 +636,7 @@ class TestGitHubClientCiReads
                         "https://api.github.test/repos/owner/repo/check-runs/90465481459/annotations?per_page=100"))
                 .andRespond(withSuccess(annotations, MediaType.APPLICATION_JSON));
 
-        List<PullRequestRepository.CheckRunAnnotation> result =
+        List<GitHubActionsRepository.CheckRunAnnotation> result =
                 client.fetchCheckRunAnnotations("pat", RepoRef.of("owner", "repo"), 90465481459L);
 
         // Only the assertion survives: the warning is the wrong level, and the
@@ -687,7 +689,7 @@ class TestGitHubClientCiReads
         assertThat(evidence.complete()).isTrue();
         assertThat(evidence.observedAnnotationCount()).isEqualTo(101);
         assertThat(evidence.failureAnnotations()).singleElement()
-                .extracting(PullRequestRepository.CheckRunAnnotation::message)
+                .extracting(GitHubActionsRepository.CheckRunAnnotation::message)
                 .isEqualTo("Process completed with exit code 1.");
         server.verify();
     }
@@ -753,7 +755,79 @@ class TestGitHubClientCiReads
 
     private static GitHubClient client(RestClient.Builder restBuilder)
     {
-        return new GitHubClient(
-                restBuilder.build(), RestClient.builder().baseUrl("https://graphql.test").build());
+        return new GitHubClient(restBuilder.build());
+    }
+
+    private static final class GitHubClient implements PullRequestRepository
+    {
+        private final GitHubActionsClient actions;
+
+        private GitHubClient(RestClient restClient)
+        {
+            this.actions = new GitHubActionsClient(restClient);
+        }
+
+        @Override
+        public List<PrCheckRunState> fetchPrCheckRuns(
+                String pat, String owner, String repo, String sha)
+        {
+            return actions.fetchPrCheckRuns(pat, owner, repo, sha);
+        }
+
+        @Override
+        public List<PrCheckRunState> fetchPrCheckRunsStrict(
+                String pat, String owner, String repo, String sha)
+        {
+            return actions.fetchPrCheckRunsStrict(pat, owner, repo, sha);
+        }
+
+        @Override
+        public Optional<GitHubActionsRepository.ActionsWorkflowRun> fetchActionsWorkflowRun(
+                String pat, RepoRef repo, long runId)
+        {
+            return actions.fetchActionsWorkflowRun(pat, repo, runId);
+        }
+
+        @Override
+        public GitHubActionsRepository.ActionsWorkflowRun fetchActionsWorkflowRunAttemptStrict(
+                String pat, RepoRef repo, long runId, int runAttempt)
+        {
+            return actions.fetchActionsWorkflowRunAttemptStrict(pat, repo, runId, runAttempt);
+        }
+
+        @Override
+        public ActionsWorkflowJobSetEvidence fetchActionsWorkflowAttemptJobsStrict(
+                String pat, RepoRef repo, long runId, int runAttempt)
+        {
+            return actions.fetchActionsWorkflowAttemptJobsStrict(pat, repo, runId, runAttempt);
+        }
+
+        @Override
+        public Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
+        {
+            return actions.fetchCheckRunLog(pat, repo, checkRunId);
+        }
+
+        @Override
+        public ActionsJobLogCapture fetchActionsJobLogStrict(
+                String pat, RepoRef repo, long jobId)
+        {
+            return actions.fetchActionsJobLogStrict(pat, repo, jobId);
+        }
+
+        @Override
+        public List<GitHubActionsRepository.CheckRunAnnotation> fetchCheckRunAnnotations(
+                String pat, RepoRef repo, long checkRunId)
+        {
+            return actions.fetchCheckRunAnnotations(pat, repo, checkRunId);
+        }
+
+        @Override
+        public CheckRunAnnotationEvidence fetchCheckRunAnnotationsStrict(
+                String pat, RepoRef repo, long checkRunId, int expectedAnnotationCount)
+        {
+            return actions.fetchCheckRunAnnotationsStrict(
+                    pat, repo, checkRunId, expectedAnnotationCount);
+        }
     }
 }

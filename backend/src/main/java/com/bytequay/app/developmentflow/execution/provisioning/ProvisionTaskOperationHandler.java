@@ -21,7 +21,7 @@ import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +52,7 @@ public final class ProvisionTaskOperationHandler
     private final OperationStore operations;
     private final ProvisioningGit git;
     private final WorktreeWriterLeaseManager writers;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
     private final PatResolver pats;
     private final ObjectMapper json;
 
@@ -60,7 +60,7 @@ public final class ProvisionTaskOperationHandler
             OperationStore operations,
             ProvisioningGit git,
             WorktreeWriterLeaseManager writers,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
             PatResolver pats,
             ObjectMapper json)
     {

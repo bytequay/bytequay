@@ -35,9 +35,7 @@ class TestGitHubClientIssueIntake
                 .baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer
                 .bindTo(restBuilder).build();
-        GitHubClient client = new GitHubClient(
-                restBuilder.build(),
-                RestClient.builder().baseUrl("https://graphql.test").build());
+        GitHubIssueClient client = new GitHubIssueClient(restBuilder.build());
         server.expect(requestTo("https://api.github.test/repos/acme/widget/issues"
                         + "?state=all&sort=created&direction=desc&page=2&per_page=100"))
                 .andRespond(withSuccess("""
@@ -65,8 +63,7 @@ class TestGitHubClientIssueIntake
     {
         RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(restBuilder).build();
-        GitHubClient client = new GitHubClient(
-                restBuilder.build(), RestClient.builder().baseUrl("https://graphql.test").build());
+        GitHubIssueClient client = new GitHubIssueClient(restBuilder.build());
         server.expect(requestTo("https://api.github.test/repos/acme/widget/issues"
                         + "?state=all&sort=created&direction=desc&page=1&per_page=100"))
                 .andRespond(withSuccess("""

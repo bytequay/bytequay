@@ -13,12 +13,8 @@
  */
 package com.bytequay.app.repository;
 
-/**
- * Compatibility aggregate for tests and adapters that genuinely need every GitHub capability.
- * Production services should depend on a narrow parent.
- */
-public interface PullRequestRepository
-        extends GitHubPullRequestRepository,
-                GitHubIssueRepository,
-                GitHubAccountRepository,
-                GitHubActionsRepository {}
+/** Compatibility aggregate while pull-request callers migrate to narrow capabilities. */
+public interface GitHubPullRequestRepository
+        extends GitHubPullRequestReadRepository,
+                GitHubPullRequestWriteRepository,
+                GitHubMergeRepository {}

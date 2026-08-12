@@ -22,8 +22,10 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -49,13 +51,22 @@ final class PullRequestDetailFetcher
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestDetailFetcher.class);
 
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
+    private final GitHubMergeRepository merges;
+    private final GitHubActionsRepository actions;
     private final PrDetailStore detailStore;
     private final Executor ioExecutor;
 
-    PullRequestDetailFetcher(PullRequestRepository gitHub, PrDetailStore detailStore, Executor ioExecutor)
+    PullRequestDetailFetcher(
+            GitHubPullRequestReadRepository gitHub,
+            GitHubMergeRepository merges,
+            GitHubActionsRepository actions,
+            PrDetailStore detailStore,
+            Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.merges = requireNonNull(merges, "merges is null");
+        this.actions = requireNonNull(actions, "actions is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
@@ -84,9 +95,9 @@ final class PullRequestDetailFetcher
         List<PullRequestDetail.LinkedIssue> linkedIssues = emptyIfNull(result.linkedIssues());
 
         List<PrTimelineEvent> mergedTimeline = PullRequestTimelineUtil.mergeIssueComments(timeline, issueComments);
-        PullRequestRepository.MergeQueueInfo info = result.mergeQueueInfo();
+        GitHubMergeRepository.MergeQueueInfo info = result.mergeQueueInfo();
         if (info == null) {
-            info = new PullRequestRepository.MergeQueueInfo(false, null);
+            info = new GitHubMergeRepository.MergeQueueInfo(false, null);
         }
         logDetailFetchDone(ref, t0, timeline, reviewComments, files, checkRuns, issueComments);
 
@@ -145,7 +156,7 @@ final class PullRequestDetailFetcher
             if (detail == null || detail.headSha() == null) {
                 return CompletableFuture.completedFuture(ImmutableList.of());
             }
-            return timed("fetchPrCheckRuns", ref, () -> gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
+            return timed("fetchPrCheckRuns", ref, () -> actions.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
         });
     }
 
@@ -166,7 +177,7 @@ final class PullRequestDetailFetcher
         });
     }
 
-    private List<PullRequestRepository.ReviewThreadMeta> fetchReviewThreadResolutionBestEffort(
+    private List<GitHubPullRequestReadRepository.ReviewThreadMeta> fetchReviewThreadResolutionBestEffort(
             String pat,
             PullRequestRef ref)
     {
@@ -182,15 +193,15 @@ final class PullRequestDetailFetcher
         }
     }
 
-    private PullRequestRepository.MergeQueueInfo fetchMergeQueueInfoBestEffort(String pat, PullRequestRef ref)
+    private GitHubMergeRepository.MergeQueueInfo fetchMergeQueueInfoBestEffort(String pat, PullRequestRef ref)
     {
         // GraphQL fetch: REST does not expose the per-PR merge-queue entry.
         try {
-            return gitHub.fetchMergeQueueInfo(pat, ref);
+            return merges.fetchMergeQueueInfo(pat, ref);
         }
         catch (RuntimeException e) {
             logBestEffortFailure("GraphQL merge-queue info fetch failed", e);
-            return new PullRequestRepository.MergeQueueInfo(false, null);
+            return new GitHubMergeRepository.MergeQueueInfo(false, null);
         }
     }
 
@@ -231,7 +242,7 @@ final class PullRequestDetailFetcher
 
     private static List<PrReviewThreadMessage> attachReviewThreadResolution(
             List<PrReviewThreadMessage> reviewComments,
-            List<PullRequestRepository.ReviewThreadMeta> threadResolution)
+            List<GitHubPullRequestReadRepository.ReviewThreadMeta> threadResolution)
     {
         // Stitch the GraphQL metadata onto the REST messages. Only the
         // thread root (inReplyTo == null) carries graphqlNodeId +
@@ -240,8 +251,8 @@ final class PullRequestDetailFetcher
             return reviewComments;
         }
 
-        Map<Long, PullRequestRepository.ReviewThreadMeta> metaByRootId = new HashMap<>();
-        for (PullRequestRepository.ReviewThreadMeta meta : threadResolution) {
+        Map<Long, GitHubPullRequestReadRepository.ReviewThreadMeta> metaByRootId = new HashMap<>();
+        for (GitHubPullRequestReadRepository.ReviewThreadMeta meta : threadResolution) {
             metaByRootId.put(meta.rootCommentDatabaseId(), meta);
         }
         return reviewComments.stream()
@@ -251,12 +262,12 @@ final class PullRequestDetailFetcher
 
     private static PrReviewThreadMessage attachReviewThreadResolution(
             PrReviewThreadMessage message,
-            Map<Long, PullRequestRepository.ReviewThreadMeta> metaByRootId)
+            Map<Long, GitHubPullRequestReadRepository.ReviewThreadMeta> metaByRootId)
     {
         if (message.inReplyTo() != null) {
             return message;
         }
-        PullRequestRepository.ReviewThreadMeta meta = metaByRootId.get(message.githubId());
+        GitHubPullRequestReadRepository.ReviewThreadMeta meta = metaByRootId.get(message.githubId());
         if (meta == null) {
             return message;
         }
@@ -358,8 +369,8 @@ final class PullRequestDetailFetcher
             CompletableFuture<List<PrTimelineEvent>> timeline,
             CompletableFuture<List<PrReviewThreadMessage>> reviewComments,
             CompletableFuture<List<PrTimelineEvent>> issueComments,
-            CompletableFuture<List<PullRequestRepository.ReviewThreadMeta>> threadResolution,
-            CompletableFuture<PullRequestRepository.MergeQueueInfo> mergeQueueInfo,
+            CompletableFuture<List<GitHubPullRequestReadRepository.ReviewThreadMeta>> threadResolution,
+            CompletableFuture<GitHubMergeRepository.MergeQueueInfo> mergeQueueInfo,
             CompletableFuture<List<PrCheckRunState>> checkRuns,
             CompletableFuture<List<PullRequestDetail.LinkedIssue>> linkedIssues)
     {
@@ -372,8 +383,8 @@ final class PullRequestDetailFetcher
             List<PrTimelineEvent> timeline,
             List<PrReviewThreadMessage> reviewComments,
             List<PrTimelineEvent> issueComments,
-            List<PullRequestRepository.ReviewThreadMeta> threadResolution,
-            PullRequestRepository.MergeQueueInfo mergeQueueInfo,
+            List<GitHubPullRequestReadRepository.ReviewThreadMeta> threadResolution,
+            GitHubMergeRepository.MergeQueueInfo mergeQueueInfo,
             List<PrCheckRunState> checkRuns,
             List<PullRequestDetail.LinkedIssue> linkedIssues)
     {

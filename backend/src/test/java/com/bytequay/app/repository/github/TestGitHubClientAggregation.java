@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.GitHubClient.GitHubNotification;
-import com.bytequay.app.repository.github.GitHubClient.GitHubNotification.NotificationRepo;
-import com.bytequay.app.repository.github.GitHubClient.GitHubNotification.Subject;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification.NotificationRepo;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification.Subject;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,7 +35,7 @@ class TestGitHubClientAggregation
     @Test
     void testAttentionPrRefKeepsReviewRequest()
     {
-        assertThat(GitHubClient.attentionPrRef(notification(
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "review_requested", "PullRequest", "acme/widget",
                 "https://api.github.com/repos/acme/widget/pulls/3405")))
                 .hasValueSatisfying(ref -> {
@@ -47,7 +47,7 @@ class TestGitHubClientAggregation
     @Test
     void testAttentionPrRefKeepsMention()
     {
-        assertThat(GitHubClient.attentionPrRef(notification(
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "mention", "PullRequest", "owner/repo",
                 "https://api.github.com/repos/owner/repo/pulls/7")))
                 .hasValueSatisfying(ref -> assertThat(ref.number()).isEqualTo(7));
@@ -57,7 +57,7 @@ class TestGitHubClientAggregation
     void testAttentionPrRefDropsOtherReasons()
     {
         // A plain author comment must not re-surface the PR.
-        assertThat(GitHubClient.attentionPrRef(notification(
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "comment", "PullRequest", "owner/repo",
                 "https://api.github.com/repos/owner/repo/pulls/7"))).isEmpty();
     }
@@ -66,7 +66,7 @@ class TestGitHubClientAggregation
     void testAttentionPrRefDropsNonPullRequestSubject()
     {
         // A mention on an Issue, not a PR — the dashboard lane is PR-only.
-        assertThat(GitHubClient.attentionPrRef(notification(
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "mention", "Issue", "owner/repo",
                 "https://api.github.com/repos/owner/repo/issues/7"))).isEmpty();
     }
@@ -74,7 +74,7 @@ class TestGitHubClientAggregation
     @Test
     void testAttentionPrRefEmptyForMalformedUrl()
     {
-        assertThat(GitHubClient.attentionPrRef(notification(
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "review_requested", "PullRequest", "owner/repo",
                 "https://api.github.com/repos/owner/repo/pulls/"))).isEmpty();
     }
@@ -84,20 +84,20 @@ class TestGitHubClientAggregation
     @Test
     void testExtractRepoNullReturnsEmpty()
     {
-        assertThat(GitHubClient.extractRepo(null)).isEmpty();
+        assertThat(GitHubPullRequestReadClient.extractRepo(null)).isEmpty();
     }
 
     @Test
     void testExtractRepoValidApiUrl()
     {
-        assertThat(GitHubClient.extractRepo("https://api.github.com/repos/owner/my-repo"))
+        assertThat(GitHubPullRequestReadClient.extractRepo("https://api.github.com/repos/owner/my-repo"))
                 .isEqualTo("owner/my-repo");
     }
 
     @Test
     void testExtractRepoNoReposSegmentReturnsOriginal()
     {
-        assertThat(GitHubClient.extractRepo("https://example.com/something"))
+        assertThat(GitHubPullRequestReadClient.extractRepo("https://example.com/something"))
                 .isEqualTo("https://example.com/something");
     }
 
@@ -149,7 +149,7 @@ class TestGitHubClientAggregation
     {
         // Search reports a merged PR as state=closed. Dropping merged_at made
         // every downstream renderer call it "Closed" instead of "Merged".
-        assertThat(GitHubClient.toPullRequest(
+        assertThat(GitHubPullRequestReadClient.toPullRequest(
                 searchItem(Instant.parse("2026-08-03T03:37:02Z")), AUTHORED).mergedAt())
                 .isEqualTo(Instant.parse("2026-08-03T03:37:02Z"));
     }
@@ -157,6 +157,6 @@ class TestGitHubClientAggregation
     @Test
     void testSearchItemWithoutMergeLeavesMergedAtNull()
     {
-        assertThat(GitHubClient.toPullRequest(searchItem(null), AUTHORED).mergedAt()).isNull();
+        assertThat(GitHubPullRequestReadClient.toPullRequest(searchItem(null), AUTHORED).mergedAt()).isNull();
     }
 }

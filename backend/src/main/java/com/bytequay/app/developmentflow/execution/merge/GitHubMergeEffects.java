@@ -29,8 +29,11 @@ import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,13 +47,24 @@ import static java.util.Objects.requireNonNull;
 public final class GitHubMergeEffects
         implements MergeOperationHandler.MergeEffects
 {
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubMergeRepository merges;
     private final PatResolver pats;
 
-    public GitHubMergeEffects(PullRequestRepository pullRequests, PatResolver pats)
+    @Autowired
+    public GitHubMergeEffects(
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubMergeRepository merges,
+            PatResolver pats)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.merges = requireNonNull(merges, "merges is null");
         this.pats = requireNonNull(pats, "pats is null");
+    }
+
+    GitHubMergeEffects(PullRequestRepository gitHub, PatResolver pats)
+    {
+        this(gitHub, gitHub, pats);
     }
 
     @Override
@@ -70,8 +84,8 @@ public final class GitHubMergeEffects
                                 "exact pull request was already merged; awaiting observer",
                                 true));
             }
-            PullRequestRepository.MergeQueueInfo queue =
-                    pullRequests.fetchMergeQueueInfo(subject.pat(), subject.ref());
+            GitHubMergeRepository.MergeQueueInfo queue =
+                    merges.fetchMergeQueueInfo(subject.pat(), subject.ref());
             requireQueueMode(request, queue.queueConfigured());
             if (claim.mode() == ClaimMode.PROBE) {
                 EffectEvidence evidence = claim.kind() == EffectKind.ENTER_QUEUE
@@ -89,7 +103,7 @@ public final class GitHubMergeEffects
             }
             String queueNodeId = null;
             if (claim.kind() == EffectKind.ENTER_QUEUE) {
-                queueNodeId = pullRequests.pullRequestNodeId(
+                queueNodeId = merges.pullRequestNodeId(
                                 subject.pat(), subject.ref())
                         .filter(id -> !id.isBlank())
                         .orElseThrow(() -> new ResponseStatusException(
@@ -149,7 +163,7 @@ public final class GitHubMergeEffects
 
     private EffectEvidence executeDirect(Subject subject, MergeRequest request)
     {
-        MergeResult result = pullRequests.mergePullRequest(
+        MergeResult result = merges.mergePullRequest(
                 subject.pat(), subject.ref(),
                 new MergePullRequestCommand(
                         request.mergeMethod(), Optional.empty(), Optional.empty(),
@@ -166,7 +180,7 @@ public final class GitHubMergeEffects
     private EffectEvidence executeQueue(
             Subject subject, MergeRequest request, String queueNodeId)
     {
-        MergeResult result = pullRequests.enqueuePullRequest(
+        MergeResult result = merges.enqueuePullRequest(
                 subject.pat(), queueNodeId, request.headSha());
         if (!result.queued() || result.merged()) {
             throw new SubjectRejectedException(

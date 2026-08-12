@@ -24,8 +24,8 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GitHubAccountRepository;
 import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
@@ -76,7 +76,7 @@ public class MyActivityService
     private final PrDetailStore detailStore;
     private final WatchedRepoStore watchedRepoStore;
     private final AppSettingsStore settingsStore;
-    private final PullRequestRepository gitHub;
+    private final GitHubAccountRepository gitHub;
     private final CredentialService credentialService;
     private final ConcurrentMap<String, CachedCalendar> calendarCache = new ConcurrentHashMap<>();
 
@@ -85,7 +85,7 @@ public class MyActivityService
             PrDetailStore detailStore,
             WatchedRepoStore watchedRepoStore,
             AppSettingsStore settingsStore,
-            PullRequestRepository gitHub,
+            GitHubAccountRepository gitHub,
             CredentialService credentialService)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");

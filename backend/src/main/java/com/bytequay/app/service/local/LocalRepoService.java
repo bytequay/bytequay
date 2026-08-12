@@ -28,6 +28,9 @@ import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubIssueRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -101,7 +104,9 @@ public class LocalRepoService
 
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestWriteRepository pullRequests;
+    private final GitHubIssueRepository issues;
+    private final GitHubAccountRepository accounts;
     private final PullRequestStore pullRequestStore;
     private final LlmReviewerRegistry llmReviewerRegistry;
     private final PatResolver patResolver;
@@ -111,7 +116,9 @@ public class LocalRepoService
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
             GitRunner gitRunner,
-            PullRequestRepository gitHub,
+            GitHubPullRequestWriteRepository pullRequests,
+            GitHubIssueRepository issues,
+            GitHubAccountRepository accounts,
             PullRequestStore pullRequestStore,
             LlmReviewerRegistry llmReviewerRegistry,
             PatResolver patResolver,
@@ -119,7 +126,9 @@ public class LocalRepoService
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
@@ -134,7 +143,7 @@ public class LocalRepoService
             LlmReviewerRegistry llmReviewerRegistry,
             PatResolver patResolver)
     {
-        this(watchedRepoStore, gitRunner, gitHub, pullRequestStore,
+        this(watchedRepoStore, gitRunner, gitHub, gitHub, gitHub, pullRequestStore,
                 llmReviewerRegistry, patResolver, CodeGraphUpdateCoordinator.disabled());
     }
 
@@ -239,8 +248,8 @@ public class LocalRepoService
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
         String pat = patResolver.resolve(owner + "/" + repo);
-        String viewer = gitHub.fetchUserProfile(pat).login();
-        boolean directAvailable = gitHub.fetchViewerCanWrite(pat, RepoRef.of(owner, repo));
+        String viewer = accounts.fetchUserProfile(pat).login();
+        boolean directAvailable = accounts.fetchViewerCanWrite(pat, RepoRef.of(owner, repo));
         boolean forkAvailable = !owner.equalsIgnoreCase(viewer);
         WriteMode defaultMode = forkAvailable ? WriteMode.FORK : WriteMode.DIRECT;
         return new ManagedClonePlan(
@@ -342,7 +351,7 @@ public class LocalRepoService
         if (mode == WriteMode.DIRECT) {
             String pat = patResolver.resolve(owner + "/" + repo);
             if (!LocalRepoRemote.remoteMatchesRepo(origin.url(), owner, repo)
-                    || !gitHub.fetchViewerCanWrite(pat, watched)) {
+                    || !accounts.fetchViewerCanWrite(pat, watched)) {
                 return Optional.empty();
             }
             return Optional.of(new PreparedClone(
@@ -352,7 +361,7 @@ public class LocalRepoService
         RepoRef actualFork = fork;
         if (actualFork == null) {
             String pat = patResolver.resolve(owner + "/" + repo);
-            String viewer = gitHub.fetchUserProfile(pat).login();
+            String viewer = accounts.fetchUserProfile(pat).login();
             actualFork = RepoRef.of(viewer, repo);
         }
         if (!LocalRepoRemote.remoteMatchesRepo(
@@ -442,7 +451,7 @@ public class LocalRepoService
         String upstreamRemoteName = null;
 
         if (mode == WriteMode.DIRECT) {
-            if (!gitHub.fetchViewerCanWrite(pat, watched)) {
+            if (!accounts.fetchViewerCanWrite(pat, watched)) {
                 throw new IllegalStateException("No write access to " + owner + "/" + repo
                         + ". Use fork mode instead.");
             }
@@ -533,7 +542,7 @@ public class LocalRepoService
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
         String pat = patResolver.resolve(owner + "/" + repo);
-        String viewer = gitHub.fetchUserProfile(pat).login();
+        String viewer = accounts.fetchUserProfile(pat).login();
         if (owner.equalsIgnoreCase(viewer)) {
             throw new IllegalStateException(owner + "/" + repo
                     + " is owned by the current user; use direct mode.");
@@ -567,7 +576,7 @@ public class LocalRepoService
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
-        gitHub.createFork(pat, watched);
+        issues.createFork(pat, watched);
         Instant deadline = Instant.now().plus(FORK_READY_TIMEOUT);
         while (Instant.now().isBefore(deadline)) {
             Thread.sleep(FORK_READY_POLL.toMillis());
@@ -585,12 +594,12 @@ public class LocalRepoService
             String viewer,
             RepoRef watched)
     {
-        for (UserRepo candidate : gitHub.fetchUserRepos(pat)) {
+        for (UserRepo candidate : accounts.fetchUserRepos(pat)) {
             if (!viewer.equalsIgnoreCase(candidate.owner())
                     || watched.repo().equalsIgnoreCase(candidate.name())) {
                 continue;
             }
-            RepoMeta meta = gitHub.findRepoMeta(
+            RepoMeta meta = issues.findRepoMeta(
                     pat, RepoRef.of(candidate.owner(), candidate.name()))
                     .orElse(null);
             if (meta != null
@@ -607,7 +616,7 @@ public class LocalRepoService
             RepoRef candidate,
             RepoRef watched)
     {
-        Optional<RepoMeta> fork = gitHub.findRepoMeta(pat, candidate);
+        Optional<RepoMeta> fork = issues.findRepoMeta(pat, candidate);
         if (fork.isEmpty()) {
             return Optional.empty();
         }
@@ -1485,7 +1494,7 @@ public class LocalRepoService
                 bodyText == null || bodyText.isBlank() ? Optional.empty() : Optional.of(bodyText),
                 Optional.of(draft),
                 Optional.empty());
-        return gitHub.createPullRequest(pat, RepoRef.of(owner, repo), command);
+        return pullRequests.createPullRequest(pat, RepoRef.of(owner, repo), command);
     }
 
     /**

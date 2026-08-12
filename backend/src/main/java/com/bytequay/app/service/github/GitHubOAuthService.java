@@ -213,7 +213,7 @@ public class GitHubOAuthService
         String accessToken = exchanger.exchange(clientId, clientSecret, code, exchange.codeVerifier());
         String login = exchanger.fetchLogin(accessToken);
         // Token writes to the same slot the PAT path uses; downstream
-        // (PatResolver, GitHubClient) doesn't know or care about origin.
+        // PatResolver and the GitHub API clients don't know or care about origin.
         credentialService.upsert(
                 CredentialType.ACCOUNT,
                 GITHUB_ACCOUNT_NAME,

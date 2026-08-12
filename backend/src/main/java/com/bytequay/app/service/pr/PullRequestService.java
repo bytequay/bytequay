@@ -43,6 +43,12 @@ import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubIssueRepository;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
@@ -60,6 +66,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -128,7 +135,12 @@ public class PullRequestService
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final int MAX_SEARCH_PAGES = 6;
 
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubMergeRepository merges;
+    private final GitHubActionsRepository actions;
+    private final GitHubIssueRepository issues;
+    private final GitHubAccountRepository accounts;
     private final PullRequestStore store;
     private final PrDetailStore detailStore;
     private final PrViewStateStore viewStateStore;
@@ -171,8 +183,14 @@ public class PullRequestService
     /** Snapshot of "last ETag and when we got it" for one PR. */
     private record EtagEntry(String etag, Instant lastProbedAt) {}
 
+    @Autowired
     public PullRequestService(
-            PullRequestRepository gitHub,
+            GitHubPullRequestReadRepository gitHub,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubMergeRepository merges,
+            GitHubActionsRepository actions,
+            GitHubIssueRepository issues,
+            GitHubAccountRepository accounts,
             PullRequestStore store,
             PrDetailStore detailStore,
             PrViewStateStore viewStateStore,
@@ -189,6 +207,11 @@ public class PullRequestService
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.merges = requireNonNull(merges, "merges is null");
+        this.actions = requireNonNull(actions, "actions is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
@@ -202,7 +225,35 @@ public class PullRequestService
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.collaboratorPermissions = requireNonNull(collaboratorPermissions, "collaboratorPermissions is null");
         this.executor = requireNonNull(executor, "executor is null");
-        this.detailFetcher = new PullRequestDetailFetcher(gitHub, detailStore, requireNonNull(ioExecutor, "ioExecutor is null"));
+        this.detailFetcher = new PullRequestDetailFetcher(
+                gitHub,
+                merges,
+                actions,
+                detailStore,
+                requireNonNull(ioExecutor, "ioExecutor is null"));
+    }
+
+    PullRequestService(
+            PullRequestRepository gitHub,
+            PullRequestStore store,
+            PrDetailStore detailStore,
+            PrViewStateStore viewStateStore,
+            AppSettingsStore settingsStore,
+            CredentialService credentialService,
+            GitHubResponseCache responseCache,
+            PullRequestDetailInvalidator detailInvalidator,
+            RepoListCache repoListCache,
+            SqliteRepoMetadataCacheStore repoMetadataCache,
+            PatResolver patResolver,
+            TaskStore taskStore,
+            CollaboratorPermissionService collaboratorPermissions,
+            Executor executor,
+            Executor ioExecutor)
+    {
+        this(gitHub, gitHub, gitHub, gitHub, gitHub, gitHub, store, detailStore, viewStateStore,
+                settingsStore, credentialService, responseCache, detailInvalidator,
+                repoListCache, repoMetadataCache, patResolver, taskStore,
+                collaboratorPermissions, executor, ioExecutor);
     }
 
     /**
@@ -403,7 +454,7 @@ public class PullRequestService
     private String resolveCurrentLogin(String pat)
     {
         try {
-            return gitHub.fetchUserProfile(pat).login();
+            return accounts.fetchUserProfile(pat).login();
         }
         catch (Exception e) {
             log.warn("Could not resolve current user for sync reconciliation: {}", e.getMessage());
@@ -423,7 +474,7 @@ public class PullRequestService
         boolean viewerCanWrite = responseCache.getViewerCanWrite(
                 pat,
                 repoRef,
-                () -> gitHub.fetchViewerCanWrite(pat, repoRef));
+                () -> accounts.fetchViewerCanWrite(pat, repoRef));
 
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
@@ -558,7 +609,7 @@ public class PullRequestService
                 PullRequestRef ref = parseRef(repo, number);
                 EtagEntry cachedEntry = detailEtags.get(prId.get());
                 String cachedEtag = cachedEntry != null ? cachedEntry.etag() : null;
-                PullRequestRepository.ProbeResult probe =
+                GitHubPullRequestReadRepository.ProbeResult probe =
                         gitHub.probeChangedSinceEtag(pat, ref, cachedEtag);
                 Instant now = Instant.now();
                 // Always capture the latest ETag — including the
@@ -635,7 +686,7 @@ public class PullRequestService
     public void setPullRequestDraft(String repo, int number, boolean draft)
     {
         String pat = patResolver.resolve(repo);
-        gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
+        pullRequestWrites.setPullRequestDraft(pat, parseRef(repo, number), draft);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -666,7 +717,7 @@ public class PullRequestService
         }
         String pat = patResolver.resolve(repo);
         try {
-            gitHub.updatePullRequest(pat, parseRef(repo, number),
+            pullRequestWrites.updatePullRequest(pat, parseRef(repo, number),
                     new UpdatePullRequestCommand(Optional.of(trimmed),
                             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
         }
@@ -693,7 +744,7 @@ public class PullRequestService
     public int rerunFailedChecks(String repo, String headSha)
     {
         String pat = patResolver.resolve(repo);
-        return gitHub.rerunFailedChecks(pat, parseRepoRef(repo), headSha);
+        return actions.rerunFailedChecks(pat, parseRepoRef(repo), headSha);
     }
 
     /**
@@ -708,7 +759,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
-        return gitHub.fetchCheckRunLog(pat, RepoRef.of(refOrNull.owner(), refOrNull.repo()), checkRunId)
+        return actions.fetchCheckRunLog(pat, RepoRef.of(refOrNull.owner(), refOrNull.repo()), checkRunId)
                 .map(PullRequestService::trimLogToTail)
                 .orElse("");
     }
@@ -725,21 +776,21 @@ public class PullRequestService
      *                    is empty so a check with real annotations costs no
      *                    extra GitHub round-trip
      */
-    public record CheckRunFailure(List<PullRequestRepository.CheckRunAnnotation> annotations, String log) {}
+    public record CheckRunFailure(List<GitHubActionsRepository.CheckRunAnnotation> annotations, String log) {}
 
     public CheckRunFailure getCheckRunFailure(String repo, long checkRunId)
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
         RepoRef repoRef = RepoRef.of(refOrNull.owner(), refOrNull.repo());
-        List<PullRequestRepository.CheckRunAnnotation> annotations =
-                gitHub.fetchCheckRunAnnotations(pat, repoRef, checkRunId);
+        List<GitHubActionsRepository.CheckRunAnnotation> annotations =
+                actions.fetchCheckRunAnnotations(pat, repoRef, checkRunId);
         if (!annotations.isEmpty()) {
             return new CheckRunFailure(annotations, "");
         }
         return new CheckRunFailure(
                 annotations,
-                gitHub.fetchCheckRunLog(pat, repoRef, checkRunId)
+                actions.fetchCheckRunLog(pat, repoRef, checkRunId)
                         .map(PullRequestService::trimLogToError)
                         .orElse(""));
     }
@@ -756,7 +807,7 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         String headSha = raw == null ? null : raw.headSha();
-        return gitHub.rerunFailedChecks(pat, RepoRef.of(ref.owner(), ref.repo()), headSha);
+        return actions.rerunFailedChecks(pat, RepoRef.of(ref.owner(), ref.repo()), headSha);
     }
 
     /** Lines of log to show before the failure marker. Enough for a stack
@@ -823,13 +874,13 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         List<PrCheckRunState> runs = raw != null && raw.headSha() != null
-                ? gitHub.fetchPrCheckRunsStrict(pat, ref.owner(), ref.repo(), raw.headSha())
+                ? actions.fetchPrCheckRunsStrict(pat, ref.owner(), ref.repo(), raw.headSha())
                 : ImmutableList.of();
         RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
         boolean viewerCanWrite = responseCache.getViewerCanWrite(
                 pat,
                 repoRef,
-                () -> gitHub.fetchViewerCanWrite(pat, repoRef));
+                () -> accounts.fetchViewerCanWrite(pat, repoRef));
         PullRequestDetail.CiStatus aggregate = PullRequestDetailMapper.aggregateCiStatus(runs);
         // Propagate the freshly-computed aggregate onto the PR row so
         // a click on the merge bar's ↻ refresh also re-routes the
@@ -956,7 +1007,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         if (body != null && !body.isBlank()) {
-            PrTimelineEvent created = gitHub.createIssueComment(pat, ref, body);
+            PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
             // Splice the just-posted comment into the cached snapshot so the
             // next /prs/detail read (including the 10s poll's maxAge fast
             // path) shows it immediately rather than waiting for the cache
@@ -968,7 +1019,7 @@ public class PullRequestService
             }
         }
         if (close) {
-            gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
+            pullRequestWrites.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
             Optional<Long> storedPrId = prId > 0
                     ? Optional.of(prId)
                     : store.findIdByRepoAndNumber(repo, number);
@@ -991,7 +1042,8 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireNotBlank(body, "reply body must not be blank");
-        PrReviewThreadMessage created = gitHub.replyToReviewComment(pat, parseRef(repo, number), rootCommentId, body);
+        PrReviewThreadMessage created = pullRequestWrites.replyToReviewComment(
+                pat, parseRef(repo, number), rootCommentId, body);
         patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
                 cached -> PullRequestDetailPatcher.withReviewThreadReplyAppended(cached, created));
     }
@@ -1011,7 +1063,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
-        gitHub.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
+        pullRequestWrites.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
         patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withTimelineCommentBody(cached, commentId, body));
     }
@@ -1030,7 +1082,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
-        gitHub.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
+        pullRequestWrites.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
         patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withReviewCommentBody(cached, commentId, body));
     }
@@ -1049,7 +1101,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         RepoRef ref = parseRepoRef(repo);
-        gitHub.deleteIssueComment(pat, ref.owner(), ref.repo(), commentId);
+        pullRequestWrites.deleteIssueComment(pat, ref.owner(), ref.repo(), commentId);
         patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withTimelineCommentRemoved(cached, commentId));
     }
@@ -1062,7 +1114,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         RepoRef ref = parseRepoRef(repo);
-        gitHub.deleteReviewComment(pat, ref.owner(), ref.repo(), commentId);
+        pullRequestWrites.deleteReviewComment(pat, ref.owner(), ref.repo(), commentId);
         patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withReviewCommentRemoved(cached, commentId));
     }
@@ -1116,7 +1168,7 @@ public class PullRequestService
             // never fetched land here): resolve the thread's node id live.
             nodeId = gitHub.fetchReviewThreadResolution(pat, parseRef(repo, number)).stream()
                     .filter(m -> m.rootCommentDatabaseId() == rootCommentId)
-                    .map(PullRequestRepository.ReviewThreadMeta::graphqlNodeId)
+                    .map(GitHubPullRequestReadRepository.ReviewThreadMeta::graphqlNodeId)
                     .filter(id -> id != null && !id.isBlank())
                     .findFirst()
                     .orElse(null);
@@ -1127,10 +1179,10 @@ public class PullRequestService
                     "review thread " + rootCommentId + " has no GraphQL node id yet — refresh the PR detail and try again");
         }
         if (resolved) {
-            gitHub.resolveReviewThread(pat, nodeId);
+            pullRequestWrites.resolveReviewThread(pat, nodeId);
         }
         else {
-            gitHub.unresolveReviewThread(pat, nodeId);
+            pullRequestWrites.unresolveReviewThread(pat, nodeId);
         }
         if (cached != null) {
             detailStore.save(detailPrId,
@@ -1143,7 +1195,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireAllowedReactionContent(content);
-        gitHub.addPullRequestReaction(pat, parseRef(repo, number), content);
+        pullRequestWrites.addPullRequestReaction(pat, parseRef(repo, number), content);
     }
 
     /**
@@ -1166,7 +1218,7 @@ public class PullRequestService
         // isn't part of the URL. parseRepoRef avoids parseRef's
         // number-must-be-positive invariant.
         RepoRef ref = parseRepoRef(repo);
-        gitHub.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
+        pullRequestWrites.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
         patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withReviewCommentReaction(cached, commentId, content));
     }
@@ -1187,7 +1239,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         requireAllowedReactionContent(content);
         RepoRef ref = parseRepoRef(repo);
-        gitHub.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
+        pullRequestWrites.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
         patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
                 cached -> PullRequestDetailPatcher.withTimelineCommentReaction(cached, commentId, content));
     }
@@ -1201,7 +1253,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireNotBlank(reviewer, "reviewer must not be blank");
-        gitHub.requestReviewers(
+        pullRequestWrites.requestReviewers(
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
@@ -1213,7 +1265,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireNotBlank(reviewer, "reviewer must not be blank");
-        gitHub.removeRequestedReviewers(
+        pullRequestWrites.removeRequestedReviewers(
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
@@ -1247,7 +1299,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        IssueDetail issue = gitHub.fetchIssueDetail(pat, ref.repoRef(), number);
+        IssueDetail issue = issues.fetchIssueDetail(pat, ref.repoRef(), number);
         Optional<SqliteRepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
         SqliteRepoMetadataCacheStore.Snapshot choices = cached
                 .filter(snapshot -> !snapshot.fetchedAt().isBefore(Instant.now().minus(REPO_METADATA_TTL)))
@@ -1284,7 +1336,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireNotBlank(login, "assignee must not be blank");
-        gitHub.setPullRequestAssignee(pat, parseRef(repo, number), login.trim(), selected);
+        pullRequestWrites.setPullRequestAssignee(pat, parseRef(repo, number), login.trim(), selected);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -1292,7 +1344,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         requireNotBlank(label, "label must not be blank");
-        gitHub.setPullRequestLabel(pat, parseRef(repo, number), label.trim(), selected);
+        pullRequestWrites.setPullRequestLabel(pat, parseRef(repo, number), label.trim(), selected);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -1339,7 +1391,7 @@ public class PullRequestService
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "Pull request head SHA is unavailable");
         }
-        gitHub.createInlineReviewComment(pat, ref,
+        pullRequestWrites.createInlineReviewComment(pat, ref,
                 body, path, line, resolvedSide, headSha,
                 resolvedStartLine, resolvedStartSide);
         invalidatePullRequestDetail(repo, number);
@@ -1353,7 +1405,7 @@ public class PullRequestService
     public void updatePullRequestBody(String repo, int number, String body)
     {
         String pat = patResolver.resolve(repo);
-        gitHub.updatePullRequest(
+        pullRequestWrites.updatePullRequest(
                 pat,
                 parseRef(repo, number),
                 new UpdatePullRequestCommand(
@@ -1384,7 +1436,7 @@ public class PullRequestService
     public void submitApproval(String repo, int number)
     {
         String pat = patResolver.resolve(repo);
-        gitHub.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
+        pullRequestWrites.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "reviewed APPROVED" event shows up in the
         // conversation immediately. Without this the user waits for the
@@ -1421,9 +1473,9 @@ public class PullRequestService
         rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        Optional<PullRequestRepository.MergeQueueProbe> probe;
+        Optional<GitHubMergeRepository.MergeQueueProbe> probe;
         try {
-            probe = gitHub.probeMergeQueue(pat, ref);
+            probe = merges.probeMergeQueue(pat, ref);
         }
         catch (Exception e) {
             log.debug("Merge queue probe failed for {}#{}, falling back to direct merge: {}",
@@ -1431,7 +1483,7 @@ public class PullRequestService
             probe = Optional.empty();
         }
         if (probe.isPresent()) {
-            MergeResult queued = gitHub.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
+            MergeResult queued = merges.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
             // Drop the cached detail so the next /prs/detail call reflects
             // the new "queued" state without waiting for the background
             // sync. Don't markReviewed — the merge hasn't actually happened.
@@ -1441,7 +1493,7 @@ public class PullRequestService
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result;
         try {
-            result = gitHub.mergePullRequest(pat, ref, command);
+            result = merges.mergePullRequest(pat, ref, command);
         }
         catch (ResponseStatusException e) {
             // Rulesets can require the merge queue without exposing it to the
@@ -1449,9 +1501,9 @@ public class PullRequestService
             // ruleset-driven queues). GitHub then 405s the direct merge —
             // recover by enqueueing instead.
             if (requiresMergeQueue(e)) {
-                Optional<String> nodeId = gitHub.pullRequestNodeId(pat, ref);
+                Optional<String> nodeId = merges.pullRequestNodeId(pat, ref);
                 if (nodeId.isPresent()) {
-                    MergeResult queued = gitHub.enqueuePullRequest(pat, nodeId.get());
+                    MergeResult queued = merges.enqueuePullRequest(pat, nodeId.get());
                     invalidatePullRequestCaches(repo, number);
                     return queued;
                 }
@@ -1478,20 +1530,20 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        Optional<PullRequestRepository.MergeQueueProbe> probe;
+        Optional<GitHubMergeRepository.MergeQueueProbe> probe;
         try {
-            probe = gitHub.probeMergeQueue(pat, ref);
+            probe = merges.probeMergeQueue(pat, ref);
         }
         catch (RuntimeException e) {
             probe = Optional.empty();
         }
-        String nodeId = probe.map(PullRequestRepository.MergeQueueProbe::pullRequestNodeId)
-                .orElseGet(() -> gitHub.pullRequestNodeId(pat, ref).orElse(null));
+        String nodeId = probe.map(GitHubMergeRepository.MergeQueueProbe::pullRequestNodeId)
+                .orElseGet(() -> merges.pullRequestNodeId(pat, ref).orElse(null));
         if (nodeId == null) {
             return false;
         }
         try {
-            gitHub.enqueuePullRequest(pat, nodeId);
+            merges.enqueuePullRequest(pat, nodeId);
             invalidatePullRequestCaches(repo, number);
             return true;
         }
@@ -1534,7 +1586,7 @@ public class PullRequestService
         rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        gitHub.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
+        merges.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -1570,7 +1622,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        gitHub.disableAutoMerge(pat, ref);
+        merges.disableAutoMerge(pat, ref);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -1584,7 +1636,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        gitHub.dequeuePullRequest(pat, ref);
+        merges.dequeuePullRequest(pat, ref);
         invalidatePullRequestCaches(repo, number);
     }
 

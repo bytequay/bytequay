@@ -19,7 +19,7 @@ import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoIssuePage;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubIssueRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.springframework.stereotype.Component;
 
@@ -34,11 +34,11 @@ import static java.util.Objects.requireNonNull;
 public final class GitHubQualityIssuePublishGateway
         implements Gateway
 {
-    private final PullRequestRepository github;
+    private final GitHubIssueRepository github;
     private final PatResolver pats;
 
     public GitHubQualityIssuePublishGateway(
-            PullRequestRepository github, PatResolver pats)
+            GitHubIssueRepository github, PatResolver pats)
     {
         this.github = requireNonNull(github, "github is null");
         this.pats = requireNonNull(pats, "pats is null");

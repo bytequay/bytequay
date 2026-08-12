@@ -21,7 +21,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Team;
 import com.bytequay.app.domain.TeamSummary;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.TeamStore;
@@ -77,7 +77,7 @@ public class TeamService
     private final TeamStore teamStore;
     private final PullRequestService pullRequestService;
     private final WatchedRepoStore watchedRepoStore;
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
     /** Local view-state (viewedAt / reviewedAt / handledAction) per PR id.
      *  GitHub-search results don't carry it, so we overlay it here so the
      *  team kanban can categorize cards based on whether the user has
@@ -98,7 +98,7 @@ public class TeamService
             TeamStore teamStore,
             PullRequestService pullRequestService,
             WatchedRepoStore watchedRepoStore,
-            PullRequestRepository gitHub,
+            GitHubPullRequestReadRepository gitHub,
             PrViewStateStore viewStateStore,
             @Qualifier(AsyncConfig.IO_EXECUTOR) Executor ioExecutor,
             PatResolver patResolver)

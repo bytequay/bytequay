@@ -14,7 +14,7 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.ReviewPass;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.springframework.stereotype.Component;
 
@@ -36,10 +36,10 @@ import static java.util.Objects.requireNonNull;
 public class ReviewDiffCache
 {
     private final ConcurrentHashMap<String, String> diffByPassId = new ConcurrentHashMap<>();
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
     private final PatResolver patResolver;
 
-    public ReviewDiffCache(PullRequestRepository pullRequests, PatResolver patResolver)
+    public ReviewDiffCache(GitHubPullRequestReadRepository pullRequests, PatResolver patResolver)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");

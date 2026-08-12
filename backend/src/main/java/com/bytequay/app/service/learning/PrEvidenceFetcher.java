@@ -21,8 +21,8 @@ import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestRepository.Paged;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository.Paged;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
@@ -55,12 +55,12 @@ public class PrEvidenceFetcher
     private static final List<String> SOURCE_ORDER =
             List.of("reviews", "files", "commits", "comments", "timeline");
 
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
     private final OutcomeChainReconstructor reconstructor;
     private final EvidenceCodeGraphMapper codeGraphMapper;
 
     public PrEvidenceFetcher(
-            PullRequestRepository gitHub,
+            GitHubPullRequestReadRepository gitHub,
             OutcomeChainReconstructor reconstructor,
             EvidenceCodeGraphMapper codeGraphMapper)
     {
@@ -142,7 +142,7 @@ public class PrEvidenceFetcher
     {
         try {
             Set<Long> resolved = new HashSet<>();
-            for (PullRequestRepository.ReviewThreadMeta meta
+            for (GitHubPullRequestReadRepository.ReviewThreadMeta meta
                     : gitHub.fetchReviewThreadResolution(pat, ref)) {
                 if (meta.resolved()) {
                     resolved.add(meta.rootCommentDatabaseId());

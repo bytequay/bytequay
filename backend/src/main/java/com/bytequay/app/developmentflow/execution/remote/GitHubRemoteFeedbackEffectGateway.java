@@ -27,10 +27,14 @@ import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.RequestedReviewers;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository.ReviewThreadMeta;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestRepository.ReviewThreadMeta;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -51,24 +55,41 @@ public final class GitHubRemoteFeedbackEffectGateway
 {
     private static final String ORIGIN = "origin";
 
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubAccountRepository accounts;
     private final PatResolver pats;
     private final GitRunner git;
     private final GitRunnerProvisioningGit remotes;
     private final WorktreeWriterLeaseManager writers;
 
+    @Autowired
     public GitHubRemoteFeedbackEffectGateway(
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubAccountRepository accounts,
             PatResolver pats,
             GitRunner git,
             GitRunnerProvisioningGit remotes,
             WorktreeWriterLeaseManager writers)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.pats = requireNonNull(pats, "pats is null");
         this.git = requireNonNull(git, "git is null");
         this.remotes = requireNonNull(remotes, "remotes is null");
         this.writers = requireNonNull(writers, "writers is null");
+    }
+
+    GitHubRemoteFeedbackEffectGateway(
+            PullRequestRepository gitHub,
+            PatResolver pats,
+            GitRunner git,
+            GitRunnerProvisioningGit remotes,
+            WorktreeWriterLeaseManager writers)
+    {
+        this(gitHub, gitHub, gitHub, pats, git, remotes, writers);
     }
 
     @Override
@@ -127,7 +148,7 @@ public final class GitHubRemoteFeedbackEffectGateway
         try {
             requireActive(context);
             PrReviewThreadMessage created = requireNonNull(
-                    pullRequests.replyToReviewComment(
+                    pullRequestWrites.replyToReviewComment(
                             target.pat(), target.pullRequest(), rootCommentId,
                             effect.payload()),
                     "GitHub returned no inline reply");
@@ -160,7 +181,7 @@ public final class GitHubRemoteFeedbackEffectGateway
         try {
             requireActive(context);
             PrTimelineEvent created = requireNonNull(
-                    pullRequests.createIssueComment(
+                    pullRequestWrites.createIssueComment(
                             target.pat(), target.pullRequest(), effect.payload()),
                     "GitHub returned no issue comment");
             if (created.githubId() == null || created.githubId() < 1
@@ -190,7 +211,7 @@ public final class GitHubRemoteFeedbackEffectGateway
         try {
             requireActive(context);
             PullRequestReview created = requireNonNull(
-                    pullRequests.createReview(
+                    pullRequestWrites.createReview(
                             target.pat(), target.pullRequest(),
                             new CreateReviewCommand(
                                     Optional.of(effect.headSha()),
@@ -226,7 +247,7 @@ public final class GitHubRemoteFeedbackEffectGateway
         String reviewer = requireReviewer(effect);
         try {
             requireActive(context);
-            pullRequests.requestReviewers(
+            pullRequestWrites.requestReviewers(
                     target.pat(), target.pullRequest(),
                     new RequestReviewersCommand(List.of(reviewer), List.of()));
             return requireProven(
@@ -251,7 +272,7 @@ public final class GitHubRemoteFeedbackEffectGateway
         requireThread(target, threadId);
         try {
             requireActive(context);
-            pullRequests.resolveReviewThread(target.pat(), threadId);
+            pullRequestWrites.resolveReviewThread(target.pat(), threadId);
             return requireProven(
                     probeResolvedThread(effect, context),
                     "GitHub did not expose the exact resolved thread");
@@ -539,7 +560,7 @@ public final class GitHubRemoteFeedbackEffectGateway
     {
         requireActive(context);
         String viewer = requireText(
-                pullRequests.fetchUserProfile(target.pat()).login(),
+                accounts.fetchUserProfile(target.pat()).login(),
                 "GitHub viewer login");
         requireActive(context);
         return viewer;

@@ -17,7 +17,7 @@ import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubIssueRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.springframework.stereotype.Service;
 
@@ -35,12 +35,12 @@ public class ByteQuayIssueService
 
     private static final RepoRef REF = RepoRef.of(OWNER, REPO);
 
-    private final PullRequestRepository gitHub;
+    private final GitHubIssueRepository gitHub;
     private final PatResolver pats;
     private final IssueOriginService origins;
 
     public ByteQuayIssueService(
-            PullRequestRepository gitHub,
+            GitHubIssueRepository gitHub,
             PatResolver pats,
             IssueOriginService origins)
     {

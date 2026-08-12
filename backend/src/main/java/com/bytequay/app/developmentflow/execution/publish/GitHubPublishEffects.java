@@ -29,10 +29,13 @@ import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -51,19 +54,32 @@ public final class GitHubPublishEffects
 {
     private final GitRunner git;
     private final CodeFingerprints fingerprints;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
     private final PatResolver pats;
 
+    @Autowired
     public GitHubPublishEffects(
             GitRunner git,
             CodeFingerprints fingerprints,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
             PatResolver pats)
     {
         this.git = requireNonNull(git, "git is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.pats = requireNonNull(pats, "pats is null");
+    }
+
+    GitHubPublishEffects(
+            GitRunner git,
+            CodeFingerprints fingerprints,
+            PullRequestRepository gitHub,
+            PatResolver pats)
+    {
+        this(git, fingerprints, gitHub, gitHub, pats);
     }
 
     @Override
@@ -218,7 +234,7 @@ public final class GitHubPublishEffects
         RepoRef repository = RepoRef.parse(request.baseRepositoryId());
         String pat = pats.resolve(repository.fullName());
         try {
-            PullRequest opened = pullRequests.createPullRequest(
+            PullRequest opened = pullRequestWrites.createPullRequest(
                     pat,
                     repository,
                     CreatePullRequestCommand.draft(

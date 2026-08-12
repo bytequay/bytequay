@@ -22,7 +22,7 @@ import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.AiReviewDraftStore;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.skills.SkillService;
@@ -72,7 +72,7 @@ public class AiReviewService
             """;
 
     private final PRService prs;
-    private final PullRequestRepository gitHub;
+    private final GitHubPullRequestReadRepository gitHub;
     private final LlmReviewerRegistry registry;
     private final GlobalReviewRunner globalReview;
     private final AiReviewDraftStore draftStore;
@@ -81,7 +81,7 @@ public class AiReviewService
 
     public AiReviewService(
             PRService prs,
-            PullRequestRepository gitHub,
+            GitHubPullRequestReadRepository gitHub,
             LlmReviewerRegistry registry,
             GlobalReviewRunner globalReview,
             AiReviewDraftStore draftStore,

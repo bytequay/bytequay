@@ -26,8 +26,12 @@ import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -45,14 +49,27 @@ import static java.util.Objects.requireNonNull;
 public final class GitHubReviewBuildCommentGateway
         implements ReviewBuildCommentOperationHandler.Gateway
 {
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubAccountRepository accounts;
     private final PatResolver pats;
 
+    @Autowired
     public GitHubReviewBuildCommentGateway(
-            PullRequestRepository pullRequests, PatResolver pats)
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubAccountRepository accounts,
+            PatResolver pats)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
         this.pats = requireNonNull(pats, "pats is null");
+    }
+
+    GitHubReviewBuildCommentGateway(PullRequestRepository gitHub, PatResolver pats)
+    {
+        this(gitHub, gitHub, gitHub, pats);
     }
 
     @Override
@@ -88,7 +105,7 @@ public final class GitHubReviewBuildCommentGateway
                 .toList();
         try {
             requireActive(context);
-            pullRequests.createReview(
+            pullRequestWrites.createReview(
                     target.pat(), target.ref(),
                     new CreateReviewCommand(
                             Optional.of(action.expectedHeadSha()),
@@ -125,7 +142,7 @@ public final class GitHubReviewBuildCommentGateway
     {
         Target target = target(action);
         String viewer = requireText(
-                pullRequests.fetchUserProfile(target.pat()).login(),
+                accounts.fetchUserProfile(target.pat()).login(),
                 "GitHub viewer login");
         String body = nullToEmpty(action.payload().body());
         String reviewAction = requireReviewAction(
@@ -151,7 +168,7 @@ public final class GitHubReviewBuildCommentGateway
                     "no exact suggested-change review is observable");
         }
         PullRequestReview review = matches.getFirst();
-        PullRequestRepository.Paged<PrReviewThreadMessage> commentPage =
+        GitHubPullRequestReadRepository.Paged<PrReviewThreadMessage> commentPage =
                 pullRequests.fetchAllPrReviewComments(
                         target.pat(), target.ref());
         if (!commentPage.complete()) {

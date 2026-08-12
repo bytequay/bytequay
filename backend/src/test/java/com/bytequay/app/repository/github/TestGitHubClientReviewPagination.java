@@ -37,7 +37,7 @@ class TestGitHubClientReviewPagination
                 .baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer
                 .bindTo(restBuilder).build();
-        GitHubClient client = new GitHubClient(
+        GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(
                 restBuilder.build(),
                 RestClient.builder().baseUrl("https://graphql.test").build());
         String endpoint = "https://api.github.test/repos/acme/widget"

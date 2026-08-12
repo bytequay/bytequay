@@ -416,14 +416,14 @@ class TestGitHubClientMergeQueue
                 .baseUrl("https://api.github.test/graphql");
         MockRestServiceServer server = MockRestServiceServer
                 .bindTo(graphBuilder).build();
-        GitHubClient client = new GitHubClient(
+        GitHubMergeClient client = new GitHubMergeClient(
                 restBuilder.build(),
                 graphBuilder.build());
         return new Fixture(client, server, restServer);
     }
 
     private record Fixture(
-            GitHubClient client,
+            GitHubMergeClient client,
             MockRestServiceServer server,
             MockRestServiceServer restServer) {}
 }

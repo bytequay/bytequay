@@ -38,7 +38,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.SkillStore;
@@ -103,7 +103,7 @@ public class ReviewPassService
 
     private final ThreadStore threadStore;
     private final ReviewStore reviewStore;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
     private final PullRequestStore pullRequestStore;
     private final PatResolver patResolver;
     private final LlmReviewerRegistry reviewers;
@@ -120,7 +120,7 @@ public class ReviewPassService
     public ReviewPassService(
             ThreadStore threadStore,
             ReviewStore reviewStore,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
             PullRequestStore pullRequestStore,
             PatResolver patResolver,
             LlmReviewerRegistry reviewers,

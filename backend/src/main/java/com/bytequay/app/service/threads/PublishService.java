@@ -35,6 +35,10 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
+import com.bytequay.app.repository.GitHubIssueRepository;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.SqliteStageStore;
@@ -132,7 +136,10 @@ public class PublishService
     private final NotificationService notifications;
     private final TaskStore taskStore;
     private final GitRunner git;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
+    private final GitHubPullRequestWriteRepository pullRequestWrites;
+    private final GitHubMergeRepository merges;
+    private final GitHubIssueRepository issues;
     private final PatResolver patResolver;
     private final IssueOriginService issueOrigins;
     private final ObjectMapper mapper;
@@ -151,11 +158,15 @@ public class PublishService
     private final ReadyToMergeService readyToMerge;
     private V2QualityIssuePublishRuntime qualityIssuePublishes;
 
+    @Autowired
     public PublishService(
             NotificationService notifications,
             TaskStore taskStore,
             GitRunner git,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
+            GitHubPullRequestWriteRepository pullRequestWrites,
+            GitHubMergeRepository merges,
+            GitHubIssueRepository issues,
             PatResolver patResolver,
             IssueOriginService issueOrigins,
             ObjectMapper mapper,
@@ -172,6 +183,9 @@ public class PublishService
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.git = requireNonNull(git, "git is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.merges = requireNonNull(merges, "merges is null");
+        this.issues = requireNonNull(issues, "issues is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.issueOrigins = requireNonNull(issueOrigins, "issueOrigins is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -183,6 +197,28 @@ public class PublishService
         this.prService = requireNonNull(prService, "prService is null");
         this.pullRequestDetails = requireNonNull(pullRequestDetails, "pullRequestDetails is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
+    }
+
+    PublishService(
+            NotificationService notifications,
+            TaskStore taskStore,
+            GitRunner git,
+            PullRequestRepository gitHub,
+            PatResolver patResolver,
+            IssueOriginService issueOrigins,
+            ObjectMapper mapper,
+            ParkedProposalService parkedProposals,
+            TaskService taskService,
+            ReviewPassResolver reviewPassResolver,
+            TaskPhaseMachine phaseMachine,
+            SqliteStageStore stageStore,
+            PRService prService,
+            PullRequestService pullRequestDetails,
+            ReadyToMergeService readyToMerge)
+    {
+        this(notifications, taskStore, git, gitHub, gitHub, gitHub, gitHub, patResolver, issueOrigins,
+                mapper, parkedProposals, taskService, reviewPassResolver, phaseMachine,
+                stageStore, prService, pullRequestDetails, readyToMerge);
     }
 
     @Autowired(required = false)
@@ -534,17 +570,17 @@ public class PublishService
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         String nodeId = pullRequests.fetchReviewThreadResolution(pat, ref).stream()
                 .filter(m -> m.rootCommentDatabaseId() == resolve.rootCommentId())
-                .map(PullRequestRepository.ReviewThreadMeta::graphqlNodeId)
+                .map(GitHubPullRequestReadRepository.ReviewThreadMeta::graphqlNodeId)
                 .filter(id -> id != null && !id.isBlank())
                 .findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404),
                         "no review thread with root comment id " + resolve.rootCommentId() + " on "
                                 + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number()));
         if (resolve.resolved()) {
-            pullRequests.resolveReviewThread(pat, nodeId);
+            pullRequestWrites.resolveReviewThread(pat, nodeId);
         }
         else {
-            pullRequests.unresolveReviewThread(pat, nodeId);
+            pullRequestWrites.unresolveReviewThread(pat, nodeId);
         }
         return new PublishResult(true, RESOLUTION_APPROVED,
                 (resolve.resolved() ? "Resolved" : "Unresolved") + " review thread on "
@@ -1054,7 +1090,7 @@ public class PublishService
         }
         PullRequestRef ref = toPullRequestRef(pullRequest);
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
-        pullRequests.createIssueComment(pat, ref, effectiveBody);
+        pullRequestWrites.createIssueComment(pat, ref, effectiveBody);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted comment on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
@@ -1075,7 +1111,8 @@ public class PublishService
         }
         PullRequestRef ref = toPullRequestRef(pullRequest);
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
-        pullRequests.replyToReviewComment(pat, ref, replyReviewThread.rootCommentId(), effectiveBody);
+        pullRequestWrites.replyToReviewComment(
+                pat, ref, replyReviewThread.rootCommentId(), effectiveBody);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Replied in review thread on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
@@ -1102,7 +1139,7 @@ public class PublishService
                 effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
                 REVIEW_EVENT_APPROVE,
                 ImmutableList.of());
-        pullRequests.createReview(pat, toPullRequestRef(pullRequest), command);
+        pullRequestWrites.createReview(pat, toPullRequestRef(pullRequest), command);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Approved " + pullRequest.owner() + "/" + pullRequest.repo() + "#" + pullRequest.number() + ".",
                 approvePullRequest.action());
@@ -1126,19 +1163,19 @@ public class PublishService
         // otherwise attempt the direct merge and, if it's rejected for a
         // queue rule (rulesets — where the queue isn't visible via GraphQL),
         // retry as an enqueue.
-        Optional<PullRequestRepository.MergeQueueProbe> probe = safeProbeMergeQueue(pat, ref);
+        Optional<GitHubMergeRepository.MergeQueueProbe> probe = safeProbeMergeQueue(pat, ref);
         if (probe.isPresent()) {
-            pullRequests.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
+            merges.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
             return onEnqueued(pullRequest, who, mergePullRequest.action());
         }
         try {
-            pullRequests.mergePullRequest(pat, ref, command);
+            merges.mergePullRequest(pat, ref, command);
         }
         catch (ResponseStatusException e) {
             if (requiresMergeQueue(e)) {
-                Optional<String> nodeId = pullRequests.pullRequestNodeId(pat, ref);
+                Optional<String> nodeId = merges.pullRequestNodeId(pat, ref);
                 if (nodeId.isPresent()) {
-                    pullRequests.enqueuePullRequest(pat, nodeId.get());
+                    merges.enqueuePullRequest(pat, nodeId.get());
                     return onEnqueued(pullRequest, who, mergePullRequest.action());
                 }
             }
@@ -1154,10 +1191,10 @@ public class PublishService
     /** Probe the PR's base branch for a (classic branch-protection) merge
      *  queue, swallowing probe failures so we can still attempt a direct
      *  merge. */
-    private Optional<PullRequestRepository.MergeQueueProbe> safeProbeMergeQueue(String pat, PullRequestRef ref)
+    private Optional<GitHubMergeRepository.MergeQueueProbe> safeProbeMergeQueue(String pat, PullRequestRef ref)
     {
         try {
-            return pullRequests.probeMergeQueue(pat, ref);
+            return merges.probeMergeQueue(pat, ref);
         }
         catch (RuntimeException e) {
             return Optional.empty();
@@ -1205,7 +1242,7 @@ public class PublishService
         String side = orElse(createReviewComment.side(), REVIEW_SIDE_RIGHT);
         String startSide = nullToEmpty(createReviewComment.startSide());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
-        pullRequests.createInlineReviewComment(
+        pullRequestWrites.createInlineReviewComment(
                 pat, toPullRequestRef(pullRequest),
                 effectiveBody, filePath, line, side, commitId,
                 createReviewComment.startLine(),
@@ -1231,7 +1268,7 @@ public class PublishService
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
-        pullRequests.updatePullRequest(pat, toPullRequestRef(pullRequest), command);
+        pullRequestWrites.updatePullRequest(pat, toPullRequestRef(pullRequest), command);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Updated PR body on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + ".",
@@ -1250,7 +1287,7 @@ public class PublishService
         RequestReviewersCommand command = new RequestReviewersCommand(
                 ImmutableList.of(reviewer),
                 ImmutableList.of());
-        pullRequests.requestReviewers(pat, toPullRequestRef(pullRequest), command);
+        pullRequestWrites.requestReviewers(pat, toPullRequestRef(pullRequest), command);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Requested " + reviewer + " on " + pullRequest.owner() + "/"
                         + pullRequest.repo() + "#" + pullRequest.number() + ".",
@@ -1272,7 +1309,7 @@ public class PublishService
         ParkedProposal.PrRef pullRequest = requirePrRef(markReady.pr(), markReady.action());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
         PullRequestRef ref = toPullRequestRef(pullRequest);
-        pullRequests.setPullRequestDraft(pat, ref, false);
+        pullRequestWrites.setPullRequestDraft(pat, ref, false);
 
         List<String> reviewers = Arrays.stream(nullToEmpty(editedBody).split("[,\\s]+"))
                 .map(String::trim)
@@ -1281,7 +1318,7 @@ public class PublishService
                 .distinct()
                 .toList();
         if (!reviewers.isEmpty()) {
-            pullRequests.requestReviewers(pat, ref,
+            pullRequestWrites.requestReviewers(pat, ref,
                     new RequestReviewersCommand(reviewers, ImmutableList.of()));
         }
         syncPrMarkedReady(original == null ? null : original.taskId());
@@ -1325,7 +1362,7 @@ public class PublishService
         // triple either way.
         PullRequestRef forApi = new PullRequestRef(issue.owner(), issue.repo(), issue.number());
         String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
-        pullRequests.createIssueComment(pat, forApi, effectiveBody);
+        pullRequestWrites.createIssueComment(pat, forApi, effectiveBody);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted comment on " + issue.owner() + "/" + issue.repo() + "#" + issue.number() + ".",
                 commentOnIssue.action());
@@ -1337,7 +1374,7 @@ public class PublishService
         RepoRef repo = RepoRef.of(target.owner(), target.repo());
         String body = IssueOrigin.markQualityScan(effectiveBody(createIssue.body(), editedBody));
         String pat = patResolver.resolve(repo.fullName());
-        RepoIssue created = pullRequests.createIssue(pat, repo, createIssue.title(), body);
+        RepoIssue created = issues.createIssue(pat, repo, createIssue.title(), body);
         issueOrigins.recordCreated(created, IssueOrigin.QUALITY_SCAN);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Created " + repo.fullName() + "#" + created.number() + ".",
@@ -1353,7 +1390,7 @@ public class PublishService
                     "parked set_issue_state notification has invalid state: " + state);
         }
         String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
-        pullRequests.setIssueState(pat, new RepoRef(issue.owner(), issue.repo()), issue.number(), state);
+        issues.setIssueState(pat, new RepoRef(issue.owner(), issue.repo()), issue.number(), state);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Set " + issue.owner() + "/" + issue.repo() + "#" + issue.number()
                         + " to " + state + ".",
@@ -1418,7 +1455,8 @@ public class PublishService
                 draft ? Optional.of(true) : Optional.empty(),
                 Optional.empty());
         String pat = patResolver.resolve(owner + "/" + repoName);
-        PullRequest opened = pullRequests.createPullRequest(pat, new RepoRef(owner, repoName), command);
+        PullRequest opened = pullRequestWrites.createPullRequest(
+                pat, new RepoRef(owner, repoName), command);
         // Persist the opened PR onto the task so the UI can show "PR #n"
         // and deep-link into the in-app PR page — closing the gap where
         // the returned number used to be discarded. Best-effort.
@@ -1538,7 +1576,7 @@ public class PublishService
                 event,
                 commentsBuilder.build());
         String pat = patResolver.resolve(pullRequest.owner() + "/" + pullRequest.repo());
-        pullRequests.createReview(pat, toPullRequestRef(pullRequest), command);
+        pullRequestWrites.createReview(pat, toPullRequestRef(pullRequest), command);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Published review on " + pullRequest.owner() + "/" + pullRequest.repo()
                         + "#" + pullRequest.number() + " (" + event + ").",

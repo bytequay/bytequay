@@ -17,7 +17,7 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewPass;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
@@ -61,14 +61,14 @@ public class SeatToolset
 
     private final ReviewStore reviewStore;
     private final ReviewDiffCache diffCache;
-    private final PullRequestRepository pullRequests;
+    private final GitHubPullRequestReadRepository pullRequests;
     private final PatResolver patResolver;
     private final ObjectMapper mapper;
 
     public SeatToolset(
             ReviewStore reviewStore,
             ReviewDiffCache diffCache,
-            PullRequestRepository pullRequests,
+            GitHubPullRequestReadRepository pullRequests,
             PatResolver patResolver,
             ObjectMapper mapper)
     {

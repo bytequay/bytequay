@@ -483,6 +483,14 @@ describe('PullDetailPane', () => {
 
     await waitFor(() => expect(commentPr).toHaveBeenCalledWith(0, 'trinodb/trino', 84, '', true));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+    // The request resolves on authorization; the dispatcher applies the close
+    // afterwards. Until it lands the confirmation stays up and busy rather
+    // than dismissing on a close that has not happened yet.
+    await waitFor(() => {
+      const confirm = within(screen.getByRole('dialog'))
+        .getByRole('button', { name: 'Closing…' });
+      expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 
   it('hides the close action once the PR is merged', () => {

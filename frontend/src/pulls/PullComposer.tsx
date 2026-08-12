@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
@@ -19,6 +19,9 @@ import { ConfirmDialog } from '../workspace/ConfirmDialog';
 /** The overview composer: Write|Preview segmented control, the prototype's
  *  formatting-toolbar glyph row (decorative, as in the prototype), and the
  *  Close/Comment button row. */
+
+const CLOSE_PROMPT =
+  'This closes the pull request on GitHub without merging it.';
 
 const toolIconStyle = { width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 6 } as const;
 
@@ -37,11 +40,14 @@ function Toolbar() {
   );
 }
 
-export default function PullComposer({ onComment, onClose, repoCtx }: {
+export default function PullComposer({ onComment, onClose, closePending = false, repoCtx }: {
   /** Posts a PR-level comment via the same bridge path PRView's hosts use;
    *  undefined while the bundle is still loading (button disabled). */
   onComment?: (body: string) => Promise<void>;
   onClose?: () => Promise<void>;
+  /** Keeps the pending label up while the authorized close is still applying
+   *  remotely — the request resolves on authorization, not on the effect. */
+  closePending?: boolean;
   repoCtx: MarkdownRepoContext;
 }) {
   const [seg, setSeg] = useState<'write' | 'preview'>('write');
@@ -49,7 +55,19 @@ export default function PullComposer({ onComment, onClose, repoCtx }: {
   const [busy, setBusy] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const disabled = draft.trim().length === 0 || busy || onComment === undefined;
+  const pendingClose = closing || closePending;
+  // The request resolves on authorization, so dismissing there would report a
+  // close that has not happened. Hold the dialog until the effect settles —
+  // the host drops closePending once the PR reads closed remotely.
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pendingClose && closeError === null) {
+      setConfirmingClose(false);
+    }
+    wasPending.current = pendingClose;
+  }, [pendingClose, closeError]);
   const submit = () => {
     const body = draft.trim();
     if (body.length === 0 || onComment === undefined || busy) return;
@@ -107,11 +125,12 @@ export default function PullComposer({ onComment, onClose, repoCtx }: {
         {onClose !== undefined && (
           <button
             type="button"
+            className="ui-hand"
             onClick={() => setConfirmingClose(true)}
-            disabled={closing}
+            disabled={pendingClose}
             style={{ padding: '7px 15px', border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: '#1f2328', cursor: 'pointer' }}
           >
-            {closing ? 'Closing…' : 'Close pull request'}
+            {pendingClose ? 'Closing…' : 'Close pull request'}
           </button>
         )}
         <button
@@ -126,17 +145,20 @@ export default function PullComposer({ onComment, onClose, repoCtx }: {
       {confirmingClose && onClose !== undefined && (
         <ConfirmDialog
           title="Close this pull request?"
-          body="This closes the pull request on GitHub without merging it."
-          confirmLabel="Close pull request"
+          body={CLOSE_PROMPT + (closeError === null ? '' : `\n\n${closeError}`)}
+          confirmLabel={pendingClose ? 'Closing…' : 'Close pull request'}
           destructive
+          busy={pendingClose}
           onConfirm={() => {
+            setCloseError(null);
             setClosing(true);
             void onClose()
-              .then(() => setConfirmingClose(false))
-              .catch(() => { /* keep the confirmation open for retry */ })
+              .catch(failure => setCloseError(failure instanceof Error
+                ? failure.message
+                : 'The close request failed. Try again.'))
               .finally(() => setClosing(false));
           }}
-          onCancel={() => setConfirmingClose(false)}
+          onCancel={() => { setCloseError(null); setConfirmingClose(false); }}
         />
       )}
     </>

@@ -56,7 +56,7 @@ function LoadingTimeline() {
 }
 
 export default function PullOverview({
-  row, bundle, isMerged, refresh, onComment, onClosePullRequest, onDescriptionSaved,
+  row, bundle, isMerged, refresh, onComment, onClosePullRequest, closePending, onDescriptionSaved,
   onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation,
   onOpenCommit,
 }: {
@@ -67,6 +67,8 @@ export default function PullOverview({
   refresh?: () => void;
   onComment?: (body: string) => Promise<void>;
   onClosePullRequest?: () => Promise<void>;
+  /** A close is authorized but the remote effect has not landed yet. */
+  closePending?: boolean;
   onDescriptionSaved?: () => void;
   onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
   onLocalResolve?: (commentId: string) => Promise<void>;
@@ -257,7 +259,12 @@ export default function PullOverview({
         />
       )}
 
-      <PullComposer onComment={onComment} onClose={isMerged ? undefined : onClosePullRequest} repoCtx={repoCtx} />
+      <PullComposer
+        onComment={onComment}
+        onClose={isMerged ? undefined : onClosePullRequest}
+        closePending={closePending}
+        repoCtx={repoCtx}
+      />
     </>
   );
 }

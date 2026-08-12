@@ -377,10 +377,15 @@ export function PullDetailBody({
     : derivePRCapabilities(bundle.pr, 'details');
   const canPublish = detailCapabilities?.publishReview === true;
   const canActOnLocalThreads = detailCapabilities?.draftLocalComments === true;
-  const durablePublicationPrId = canPublish && bundle?.pr.taskId === null
+  // A close is authorized durably and applied by the dispatcher afterwards, so
+  // the refresh that follows the request still reads the PR as open. Watching
+  // the same action projection the publish flow polls is what flips the pane.
+  const [closeRequested, setCloseRequested] = useState(false);
+  const durablePublicationPrId = (canPublish || closeRequested)
+      && bundle?.pr.taskId === null
     ? bundle.pr.id
     : null;
-  const watchable = durablePublicationPrId === null
+  const watchable = !canPublish || durablePublicationPrId === null
     ? null
     : splitRepo(bundle?.pr.repo ?? null);
   // Every PR pane offers the close action, not only the task-owned ones that
@@ -395,6 +400,7 @@ export function PullDetailBody({
     ?? (closableRemotePr === null ? undefined : async () => {
       await window.bridge.commentPr(
         Number(row.dto.id) || 0, closableRemotePr.repo, closableRemotePr.number, '', true);
+      setCloseRequested(true);
       refresh();
     });
   useEffect(() => {
@@ -437,6 +443,15 @@ export function PullDetailBody({
   useEffect(() => {
     if (publishedCommandId !== null) refresh();
   }, [publishedCommandId, refresh]);
+  // Ends the composer's pending close: either the refreshed bundle agrees with
+  // the remote, or the durable action gave up and the PR is still open.
+  const closeSettled = bundle?.pr.status === 'closed'
+    || bundle?.pr.status === 'merged'
+    || (reviewPublication?.terminal === true
+      && reviewPublication.status !== 'PUBLISHED');
+  useEffect(() => {
+    if (closeRequested && closeSettled) setCloseRequested(false);
+  }, [closeRequested, closeSettled]);
   const publicationBlocked = reviewPublication === undefined
     || reviewPublication?.blocksNewPublication === true;
   const submissionBlocked = submitting || publicationBlocked;
@@ -626,6 +641,7 @@ export function PullDetailBody({
               refresh={refresh}
               onComment={onComment}
               onClosePullRequest={closePullRequest}
+              closePending={closeRequested}
               onDescriptionSaved={refresh}
               onLocalReply={replyLocalComment}
               onLocalResolve={resolveLocalComment}

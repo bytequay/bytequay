@@ -601,8 +601,11 @@ unrelated slices, and the database is empty so resets are free.
    persistence, which moved to the step below — they are only observable once a
    CLI body runs.
 3. New-flow CLI binding: config, resolver, MCP bridge, role capabilities, recovery.
-   **Config and resolver done.** Bridge, capabilities, provider-session
-   persistence and recovery remain.
+   **Config, resolver, bridge and restart recovery done.** Recovery persists the
+   agent's process group on the attempt and buries it when a later launch finds
+   the owning JVM gone; a group that cannot be identified is left unsignalled
+   rather than killed, since by then the number may be a stranger's. Role
+   capabilities, the body itself and provider-session persistence remain.
 4. Greenfield upstream synchronization: new records, Task worktree, picks, local
    checks, Local PR draft, fresh reviewer, history verification, `INITIAL_PUBLISH`.
 5. Attributed repair: selector policy, typed attribution, rewrite operation,

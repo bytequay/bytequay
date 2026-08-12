@@ -41,14 +41,19 @@ export function CheckIcon({ size = 9 }: { size?: number }) {
   return <Glyph size={size} width={3.2}><path d="M20 6 9 17l-5-5" /></Glyph>;
 }
 
+const CHEVRONS = {
+  left: 'm15 18-6-6 6-6',
+  right: 'm9 18 6-6-6-6',
+  up: 'm6 15 6-6 6 6',
+  down: 'm6 9 6 6 6-6',
+} as const;
+
 export function ChevronIcon({ direction = 'right', size = 11 }: {
-  direction?: 'left' | 'right';
+  direction?: keyof typeof CHEVRONS;
   size?: number;
 }) {
   return (
-    <Glyph size={size} width={2.4}>
-      <path d={direction === 'left' ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6'} />
-    </Glyph>
+    <Glyph size={size} width={2.4}><path d={CHEVRONS[direction]} /></Glyph>
   );
 }
 

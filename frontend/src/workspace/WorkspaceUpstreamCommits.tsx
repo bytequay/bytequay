@@ -142,7 +142,7 @@ export function UpstreamCherryPicker({
   const skipped = commits.filter(commit => commit.picked).length;
   const parsedBudget = Number(budgetUsd);
   const budgetValid = Number.isFinite(parsedBudget)
-    && parsedBudget >= 0.10 && parsedBudget <= 100;
+    && parsedBudget >= 0.10 && parsedBudget <= 1000;
 
   useEffect(() => {
     let cancelled = false;
@@ -285,10 +285,12 @@ export function UpstreamCherryPicker({
                 aria-label="Conflict repair budget in dollars"
                 aria-invalid={!budgetValid} inputMode="decimal" value={budgetUsd}
                 onChange={event => setBudgetUsd(event.target.value)} />
-                <small>Agent ceiling for resolving and verifying cherry-pick conflicts.</small>
+                <small>Agent ceiling for the whole run — resolving conflicts while
+                  picking, then repairing CI once the range is pushed. It is the only
+                  stop on the fix rounds, so a long range wants room.</small>
               </span>
             </label>
-            {!budgetValid && <span className="wu-form-error">Repair budget must be $0.10–$100.00.</span>}
+            {!budgetValid && <span className="wu-form-error">Agent budget must be $0.10–$1,000.00.</span>}
             {openDraftPr && (
               <label className="wu-upstream-cherry__branch">
                 <strong>PULL REQUEST DESCRIPTION</strong>

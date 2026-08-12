@@ -397,11 +397,16 @@ export type UpstreamCherryPickStatus =
 
 export type UpstreamCherryPickJobDto = {
   jobId: string;
+  /** The run's "RUN #12" label — creation order in the workspace, not an id. */
+  runNumber: number;
   status: UpstreamCherryPickStatus;
   sourceBranch: string;
   resultBranch: string;
   baseRef: string;
   requestedCount: number;
+  /** The range's oldest and newest selected commit; null for a run with no range. */
+  rangeFromSha: string | null;
+  rangeToSha: string | null;
   appliedCount: number;
   skippedCount: number;
   /** Applied picks whose conflict was carried forward with git's resolution. */
@@ -419,6 +424,8 @@ export type UpstreamCherryPickJobDto = {
   prNumber: number | null;
   prUrl: string | null;
   harnessWatchId: string | null;
+  /** How the pull request ended, once it did; null while it is open. */
+  prResult: 'merged' | 'closed' | null;
   errorMessage: string | null;
   /** Set once the user closed the run; every action but reading is refused after. */
   closedAt: string | null;
@@ -444,7 +451,9 @@ export type UpstreamCherryPickEventDto = {
   /** The pick this line belongs under; null for run-level lines. */
   pickIndex: number | null;
   kind: 'start' | 'command' | 'note' | 'skip' | 'park' | 'guidance' | 'agent'
-    | 'agent_log' | 'fixup' | 'push' | 'pr' | 'watch' | 'done' | 'error' | 'closed';
+    | 'agent_log' | 'fixup' | 'push' | 'pr' | 'watch' | 'done' | 'error' | 'closed'
+    /** One resource the teardown released, or could not; phase 3's receipt. */
+    | 'cleanup';
   title: string;
   detail: string | null;
   exitCode: number | null;

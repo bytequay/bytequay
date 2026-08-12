@@ -15,9 +15,14 @@ import { useEffect, useState } from 'react';
 import PullDetailPane from '../pulls/PullDetailPane';
 import type { PullRow } from '../pulls/model';
 import { pullRowFromDto, toDashboardPr } from '../pulls/workspaceModel';
-import { workspaceApi, type WorkspaceRepositoryDto } from './workspaceApi';
+import {
+  workspaceApi,
+  type WorkspaceRelationDto,
+  type WorkspaceRepositoryDto,
+} from './workspaceApi';
 import { useUpstreamSyncs } from './useUpstreamSyncs';
 import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
+import WorkspaceSyncsHome from './WorkspaceSyncsHome';
 
 const PR_RETRY_MS = 3_000;
 
@@ -42,11 +47,13 @@ export default function WorkspaceSyncsPage({
   const syncs = useUpstreamSyncs(workspaceId);
   const loaded = syncs !== null;
   const [repository, setRepository] = useState<WorkspaceRepositoryDto | null>(null);
+  const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
   const [prRow, setPrRow] = useState<PullRow | null>(null);
 
-  // Landing on the surface with no run named opens the newest rather than an
-  // empty frame; the list is right there to move off it.
-  const selected = jobId ?? syncs?.at(0)?.jobId;
+  // No run named means the list, not the newest run. Landing straight in a
+  // cockpit put the other runs inside the one you happened to get; they live on
+  // the home page now.
+  const selected = jobId;
   const job = syncs?.find(row => row.jobId === selected);
   const prNumber = job?.prNumber ?? null;
 
@@ -55,6 +62,11 @@ export default function WorkspaceSyncsPage({
     void workspaceApi.repository(workspaceId)
       .then(next => { if (!cancelled) setRepository(next); })
       .catch(() => { /* the run still reads without its pull request */ });
+    // The header's "upstream → fork" line. A workspace with no relation has no
+    // syncs either, so a failure here is not worth surfacing.
+    void workspaceApi.relation(workspaceId)
+      .then(next => { if (!cancelled) setRelation(next); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [workspaceId]);
 
@@ -86,13 +98,18 @@ export default function WorkspaceSyncsPage({
   }, [owner, prNumber, repo, workspaceId]);
 
   if (selected === undefined) {
+    if (!loaded) {
+      return <div className="sr-loading" role="status">Loading sync runs…</div>;
+    }
     return (
-      <div className="sr-loading" role="status">
-        {loaded ? 'No sync run in this workspace yet.' : 'Loading sync runs…'}
-        {loaded && onNewSync !== undefined && (
-          <button type="button" onClick={onNewSync}>Start a sync run</button>
-        )}
-      </div>
+      <WorkspaceSyncsHome
+        runs={syncs}
+        upstreamRepo={relation?.upstreamRepoFullName}
+        targetRepo={repository === null
+          ? undefined : `${repository.owner}/${repository.repo}`}
+        onOpenSync={onOpenSync}
+        onNewSync={onNewSync}
+      />
     );
   }
 
@@ -101,9 +118,6 @@ export default function WorkspaceSyncsPage({
       <WorkspaceSyncRunPage
         workspaceId={workspaceId}
         jobId={selected}
-        syncs={syncs ?? []}
-        onOpenSync={onOpenSync}
-        onNewSync={onNewSync}
         onBack={onBack}
         rightPane={prRow === null ? undefined : <PullDetailPane key={prRow.id} row={prRow} />}
       />

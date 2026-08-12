@@ -23,6 +23,10 @@ export function syncRun(): UpstreamCherryPickRunDto {
     baseBranch: 'main',
     job: {
       jobId: 'job-1',
+      runNumber: 1,
+      rangeFromSha: null,
+      rangeToSha: null,
+      prResult: null,
       status: 'RUNNING',
       sourceBranch: 'upstream/main',
       resultBranch: 'upstream-2-31',

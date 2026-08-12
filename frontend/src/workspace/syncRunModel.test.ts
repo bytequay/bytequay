@@ -24,7 +24,8 @@ import type {
 } from './workspaceApi';
 
 const job: UpstreamCherryPickJobDto = {
-  jobId: 'job-1', status: 'RUNNING', sourceBranch: 'master',
+  jobId: 'job-1', runNumber: 1, status: 'RUNNING', sourceBranch: 'master',
+  rangeFromSha: null, rangeToSha: null, prResult: null,
   resultBranch: 'trino-2-31', baseRef: 'b'.repeat(40), requestedCount: 5,
   appliedCount: 2, skippedCount: 1, conflictedCount: 1, pauseRequested: false,
   budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, agentSessionId: null, conflictPaths: [], worktreePath: '/repos/fork.bytequay-worktrees/upstream-cherry-pick/job-1',

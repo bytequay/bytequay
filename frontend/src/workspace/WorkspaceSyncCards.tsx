@@ -17,36 +17,6 @@ import {
 } from './syncRunModel';
 import type { UpstreamCherryPickJobDto } from './workspaceApi';
 
-/**
- * A sync run in the list at the top of the run's own column. One line: the
- * branch is what a reader picks by, and a status word under every row turned
- * the list into a wall. What still matters — running, or stopped and waiting
- * on you — the dot carries.
- */
-export function SyncNavRow({ job, selected = false, onOpen }: {
-  job: UpstreamCherryPickJobDto;
-  /** The run the page is showing — the list doubles as its title. */
-  selected?: boolean;
-  onOpen: () => void;
-}) {
-  const live = isLiveSync(job);
-  const needsYou = !live && job.closedAt === null
-    && (job.status === 'PAUSED_CONFLICT' || job.status === 'FAILED');
-  return (
-    <button type="button" aria-current={selected ? 'true' : undefined}
-      title={`${job.resultBranch} — ${navSubtitle(job)}`}
-      className={`sync-nav__row${live ? ' is-live' : ''}${selected ? ' is-selected' : ''}`}
-      onClick={onOpen}>
-      <span className="sync-nav__icon" aria-hidden><SyncIcon size={14} /></span>
-      <span className="sync-nav__copy">
-        <strong>{job.resultBranch}</strong>
-      </span>
-      {live && <span className="sync-nav__live" aria-label="running" />}
-      {needsYou && <span className="sync-nav__attention" aria-label="needs you" />}
-    </button>
-  );
-}
-
 /** The same run as a Today row — one card per section it belongs to. */
 export function SyncTodayCard({ job, tone, onOpen }: {
   job: UpstreamCherryPickJobDto;
@@ -84,25 +54,6 @@ export function SyncTodayCard({ job, tone, onOpen }: {
       <span className="sync-today__go" aria-hidden><ChevronIcon size={16} /></span>
     </button>
   );
-}
-
-function navSubtitle(job: UpstreamCherryPickJobDto): string {
-  switch (job.status) {
-    case 'QUEUED':
-      return `queued · ${job.requestedCount} commits`;
-    case 'RUNNING':
-      return job.pauseRequested
-        ? `pausing · ${job.appliedCount} of ${job.requestedCount}`
-        : `picking ${job.appliedCount + 1} of ${job.requestedCount}`;
-    case 'PAUSED_CONFLICT':
-      return `parked · pick ${job.appliedCount + job.skippedCount + 1} · needs you`;
-    case 'FAILED':
-      return 'stopped · needs you';
-    default:
-      return job.prNumber === null
-        ? `green · ${job.appliedCount} picks`
-        : `green · PR #${job.prNumber}`;
-  }
 }
 
 function todayMeta(job: UpstreamCherryPickJobDto, tone: string): string {

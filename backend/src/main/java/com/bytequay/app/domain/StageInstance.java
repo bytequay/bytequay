@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The immutable {@link Stage} the store hands back — a straight mapping of
+ * The immutable stage row the store hands back — a straight mapping of
  * a {@code task_stage} row. {@code closedAt} and {@code callerStageId} are
  * nullable in the row and surfaced through {@link Optional}. {@code
  * workModel} is the stage's optional override on the work-model cascade
@@ -35,15 +35,12 @@ public record StageInstance(
         Instant closedAtOrNull,
         UUID callerStageIdOrNull,
         WorkModel workModel)
-        implements Stage
 {
-    @Override
     public Optional<Instant> closedAt()
     {
         return Optional.ofNullable(closedAtOrNull);
     }
 
-    @Override
     public Optional<UUID> callerStageId()
     {
         return Optional.ofNullable(callerStageIdOrNull);

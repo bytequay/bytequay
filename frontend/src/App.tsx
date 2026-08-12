@@ -1009,7 +1009,7 @@ function App() {
             jobId={nav.jobId}
             onOpenSync={jobId => setNav({ view: 'syncs', jobId })}
             onNewSync={() => setNav({ view: 'workspace', section: 'commits' })}
-            onBack={openSidebarWorkspaceToday}
+            onBack={() => setNav({ view: 'syncs' })}
           />
         )}
         {nav.view === 'notifications' && (

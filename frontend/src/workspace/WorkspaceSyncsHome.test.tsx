@@ -38,6 +38,14 @@ describe('WorkspaceSyncsHome', () => {
     expect(screen.getByText('Merged')).toBeTruthy();
   });
 
+  it('shows manually closed runs as closed in the finished list', () => {
+    render(<WorkspaceSyncsHome runs={[job({
+      closedAt: '2026-08-09T10:00:00Z', prNumber: 4244,
+    })]} />);
+
+    expect(screen.getByText('Closed')).toBeTruthy();
+  });
+
   it('renders the range endpoints and commit count the run was started with', () => {
     render(<WorkspaceSyncsHome runs={[job({
       rangeFromSha: 'f04d2220000000000000000000000000000000aa',

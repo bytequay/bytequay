@@ -1587,7 +1587,7 @@
 }
 
 .sh-result.is-merged { color: #8250df; }
-.sh-result.is-closed { color: #8a8178; }
+.sh-result.is-closed { color: #cf222e; }
 .sh-result.is-failed { color: #cf222e; }
 .sh-result.is-done { color: #1a7f37; }
 

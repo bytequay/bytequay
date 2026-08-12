@@ -132,9 +132,7 @@ export function syncResult(job: UpstreamCherryPickJobDto): SyncResult {
   if (job.prResult === 'merged') return { label: 'Merged', tone: 'merged' };
   if (job.prResult === 'closed') return { label: 'Closed', tone: 'closed' };
   if (job.status === 'FAILED') return { label: 'Stopped', tone: 'failed' };
-  // Closed by hand before the pull request ended either way, or never opened
-  // one — "Closed" would claim something about the PR that is not known.
-  return { label: job.prNumber === null ? 'No PR' : 'Ended', tone: 'done' };
+  return { label: 'Closed', tone: 'closed' };
 }
 
 /**

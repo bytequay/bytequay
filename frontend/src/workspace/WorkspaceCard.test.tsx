@@ -47,6 +47,7 @@ describe('WorkspaceCard delete affordance', () => {
             defaultBaseBranch: 'main',
             clonePath: '/repos/hello-world',
             verified: true,
+            ownerAvatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4',
           },
         })}
         isCurrent={false}
@@ -55,7 +56,7 @@ describe('WorkspaceCard delete affordance', () => {
     );
 
     const avatar = container.querySelector('.workspace-landing-card__repo-avatar');
-    expect(avatar?.getAttribute('src')).toBe('https://github.com/octocat.png?size=72');
+    expect(avatar?.getAttribute('src')).toBe('https://avatars.githubusercontent.com/u/583231?v=4');
     expect(container.querySelector('.workspace-landing-card__repo-fallback')).toBeNull();
 
     fireEvent.error(avatar as HTMLElement);

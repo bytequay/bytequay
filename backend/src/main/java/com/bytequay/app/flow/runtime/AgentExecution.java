@@ -42,7 +42,7 @@ package com.bytequay.app.flow.runtime;
  *       {@link ProcessGroup}.</li>
  * </ul>
  */
-enum AgentExecution
+public enum AgentExecution
 {
     /** In-JVM, over HTTP, against a stored credential. */
     API,

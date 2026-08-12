@@ -160,10 +160,11 @@ public class NewFlowEngineResolver
 
     /**
      * What this machine can actually run when the workspace configured
-     * nothing. Engines needing a transport the runtime does not admit are
-     * skipped here rather than offered and then parked — discovery is the
-     * program's own fallback, so picking something unrunnable would help
-     * nobody. An explicit user pick is never filtered this way.
+     * nothing. CLI engines are skipped here rather than offered and then
+     * parked: the launch binding can name one, but no agent body drives a
+     * subprocess yet, so discovery choosing one would park a run the user never
+     * asked to run that way. An explicit user pick is never filtered — that one
+     * is a decision, and it resolves to a CLI launch.
      */
     private WorkModel discover()
     {
@@ -191,16 +192,21 @@ public class NewFlowEngineResolver
 
     private Config config(WorkModel engine)
     {
-        if (engine.kind() == WorkModelKind.CLI) {
-            // ponytail: message, not a typed park reason. A distinct
-            // NEEDS_ATTENTION code needs runtime plumbing and only earns its
-            // keep once the out-of-process transport exists to clear it.
-            throw new LaunchUnavailableException(
-                    "ENGINE_TRANSPORT_UNSUPPORTED: the workflow runtime admits no "
-                            + "CLI agent transport, and will not silently run "
-                            + engine.agentOrProvider() + " on an API engine instead");
-        }
         String provider = engine.agentOrProvider();
+        String effort = workModels.resolveEffort(
+                engine.kind(), provider, engine.model(),
+                engine.reasoningEffort());
+        if (engine.kind() == WorkModelKind.CLI) {
+            // The user's own CLI login authorizes this turn, so the binding
+            // names the binary and nothing about an account: this program never
+            // holds that credential and must not record a guess at one.
+            return Config.cli(
+                    provider,
+                    engine.model(),
+                    effort,
+                    WorkModelService.cliBinary(provider),
+                    workModels.cliVersion(provider).orElse(null));
+        }
         Transport transport = switch (provider) {
             case "anthropic" -> Transport.ANTHROPIC;
             case "openai", "deepseek" -> Transport.OPENAI_COMPAT;
@@ -220,14 +226,12 @@ public class NewFlowEngineResolver
                     "ENGINE_TRANSPORT_UNSUPPORTED: the locally-served model "
                             + engine.model() + " has no agent-run transport");
         }
-        return new Config(
+        return Config.api(
                 provider,
                 transport,
                 endpoint,
                 engine.model(),
-                workModels.resolveEffort(
-                        engine.kind(), provider, engine.model(),
-                        engine.reasoningEffort()),
+                effort,
                 provider,
                 engine.account(),
                 MAX_OUTPUT_TOKENS,

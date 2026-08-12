@@ -72,6 +72,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 final class TestNewFlowAgentRuntimeBoundaries
@@ -138,6 +139,46 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .hasMessage("bound AI credential revision changed");
         verify(credentials, never()).getSecret(
                 CredentialType.AI, "anthropic", "ci");
+    }
+
+    @Test
+    void aCliLaunchBindsWithoutACredentialAndIsRefusedTheInJvmPath()
+    {
+        DataSource dataSource = dataSource();
+        FlowRuntime runtime = mock(FlowRuntime.class);
+        CredentialStore credentials = mock(CredentialStore.class);
+        AgentRun run = ciRun();
+        when(runtime.run(run.runId())).thenReturn(Optional.of(run));
+        NewFlowAgentLaunches launches = new NewFlowAgentLaunches(
+                dataSource,
+                runtime,
+                credentials,
+                resolvingTo(NewFlowAgentLaunches.Config.cli(
+                        "claude-code", "claude-opus-4-8", "high",
+                        "claude", "2.1.0")),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                MAPPER);
+
+        NewFlowAgentLaunches.Binding binding = launches.bind(run, CI_REPAIR);
+
+        assertThat(binding.execution()).isEqualTo(AgentExecution.CLI);
+        assertThat(binding.cliBinary()).isEqualTo("claude");
+        assertThat(binding.cliVersion()).isEqualTo("2.1.0");
+        assertThat(binding.credentialId()).isNull();
+        assertThat(binding.endpoint()).isNull();
+        assertThat(binding.transport()).isNull();
+        // The credential store is never asked. A CLI turn is authorized by the
+        // user's own login, so looking one up would either fail the launch or
+        // pin a credential the subprocess never presents.
+        verifyNoInteractions(credentials);
+        // Reloading proves the row satisfies the per-execution CHECK: a shape
+        // that borrowed an API column would have been rejected on insert, and
+        // one that lost cli_binary would fail to reconstruct here.
+        assertThat(launches.binding(run.runId())).contains(binding);
+        assertThatThrownBy(() -> launches.resolveSecret(binding))
+                .isInstanceOf(
+                        NewFlowAgentLaunches.LaunchUnavailableException.class)
+                .hasMessageContaining("must not take the in-JVM turn path");
     }
 
     @Test
@@ -615,7 +656,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                 dataSource,
                 runtime,
                 credentials,
-                resolvingTo(new NewFlowAgentLaunches.Config(
+                resolvingTo(NewFlowAgentLaunches.Config.api(
                         "anthropic",
                         ANTHROPIC,
                         "https://provider.test/v1/messages",
@@ -713,11 +754,12 @@ final class TestNewFlowAgentRuntimeBoundaries
         return new NewFlowAgentLaunches.Binding(
                 "task-run",
                 "anthropic",
+                AgentExecution.API,
                 ANTHROPIC,
                 "https://provider.test/v1/messages",
                 "model",
                 "high",
-                7,
+                7L,
                 "anthropic",
                 "ci",
                 NOW,
@@ -726,6 +768,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "tool-digest",
                 1_024,
                 2,
+                null,
+                null,
                 "binding-digest",
                 NOW);
     }

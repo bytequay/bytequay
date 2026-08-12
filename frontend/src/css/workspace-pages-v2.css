@@ -53,8 +53,9 @@
   width: 28px;
   height: 28px;
   border-radius: 7px;
-  background: #b45309;
-  color: #fff;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  color: #57606a;
   display: inline-flex;
   align-items: center;
   justify-content: center;

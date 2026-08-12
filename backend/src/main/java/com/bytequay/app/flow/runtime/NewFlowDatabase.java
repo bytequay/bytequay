@@ -42,7 +42,7 @@ import static java.util.Objects.requireNonNull;
 public final class NewFlowDatabase
 {
     static final int SCHEMA_VERSION = 1;
-    private static final List<String> RESOURCES = List.of("db/new-flow/runtime.sql", "db/new-flow/ci-autofix.sql", "db/new-flow/user-gates.sql", "db/new-flow/github-effects.sql");
+    private static final List<String> RESOURCES = List.of("db/new-flow/runtime.sql", "db/new-flow/ci-autofix.sql", "db/new-flow/user-gates.sql", "db/new-flow/github-effects.sql", "db/new-flow/upstream-sync.sql");
     private static final String MARKER = "flow_schema_baseline";
 
     private final DataSource dataSource;

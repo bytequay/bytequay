@@ -490,10 +490,16 @@ final class TestNewFlowEndToEnd
         return value.get();
     }
 
+    // Wall-clock budgets, not behaviour: four forks share this machine, and a
+    // whole-composition trace that runs in 15 seconds alone can take three
+    // times that beside its siblings. Too tight and the timeout reports a
+    // failure the flow never had.
+    private static final Duration AWAIT_BUDGET = Duration.ofSeconds(60);
+
     private static void await(CountDownLatch latch)
     {
         try {
-            if (!latch.await(20, TimeUnit.SECONDS)) {
+            if (!latch.await(AWAIT_BUDGET.toSeconds(), TimeUnit.SECONDS)) {
                 throw new AssertionError("latch did not complete");
             }
         }
@@ -505,7 +511,7 @@ final class TestNewFlowEndToEnd
 
     private static void awaitCondition(CheckedCondition condition)
     {
-        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        long deadline = System.nanoTime() + AWAIT_BUDGET.toNanos();
         try {
             while (!condition.test()) {
                 if (System.nanoTime() >= deadline) {

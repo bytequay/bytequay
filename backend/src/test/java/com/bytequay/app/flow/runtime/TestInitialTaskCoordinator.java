@@ -419,11 +419,11 @@ class TestInitialTaskCoordinator
                 .thenReturn(Optional.of("ai-secret"));
         NewFlowAgentLaunches launches = new NewFlowAgentLaunches(
                 dataSource, runtime, credentials,
-                new NewFlowAgentLaunches.Config(
+                resolvingTo(new NewFlowAgentLaunches.Config(
                         "openai", TurnSpec.Transport.OPENAI_COMPAT,
                         "https://models.example.test/v1/chat/completions",
                         "test-model", "medium", "openai", "default api",
-                        1024, 2),
+                        1024, 2)),
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
         TurnRunner runner = mock(TurnRunner.class);
         CountDownLatch reviewerEntered = new CountDownLatch(1);
@@ -712,5 +712,12 @@ class TestInitialTaskCoordinator
         {
             return now;
         }
+    }
+
+    private static NewFlowEngineResolver resolvingTo(NewFlowAgentLaunches.Config config)
+    {
+        NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
+        when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class))).thenReturn(config);
+        return engines;
     }
 }

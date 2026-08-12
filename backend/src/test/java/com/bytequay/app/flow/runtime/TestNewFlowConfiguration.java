@@ -24,6 +24,8 @@ import com.bytequay.app.flow.github.GitHubInitialRepositoryObserver;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.workmodel.WorkModelService;
+import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -68,6 +70,14 @@ class TestNewFlowConfiguration
                 .withBean(CredentialStore.class,
                         () -> mock(CredentialStore.class))
                 .withBean(TurnRunner.class, () -> mock(TurnRunner.class))
+                // Engine selection is user configuration read from the primary
+                // application database, so the graph now composes over the
+                // work-model services too.
+                .withBean(JdbcTemplate.class, () -> new JdbcTemplate(primary))
+                .withBean(WorkspaceEngineSettings.class,
+                        () -> mock(WorkspaceEngineSettings.class))
+                .withBean(WorkModelService.class,
+                        () -> mock(WorkModelService.class))
                 .withPropertyValues(
                         "bytequay.new-flow.database-path=" + newFlowPath,
                         "bytequay.new-flow.worktree-root="

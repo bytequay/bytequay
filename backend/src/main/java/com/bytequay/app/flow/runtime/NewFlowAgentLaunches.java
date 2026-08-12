@@ -261,7 +261,7 @@ public final class NewFlowAgentLaunches
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final CredentialStore credentials;
-    private final Config config;
+    private final NewFlowEngineResolver engines;
     private final Clock clock;
     private final ObjectMapper mapper;
     private final FlowRuntime runtime;
@@ -270,7 +270,7 @@ public final class NewFlowAgentLaunches
             DataSource dataSource,
             FlowRuntime runtime,
             CredentialStore credentials,
-            Config config,
+            NewFlowEngineResolver engines,
             Clock clock,
             ObjectMapper mapper)
     {
@@ -280,7 +280,7 @@ public final class NewFlowAgentLaunches
                 new DataSourceTransactionManager(dataSource));
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
-        this.config = requireNonNull(config, "config is null");
+        this.engines = requireNonNull(engines, "engines is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -305,6 +305,12 @@ public final class NewFlowAgentLaunches
         String promptDigest = digest(List.of(
                 "new-flow-agent-prompt:v1", program.promptRevision,
                 program.systemPrompt));
+        // Resolve outside the transaction: discovery may probe an installed
+        // CLI, and no database write should wait on a process fork. A run that
+        // is already bound is never re-resolved — its frozen engine is the
+        // answer, even if the workspace has since been repointed.
+        Config resolved = binding(run.runId()).isPresent()
+                ? null : engines.resolve(run);
         return requireNonNull(transactions.execute(ignored -> {
             AgentRun current = runtime.run(run.runId()).orElseThrow(() ->
                     new IllegalStateException("AgentRun disappeared before binding"));
@@ -324,6 +330,8 @@ public final class NewFlowAgentLaunches
                         storedManifestDigest);
                 return stored;
             }
+            Config config = requireNonNull(resolved,
+                    "launch binding disappeared between resolution and insert");
             String manifestDigest = digestJson(
                     tools(program, config.transport()));
             Credential credential = credentials.find(
@@ -506,11 +514,6 @@ public final class NewFlowAgentLaunches
         catch (RuntimeException failure) {
             throw failure;
         }
-    }
-
-    ArrayNode tools(Program program)
-    {
-        return tools(program, config.transport());
     }
 
     ArrayNode tools(Program program, Transport transport)

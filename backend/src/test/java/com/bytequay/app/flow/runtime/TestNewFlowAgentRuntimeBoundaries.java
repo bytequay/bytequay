@@ -615,7 +615,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                 dataSource,
                 runtime,
                 credentials,
-                new NewFlowAgentLaunches.Config(
+                resolvingTo(new NewFlowAgentLaunches.Config(
                         "anthropic",
                         ANTHROPIC,
                         "https://provider.test/v1/messages",
@@ -624,9 +624,18 @@ final class TestNewFlowAgentRuntimeBoundaries
                         "anthropic",
                         "ci",
                         1_024,
-                        2),
+                        2)),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 MAPPER);
+    }
+
+    /** The engine is resolved per run from workspace settings; these
+     *  boundaries are about the binding, not about which engine it names. */
+    private static NewFlowEngineResolver resolvingTo(NewFlowAgentLaunches.Config config)
+    {
+        NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
+        when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class))).thenReturn(config);
+        return engines;
     }
 
     private static Credential credential(Instant updatedAt)

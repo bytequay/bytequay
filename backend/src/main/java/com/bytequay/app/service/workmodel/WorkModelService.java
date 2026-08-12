@@ -24,13 +24,18 @@ import com.bytequay.app.domain.WorkModelOptions.WorkModelEntry;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelProviderOption;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelReasoningEffort;
 import com.bytequay.app.service.CredentialService;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -58,14 +63,28 @@ import static java.util.Objects.requireNonNull;
 public class WorkModelService
 {
     private static final Duration CLI_PROBE_TIMEOUT = Duration.ofSeconds(2);
+    /** Long enough that a per-agent-run engine resolution never forks a
+     *  process, short enough that installing a CLI shows up without a
+     *  restart. */
+    private static final Duration CLI_PROBE_CACHE = Duration.ofSeconds(60);
 
     private final CredentialService credentials;
     private final CodexModelCatalogProbe codexModels;
+    private final Map<String, Supplier<Boolean>> cliProbes;
 
     public WorkModelService(CredentialService credentials, CodexModelCatalogProbe codexModels)
     {
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.codexModels = requireNonNull(codexModels, "codexModels is null");
+        ImmutableMap.Builder<String, Supplier<Boolean>> probes = ImmutableMap.builder();
+        for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
+            String id = agent.id();
+            probes.put(id, Suppliers.memoizeWithExpiration(
+                    () -> probeCli(id),
+                    CLI_PROBE_CACHE.toMillis(),
+                    TimeUnit.MILLISECONDS));
+        }
+        this.cliProbes = probes.buildOrThrow();
     }
 
     public WorkModelOptions options()
@@ -87,6 +106,32 @@ public class WorkModelService
     public Optional<WorkModel> freezeChoice(String pickerChoice)
     {
         return WorkspaceEngineSettings.parseChoice(pickerChoice).map(this::freeze);
+    }
+
+    /**
+     * What this machine could run, in preference order, for a caller that has
+     * no configured pick at all: installed CLI agents in catalog order, then
+     * API providers holding a credential. Entries carry engine identity only —
+     * pass one through {@link #freeze} to fill in model and account.
+     *
+     * <p>Order is the offer, not the verdict. A caller whose transport cannot
+     * run a CLI agent filters these itself rather than having discovery guess
+     * on its behalf.
+     */
+    public List<WorkModel> discoverEngines()
+    {
+        ImmutableList.Builder<WorkModel> out = ImmutableList.builder();
+        for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
+            if (cliAvailable(agent.id())) {
+                out.add(new WorkModel(WorkModelKind.CLI, agent.id(), null, null, null));
+            }
+        }
+        for (WorkModelCatalog.CatalogProvider provider : WorkModelCatalog.API_PROVIDERS) {
+            if (!credentials.listByTypeAndName(CredentialType.AI, provider.id()).isEmpty()) {
+                out.add(new WorkModel(WorkModelKind.API, provider.id(), null, null, null));
+            }
+        }
+        return out.build();
     }
 
     /** Complete a resolved workspace engine for durable per-trunk storage. */
@@ -189,7 +234,9 @@ public class WorkModelService
                         "No " + provider + " API account is configured"));
     }
 
-    private static boolean isLocalModel(String providerId, String modelId)
+    /** True for model variants served by a local subprocess rather than the
+     *  provider's cloud endpoint, which need a different transport. */
+    public static boolean isLocalModel(String providerId, String modelId)
     {
         WorkModelCatalog.CatalogProvider provider = WorkModelCatalog.provider(providerId);
         return provider != null && provider.models().stream()
@@ -204,7 +251,15 @@ public class WorkModelService
         return value.strip();
     }
 
-    private static boolean cliAvailable(String agentId)
+    /** Cached: engine resolution asks this once per agent run, and forking a
+     *  process inside that path would put a 2s timeout on every launch. */
+    boolean cliAvailable(String agentId)
+    {
+        Supplier<Boolean> probe = cliProbes.get(agentId);
+        return probe != null && probe.get();
+    }
+
+    private static boolean probeCli(String agentId)
     {
         String binary = "codex".equals(agentId) ? "codex" : "claude";
         try {
@@ -252,25 +307,89 @@ public class WorkModelService
                 .collect(toImmutableList());
     }
 
-    private static WorkModelEntry entry(
-            String engine,
-            WorkModelCatalog.CatalogEntry model)
+    /**
+     * The reasoning-effort ladder one model accepts. Claude and Codex do not
+     * share a vocabulary — {@code minimal} exists only on Codex, {@code xhigh}
+     * and {@code max} only on Claude — and within Claude the ladder narrows by
+     * model family. An engine or model with no native effort control returns
+     * empty, which callers read as "send no effort at all".
+     */
+    static List<String> catalogEfforts(String engine, String modelId)
     {
-        List<String> efforts = switch (engine) {
-            case "claude-code", "anthropic" -> model.id().contains("haiku")
+        return switch (engine) {
+            case "claude-code", "anthropic" -> modelId.contains("haiku")
                     ? List.of()
-                    : model.id().contains("sonnet")
+                    : modelId.contains("sonnet")
                             ? List.of("low", "medium", "high", "max")
                             : List.of("low", "medium", "high", "xhigh", "max");
-            case "codex", "openai" -> model.id().startsWith("gpt-5")
+            case "codex", "openai" -> modelId.startsWith("gpt-5")
                     ? List.of("minimal", "low", "medium", "high")
                     : List.of();
             default -> List.of();
         };
-        String defaultEffort = efforts.isEmpty()
-                ? null
-                : (engine.equals("codex") || engine.equals("openai"))
-                        ? "medium" : "high";
+    }
+
+    private static String catalogDefaultEffort(String engine, List<String> efforts)
+    {
+        if (efforts.isEmpty()) {
+            return null;
+        }
+        return engine.equals("codex") || engine.equals("openai")
+                ? "medium" : "high";
+    }
+
+    /**
+     * The effort this engine/model pair should actually run at: the requested
+     * value when the model accepts it, otherwise the model's own default.
+     * Never throws — a stored effort that outlived a model change must not
+     * fail the turn that reads it, and a model with no effort ladder yields
+     * {@code null} so the transport omits the flag entirely.
+     *
+     * <p>Codex publishes a live per-model ladder through its app-server
+     * catalog, so that answer wins over the curated one when available.
+     */
+    public String resolveEffort(
+            WorkModelKind kind, String engine, String modelId, String requested)
+    {
+        requireNonNull(kind, "kind is null");
+        requireNonNull(engine, "engine is null");
+        requireNonNull(modelId, "modelId is null");
+        List<String> efforts = null;
+        String fallback = null;
+        if (kind == WorkModelKind.CLI && "codex".equals(engine)) {
+            var discovered = codexModels.models(false);
+            if (discovered.isPresent()) {
+                var live = discovered.orElseThrow().stream()
+                        .filter(model -> model.id().equals(modelId))
+                        .findFirst();
+                if (live.isPresent()) {
+                    efforts = live.orElseThrow().supportedReasoningEfforts().stream()
+                            .map(CodexModelCatalogProbe.ReasoningEffort::id)
+                            .collect(toImmutableList());
+                    fallback = live.orElseThrow().defaultReasoningEffort();
+                }
+            }
+        }
+        if (efforts == null) {
+            efforts = catalogEfforts(engine, modelId);
+            fallback = catalogDefaultEffort(engine, efforts);
+        }
+        if (efforts.isEmpty()) {
+            return null;
+        }
+        String normalized = requested == null || requested.isBlank()
+                ? null : requested.strip().toLowerCase(Locale.ROOT);
+        return normalized != null && efforts.contains(normalized)
+                ? normalized
+                : (efforts.contains(fallback) ? fallback : null);
+    }
+
+    private static WorkModelEntry entry(
+            String engine,
+            WorkModelCatalog.CatalogEntry model)
+    {
+        List<String> efforts = catalogEfforts(engine, model.id());
+        String defaultEffort = catalogDefaultEffort(engine, efforts);
         return new WorkModelEntry(
                 model.id(),
                 model.displayName(),

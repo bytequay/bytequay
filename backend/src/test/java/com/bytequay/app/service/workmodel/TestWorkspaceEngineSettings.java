@@ -52,6 +52,26 @@ class TestWorkspaceEngineSettings
     }
 
     @Test
+    void theTrailingSegmentCarriesReasoningEffort()
+    {
+        // Effort is always the fourth segment, so a CLI choice pads the model
+        // slot it does not use.
+        assertThat(WorkspaceEngineSettings.parseChoice("cli:claude-code::xhigh"))
+                .contains(new WorkModel(
+                        WorkModelKind.CLI, "claude-code", null, null, "xhigh"));
+        assertThat(WorkspaceEngineSettings.parseChoice("cli:codex:gpt-5:minimal"))
+                .contains(new WorkModel(
+                        WorkModelKind.CLI, "codex", "gpt-5", null, "minimal"));
+        assertThat(WorkspaceEngineSettings.parseChoice("api:openai:default api:high"))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "openai", null, "default api", "high"));
+        // Older three-segment values keep meaning exactly what they meant.
+        assertThat(WorkspaceEngineSettings.parseChoice("api:openai:default api"))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "openai", null, "default api", null));
+    }
+
+    @Test
     void unknownOrEmptyChoicesResolveToNothingRatherThanAGuess()
     {
         assertThat(WorkspaceEngineSettings.parseChoice(null)).isEmpty();

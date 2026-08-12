@@ -58,13 +58,63 @@ export function choiceText(choice: AgentChoice): string {
   return `${choice.label}${choice.detail.length === 0 ? '' : ` · ${choice.detail}`}`;
 }
 
+/** Splits a stored id into the engine part the picker lists and the optional
+ *  trailing reasoning effort. The grammar is `cli:<agent>[:<model>][:<effort>]`
+ *  and `api:<provider>[:<account>][:<effort>]`, so effort is always the fourth
+ *  segment and an empty segment means "unset". */
+export function splitChoice(value: string): { engine: string; effort: string | null } {
+  const parts = value.split(':');
+  const effort = parts.length >= 4 && parts[3].length > 0 ? parts[3] : null;
+  if (parts[0] === 'cli' && parts.length >= 2) return { engine: `cli:${parts[1]}`, effort };
+  if (parts[0] === 'api' && parts.length >= 3) return { engine: `api:${parts[1]}:${parts[2]}`, effort };
+  return { engine: value, effort: null };
+}
+
+/** Re-attaches an effort to an engine id, padding the unused model/account
+ *  slot so effort stays the fourth segment. No effort keeps the compact id
+ *  every older reader already understands. */
+export function withEffort(engine: string, effort: string | null): string {
+  if (effort === null || effort.length === 0) return engine;
+  const parts = engine.split(':');
+  if (parts[0] === 'cli') return `${parts[0]}:${parts[1] ?? ''}::${effort}`;
+  if (parts[0] === 'api') return `${parts[0]}:${parts[1] ?? ''}:${parts[2] ?? ''}:${effort}`;
+  return engine;
+}
+
+/** The reasoning-effort ladder an engine's default model accepts. Claude and
+ *  Codex do not share one — `minimal` is Codex-only, `xhigh`/`max` are
+ *  Claude-only — and it narrows again by model, so this always reads the live
+ *  catalog rather than assuming a fixed list. */
+export function effortsFor(
+  options: WorkModelOptionsDto | null,
+  engine: string,
+): { ids: string[]; fallback: string | null } {
+  const none: { ids: string[]; fallback: string | null } = { ids: [], fallback: null };
+  if (options === null) return none;
+  const parts = engine.split(':');
+  const row = parts[0] === 'cli'
+    ? options.cliAgents.find(agent => agent.id === parts[1])
+    : parts[0] === 'api'
+      ? options.apiProviders.find(provider => provider.id === parts[1])
+      : undefined;
+  if (row === undefined) return none;
+  const model = row.models.find(entry => entry.id === row.defaultModel) ?? row.models[0];
+  if (model === undefined) return none;
+  return {
+    ids: (model.supportedReasoningEfforts ?? []).map(effort => effort.id),
+    fallback: model.defaultReasoningEffort ?? null,
+  };
+}
+
 /** Keeps a stored value usable: falls back to the first enabled choice
- *  when the saved engine has been uninstalled or signed out. */
+ *  when the saved engine has been uninstalled or signed out. A chosen effort
+ *  survives that repair — it is a separate control, not part of the engine. */
 export function selectableChoice(value: string, choices: AgentChoice[]): string {
-  const normalized = choices.some(choice => choice.value === value) ? value : normalizeChoice(value);
+  const { engine, effort } = splitChoice(value);
+  const normalized = choices.some(choice => choice.value === engine) ? engine : normalizeChoice(engine);
   const current = choices.find(choice => choice.value === normalized);
-  if (current !== undefined && !current.disabled) return normalized;
-  return choices.find(choice => !choice.disabled)?.value ?? normalized;
+  if (current !== undefined && !current.disabled) return withEffort(normalized, effort);
+  return choices.find(choice => !choice.disabled)?.value ?? withEffort(normalized, effort);
 }
 
 /** Maps a pre-id value (old settings stored free-text model names) onto

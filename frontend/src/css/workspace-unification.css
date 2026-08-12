@@ -3224,6 +3224,15 @@ button.workspace-redesign .wu-table-row,
   color: #1f2328;
   font: 11.5px/normal ui-monospace, "SF Mono", Menlo, monospace;
 }
+/* Reasoning effort sits beside the engine it belongs to, quieter than the
+   engine itself and only present for models that have a ladder at all. */
+.workspace-redesign .wu-effort-picker {
+  background: transparent;
+  border-style: dashed;
+}
+.workspace-redesign .wu-effort-picker > .wu-model-picker__value {
+  color: #59636e;
+}
 .workspace-redesign .wu-model-picker > svg {
   width: 10px;
   height: 10px;

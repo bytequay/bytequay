@@ -14,9 +14,9 @@
 package com.bytequay.app.flow.github;
 
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
+import com.bytequay.app.flow.ci.CiObservationCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.InitialPublishAction;
@@ -442,7 +442,7 @@ public final class GitHubProviderFixtures
 
     static GitHubCiObservationExecutor ciObservationExecutor(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             String prId,
             Clock clock,
             CiObservationMode mode)
@@ -714,7 +714,7 @@ public final class GitHubProviderFixtures
 
     public static Optional<CiRound> executeCiObservation(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             Claim claim,
             Clock clock,
             CiObservationMode mode)
@@ -731,7 +731,7 @@ public final class GitHubProviderFixtures
 
     public static CiObservationDelivery prepareCiObservation(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             Claim suppliedClaim,
             Clock clock,
             CiObservationMode mode)

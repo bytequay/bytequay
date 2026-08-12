@@ -15,9 +15,12 @@ package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.flow.ci.CiAutofix;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
+import com.bytequay.app.flow.ci.CiLearningCoordinator;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
+import com.bytequay.app.flow.ci.CiRepairCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
@@ -177,21 +180,53 @@ public class NewFlowConfiguration
     }
 
     @Bean
-    public CiAutofixCoordinator newFlowCiAutofixCoordinator(
+    public CiLearningCoordinator newFlowCiLearningCoordinator(
             @Qualifier("newFlowDataSource") DataSource dataSource,
             CiAutofix autofix,
             FlowRuntime runtime,
             UserGates userGates,
             @Qualifier("newFlowClock") Clock clock)
     {
-        return new CiAutofixCoordinator(
+        return new CiLearningCoordinator(
                 dataSource, autofix, runtime, userGates, clock);
+    }
+
+    @Bean
+    public CiObservationCoordinator newFlowCiObservationCoordinator(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            CiAutofix autofix,
+            FlowRuntime runtime,
+            CiLearningCoordinator learning,
+            @Qualifier("newFlowClock") Clock clock)
+    {
+        return new CiObservationCoordinator(
+                dataSource, autofix, runtime, learning, clock);
+    }
+
+    @Bean
+    public CiRepairCoordinator newFlowCiRepairCoordinator(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            CiAutofix autofix,
+            FlowRuntime runtime,
+            CiLearningCoordinator learning)
+    {
+        return new CiRepairCoordinator(
+                dataSource, autofix, runtime, learning);
+    }
+
+    @Bean
+    public CiCleanupCoordinator newFlowCiCleanupCoordinator(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            CiAutofix autofix,
+            FlowRuntime runtime)
+    {
+        return new CiCleanupCoordinator(dataSource, autofix, runtime);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
     public GitHubCiObservationDispatcher newFlowCiObservationDispatcher(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             CiAutofixDispatcher ciAgents,
             CredentialStore credentials,
             @Qualifier("newFlowClock") Clock clock)
@@ -312,7 +347,9 @@ public class NewFlowConfiguration
     @Bean(initMethod = "start", destroyMethod = "close")
     public CiAutofixDispatcher newFlowCiAutofixDispatcher(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiRepairCoordinator repairs,
+            CiCleanupCoordinator cleanups,
+            CiLearningCoordinator learning,
             CiFixReviewCoordinator reviewCoordinator,
             InProcessWriterAgentSupervisor writerSupervisor,
             InProcessReviewerAgentSupervisor reviewerSupervisor,
@@ -321,7 +358,9 @@ public class NewFlowConfiguration
     {
         return new CiAutofixDispatcher(
                 runtime,
-                coordinator,
+                repairs,
+                cleanups,
+                learning,
                 reviewCoordinator,
                 writerSupervisor,
                 reviewerSupervisor,

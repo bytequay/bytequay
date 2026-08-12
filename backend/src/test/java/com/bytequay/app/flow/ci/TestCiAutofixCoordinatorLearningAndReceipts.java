@@ -164,7 +164,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim greenClaim = observationClaim("observe-green");
         CiRound green = executeCiObservation(
-                runtime, coordinator, greenClaim,
+                runtime, observationCoordinator, greenClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
@@ -190,15 +190,15 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim greenClaim = observationClaim("learn-green");
         CiRound green = executeCiObservation(
-                runtime, coordinator, greenClaim,
+                runtime, observationCoordinator, greenClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
-        var subject = coordinator.learningSubject(start.run().inputRef())
+        var subject = learningCoordinator.learningSubject(start.run().inputRef())
                 .orElseThrow();
         String failedLogRef = subject.failedLogRefs().getFirst();
         assertThat(start.session().role()).isEqualTo(AgentRole.CI_LEARNER);
@@ -208,7 +208,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
         var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
         var handle = supervisor.launch(
-                start, learning, coordinator, capability -> {
+                start, learning, learningCoordinator, capability -> {
                     assertThat(capability.readCiRepairEvidence())
                             .contains("publicationPolicy=")
                             .contains("greenPolicy=")
@@ -253,14 +253,14 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 });
 
         AgentResult result = supervisor.awaitAndFinish(handle, TTL);
-        var completion = coordinator.learningCompletion(
+        var completion = learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow();
 
         assertThat(result.terminalOutcome())
                 .isEqualTo(TerminalOutcome.FAILED);
         assertThat(completion.state())
                 .isEqualTo(LearningCompletionState.CANDIDATE);
-        assertThat(coordinator.lesson(completion.lessonId()).orElseThrow())
+        assertThat(learningCoordinator.lesson(completion.lessonId()).orElseThrow())
                 .satisfies(lesson -> {
                     assertThat(lesson.title())
                             .isEqualTo("Fix the exact CI failure");
@@ -278,13 +278,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim greenClaim = observationClaim("learn-late-cancel");
         assertThat(executeCiObservation(
                 runtime,
-                coordinator,
+                observationCoordinator,
                 greenClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC),
                 GREEN)).isPresent();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         CountDownLatch lessonAccepted = new CountDownLatch(1);
         CountDownLatch releaseBody = new CountDownLatch(1);
@@ -292,7 +292,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         var handle = supervisor.launch(
                 start,
                 learning,
-                coordinator,
+                learningCoordinator,
                 capability -> {
                     capability.saveCiLesson(
                             "Accepted before cancellation",
@@ -327,7 +327,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         assertThat(cancellationFailure.get()).isNull();
         assertThat(cancellation.get().terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
-        assertThat(coordinator.learningCompletion(learning.operationId())
+        assertThat(learningCoordinator.learningCompletion(learning.operationId())
                 .orElseThrow().state())
                 .isEqualTo(LearningCompletionState.CANDIDATE);
     }
@@ -418,13 +418,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim greenClaim = observationClaim("completion-seal-learner");
         CiRound green = executeCiObservation(
-                runtime, coordinator, greenClaim,
+                runtime, observationCoordinator, greenClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         String learnerError = "SEALED_LEARNER_FAILURE";
         AgentProcessAttempt learnerAttempt =
@@ -458,18 +458,18 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         List<CiLesson> lessons = new ArrayList<>();
         for (int index = 0; index < 7; index++) {
             CiRound green = executeCiObservation(
-                    runtime, coordinator, greenClaim,
+                    runtime, observationCoordinator, greenClaim,
                     Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                     .orElseThrow();
             assertThat(green.state()).isEqualTo(RoundState.GREEN);
             Claim learning = runtime.claimNextCiLearning("learner", TTL)
                     .orElseThrow();
-            FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+            FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                     learning).orElseThrow();
             int lessonIndex = index;
             var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
             var handle = supervisor.launch(
-                    start, learning, coordinator, capability -> {
+                    start, learning, learningCoordinator, capability -> {
                         capability.saveCiLesson(
                                 "Candidate lesson " + lessonIndex,
                                 "Bounded repair hint " + lessonIndex);
@@ -480,15 +480,15 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                                         null);
                     });
             supervisor.awaitAndFinish(handle, TTL);
-            String lessonId = coordinator.learningCompletion(
+            String lessonId = learningCoordinator.learningCompletion(
                     learning.operationId()).orElseThrow().lessonId();
-            lessons.add(coordinator.lesson(lessonId).orElseThrow());
+            lessons.add(learningCoordinator.lesson(lessonId).orElseThrow());
             if (index < 6) {
                 advancePublicationClock(Duration.ofMinutes(6));
                 Claim redClaim = runtime.claimNextCiObservation(
                         "observer", TTL).orElseThrow();
                 CiRound red = executeCiObservation(
-                        runtime, coordinator, redClaim,
+                        runtime, observationCoordinator, redClaim,
                         Clock.fixed(runtimeNow, ZoneOffset.UTC),
                         FAILED_ACTIONS).orElseThrow();
                 CompletedReady next = openReadyGate(
@@ -510,7 +510,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 tiedAt, lessons.get(4).lessonId());
         List<CiLesson> expected = new ArrayList<>();
         for (int index = 0; index < 6; index++) {
-            expected.add(coordinator.lesson(
+            expected.add(learningCoordinator.lesson(
                     lessons.get(index).lessonId()).orElseThrow());
         }
         expected.sort(Comparator.comparing(CiLesson::createdAt).reversed()
@@ -521,12 +521,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim redClaim = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound red = executeCiObservation(
-                runtime, coordinator, redClaim,
+                runtime, observationCoordinator, redClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
                 .orElseThrow();
         StartedRepair repair = startRepair(red);
-        CiAutofixCoordinator.RepairToolContext context =
-                coordinator.repairToolContext(repair.binding());
+        CiRepairCoordinator.RepairToolContext context =
+                repairCoordinator.repairToolContext(repair.binding());
 
         assertThat(context.failureSummary())
                 .contains("taskGoal=" + task.goalText())
@@ -573,24 +573,24 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim greenClaim = observationClaim("learn-missed");
         CiRound green = executeCiObservation(
-                runtime, coordinator, greenClaim,
+                runtime, observationCoordinator, greenClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
         var handle = supervisor.launch(
-                start, learning, coordinator,
+                start, learning, learningCoordinator,
                 capability -> new InProcessCiLearningAgentSupervisor
                         .AgentCompletion(
                                 TerminalOutcome.COMPLETED,
                                 "opaque prose is not a lesson", null));
 
         supervisor.awaitAndFinish(handle, TTL);
-        var completion = coordinator.learningCompletion(
+        var completion = learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow();
 
         assertThat(completion.state())
@@ -611,7 +611,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 List.of("SUCCESS"));
 
         CiRound emptyGreen = executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
@@ -627,13 +627,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound nonemptyGreen = executeCiObservation(
-                runtime, coordinator, retry,
+                runtime, observationCoordinator, retry,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
@@ -648,7 +647,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim first = observationClaim("learn-successor");
         CiRound original = executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         String operationId = jdbc.queryForObject(
@@ -663,13 +662,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound successor = executeCiObservation(
-                runtime, coordinator, retry,
+                runtime, observationCoordinator, retry,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
@@ -689,13 +687,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim first = observationClaim("learn-stale-start");
         CiRound original = executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(original.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning(
                 "learner", Duration.ofMinutes(30)).orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -707,24 +705,23 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim observation = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound successor = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(successor.roundId()).isNotEqualTo(original.roundId());
 
-        assertThat(coordinator.beginCiLearning(learning)).isEmpty();
-        assertThat(coordinator.beginCiLearning(learning)).isEmpty();
+        assertThat(learningCoordinator.beginCiLearning(learning)).isEmpty();
+        assertThat(learningCoordinator.beginCiLearning(learning)).isEmpty();
         assertThat(runtime.operation(learning.operationId()).orElseThrow()
                 .state()).isEqualTo(OperationState.CANCELED);
         assertThat(runtime.run(start.run().runId()).orElseThrow().state())
                 .isEqualTo(RunState.CANCELED);
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow())
                 .satisfies(completion -> {
                     assertThat(completion.state())
@@ -741,7 +738,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim first = observationClaim("learn-stale-before-begin");
         CiRound original = executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning(
@@ -753,19 +750,18 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim observation = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound successor = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
         assertThat(successor.roundId()).isNotEqualTo(original.roundId());
-        assertThat(coordinator.beginCiLearning(learning)).isEmpty();
-        assertThat(coordinator.beginCiLearning(learning)).isEmpty();
+        assertThat(learningCoordinator.beginCiLearning(learning)).isEmpty();
+        assertThat(learningCoordinator.beginCiLearning(learning)).isEmpty();
         assertThat(runtime.operation(learning.operationId()).orElseThrow())
                 .satisfies(operation -> {
                     assertThat(operation.state())
@@ -780,7 +776,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         assertThat(count("flow_runtime_agent_result",
                 "run_id IN (SELECT run_id FROM flow_runtime_agent_run "
                         + "WHERE role = 'CI_LEARNER')")).isZero();
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId())).isEmpty();
     }
 
@@ -789,21 +785,21 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-reserved-expiry");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
 
         expireLearningRuntime();
 
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isTrue();
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isTrue();
         assertThat(runtime.operation(learning.operationId()).orElseThrow()
                 .state()).isEqualTo(OperationState.RETRYABLE);
@@ -813,7 +809,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .isEqualTo(RoundState.GREEN);
         Claim redelivery = runtime.claimNextCiLearning("learner-2", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart same = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart same = learningCoordinator.beginCiLearning(
                 redelivery).orElseThrow();
         assertThat(redelivery.generation())
                 .isEqualTo(learning.generation() + 1);
@@ -833,12 +829,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-activated-expiry");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -849,15 +845,15 @@ class TestCiAutofixCoordinatorLearningAndReceipts
 
         expireLearningRuntime();
 
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
         assertThat(runtime.operation(learning.operationId()).orElseThrow()
                 .state()).isEqualTo(OperationState.FAILED);
         assertThat(runtime.task(task.taskId()).orElseThrow().status())
                 .isEqualTo(TaskStatus.COMPLETED);
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId())).isEmpty();
         assertThat(autofix.roundById(green.roundId()).orElseThrow().state())
                 .isEqualTo(RoundState.GREEN);
@@ -868,14 +864,14 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-live-capacity");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Duration learnerTtl = Duration.ofMinutes(10);
         Claim learning = runtime.claimNextCiLearning(
                 "learner", learnerTtl, 1).orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -887,7 +883,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim redObservation = runtime.claimNextCiObservation(
                 "observer", TTL, 1).orElseThrow();
         CiRound red = executeCiObservation(
-                runtime, coordinator, redObservation,
+                runtime, observationCoordinator, redObservation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
                 .orElseThrow();
 
@@ -904,13 +900,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-quarantine-capacity");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -919,13 +915,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 "detached-ci-learner");
 
         expireLearningRuntime();
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
 
         Claim redObservation = runtime.claimNextCiObservation(
                 "observer", TTL, 1).orElseThrow();
         CiRound red = executeCiObservation(
-                runtime, coordinator, redObservation,
+                runtime, observationCoordinator, redObservation,
                 Clock.fixed(
                         runtimeNow.plus(TTL).plusSeconds(1),
                         ZoneOffset.UTC),
@@ -944,13 +940,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-stopped-recovery");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -965,13 +961,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
 
         expireLearningRuntime();
 
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
         AgentResult result = runtime.resultForRun(
                 start.run().runId()).orElseThrow();
-        var completion = coordinator.learningCompletion(
+        var completion = learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow();
         assertThat(result.terminalOutcome())
                 .isEqualTo(TerminalOutcome.FAILED);
@@ -980,7 +976,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .isEqualTo("RECOVERED_STOPPED_TEST");
         assertThat(completion.state())
                 .isEqualTo(LearningCompletionState.CANDIDATE);
-        assertThat(coordinator.lesson(completion.lessonId()).orElseThrow())
+        assertThat(learningCoordinator.lesson(completion.lessonId()).orElseThrow())
                 .satisfies(lesson -> {
                     assertThat(lesson.title())
                             .isEqualTo("Recovered exact lesson");
@@ -992,7 +988,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                         + "SET error_ref = 'CORRUPT' "
                         + "WHERE run_id = ?",
                 start.run().runId());
-        assertThatThrownBy(() -> coordinator.recoverExpiredCiLearning(
+        assertThatThrownBy(() -> learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("replay is inconsistent");
@@ -1003,13 +999,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-stopped-stale");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -1029,9 +1025,9 @@ class TestCiAutofixCoordinatorLearningAndReceipts
 
         expireLearningRuntime();
 
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow())
                 .satisfies(completion -> {
                     assertThat(completion.state())
@@ -1047,12 +1043,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-stopped-no-seal");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
@@ -1065,9 +1061,9 @@ class TestCiAutofixCoordinatorLearningAndReceipts
 
         expireLearningRuntime();
 
-        assertThat(coordinator.recoverExpiredCiLearning(
+        assertThat(learningCoordinator.recoverExpiredCiLearning(
                 learning.operationId(), learning.generation())).isFalse();
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow())
                 .satisfies(completion -> {
                     assertThat(completion.state())
@@ -1084,19 +1080,19 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-seal-replay");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var attempt = runtime.reserveInProcessCiLearningAttempt(
                 start.run().runId(), learning);
         runtime.activateInProcessCiLearningAttempt(
                 attempt.processAttemptId(), learning, 1L, NOW, 1L,
                 "seal-replay-ci-learner");
-        String digest = coordinator.saveLesson(
+        String digest = learningCoordinator.saveLesson(
                 start, learning, attempt.processAttemptId(),
                 "Durable response-loss lesson",
                 "Identical retry returns the accepted seal.");
@@ -1107,12 +1103,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
 
-        assertThat(coordinator.saveLesson(
+        assertThat(learningCoordinator.saveLesson(
                 start, learning, attempt.processAttemptId(),
                 "Durable response-loss lesson",
                 "Identical retry returns the accepted seal."))
                 .isEqualTo(digest);
-        assertThatThrownBy(() -> coordinator.saveLesson(
+        assertThatThrownBy(() -> learningCoordinator.saveLesson(
                 start, learning, attempt.processAttemptId(),
                 "Conflicting lesson",
                 "A second semantic command must not replace the first."))
@@ -1128,13 +1124,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-finalize-replay");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
                 .orElseThrow();
-        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+        FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
                 learning).orElseThrow();
         var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
         var completion = new InProcessCiLearningAgentSupervisor
@@ -1142,7 +1138,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                         TerminalOutcome.CANCELED, null,
                         "OPAQUE_CANCELED_AFTER_SAVE");
         var handle = supervisor.launch(
-                start, learning, coordinator, capability -> {
+                start, learning, learningCoordinator, capability -> {
                     capability.saveCiLesson(
                             "Finalized response-loss lesson",
                             "The candidate remains immutable after response loss.");
@@ -1156,11 +1152,11 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
 
-        AgentResult replay = coordinator.finish(
+        AgentResult replay = learningCoordinator.finish(
                 start, learning, completion);
 
         assertThat(replay).isEqualTo(first);
-        assertThat(coordinator.learningCompletion(
+        assertThat(learningCoordinator.learningCompletion(
                 learning.operationId()).orElseThrow().state())
                 .isEqualTo(LearningCompletionState.CANDIDATE);
         assertThat(count("flow_ci_lesson", "1 = 1")).isEqualTo(1);
@@ -1171,7 +1167,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim observation = observationClaim("learn-graph-corruption");
         CiRound green = executeCiObservation(
-                runtime, coordinator, observation,
+                runtime, observationCoordinator, observation,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         Claim learning = runtime.claimNextCiLearning("learner", TTL)
@@ -1191,7 +1187,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                         + "SET stop_proof_ref = 'corrupt-proof' "
                         + "WHERE result_id = ?",
                 repairResultId);
-        assertThatThrownBy(() -> coordinator.beginCiLearning(learning))
+        assertThatThrownBy(() -> learningCoordinator.beginCiLearning(learning))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("changed content");
         jdbc.update(
@@ -1209,7 +1205,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                         + "SET evidence_digest = 'corrupt-evidence' "
                         + "WHERE subject_id = ? AND ordinal = 0",
                 subjectId);
-        assertThatThrownBy(() -> coordinator.beginCiLearning(learning))
+        assertThatThrownBy(() -> learningCoordinator.beginCiLearning(learning))
                 .isInstanceOf(IllegalStateException.class);
         jdbc.update(
                 "UPDATE flow_ci_learning_green_observation "
@@ -1225,14 +1221,14 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 "UPDATE flow_ci_learning_subject "
                         + "SET receipt_digest = ? WHERE subject_id = ?",
                 "corrupt-receipt", subjectId);
-        assertThatThrownBy(() -> coordinator.beginCiLearning(learning))
+        assertThatThrownBy(() -> learningCoordinator.beginCiLearning(learning))
                 .isInstanceOf(IllegalStateException.class);
         updateWithoutForeignKeys(
                 "UPDATE flow_ci_learning_subject "
                         + "SET receipt_digest = ? WHERE subject_id = ?",
                 receiptDigest, subjectId);
 
-        assertThat(coordinator.beginCiLearning(learning)).isPresent();
+        assertThat(learningCoordinator.beginCiLearning(learning)).isPresent();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
     }
 
@@ -1241,7 +1237,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim redClaim = observationClaim("observe-red");
         CiRound red = executeCiObservation(
-                runtime, coordinator, redClaim,
+                runtime, observationCoordinator, redClaim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
                 .orElseThrow();
 
@@ -1264,7 +1260,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim first = observationClaim("observe-unsupported");
 
         assertThat(executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_UNSUPPORTED))
                 .isEmpty();
         assertThat(runtime.operation(first.operationId()).orElseThrow())
@@ -1278,14 +1274,13 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 "source_operation_id = '" + first.operationId() + "'"))
                 .isZero();
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         assertThat(retry.operationId()).isEqualTo(first.operationId());
         CiRound green = executeCiObservation(
-                runtime, coordinator, retry,
+                runtime, observationCoordinator, retry,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.state()).isEqualTo(RoundState.GREEN);
@@ -1296,28 +1291,26 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim first = observationClaim("observe-replay");
         assertThat(executeCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), UNSTABLE)).isEmpty();
         assertThat(count("flow_ci_check_observation",
                 "source_operation_id = '" + first.operationId() + "'"))
                 .isZero();
 
         advancePublicationClock(Duration.ofMinutes(2));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim accepted = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound firstGreen = executeCiObservation(
-                runtime, coordinator, accepted,
+                runtime, observationCoordinator, accepted,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         int observations = count("flow_ci_check_observation",
                 "source_operation_id = '" + first.operationId() + "'");
 
         advancePublicationClock(Duration.ofMinutes(6));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         assertThat(runtime.operation(first.operationId()).orElseThrow()
                 .state()).isEqualTo(OperationState.READY);
@@ -1329,7 +1322,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim replay = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound sameGreen = executeCiObservation(
-                runtime, coordinator, replay,
+                runtime, observationCoordinator, replay,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
 
@@ -1346,10 +1339,10 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim claim = observationClaim("observe-response-loss");
         var delivery = prepareCiObservation(
-                runtime, coordinator, claim,
+                runtime, observationCoordinator, claim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN);
 
-        CiRound first = coordinator.acceptCiObservation(
+        CiRound first = observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof()).orElseThrow();
         int observations = count("flow_ci_check_observation",
                 "source_operation_id = '" + claim.operationId() + "'");
@@ -1364,7 +1357,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         int learningOperations = count(
                 "flow_runtime_operation", "kind = 'RUN_CI_LEARNING'");
 
-        CiRound replay = coordinator.acceptCiObservation(
+        CiRound replay = observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof()).orElseThrow();
 
         assertThat(replay).isEqualTo(first);
@@ -1391,7 +1384,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim claim = observationClaim("learn-accept-rollback");
         var delivery = prepareCiObservation(
-                runtime, coordinator, claim,
+                runtime, observationCoordinator, claim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN);
         jdbc.execute("""
                 CREATE TRIGGER reject_green_learning_rearm
@@ -1404,7 +1397,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 END
                 """.formatted(claim.operationId()));
 
-        assertThatThrownBy(() -> coordinator.acceptCiObservation(
+        assertThatThrownBy(() -> observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof()))
                 .isInstanceOf(RuntimeException.class);
         assertThat(count("flow_ci_learning_subject", "1 = 1")).isZero();
@@ -1417,7 +1410,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .state()).isEqualTo(OperationState.CLAIMED);
 
         jdbc.execute("DROP TRIGGER reject_green_learning_rearm");
-        assertThat(coordinator.acceptCiObservation(
+        assertThat(observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof())).isPresent();
         assertThat(count("flow_ci_learning_subject", "1 = 1")).isEqualTo(1);
         assertThat(count("flow_runtime_operation",
@@ -1429,7 +1422,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim claim = observationClaim("observe-rollback");
         var delivery = prepareCiObservation(
-                runtime, coordinator, claim,
+                runtime, observationCoordinator, claim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS);
         int pendingBefore = runtime.pendingWork(task.taskId()).stream()
                 .filter(work -> work.kind() == PendingKind.FINAL_RED)
@@ -1445,7 +1438,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 END
                 """.formatted(claim.operationId()));
 
-        assertThatThrownBy(() -> coordinator.acceptCiObservation(
+        assertThatThrownBy(() -> observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof()))
                 .isInstanceOf(RuntimeException.class);
         assertThat(count("flow_ci_check_observation",
@@ -1462,7 +1455,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .hasSize(pendingBefore);
 
         jdbc.execute("DROP TRIGGER reject_ci_observation_rearm");
-        CiRound accepted = coordinator.acceptCiObservation(
+        CiRound accepted = observationCoordinator.acceptCiObservation(
                 delivery.activation(), delivery.proof()).orElseThrow();
         assertThat(accepted.state()).isEqualTo(RoundState.QUEUED);
         assertThat(count("flow_ci_check_observation",
@@ -1478,7 +1471,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim first = observationClaim("observe-policy-advance");
         var oldPolicyDelivery = prepareCiObservation(
-                runtime, coordinator, first,
+                runtime, observationCoordinator, first,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN);
         var current = autofix.recordPolicy(
                 task.repositoryId(), pr.scopeKey(), pr.targetBaseRef(),
@@ -1487,7 +1480,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 PolicyResolution.RESOLVED, null,
                 List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
 
-        assertThat(coordinator.acceptCiObservation(
+        assertThat(observationCoordinator.acceptCiObservation(
                 oldPolicyDelivery.activation(), oldPolicyDelivery.proof()))
                 .isEmpty();
         assertThat(count("flow_ci_check_observation",
@@ -1495,13 +1488,12 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .isZero();
 
         advancePublicationClock(Duration.ofMinutes(2));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
         Claim retry = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound green = executeCiObservation(
-                runtime, coordinator, retry,
+                runtime, observationCoordinator, retry,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
                 .orElseThrow();
         assertThat(green.policyRevisionId())
@@ -1522,7 +1514,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 "internal:evidence"));
 
         CiRound collecting = executeCiObservation(
-                runtime, coordinator, claim,
+                runtime, observationCoordinator, claim,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), PENDING)
                 .orElseThrow();
 
@@ -1543,7 +1535,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         Claim oldWatch = observationClaim("observe-old-receipt");
         CiRound firstRed = executeCiObservation(
-                runtime, coordinator, oldWatch,
+                runtime, observationCoordinator, oldWatch,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
                 .orElseThrow();
         CompletedReady secondReady = openReadyGate(
@@ -1564,7 +1556,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         Claim secondWatch = runtime.claimNextCiObservation("observer", TTL)
                 .orElseThrow();
         CiRound secondRed = executeCiObservation(
-                runtime, coordinator, secondWatch,
+                runtime, observationCoordinator, secondWatch,
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
                 .orElseThrow();
         CompletedReady thirdReady = openReadyGate(

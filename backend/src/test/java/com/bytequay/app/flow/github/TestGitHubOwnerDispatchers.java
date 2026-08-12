@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.InitialPublishRecords.Plan;
 import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
@@ -124,7 +124,7 @@ class TestGitHubOwnerDispatchers
                 .thenReturn(Optional.empty());
         GitHubCiObservationDispatcher dispatcher =
                 new GitHubCiObservationDispatcher(
-                        runtime, mock(CiAutofixCoordinator.class),
+                        runtime, mock(CiObservationCoordinator.class),
                         mock(CiAutofixDispatcher.class),
                         mock(CredentialStore.class), fixedClock(),
                         "ci-observer", Duration.ofSeconds(1),
@@ -153,7 +153,7 @@ class TestGitHubOwnerDispatchers
                 .thenReturn(Optional.of(first), Optional.of(second));
         GitHubCiObservationDispatcher dispatcher =
                 new GitHubCiObservationDispatcher(
-                        runtime, mock(CiAutofixCoordinator.class), ciAgents,
+                        runtime, mock(CiObservationCoordinator.class), ciAgents,
                         mock(CredentialStore.class), fixedClock(),
                         "ci-observer", Duration.ofSeconds(1),
                         Duration.ofMillis(10), 1);

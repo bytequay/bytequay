@@ -329,16 +329,16 @@ CiAutofix.finalizeHead(prId, headSha) -> roundId?
 CiAutofix.acceptedRequiredCi(prId, headSha, policyRevisionId) -> AcceptedCiEvidence
 CiAutofix.enqueueRepair(roundId) -> reconciliationOperationId
 CiAutofix.finalizeAttempt(runId, resultRef, terminalOutcome, writerFence) -> AttemptFinalization
-CiAutofixCoordinator.beginCleanup(claim, repositoryRoot, leaseTtl) -> CleanupBinding?
-CiAutofixCoordinator.launchCleanup(binding, claim, repositoryRoot, body) -> ExecutionHandle
-CiAutofixCoordinator.awaitCleanup(binding, handle, timeout) -> AgentResult
+CiCleanupCoordinator.beginCleanup(claim, repositoryRoot, leaseTtl) -> CleanupBinding?
+CiCleanupCoordinator.launchCleanup(binding, claim, repositoryRoot, body) -> ExecutionHandle
+CiCleanupCoordinator.awaitCleanup(binding, handle, timeout) -> AgentResult
 CiAutofix.enqueueRepairRetry(failedAttemptId, reasonCode) -> reconciliationOperationId?
-CiAutofixCoordinator.acceptCiObservation(activation, providerBatch) -> CiRound?
+CiObservationCoordinator.acceptCiObservation(activation, providerBatch) -> CiRound?
 FlowRuntime.claimNextCiLearning(workerId, ttl) -> Claim?
-CiAutofixCoordinator.beginCiLearning(claim) -> CiLearningStart?
-CiAutofixCoordinator.saveLesson(start, claim, attemptId, title, markdown) -> contentDigest
-CiAutofixCoordinator.finish(start, claim, opaqueCompletion) -> AgentResult
-CiAutofixCoordinator.recoverExpiredCiLearning(operationId, generation) -> retryable
+CiLearningCoordinator.beginCiLearning(claim) -> CiLearningStart?
+CiLearningCoordinator.saveLesson(start, claim, attemptId, title, markdown) -> contentDigest
+CiLearningCoordinator.finish(start, claim, opaqueCompletion) -> AgentResult
+CiLearningCoordinator.recoverExpiredCiLearning(operationId, generation) -> retryable
 ```
 
 `finalizeHead` derives the PR's observed target base and resolves/freezes

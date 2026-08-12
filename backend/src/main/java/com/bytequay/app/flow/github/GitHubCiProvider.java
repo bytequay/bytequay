@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.GitHubCheckSelector;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
+import com.bytequay.app.flow.ci.CiObservationCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.runtime.FlowRuntime.CiObservationSubject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -14,7 +14,10 @@
 package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.ci.CiAutofix;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator;
+import com.bytequay.app.flow.ci.CiLearningCoordinator;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
+import com.bytequay.app.flow.ci.CiRepairCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
@@ -97,8 +100,14 @@ class TestNewFlowConfiguration
                     GitHubEffects effects = context.getBean(
                             GitHubEffects.class);
                     UserGates gates = context.getBean(UserGates.class);
-                    CiAutofixCoordinator coordinator = context.getBean(
-                            CiAutofixCoordinator.class);
+                    CiLearningCoordinator learning = context.getBean(
+                            CiLearningCoordinator.class);
+                    CiObservationCoordinator observations = context.getBean(
+                            CiObservationCoordinator.class);
+                    CiRepairCoordinator repairs = context.getBean(
+                            CiRepairCoordinator.class);
+                    CiCleanupCoordinator cleanups = context.getBean(
+                            CiCleanupCoordinator.class);
                     TaskProvisioning provisioning = context.getBean(
                             TaskProvisioning.class);
                     GitHubInitialPublishDispatcher initial = context.getBean(
@@ -132,11 +141,17 @@ class TestNewFlowConfiguration
                     assertThat(ReflectionTestUtils.getField(
                             gates, "githubEffects")).isSameAs(effects);
                     assertThat(ReflectionTestUtils.getField(
-                            coordinator, "runtime")).isSameAs(runtime);
+                            learning, "runtime")).isSameAs(runtime);
                     assertThat(ReflectionTestUtils.getField(
-                            coordinator, "autofix")).isSameAs(autofix);
+                            learning, "autofix")).isSameAs(autofix);
                     assertThat(ReflectionTestUtils.getField(
-                            coordinator, "userGates")).isSameAs(gates);
+                            learning, "userGates")).isSameAs(gates);
+                    assertThat(ReflectionTestUtils.getField(
+                            observations, "learning")).isSameAs(learning);
+                    assertThat(ReflectionTestUtils.getField(
+                            repairs, "learning")).isSameAs(learning);
+                    assertThat(ReflectionTestUtils.getField(
+                            cleanups, "runtime")).isSameAs(runtime);
                     assertThat(context.getBeansOfType(
                             NewFlowDispatcher.Handler.class))
                             .containsOnlyKeys("newFlowTaskProvisioning")
@@ -158,7 +173,11 @@ class TestNewFlowConfiguration
                     assertThat(ReflectionTestUtils.getField(
                             ciAgents, "runtime")).isSameAs(runtime);
                     assertThat(ReflectionTestUtils.getField(
-                            ciAgents, "coordinator")).isSameAs(coordinator);
+                            ciAgents, "repairs")).isSameAs(repairs);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciAgents, "cleanups")).isSameAs(cleanups);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciAgents, "learning")).isSameAs(learning);
                     assertThat(ReflectionTestUtils.getField(
                             initialTasks, "runtime")).isSameAs(runtime);
                     assertThat(ReflectionTestUtils.getField(

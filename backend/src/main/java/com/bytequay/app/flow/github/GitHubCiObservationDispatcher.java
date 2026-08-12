@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
 import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
@@ -51,7 +51,7 @@ public final class GitHubCiObservationDispatcher
 
     public GitHubCiObservationDispatcher(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             CiAutofixDispatcher ciAgents,
             CredentialStore credentials,
             Clock clock,

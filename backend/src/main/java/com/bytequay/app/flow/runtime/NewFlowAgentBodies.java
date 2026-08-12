@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.flow.runtime;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairToolContext;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
+import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;

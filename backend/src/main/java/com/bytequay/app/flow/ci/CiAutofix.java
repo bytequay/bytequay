@@ -86,7 +86,7 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>The observation/finalization methods intentionally accept only a
  * PR-subject snapshot. They are not dispatch, gate, ready, feedback, or merge
- * authority. {@link CiAutofixCoordinator} revalidates the runtime's actual
+ * authority. {@link CiRepairCoordinator} revalidates the runtime's actual
  * Task/PR owner rows in the transaction which queues a repair; acceptance
  * snapshots remain unsuitable as authorization evidence.
  */

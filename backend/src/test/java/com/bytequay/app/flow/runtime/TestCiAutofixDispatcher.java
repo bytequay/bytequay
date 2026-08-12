@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.flow.runtime;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
+import com.bytequay.app.flow.ci.CiLearningCoordinator;
+import com.bytequay.app.flow.ci.CiRepairCoordinator;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
@@ -48,9 +50,11 @@ class TestCiAutofixDispatcher
             throws Exception
     {
         FlowRuntime runtime = mock(FlowRuntime.class);
-        CiAutofixCoordinator coordinator = mock(CiAutofixCoordinator.class);
+        CiRepairCoordinator repairs = mock(CiRepairCoordinator.class);
         CiAutofixDispatcher dispatcher = new CiAutofixDispatcher(
-                runtime, coordinator, mock(CiFixReviewCoordinator.class),
+                runtime, repairs, mock(CiCleanupCoordinator.class),
+                mock(CiLearningCoordinator.class),
+                mock(CiFixReviewCoordinator.class),
                 mock(InProcessWriterAgentSupervisor.class),
                 mock(InProcessReviewerAgentSupervisor.class),
                 mock(InProcessCiLearningAgentSupervisor.class),
@@ -128,17 +132,18 @@ class TestCiAutofixDispatcher
                 .thenReturn(Optional.of(repair));
 
         assertThat(dispatcher.dispatchOnce()).isTrue();
-        verify(coordinator).selectNext(repair);
+        verify(repairs).selectNext(repair);
     }
 
     @Test
     void retainedTransientFinalizerHandsDurableStoppedClaimToRecovery()
     {
         FlowRuntime runtime = mock(FlowRuntime.class);
-        CiAutofixCoordinator coordinator = mock(CiAutofixCoordinator.class);
+        CiRepairCoordinator repairs = mock(CiRepairCoordinator.class);
         CiFixReviewCoordinator reviews = mock(CiFixReviewCoordinator.class);
         CiAutofixDispatcher dispatcher = new CiAutofixDispatcher(
-                runtime, coordinator, reviews,
+                runtime, repairs, mock(CiCleanupCoordinator.class),
+                mock(CiLearningCoordinator.class), reviews,
                 mock(InProcessWriterAgentSupervisor.class),
                 mock(InProcessReviewerAgentSupervisor.class),
                 mock(InProcessCiLearningAgentSupervisor.class),
@@ -193,7 +198,7 @@ class TestCiAutofixDispatcher
         assertThat(operationRef.get()).isNull();
 
         assertThat(dispatcher.dispatchOnce()).isTrue();
-        verify(coordinator).recoverExpiredStoppedFixer(
+        verify(repairs).recoverExpiredStoppedRepair(
                 "operation-1", 1, Duration.ofHours(4));
         assertThat(attempts).hasValue(2);
     }
@@ -202,10 +207,12 @@ class TestCiAutofixDispatcher
     void routesEveryStoppedCiOwnerWithoutRelaunchingItsBody()
     {
         FlowRuntime runtime = mock(FlowRuntime.class);
-        CiAutofixCoordinator coordinator = mock(CiAutofixCoordinator.class);
+        CiRepairCoordinator repairs = mock(CiRepairCoordinator.class);
+        CiCleanupCoordinator cleanups = mock(CiCleanupCoordinator.class);
+        CiLearningCoordinator learning = mock(CiLearningCoordinator.class);
         CiFixReviewCoordinator reviews = mock(CiFixReviewCoordinator.class);
         CiAutofixDispatcher dispatcher = new CiAutofixDispatcher(
-                runtime, coordinator, reviews,
+                runtime, repairs, cleanups, learning, reviews,
                 mock(InProcessWriterAgentSupervisor.class),
                 mock(InProcessReviewerAgentSupervisor.class),
                 mock(InProcessCiLearningAgentSupervisor.class),
@@ -252,9 +259,9 @@ class TestCiAutofixDispatcher
 
         assertThat(dispatcher.dispatchOnce()).isTrue();
 
-        verify(coordinator).recoverExpiredStoppedFixer(
+        verify(repairs).recoverExpiredStoppedRepair(
                 "repair", 1, Duration.ofHours(4));
-        verify(coordinator).recoverExpiredStoppedFixer(
+        verify(cleanups).recoverExpiredStoppedCleanup(
                 "cleanup", 1, Duration.ofHours(4));
         verify(reviews).recoverExpiredStoppedTaskTurn(
                 "task-fix", 1, Duration.ofHours(4));
@@ -262,7 +269,7 @@ class TestCiAutofixDispatcher
                 "task-result", 1, Duration.ofHours(4));
         verify(reviews).recoverExpiredStoppedReviewer(
                 "reviewer", 1, Duration.ofHours(4));
-        verify(coordinator).recoverExpiredCiLearning("learner", 1);
+        verify(learning).recoverExpiredCiLearning("learner", 1);
     }
 
     @Test
@@ -270,7 +277,9 @@ class TestCiAutofixDispatcher
     {
         FlowRuntime runtime = mock(FlowRuntime.class);
         CiAutofixDispatcher dispatcher = new CiAutofixDispatcher(
-                runtime, mock(CiAutofixCoordinator.class),
+                runtime, mock(CiRepairCoordinator.class),
+                mock(CiCleanupCoordinator.class),
+                mock(CiLearningCoordinator.class),
                 mock(CiFixReviewCoordinator.class),
                 mock(InProcessWriterAgentSupervisor.class),
                 mock(InProcessReviewerAgentSupervisor.class),

@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.flow.ci;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CleanupBinding;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairBinding;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupCompletion;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
@@ -23,6 +21,8 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator.CleanupBinding;
+import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateState;
 import com.bytequay.app.flow.gate.UserGates;
@@ -1183,7 +1183,7 @@ class TestCiAutofixCoordinatorInitialPublish
     {
         CiRound red = failedRound("failure-1", NOW);
 
-        assertThatThrownBy(() -> coordinator.enqueueRepair(red.roundId()))
+        assertThatThrownBy(() -> repairCoordinator.enqueueRepair(red.roundId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Missing bounded log");
         assertThat(autofix.roundById(red.roundId()).orElseThrow().state())
@@ -1203,7 +1203,7 @@ class TestCiAutofixCoordinatorInitialPublish
                     SELECT RAISE(ABORT, 'forced inbox failure');
                 END
                 """);
-        assertThatThrownBy(() -> coordinator.enqueueRepair(red.roundId()))
+        assertThatThrownBy(() -> repairCoordinator.enqueueRepair(red.roundId()))
                 .isInstanceOf(RuntimeException.class);
         assertThat(autofix.roundById(red.roundId()).orElseThrow().state())
                 .isEqualTo(RoundState.FINAL_RED);
@@ -1212,8 +1212,8 @@ class TestCiAutofixCoordinatorInitialPublish
                 .isEmpty();
         jdbc.execute("DROP TRIGGER fail_ci_inbox");
 
-        var first = coordinator.enqueueRepair(red.roundId());
-        var duplicate = coordinator.enqueueRepair(red.roundId());
+        var first = repairCoordinator.enqueueRepair(red.roundId());
+        var duplicate = repairCoordinator.enqueueRepair(red.roundId());
 
         assertThat(duplicate).isEqualTo(first);
         assertThat(first.round().state()).isEqualTo(RoundState.QUEUED);
@@ -1234,7 +1234,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 NOW.plusSeconds(30)));
 
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
-        assertThat(coordinator.selectNext(reconciliation)).isEmpty();
+        assertThat(repairCoordinator.selectNext(reconciliation)).isEmpty();
 
         CiRound oldStored = autofix.roundById(old.roundId()).orElseThrow();
         CiRound successor = autofix.round(
@@ -1264,7 +1264,7 @@ class TestCiAutofixCoordinatorInitialPublish
         CiRound queued = enqueueFailedRound();
 
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
-        Operation selected = coordinator.selectNext(reconciliation)
+        Operation selected = repairCoordinator.selectNext(reconciliation)
                 .orElseThrow();
 
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_CI_FIXER);
@@ -1340,7 +1340,7 @@ class TestCiAutofixCoordinatorInitialPublish
     {
         StartedRepair started = startRepair();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1355,7 +1355,7 @@ class TestCiAutofixCoordinatorInitialPublish
                             "model-ended-after-commit");
                 });
 
-        AgentResult result = coordinator.awaitRepair(
+        AgentResult result = repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
         CiRepairAttempt attempt = autofix.repairAttempt(
                 started.binding().attempt().attemptId()).orElseThrow();
@@ -1384,7 +1384,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 .selectedWriterOperationId()).isNull();
         assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
 
-        AgentResult replay = coordinator.finalizeRepairAttempt(
+        AgentResult replay = repairCoordinator.finalizeRepairAttempt(
                 attempt.attemptId(),
                 started.binding().run().runId(),
                 started.claim(),
@@ -1418,7 +1418,7 @@ class TestCiAutofixCoordinatorInitialPublish
     {
         StartedRepair started = startRepair();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1427,7 +1427,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
                         TerminalOutcome.COMPLETED, "no changes were needed", null));
 
-        AgentResult result = coordinator.awaitRepair(
+        AgentResult result = repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
         CiRepairAttempt attempt = autofix.repairAttempt(
                 started.binding().attempt().attemptId()).orElseThrow();
@@ -1473,16 +1473,16 @@ class TestCiAutofixCoordinatorInitialPublish
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "done", null);
                 };
-        var first = coordinator.launchRepair(
+        var first = repairCoordinator.launchRepair(
                 supervisor, started.binding(), started.claim(), started.fence(),
                 repositoryRoot, body);
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        RepairBinding redelivered = coordinator.beginRepair(
+        RepairBinding redelivered = repairCoordinator.beginRepair(
                 started.binding().attempt().roundId(),
                 started.claim(),
                 started.fence());
-        var second = coordinator.launchRepair(
+        var second = repairCoordinator.launchRepair(
                 supervisor, redelivered, started.claim(), started.fence(),
                 repositoryRoot, body);
 
@@ -1491,7 +1491,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(count("flow_runtime_agent_run", "role = 'CI_FIXER'"))
                 .isEqualTo(1);
         release.countDown();
-        coordinator.awaitRepair(supervisor, redelivered, second, TTL);
+        repairCoordinator.awaitRepair(supervisor, redelivered, second, TTL);
     }
 
     @Test
@@ -1517,7 +1517,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 attempt.createdAt());
         var bodies = new AtomicInteger();
 
-        assertThatThrownBy(() -> coordinator.launchRepair(
+        assertThatThrownBy(() -> repairCoordinator.launchRepair(
                 new InProcessWriterAgentSupervisor(runtime),
                 new RepairBinding(changed, started.binding().run()),
                 started.claim(),
@@ -1544,7 +1544,7 @@ class TestCiAutofixCoordinatorInitialPublish
         var toolCalls = new AtomicInteger();
         Path transientDirty = Path.of(task.worktreePath())
                 .resolve("transient-dirty.txt");
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1587,7 +1587,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 });
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        assertThatThrownBy(() -> coordinator.finalizeRepairAttempt(
+        assertThatThrownBy(() -> repairCoordinator.finalizeRepairAttempt(
                 started.binding().attempt().attemptId(),
                 started.binding().run().runId(),
                 started.claim(),
@@ -1608,7 +1608,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 .headSha()).isEqualTo(publishedHead);
 
         release.countDown();
-        coordinator.awaitRepair(supervisor, started.binding(), handle, TTL);
+        repairCoordinator.awaitRepair(supervisor, started.binding(), handle, TTL);
         assertThat(toolCalls).hasValue(2);
     }
 
@@ -1623,7 +1623,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 "flow_runtime_change_set_revision", "1 = 1");
         int reconciliationsBefore = count(
                 "flow_runtime_operation", "kind = 'RECONCILE_TASK'");
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1647,7 +1647,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 END
                 """);
 
-        assertThatThrownBy(() -> coordinator.awaitRepair(
+        assertThatThrownBy(() -> repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL))
                 .isInstanceOf(RuntimeException.class);
 
@@ -1694,7 +1694,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 .isEqualTo(reconciliationsBefore);
 
         jdbc.execute("DROP TRIGGER fail_ci_attempt_finish");
-        AgentResult result = coordinator.awaitRepair(
+        AgentResult result = repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
 
         assertThat(result.finalContent()).isEqualTo("opaque");
@@ -1753,7 +1753,7 @@ class TestCiAutofixCoordinatorInitialPublish
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "done", null);
                 };
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1776,11 +1776,11 @@ class TestCiAutofixCoordinatorInitialPublish
                 .isEqualTo(RoundState.SUPERSEDED);
         assertThat(successor.state()).isEqualTo(RoundState.FINAL_RED);
 
-        RepairBinding redelivered = coordinator.beginRepair(
+        RepairBinding redelivered = repairCoordinator.beginRepair(
                 started.binding().attempt().roundId(),
                 started.claim(),
                 started.fence());
-        var duplicateHandle = coordinator.launchRepair(
+        var duplicateHandle = repairCoordinator.launchRepair(
                 supervisor,
                 redelivered,
                 started.claim(),
@@ -1791,7 +1791,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(redelivered.attempt()).isEqualTo(started.binding().attempt());
 
         release.countDown();
-        AgentResult result = coordinator.awaitRepair(
+        AgentResult result = repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
 
         assertThat(result.finalContent()).isEqualTo("done");
@@ -1831,12 +1831,12 @@ class TestCiAutofixCoordinatorInitialPublish
                 .isEqualTo(RoundState.SUPERSEDED);
 
         restart();
-        RepairBinding redelivered = coordinator.beginRepair(
+        RepairBinding redelivered = repairCoordinator.beginRepair(
                 started.binding().attempt().roundId(),
                 started.claim(),
                 started.fence());
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 redelivered,
                 started.claim(),
@@ -1847,7 +1847,7 @@ class TestCiAutofixCoordinatorInitialPublish
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "done", null);
                 });
-        coordinator.awaitRepair(supervisor, redelivered, handle, TTL);
+        repairCoordinator.awaitRepair(supervisor, redelivered, handle, TTL);
 
         assertThat(redelivered.attempt()).isEqualTo(started.binding().attempt());
         assertThat(redelivered.run().runId())
@@ -1879,7 +1879,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 TerminalOutcome.COMPLETED,
                 "looks good; verdict=PASSED but workspace is dirty",
                 null);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -1903,7 +1903,7 @@ class TestCiAutofixCoordinatorInitialPublish
                     return completion;
                 });
 
-        AgentResult result = coordinator.awaitRepair(
+        AgentResult result = repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
         CiRepairAttempt attempt = autofix.repairAttempt(
                 started.binding().attempt().attemptId()).orElseThrow();
@@ -1967,7 +1967,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
 
         restart();
-        AgentResult replay = coordinator.finalizeRepairAttempt(
+        AgentResult replay = repairCoordinator.finalizeRepairAttempt(
                 attempt.attemptId(),
                 started.binding().run().runId(),
                 started.claim(),
@@ -1980,7 +1980,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(count("flow_ci_cleanup_seal", "1 = 1")).isOne();
         assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
                 .isOne();
-        assertThatThrownBy(() -> coordinator.finalizeRepairAttempt(
+        assertThatThrownBy(() -> repairCoordinator.finalizeRepairAttempt(
                 attempt.attemptId(),
                 started.binding().run().runId(),
                 started.claim(),
@@ -2032,7 +2032,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 TTL))
                 .isInstanceOf(FlowRuntime.MutationRejectedException.class)
                 .hasMessageContaining("cleanup");
-        CleanupBinding binding = coordinator.beginCleanup(
+        CleanupBinding binding = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         assertThat(binding.run().headSha()).isEqualTo(logicalHead);
         assertThat(binding.fence().headSha()).isEqualTo(logicalHead);
@@ -2066,7 +2066,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 TerminalOutcome.FAILED,
                 "{\"verdict\":\"dirty\"}; arbitrary prose",
                 "model-failed-after-cleanup");
-        var handle = coordinator.launchCleanup(
+        var handle = cleanupCoordinator.launchCleanup(
                 supervisor,
                 binding,
                 reserved.claim(),
@@ -2087,7 +2087,7 @@ class TestCiAutofixCoordinatorInitialPublish
                     return completion;
                 });
 
-        AgentResult result = coordinator.awaitCleanup(
+        AgentResult result = cleanupCoordinator.awaitCleanup(
                 supervisor, binding, handle, TTL);
         CiCleanupCompletion stored = autofix.cleanupCompletion(
                 reserved.seal().cleanupId()).orElseThrow();
@@ -2121,7 +2121,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(bodies).hasValue(1);
         assertThat(tools).hasValue(1);
 
-        AgentResult replay = coordinator.finalizeCleanup(
+        AgentResult replay = cleanupCoordinator.finalizeCleanup(
                 reserved.seal().cleanupId(),
                 binding.run().runId(),
                 reserved.claim(),
@@ -2131,7 +2131,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(replay).isEqualTo(result);
         assertThat(bodies).hasValue(1);
         assertThat(tools).hasValue(1);
-        AgentResult predecessorReplay = coordinator.finalizeRepairAttempt(
+        AgentResult predecessorReplay = repairCoordinator.finalizeRepairAttempt(
                 reserved.predecessor().attemptId(),
                 reserved.repair().binding().run().runId(),
                 reserved.repair().claim(),
@@ -2158,7 +2158,7 @@ class TestCiAutofixCoordinatorInitialPublish
     void cleanupRunCannotMintAThirdCleanupSuccessor()
     {
         ReservedCleanup reserved = reserveCleanup("no-third-cleanup");
-        CleanupBinding binding = coordinator.beginCleanup(
+        CleanupBinding binding = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
                 TerminalOutcome.COMPLETED, "still non-clean", null);
@@ -2199,7 +2199,7 @@ class TestCiAutofixCoordinatorInitialPublish
                             .isInstanceOf(
                                     FlowRuntime.MutationRejectedException.class)
                             .hasMessageContaining("CI round");
-                    return coordinator.finalizeCleanup(
+                    return cleanupCoordinator.finalizeCleanup(
                             reserved.seal().cleanupId(),
                             runId,
                             claim,
@@ -2222,12 +2222,12 @@ class TestCiAutofixCoordinatorInitialPublish
     void secondDirtyCleanupStoresAttentionAndBlocksEveryLaterMutation()
     {
         ReservedCleanup reserved = reserveCleanup("second-dirty");
-        CleanupBinding binding = coordinator.beginCleanup(
+        CleanupBinding binding = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         Path secondDirty = Path.of(task.worktreePath()).resolve(
                 "second-dirty.txt");
-        var handle = coordinator.launchCleanup(
+        var handle = cleanupCoordinator.launchCleanup(
                 supervisor,
                 binding,
                 reserved.claim(),
@@ -2250,7 +2250,7 @@ class TestCiAutofixCoordinatorInitialPublish
                             null);
                 });
 
-        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        cleanupCoordinator.awaitCleanup(supervisor, binding, handle, TTL);
         CiCleanupCompletion stored = autofix.cleanupCompletion(
                 reserved.seal().cleanupId()).orElseThrow();
         Task blocked = runtime.task(task.taskId()).orElseThrow();
@@ -2290,7 +2290,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 "test:unsafe"))
                 .isInstanceOf(FlowRuntime.MutationRejectedException.class);
         assertThat(runtime.claimNext("blocked-cleanup-worker", TTL)).isEmpty();
-        AgentResult predecessorReplay = coordinator.finalizeRepairAttempt(
+        AgentResult predecessorReplay = repairCoordinator.finalizeRepairAttempt(
                 reserved.predecessor().attemptId(),
                 reserved.repair().binding().run().runId(),
                 reserved.repair().claim(),
@@ -2311,7 +2311,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 "changed after seal\n",
                 StandardCharsets.UTF_8);
 
-        assertThat(coordinator.beginCleanup(
+        assertThat(cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL)).isEmpty();
         CiCleanupCompletion blocked = autofix.cleanupCompletion(
                 reserved.seal().cleanupId()).orElseThrow();
@@ -2326,7 +2326,7 @@ class TestCiAutofixCoordinatorInitialPublish
         assertThat(runtime.runForOperation(reserved.claim().operationId()))
                 .isEmpty();
         assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
-        assertThat(coordinator.beginCleanup(
+        assertThat(cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL)).isEmpty();
         assertThat(count("flow_ci_cleanup_completion", "1 = 1")).isOne();
     }
@@ -2343,7 +2343,7 @@ class TestCiAutofixCoordinatorInitialPublish
                 reserved.predecessor().inputLocalHead());
         gitOutput(worktree, "clean", "-fd");
 
-        assertThat(coordinator.beginCleanup(
+        assertThat(cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL)).isEmpty();
 
         assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
@@ -2364,10 +2364,10 @@ class TestCiAutofixCoordinatorInitialPublish
     void cleanupCanObjectivelyRestoreLogicalInputWithoutHeadChange()
     {
         ReservedCleanup reserved = reserveCleanup("restore-input");
-        CleanupBinding binding = coordinator.beginCleanup(
+        CleanupBinding binding = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchCleanup(
+        var handle = cleanupCoordinator.launchCleanup(
                 supervisor,
                 binding,
                 reserved.claim(),
@@ -2388,7 +2388,7 @@ class TestCiAutofixCoordinatorInitialPublish
                             null);
                 });
 
-        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        cleanupCoordinator.awaitCleanup(supervisor, binding, handle, TTL);
         CiCleanupCompletion completion = autofix.cleanupCompletion(
                 reserved.seal().cleanupId()).orElseThrow();
         ChangeSetRevision restored = runtime.currentChangeSet(task.taskId())
@@ -2410,7 +2410,7 @@ class TestCiAutofixCoordinatorInitialPublish
     void neverLaunchedCleanupRecoveryReinspectsAndReusesQueuedRun()
     {
         ReservedCleanup reserved = reserveCleanup("recover-start");
-        CleanupBinding first = coordinator.beginCleanup(
+        CleanupBinding first = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         jdbc.update(
                 """
@@ -2426,7 +2426,7 @@ class TestCiAutofixCoordinatorInitialPublish
         Claim recovered = claim(OperationKind.RUN_CI_FIXER);
         restart();
 
-        CleanupBinding redelivered = coordinator.beginCleanup(
+        CleanupBinding redelivered = cleanupCoordinator.beginCleanup(
                 recovered, repositoryRoot, TTL).orElseThrow();
 
         assertThat(redelivered.run().runId()).isEqualTo(first.run().runId());

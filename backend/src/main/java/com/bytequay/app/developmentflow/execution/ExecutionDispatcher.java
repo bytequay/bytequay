@@ -844,6 +844,10 @@ public final class ExecutionDispatcher
             String executionId,
             Exception failure)
     {
+        // Without this the only trace of a failed operation is the ticket's
+        // one-line last_error — no class, no stack, nothing in the log.
+        log.warn("Operation failed on ticket {}: {}",
+                claim.ticketId(), message(failure), failure);
         Optional<DispatchTicket> current = tickets.findById(claim.ticketId());
         if (current.isEmpty()) {
             finishEvidence(claim.ticketId(), executionId, null, message(failure));

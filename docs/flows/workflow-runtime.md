@@ -334,6 +334,15 @@ session if any, head SHA, prompt manifest, capability set, program-derived
 start and resume replay-safe. A timeout is `FAILED` with
 `failureReasonCode=TIMEOUT`; roles do not add competing run states.
 
+One launch binding per run freezes the resolved engine identity — kind,
+agent/provider, model, reasoning effort, endpoint, limits, and the exact
+credential row and revision — alongside the prompt and tool-manifest digests.
+Every one of those values enters the binding digest, so a configuration change
+mid-run cannot move an open run and a redelivery that resolves differently
+fails identity instead of running a second engine. Resolution itself is user
+configuration and is specified in [ci-autofix.md](./ci-autofix.md); no engine
+default is compiled in or supplied by a deployment property file.
+
 `AgentResult` has a unique `runId`, `terminalOutcome = COMPLETED | FAILED |
 CANCELED`, optional opaque `finalContent`, optional program-owned `errorRef`,
 program-owned `stopProofRef`, and storage timestamp. Every terminal run gets one result, so
@@ -410,9 +419,41 @@ the live handle; stale-claim handoff occurs only after the durable STOPPED
 completion exists. No `AgentResult`, pointer, or lease is released before that
 finalizer commits.
 
-CLI/shell agent transport is unsupported in the new flow. A future OS-process
-transport must own a complete process group and mechanical death receipt before
-it can be admitted. Cross-JVM recovery of an activated in-process Java thread is
+CLI/shell agent transport is admitted once, and only once, its two conditions
+hold: the transport owns a complete process group, and it produces a mechanical
+death receipt. Both now exist.
+
+A CLI turn is launched as the leader of its own process group, and that group is
+the receipt. A descendant walk cannot be one — a process defeats it by outliving
+its parent, since reparenting changes `PPID` and any snapshot taken earlier is
+already stale — whereas leaving a process group requires a deliberate
+`setpgid`. Signalling and probing the group therefore covers every descendant
+that did not explicitly escape, and the group id is recorded before the prompt is
+delivered so the crash that makes it matter cannot lose it. The owning Java thread
+still holds the writer fence and must not return until the group is proven absent,
+which is what keeps the successor-writer rule in this document intact rather than
+replaced.
+
+Execution kind (`API` or `CLI`) is a dimension of its own, deliberately not a
+member of the wire-dialect enum: a CLI turn speaks no wire, and a `CLI` member
+beside `ANTHROPIC` and `OPENAI_COMPAT` would be a category error. It also decides
+three things that differ in kind — who holds the credential, whether output and
+tool-iteration ceilings apply at all, and what "the turn ended" means.
+
+Resolving a CLI engine still never substitutes an API engine the user did not
+choose. That rule was never about the transport's maturity: it protects a billing
+and privacy choice, and it holds now that the transport exists.
+
+A CLI turn's credential is the user's own CLI login, which this program never
+sees. Its launch binding therefore names no credential and records what it can
+honestly pin instead — binary and version — so a CLI run's sealed binding proves
+strictly less than an API run's. That is permanent, and a property of delegating
+authentication rather than a gap to close.
+
+Because the agent has a shell, a writer turn is contained mechanically rather than
+asked to behave: no push destination, no credential helper, no agent socket and no
+prompt, and the program separately records the remote head and quarantines a turn
+that moved it. Prose in a prompt is not containment. Cross-JVM recovery of an activated in-process Java thread is
 also deferred: a restarted JVM cannot safely join or revoke that old thread.
 After its claim expires, recovery settles the exact operation/ticket
 `FAILED/DONE` with `PROCESS_ATTEMPT_RECOVERY_REQUIRED`, moves the Task to
@@ -544,7 +585,7 @@ shapes.
 | `AgentSessions.createIdle(role, sessionManifest)` | provisioning only | Create one persistent `IDLE` session without an `AgentRun` or model call. This is the only Task-Agent provisioning path. |
 | `AgentSessions.startFresh(operationId, claimToken, role, promptManifest, capabilities)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise create a fresh session plus its first run before process start and bind the owning request once. Use this for a reviewer and for a CI Fixer only when that Task has no CI session yet. Claim redelivery or a crash after commit must reuse the same session/run. |
 | `AgentSessions.resume(sessionId, operationId, claimToken, inputRef)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise compare-and-set `IDLE`/eligible `PARKED_CHILD` to `RUNNING`, append stored input and one run, and reserve that session for this operation in the claim transaction. Start/recover the model process only after commit and always against that same run. |
-| `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, finalizerKey, stoppedFinalizer, body)` | Task/CI dispatcher after run transaction | Bind the immutable program finalizer route before exposing the handle/body. Reuse the one live-JVM execution when present without replacing its finalizer. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The ordinary overload binds runtime AgentResult finalization. CLI launch is unsupported. |
+| `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, finalizerKey, stoppedFinalizer, body)` | Task/CI dispatcher after run transaction | Bind the immutable program finalizer route before exposing the handle/body. Reuse the one live-JVM execution when present without replacing its finalizer. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The ordinary overload binds runtime AgentResult finalization. A CLI launch additionally records the process group before the prompt and does not release the fence until that group is proven absent. |
 | `InProcessWriterAgentSupervisor.awaitAndFinalize(handle, deadline, expectedFinalizerKey)` | Task/CI dispatcher after launch | Join the exact thread, revoke capability, require no admitted tool remains, and durably store the private-witness `STOPPED` fact before invoking the launch-bound finalizer. A failed finalizer retains exact stopped ownership for retry; success removes the live entry only after a matching `AgentResult` is returned. Neither await nor cancel accepts a replacement callback. `awaitAndFinish` expects the ordinary runtime-result key. |
 | `InProcessReviewerAgentSupervisor.launch(...)` / `awaitAndFinish(...)` | claimed reviewer dispatcher | Reserve and activate one request-bound fresh in-process reviewer thread behind a dormant gate. Expose only immutable tree/base-blob/reviewed-blob/raw-diff reads, revoke and drain them at stop, then call the separate reviewer finalizer without a writer fence. Exact live-JVM redelivery reuses the execution. |
 | `FlowRuntime.startCiLearningAgent(claim, promptManifest, capabilitySet)` / `InProcessCiLearningAgentSupervisor.launch(...)` | claimed receipt-owned CI learner dispatcher | Create or exactly replay one isolated one-shot `CI_LEARNER` session/run, then reserve and activate one in-process read-only thread. It has no Task writer pointer/lease and exposes only its bound repair evidence/log reads plus one terminal lesson save. |
@@ -1221,7 +1262,8 @@ joined; recovery never manufactures a stop proof or launches a replacement.
 - No Task/CI writer body starts outside
   `InProcessWriterAgentSupervisor.launch`; tests at every reserve/gate/identity
   boundary prove activation precedes body execution.
-  CLI/shell agent launch is rejected until a real process-group supervisor exists.
+  CLI/shell agent launch owns its process group and proves it absent before
+  releasing the writer fence.
 - Every Task lifecycle transition and adopted clean code candidate has one
   immutable owner revision with optimistic append/adopt checks.
 - Local check commands, policy/profiles, conclusions, exact heads, and freshness

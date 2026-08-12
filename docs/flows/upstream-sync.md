@@ -541,9 +541,36 @@ After exact user approval:
    returns a fully consumed success result;
 3. `handoffAfterDraftPublish` verifies that consumed result plus its identity,
    then marks the sync run `HANDED_OFF` and releases sync-only resources;
-4. generic [CI Autofix](./ci-autofix.md) owns all final red CI rounds;
+4. generic [CI Autofix](./ci-autofix.md) owns all final red CI rounds, under the
+   `ATTRIBUTED_FIXUP` placement this Task was created with — so a post-publication
+   repair is still positioned behind the pick it belongs to, and the series stays
+   reviewable commit by commit;
 5. generic [remote feedback](./remote-feedback.md) owns reviews/comments; and
 6. Upstream Sync never resumes for that PR.
+
+### 8. Cleanup after merge
+
+Merging is the user's act, not the run's. Once the pull request is observed
+merged, the run tears down what it still holds and records what it released:
+
+1. the isolated worktree is removed;
+2. the local result branch is deleted, because the remote copy is now the one
+   that matters;
+3. the agent session and its stored transcripts are dropped, which is the bulk of
+   the run's disk;
+4. the remote branch is deleted, since a merged cherry-pick range has no reader
+   left; and
+5. the run is closed with a durable receipt of the above.
+
+Cleanup is a receipt, not a surface: there is nothing to steer and nothing to
+approve, so it carries no composer and no action. A step that cannot be completed
+is recorded as not released rather than retried forever — a branch someone else
+already deleted, or a worktree already gone, is a normal outcome and not a
+failure of the run.
+
+A run whose pull request was closed without merging cleans up identically except
+that the remote branch is left alone: unmerged commits on it are the only copy of
+work someone may still want.
 
 Post-publication base movement is ordinary Task reconciliation. It does not
 reopen the pre-PR upstream range engine.
@@ -689,7 +716,7 @@ events. See [pr-timeline.md](./pr-timeline.md).
 | Should the program resolve conflicts? | No. Conflict resolution is semantic and fork-specific. | Human/agent waits can slow a large range. |
 | Should conflict markers be committed to preserve an “upstream” commit? | No. It stores knowingly broken content and the claim is false. Resolve before continuing, retain provenance, then use honest fixups. | The conflicted pick is not byte-for-byte comparable to upstream; evidence must show the resolution. |
 | Should remote CI be used per conflicted pick? | No. It violates initial local-review-before-push authority and can create hundreds of remote rounds. | Some failures are discovered only after the draft PR. |
-| Does generic CI Autofix need fixup-history knowledge? | No. Its job is exact-head CI convergence for every PR. Specialized history remains bounded here. | Post-publication CI repair commits are normal tip commits, not retroactively attributed fixups. |
+| Does generic CI Autofix need fixup-history knowledge? | Yes, as a program-resolved placement policy, not as agent judgment. A sync-built branch is a reviewable series, and a repair landing as an opaque tip commit that touches several picks destroys the property the whole range exists for — so CI Autofix gained `ATTRIBUTED_FIXUP`. This reverses the earlier answer; the alternative was a second CI engine, which is worse. | Every rewriting round force-pushes and restarts the whole remote board, so attribution costs one full CI cycle per round. It stays opt-in per Task for that reason, and ordinary Task PRs keep `TIP`. |
 | Is a generic forge/ecosystem/history-policy abstraction required? | No. Build the approved GitHub/Git path; add a second adapter only with a second real target. | Future extraction is deliberate. |
 | Is a post-merge sync-agent retrospective required? | No. It crosses the draft-PR ownership boundary. Project Intelligence and CI lessons already have durable learning paths. | Sync-specific human corrections are not summarized by this agent automatically. |
 

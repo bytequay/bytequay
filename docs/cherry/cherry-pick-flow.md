@@ -398,11 +398,24 @@ Built and green:
   reading what the teardown recorded
 - the run number, range endpoints, and pull-request result the surfaces need
 - the budget ceiling at $1,000, and a total-budget clamp on raises
+- the CLI safety foundation — `ProcessGroup` as the death receipt,
+  `CliWriterContainment` as the publish barrier, `ProcessTree` demoted to
+  diagnostics, and the launch-binding columns for both execution kinds
+- engine resolution per run from the workspace's per-audience pick, replacing
+  the compiled-in provider properties
+- the CLI launch binding itself: an explicit CLI pick now resolves and binds as
+  `CLI`, recording binary and version and no credential, and the in-JVM turn
+  path refuses such a binding at its single choke point rather than in each body
 
 Remaining, in dependency order:
 
-1. **CLI agent transport** — the out-of-process supervisor. Blocks everything
-   below.
+1. **The CLI agent body** — the operation-scoped loopback tool bridge, role
+   capabilities, provider-session/usage persistence, and restart recovery that
+   buries a persisted group before admitting a writer. Blocks everything below.
+   Until it lands, a workspace configured for a CLI engine binds its run and
+   then fails the in-JVM turn path on every attempt — the same retryable
+   non-effect failure resolution itself raised before, moved one step later, now
+   with the engine choice durably recorded instead of discarded.
 2. **Phase 1 onto the flow runtime** — Task at enqueue with `ATTRIBUTED_FIXUP`,
    picks in the Task worktree, change-set revisions, PR materialization, and the
    existing park wired to `INITIAL_PUBLISH`.
@@ -549,10 +562,14 @@ the engine rather than a name on a list.
 Schema lands with each vertical slice rather than pre-batched — batching couples
 unrelated slices, and the database is empty so resets are free.
 
-1. Record the seven-failure baseline.
+1. Record the seven-failure baseline. **Done.**
 2. CLI safety foundation: process group, stop proof, containment, provider-session
-   persistence, adapter tests.
+   persistence, adapter tests. **Done**, except provider-session and usage
+   persistence, which moved to the step below — they are only observable once a
+   CLI body runs.
 3. New-flow CLI binding: config, resolver, MCP bridge, role capabilities, recovery.
+   **Config and resolver done.** Bridge, capabilities, provider-session
+   persistence and recovery remain.
 4. Greenfield upstream synchronization: new records, Task worktree, picks, local
    checks, Local PR draft, fresh reviewer, history verification, `INITIAL_PUBLISH`.
 5. Attributed repair: selector policy, typed attribution, rewrite operation,

@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -70,13 +71,13 @@ public class WorkModelService
 
     private final CredentialService credentials;
     private final CodexModelCatalogProbe codexModels;
-    private final Map<String, Supplier<Boolean>> cliProbes;
+    private final Map<String, Supplier<Optional<String>>> cliProbes;
 
     public WorkModelService(CredentialService credentials, CodexModelCatalogProbe codexModels)
     {
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.codexModels = requireNonNull(codexModels, "codexModels is null");
-        ImmutableMap.Builder<String, Supplier<Boolean>> probes = ImmutableMap.builder();
+        ImmutableMap.Builder<String, Supplier<Optional<String>>> probes = ImmutableMap.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
             String id = agent.id();
             probes.put(id, Suppliers.memoizeWithExpiration(
@@ -255,25 +256,61 @@ public class WorkModelService
      *  process inside that path would put a 2s timeout on every launch. */
     boolean cliAvailable(String agentId)
     {
-        Supplier<Boolean> probe = cliProbes.get(agentId);
-        return probe != null && probe.get();
+        return cliVersion(agentId).isPresent();
     }
 
-    private static boolean probeCli(String agentId)
+    /**
+     * The installed CLI's own version string, or empty when it is not installed.
+     * Backed by the same cached probe as availability — that fork already runs
+     * {@code --version}, so the version is free and the alternative was a
+     * second process per launch.
+     */
+    public Optional<String> cliVersion(String agentId)
     {
-        String binary = "codex".equals(agentId) ? "codex" : "claude";
+        Supplier<Optional<String>> probe = cliProbes.get(agentId);
+        return probe == null ? Optional.empty() : probe.get();
+    }
+
+    /**
+     * The executable a catalog CLI agent id runs as. Total over the catalog on
+     * purpose: a caller about to launch a subprocess should not be handed a
+     * plausible-looking default for an agent this build does not know.
+     */
+    public static String cliBinary(String agentId)
+    {
+        return switch (agentId) {
+            case "codex" -> "codex";
+            case "claude-code" -> "claude";
+            default -> throw new IllegalArgumentException(
+                    "unknown CLI agent " + agentId);
+        };
+    }
+
+    private static Optional<String> probeCli(String agentId)
+    {
+        String binary = cliBinary(agentId);
         try {
             Process process = new ProcessBuilder(binary, "--version")
                     .redirectErrorStream(true)
                     .start();
             if (!process.waitFor(CLI_PROBE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
-                return false;
+                return Optional.empty();
             }
-            return process.exitValue() == 0;
+            if (process.exitValue() != 0) {
+                return Optional.empty();
+            }
+            // Read after waiting, not before: readAllBytes has no timeout, so a
+            // CLI that never closed its output would hang the launch path the
+            // 2s bound above exists to protect. A version banner cannot fill the
+            // pipe buffer, so nothing is lost by draining it late.
+            String version = new String(
+                    process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8).strip();
+            return version.isEmpty() ? Optional.empty() : Optional.of(version);
         }
         catch (Exception ignored) {
-            return false;
+            return Optional.empty();
         }
     }
 

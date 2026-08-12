@@ -35,6 +35,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
@@ -46,6 +48,10 @@ import static java.util.Objects.requireNonNull;
 /** Set-once provider and credential-revision authority for one AgentRun. */
 public final class NewFlowAgentLaunches
 {
+    /** Bumped from v1 when the binding grew its execution kind: an API and a CLI
+     *  launch of the same model must not digest alike. */
+    private static final String LAUNCH_DIGEST = "new-flow-agent-launch:v2";
+
     enum Program
     {
         TASK_INITIAL(
@@ -167,62 +173,119 @@ public final class NewFlowAgentLaunches
         }
     }
 
+    /**
+     * The engine one run launches against. Two shapes, held apart by {@link
+     * AgentExecution}: an API turn is pinned by an endpoint and a stored
+     * credential, a CLI turn by a binary the user has already logged in to.
+     * Neither may carry the other's fields, so validation branches rather than
+     * treating the absent half as merely optional — a CLI config that quietly
+     * kept a credential name would claim an authorization this program does not
+     * hold.
+     */
     public record Config(
             String providerName,
+            AgentExecution execution,
             Transport transport,
             String endpoint,
             String model,
             String reasoningEffort,
             String credentialName,
             String credentialInstance,
-            int maxOutputTokens,
-            int maxToolIterations)
+            Integer maxOutputTokens,
+            Integer maxToolIterations,
+            String cliBinary,
+            String cliVersion)
     {
+        /** An in-JVM turn against a stored credential. */
+        public static Config api(
+                String providerName,
+                Transport transport,
+                String endpoint,
+                String model,
+                String reasoningEffort,
+                String credentialName,
+                String credentialInstance,
+                int maxOutputTokens,
+                int maxToolIterations)
+        {
+            return new Config(
+                    providerName, AgentExecution.API, transport, endpoint,
+                    model, reasoningEffort, credentialName, credentialInstance,
+                    maxOutputTokens, maxToolIterations, null, null);
+        }
+
+        /**
+         * A subprocess turn. There is deliberately no credential parameter: the
+         * CLI is authorized by the user's own login, which this program never
+         * sees, so no signature of this method can ever name it.
+         */
+        public static Config cli(
+                String providerName,
+                String model,
+                String reasoningEffort,
+                String cliBinary,
+                String cliVersion)
+        {
+            return new Config(
+                    providerName, AgentExecution.CLI, null, null, model,
+                    reasoningEffort, null, null, null, null, cliBinary,
+                    cliVersion);
+        }
+
         public Config
         {
             requireText(providerName, "providerName");
-            requireNonNull(transport, "transport is null");
-            requireText(endpoint, "endpoint");
+            requireNonNull(execution, "execution is null");
             requireText(model, "model");
-            requireText(credentialName, "credentialName");
-            requireText(credentialInstance, "credentialInstance");
-            if (maxOutputTokens < 1 || maxOutputTokens > 32_768
-                    || maxToolIterations < 1 || maxToolIterations > 2) {
-                throw new IllegalArgumentException(
-                        "agent output/tool limits are invalid");
-            }
-            URI uri = URI.create(endpoint);
-            boolean secure = "https".equalsIgnoreCase(uri.getScheme());
-            boolean loopback = "http".equalsIgnoreCase(uri.getScheme())
-                    && ("localhost".equalsIgnoreCase(uri.getHost())
-                        || "127.0.0.1".equals(uri.getHost())
-                        || "::1".equals(uri.getHost()));
-            if ((!secure && !loopback) || uri.isOpaque()
-                    || uri.getHost() == null || uri.getHost().isBlank()
-                    || uri.getUserInfo() != null || uri.getQuery() != null
-                    || uri.getFragment() != null) {
-                throw new IllegalArgumentException(
-                        "agent endpoint must be HTTPS or loopback HTTP");
+            switch (execution) {
+                case API -> {
+                    requireNonNull(transport, "transport is null");
+                    requireText(endpoint, "endpoint");
+                    requireText(credentialName, "credentialName");
+                    requireText(credentialInstance, "credentialInstance");
+                    requireEndpoint(endpoint);
+                    if (maxOutputTokens == null || maxToolIterations == null
+                            || maxOutputTokens < 1 || maxOutputTokens > 32_768
+                            || maxToolIterations < 1 || maxToolIterations > 2) {
+                        throw new IllegalArgumentException(
+                                "agent output/tool limits are invalid");
+                    }
+                    requireAbsent(cliBinary, "cliBinary");
+                    requireAbsent(cliVersion, "cliVersion");
+                }
+                case CLI -> {
+                    requireText(cliBinary, "cliBinary");
+                    requireAbsent(transport, "transport");
+                    requireAbsent(endpoint, "endpoint");
+                    requireAbsent(credentialName, "credentialName");
+                    requireAbsent(credentialInstance, "credentialInstance");
+                    requireAbsent(maxOutputTokens, "maxOutputTokens");
+                    requireAbsent(maxToolIterations, "maxToolIterations");
+                }
             }
         }
     }
 
+    /** The frozen answer, in the same two shapes {@link Config} carries. */
     public record Binding(
             String runId,
             String providerName,
+            AgentExecution execution,
             Transport transport,
             String endpoint,
             String model,
             String reasoningEffort,
-            long credentialId,
+            Long credentialId,
             String credentialName,
             String credentialInstance,
             Instant credentialUpdatedAt,
             String promptRevision,
             String promptDigest,
             String toolManifestDigest,
-            int maxOutputTokens,
-            int maxToolIterations,
+            Integer maxOutputTokens,
+            Integer maxToolIterations,
+            String cliBinary,
+            String cliVersion,
             String bindingDigest,
             Instant boundAt)
     {
@@ -230,21 +293,48 @@ public final class NewFlowAgentLaunches
         {
             requireText(runId, "runId");
             requireText(providerName, "providerName");
-            requireNonNull(transport, "transport is null");
-            requireText(endpoint, "endpoint");
+            requireNonNull(execution, "execution is null");
             requireText(model, "model");
-            requireText(credentialName, "credentialName");
-            requireText(credentialInstance, "credentialInstance");
-            requireNonNull(credentialUpdatedAt, "credentialUpdatedAt is null");
             requireText(promptRevision, "promptRevision");
             requireText(promptDigest, "promptDigest");
             requireText(toolManifestDigest, "toolManifestDigest");
-            if (maxOutputTokens < 1 || maxToolIterations < 1) {
-                throw new IllegalArgumentException(
-                        "bound agent limits are invalid");
-            }
             requireText(bindingDigest, "bindingDigest");
             requireNonNull(boundAt, "boundAt is null");
+            switch (execution) {
+                case API -> {
+                    requireNonNull(transport, "transport is null");
+                    requireText(endpoint, "endpoint");
+                    requireNonNull(credentialId, "credentialId is null");
+                    requireText(credentialName, "credentialName");
+                    requireText(credentialInstance, "credentialInstance");
+                    requireNonNull(
+                            credentialUpdatedAt, "credentialUpdatedAt is null");
+                    if (maxOutputTokens == null || maxToolIterations == null
+                            || maxOutputTokens < 1 || maxToolIterations < 1) {
+                        throw new IllegalArgumentException(
+                                "bound agent limits are invalid");
+                    }
+                    requireAbsent(cliBinary, "cliBinary");
+                    requireAbsent(cliVersion, "cliVersion");
+                }
+                case CLI -> {
+                    requireText(cliBinary, "cliBinary");
+                    requireAbsent(transport, "transport");
+                    requireAbsent(endpoint, "endpoint");
+                    requireAbsent(credentialId, "credentialId");
+                    requireAbsent(credentialName, "credentialName");
+                    requireAbsent(credentialInstance, "credentialInstance");
+                    requireAbsent(credentialUpdatedAt, "credentialUpdatedAt");
+                    requireAbsent(maxOutputTokens, "maxOutputTokens");
+                    requireAbsent(maxToolIterations, "maxToolIterations");
+                }
+            }
+        }
+
+        /** Whether this run's turns go over HTTP from inside this JVM. */
+        public boolean isApi()
+        {
+            return execution == AgentExecution.API;
         }
     }
 
@@ -323,8 +413,8 @@ public final class NewFlowAgentLaunches
             Optional<Binding> existing = binding(run.runId());
             if (existing.isPresent()) {
                 Binding stored = existing.orElseThrow();
-                String storedManifestDigest = digestJson(
-                        tools(program, stored.transport()));
+                String storedManifestDigest = digestJson(manifest(
+                        program, stored.execution(), stored.transport()));
                 assertProgramIdentity(
                         stored, run, program, promptDigest,
                         storedManifestDigest);
@@ -332,59 +422,75 @@ public final class NewFlowAgentLaunches
             }
             Config config = requireNonNull(resolved,
                     "launch binding disappeared between resolution and insert");
-            String manifestDigest = digestJson(
-                    tools(program, config.transport()));
-            Credential credential = credentials.find(
-                    CredentialType.AI,
-                    config.credentialName(),
-                    config.credentialInstance()).orElseThrow(() ->
-                            new LaunchUnavailableException(
-                                    "configured AI credential is unavailable"));
+            String manifestDigest = digestJson(manifest(
+                    program, config.execution(), config.transport()));
+            // A CLI turn is authorized by the user's own CLI login. There is no
+            // stored row to pin, so there is nothing to look up — and asking for
+            // one would either fail or bind a credential the subprocess never
+            // uses.
+            Credential credential = config.execution() == AgentExecution.API
+                    ? credentials.find(
+                            CredentialType.AI,
+                            config.credentialName(),
+                            config.credentialInstance()).orElseThrow(() ->
+                                    new LaunchUnavailableException(
+                                            "configured AI credential is unavailable"))
+                    : null;
             Instant now = clock.instant();
             String bindingDigest = digest(List.of(
-                    "new-flow-agent-launch:v1",
+                    LAUNCH_DIGEST,
                     run.runId(),
                     run.role().name(),
                     config.providerName(),
-                    config.transport().name(),
-                    config.endpoint(),
+                    config.execution().name(),
+                    nullable(config.transport()),
+                    nullable(config.endpoint()),
                     config.model(),
                     nullable(config.reasoningEffort()),
-                    Long.toString(credential.id()),
-                    config.credentialName(),
-                    config.credentialInstance(),
-                    credential.updatedAt().toString(),
+                    nullable(credential == null ? null : credential.id()),
+                    nullable(config.credentialName()),
+                    nullable(config.credentialInstance()),
+                    nullable(credential == null
+                            ? null : credential.updatedAt()),
                     program.promptRevision,
                     promptDigest,
                     manifestDigest,
-                    Integer.toString(config.maxOutputTokens()),
-                    Integer.toString(config.maxToolIterations())));
+                    nullable(config.maxOutputTokens()),
+                    nullable(config.maxToolIterations()),
+                    nullable(config.cliBinary()),
+                    nullable(config.cliVersion())));
             jdbc.update(
                     """
                     INSERT INTO flow_runtime_agent_launch_binding (
-                        run_id, provider_name, transport, endpoint,
+                        run_id, provider_name, execution, transport, endpoint,
                         model, reasoning_effort, credential_id,
                         credential_name, credential_instance,
                         credential_updated_at, prompt_revision,
                         prompt_digest, tool_manifest_digest, max_output_tokens,
-                        max_tool_iterations, binding_digest, bound_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        max_tool_iterations, cli_binary, cli_version,
+                        binding_digest, bound_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     run.runId(),
                     config.providerName(),
-                    config.transport().name(),
+                    config.execution().name(),
+                    config.transport() == null
+                            ? null : config.transport().name(),
                     config.endpoint(),
                     config.model(),
                     config.reasoningEffort(),
-                    credential.id(),
+                    credential == null ? null : credential.id(),
                     config.credentialName(),
                     config.credentialInstance(),
-                    credential.updatedAt().toString(),
+                    credential == null
+                            ? null : credential.updatedAt().toString(),
                     program.promptRevision,
                     promptDigest,
                     manifestDigest,
                     config.maxOutputTokens(),
                     config.maxToolIterations(),
+                    config.cliBinary(),
+                    config.cliVersion(),
                     bindingDigest,
                     now.toEpochMilli());
             Binding stored = binding(run.runId()).orElseThrow();
@@ -402,6 +508,15 @@ public final class NewFlowAgentLaunches
     String resolveSecret(Binding binding)
     {
         requireNonNull(binding, "binding is null");
+        if (!binding.isApi()) {
+            // The single choke point every in-JVM turn passes through, which is
+            // why the guard lives here and not in each body: a CLI-bound run has
+            // no secret to load, and reaching this far means it was routed to the
+            // wrong transport.
+            throw new LaunchUnavailableException(
+                    "a " + binding.execution() + " run holds no stored credential"
+                            + " and must not take the in-JVM turn path");
+        }
         Credential before = exactCredential(binding);
         String secret = credentials.getSecret(
                 CredentialType.AI,
@@ -433,23 +548,49 @@ public final class NewFlowAgentLaunches
                 (result, row) -> new Binding(
                         result.getString("run_id"),
                         result.getString("provider_name"),
-                        Transport.valueOf(result.getString("transport")),
+                        AgentExecution.valueOf(result.getString("execution")),
+                        transport(result.getString("transport")),
                         result.getString("endpoint"),
                         result.getString("model"),
                         result.getString("reasoning_effort"),
-                        result.getLong("credential_id"),
+                        nullableLong(result, "credential_id"),
                         result.getString("credential_name"),
                         result.getString("credential_instance"),
-                        Instant.parse(result.getString(
-                                "credential_updated_at")),
+                        instant(result.getString("credential_updated_at")),
                         result.getString("prompt_revision"),
                         result.getString("prompt_digest"),
                         result.getString("tool_manifest_digest"),
-                        result.getInt("max_output_tokens"),
-                        result.getInt("max_tool_iterations"),
+                        nullableInt(result, "max_output_tokens"),
+                        nullableInt(result, "max_tool_iterations"),
+                        result.getString("cli_binary"),
+                        result.getString("cli_version"),
                         result.getString("binding_digest"),
                         Instant.ofEpochMilli(result.getLong("bound_at"))),
                 runId).stream().findFirst();
+    }
+
+    private static Transport transport(String value)
+    {
+        return value == null ? null : Transport.valueOf(value);
+    }
+
+    private static Instant instant(String value)
+    {
+        return value == null ? null : Instant.parse(value);
+    }
+
+    private static Long nullableLong(ResultSet result, String column)
+            throws SQLException
+    {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
+    }
+
+    private static Integer nullableInt(ResultSet result, String column)
+            throws SQLException
+    {
+        int value = result.getInt(column);
+        return result.wasNull() ? null : value;
     }
 
     private Credential exactCredential(Binding binding)
@@ -477,23 +618,26 @@ public final class NewFlowAgentLaunches
             String manifestDigest)
     {
         String expected = digest(List.of(
-                "new-flow-agent-launch:v1",
+                LAUNCH_DIGEST,
                 run.runId(),
                 run.role().name(),
                 stored.providerName(),
-                stored.transport().name(),
-                stored.endpoint(),
+                stored.execution().name(),
+                nullable(stored.transport()),
+                nullable(stored.endpoint()),
                 stored.model(),
                 nullable(stored.reasoningEffort()),
-                Long.toString(stored.credentialId()),
-                stored.credentialName(),
-                stored.credentialInstance(),
-                stored.credentialUpdatedAt().toString(),
+                nullable(stored.credentialId()),
+                nullable(stored.credentialName()),
+                nullable(stored.credentialInstance()),
+                nullable(stored.credentialUpdatedAt()),
                 program.promptRevision,
                 promptDigest,
                 manifestDigest,
-                Integer.toString(stored.maxOutputTokens()),
-                Integer.toString(stored.maxToolIterations())));
+                nullable(stored.maxOutputTokens()),
+                nullable(stored.maxToolIterations()),
+                nullable(stored.cliBinary()),
+                nullable(stored.cliVersion())));
         if (!stored.runId().equals(run.runId())
                 || !stored.promptRevision().equals(program.promptRevision)
                 || !stored.promptDigest().equals(promptDigest)
@@ -514,6 +658,23 @@ public final class NewFlowAgentLaunches
         catch (RuntimeException failure) {
             throw failure;
         }
+    }
+
+    /**
+     * What the binding digest pins as the agent's tool surface. An API turn's
+     * manifest is the wire-shaped tool list it actually sends. A CLI turn sends
+     * no wire, so digesting one would pin a shape it never uses; its manifest is
+     * the tool names, which is the part that bounds what the agent may do.
+     */
+    private ArrayNode manifest(
+            Program program, AgentExecution execution, Transport transport)
+    {
+        if (execution == AgentExecution.CLI) {
+            ArrayNode names = mapper.createArrayNode();
+            program.tools.forEach(names::add);
+            return names;
+        }
+        return tools(program, transport);
     }
 
     ArrayNode tools(Program program, Transport transport)
@@ -656,15 +817,41 @@ public final class NewFlowAgentLaunches
         }
     }
 
-    private static String nullable(String value)
+    private static String nullable(Object value)
     {
-        return value == null ? "<null>" : value;
+        return value == null ? "<null>" : value.toString();
     }
 
     private static void requireText(String value, String name)
     {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    /** Rejects a field belonging to the other execution kind. */
+    private static void requireAbsent(Object value, String name)
+    {
+        if (value != null) {
+            throw new IllegalArgumentException(
+                    name + " does not belong to this execution kind");
+        }
+    }
+
+    private static void requireEndpoint(String endpoint)
+    {
+        URI uri = URI.create(endpoint);
+        boolean secure = "https".equalsIgnoreCase(uri.getScheme());
+        boolean loopback = "http".equalsIgnoreCase(uri.getScheme())
+                && ("localhost".equalsIgnoreCase(uri.getHost())
+                    || "127.0.0.1".equals(uri.getHost())
+                    || "::1".equals(uri.getHost()));
+        if ((!secure && !loopback) || uri.isOpaque()
+                || uri.getHost() == null || uri.getHost().isBlank()
+                || uri.getUserInfo() != null || uri.getQuery() != null
+                || uri.getFragment() != null) {
+            throw new IllegalArgumentException(
+                    "agent endpoint must be HTTPS or loopback HTTP");
         }
     }
 }

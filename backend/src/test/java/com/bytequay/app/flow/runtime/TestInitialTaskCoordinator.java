@@ -419,7 +419,7 @@ class TestInitialTaskCoordinator
                 .thenReturn(Optional.of("ai-secret"));
         NewFlowAgentLaunches launches = new NewFlowAgentLaunches(
                 dataSource, runtime, credentials,
-                resolvingTo(new NewFlowAgentLaunches.Config(
+                resolvingTo(NewFlowAgentLaunches.Config.api(
                         "openai", TurnSpec.Transport.OPENAI_COMPAT,
                         "https://models.example.test/v1/chat/completions",
                         "test-model", "medium", "openai", "default api",

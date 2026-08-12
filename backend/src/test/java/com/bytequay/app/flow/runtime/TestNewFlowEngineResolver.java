@@ -139,7 +139,7 @@ class TestNewFlowEngineResolver
     }
 
     @Test
-    void anExplicitCliPickIsParkedRatherThanQuietlyDowngraded()
+    void anExplicitCliPickResolvesToACliLaunchNotAnApiOne()
     {
         workspace("ws-1");
         WorkModel picked = new WorkModel(WorkModelKind.CLI, "claude-code", null, null, null);
@@ -148,9 +148,41 @@ class TestNewFlowEngineResolver
         when(workModels.freeze(picked)).thenReturn(new WorkModel(
                 WorkModelKind.CLI, "claude-code", "claude-opus-4-8", null, null));
 
-        assertThatThrownBy(() -> resolver.resolve(task(), AgentRole.CI_FIXER))
-                .isInstanceOf(LaunchUnavailableException.class)
-                .hasMessageContaining("ENGINE_TRANSPORT_UNSUPPORTED");
+        Config config = resolver.resolve(task(), AgentRole.CI_FIXER);
+
+        assertThat(config.execution()).isEqualTo(AgentExecution.CLI);
+        assertThat(config.providerName()).isEqualTo("claude-code");
+        assertThat(config.model()).isEqualTo("claude-opus-4-8");
+        assertThat(config.cliBinary()).isEqualTo("claude");
+        // The absences are the point. A CLI turn is authorized by the user's own
+        // login, so a config that carried a credential name or an endpoint would
+        // be claiming an authorization this program does not hold.
+        assertThat(config.transport()).isNull();
+        assertThat(config.endpoint()).isNull();
+        assertThat(config.credentialName()).isNull();
+        assertThat(config.credentialInstance()).isNull();
+        assertThat(config.maxOutputTokens()).isNull();
+        assertThat(config.maxToolIterations()).isNull();
+    }
+
+    @Test
+    void aCodexPickNamesTheCodexBinary()
+    {
+        workspace("ws-1");
+        WorkModel picked = new WorkModel(WorkModelKind.CLI, "codex", null, null, null);
+        when(settings.forAudience("ws-1", "dev"))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(picked, true)));
+        when(workModels.freeze(picked)).thenReturn(new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5", null, "high"));
+        when(workModels.resolveEffort(any(), eq("codex"), eq("gpt-5"), eq("high")))
+                .thenReturn("high");
+
+        // Both CLI engines are supported; the workspace pick decides, not a
+        // compiled-in preference for one vendor's agent.
+        Config config = resolver.resolve(task(), AgentRole.TASK_AGENT);
+
+        assertThat(config.cliBinary()).isEqualTo("codex");
+        assertThat(config.reasoningEffort()).isEqualTo("high");
     }
 
     private void workspace(String workspaceId)

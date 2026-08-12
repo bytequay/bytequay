@@ -116,7 +116,7 @@ final class TestNewFlowEndToEnd
         TurnRunner runner = mock(TurnRunner.class);
         NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
         when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class))).thenReturn(
-                new NewFlowAgentLaunches.Config(
+                NewFlowAgentLaunches.Config.api(
                         "openai", TurnSpec.Transport.OPENAI_COMPAT,
                         "https://models.example.test/v1/chat/completions",
                         "test-model", "medium", "openai", "default api",

@@ -26,15 +26,18 @@ import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import com.bytequay.app.flow.github.GitHubInitialRepositoryObserver;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
+import com.bytequay.app.flow.timeline.TaskViews;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.agents.TurnRunner;
-import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.workmodel.WorkModelService;
+import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
@@ -271,47 +274,28 @@ public class NewFlowConfiguration
     }
 
     @Bean
+    public NewFlowEngineResolver newFlowEngineResolver(
+            FlowRuntime runtime,
+            JdbcTemplate jdbcTemplate,
+            WorkspaceEngineSettings engineSettings,
+            WorkModelService workModels,
+            ObjectMapper objectMapper)
+    {
+        return new NewFlowEngineResolver(
+                runtime, jdbcTemplate, engineSettings, workModels, objectMapper);
+    }
+
+    @Bean
     public NewFlowAgentLaunches newFlowAgentLaunches(
             @Qualifier("newFlowDataSource") DataSource dataSource,
             FlowRuntime runtime,
             CredentialStore credentials,
+            NewFlowEngineResolver engines,
             @Qualifier("newFlowClock") Clock clock,
-            ObjectMapper objectMapper,
-            @Value("${bytequay.new-flow.agents.provider-name:openai}")
-                    String providerName,
-            @Value("${bytequay.new-flow.agents.transport:OPENAI_COMPAT}")
-                    TurnSpec.Transport transport,
-            @Value("${bytequay.new-flow.agents.endpoint:https://api.openai.com/v1/chat/completions}")
-                    String endpoint,
-            @Value("${bytequay.new-flow.agents.model:gpt-5.2-codex}")
-                    String model,
-            @Value("${bytequay.new-flow.agents.reasoning-effort:medium}")
-                    String reasoningEffort,
-            @Value("${bytequay.new-flow.agents.credential-name:openai}")
-                    String credentialName,
-            @Value("${bytequay.new-flow.agents.credential-instance:default api}")
-                    String credentialInstance,
-            @Value("${bytequay.new-flow.agents.max-output-tokens:8192}")
-                    int maxOutputTokens,
-            @Value("${bytequay.new-flow.agents.max-tool-iterations:2}")
-                    int maxToolIterations)
+            ObjectMapper objectMapper)
     {
         return new NewFlowAgentLaunches(
-                dataSource,
-                runtime,
-                credentials,
-                new NewFlowAgentLaunches.Config(
-                        providerName,
-                        transport,
-                        endpoint,
-                        model,
-                        reasoningEffort.isBlank() ? null : reasoningEffort,
-                        credentialName,
-                        credentialInstance,
-                        maxOutputTokens,
-                        maxToolIterations),
-                clock,
-                objectMapper);
+                dataSource, runtime, credentials, engines, clock, objectMapper);
     }
 
     @Bean
@@ -357,6 +341,14 @@ public class NewFlowConfiguration
             @Qualifier("newFlowDataSource") DataSource dataSource)
     {
         return new PrTimelineProjection(dataSource);
+    }
+
+    @Bean
+    public TaskViews newFlowTaskViews(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            PrTimelineProjection timeline)
+    {
+        return new TaskViews(dataSource, timeline);
     }
 
     @Bean

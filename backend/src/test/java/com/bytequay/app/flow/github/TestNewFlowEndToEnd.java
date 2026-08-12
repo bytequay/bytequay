@@ -25,12 +25,15 @@ import com.bytequay.app.flow.gate.UserGateRecords.UserGate;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntime;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.LocalChecks;
 import com.bytequay.app.flow.runtime.LocalChecks.ProfileDefinition;
+import com.bytequay.app.flow.runtime.NewFlowAgentLaunches;
 import com.bytequay.app.flow.runtime.NewFlowConfiguration;
+import com.bytequay.app.flow.runtime.NewFlowEngineResolver;
 import com.bytequay.app.flow.runtime.TaskCommands;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -38,6 +41,9 @@ import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.workmodel.WorkModelService;
+import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -108,6 +114,13 @@ final class TestNewFlowEndToEnd
                         repository.toString(), null, null)));
         CredentialStore credentials = credentials();
         TurnRunner runner = mock(TurnRunner.class);
+        NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
+        when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class))).thenReturn(
+                new NewFlowAgentLaunches.Config(
+                        "openai", TurnSpec.Transport.OPENAI_COMPAT,
+                        "https://models.example.test/v1/chat/completions",
+                        "test-model", "medium", "openai", "default api",
+                        1024, 2));
         CountDownLatch reviewerEntered = new CountDownLatch(1);
         CountDownLatch policyReady = new CountDownLatch(1);
         AtomicInteger turns = new AtomicInteger();
@@ -135,6 +148,18 @@ final class TestNewFlowEndToEnd
                 .withBean(WatchedRepoStore.class, () -> watched)
                 .withBean(CredentialStore.class, () -> credentials)
                 .withBean(TurnRunner.class, () -> runner)
+                // The engine is workspace configuration in production; this
+                // trace is about the flow, so it pins one resolved engine
+                // instead of seeding settings rows.
+                .withBean(JdbcTemplate.class, () -> new JdbcTemplate(primary))
+                .withBean(WorkspaceEngineSettings.class,
+                        () -> mock(WorkspaceEngineSettings.class))
+                .withBean(WorkModelService.class, () -> mock(WorkModelService.class))
+                .withBean(
+                        "testEngineResolver",
+                        NewFlowEngineResolver.class,
+                        () -> engines,
+                        definition -> definition.setPrimary(true))
                 .withBean(
                         "testInitialRepositoryObserver",
                         GitHubInitialRepositoryObserver.class,
@@ -142,12 +167,7 @@ final class TestNewFlowEndToEnd
                         definition -> definition.setPrimary(true))
                 .withPropertyValues(
                         "bytequay.new-flow.database-path=" + database,
-                        "bytequay.new-flow.worktree-root=" + worktrees,
-                        "bytequay.new-flow.agents.endpoint="
-                                + "https://models.example.test/v1/chat/completions",
-                        "bytequay.new-flow.agents.model=test-model",
-                        "bytequay.new-flow.agents.max-output-tokens=1024",
-                        "bytequay.new-flow.agents.max-tool-iterations=2")
+                        "bytequay.new-flow.worktree-root=" + worktrees)
                 .withUserConfiguration(NewFlowConfiguration.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();

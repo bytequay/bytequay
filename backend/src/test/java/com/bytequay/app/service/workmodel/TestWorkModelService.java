@@ -142,6 +142,63 @@ class TestWorkModelService
     }
 
     @Test
+    void effortIsValidatedAgainstTheModelNotASharedEnum()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+        WorkModelService service = service(credentials);
+
+        // Claude and Codex do not share a ladder.
+        assertThat(service.resolveEffort(
+                WorkModelKind.CLI, "claude-code", "claude-opus-4-8", "xhigh"))
+                .isEqualTo("xhigh");
+        assertThat(service.resolveEffort(
+                WorkModelKind.API, "openai", "gpt-5", "minimal"))
+                .isEqualTo("minimal");
+        // xhigh is Claude-only, minimal is Codex-only: each falls back to the
+        // other engine's default rather than being sent and rejected upstream.
+        assertThat(service.resolveEffort(
+                WorkModelKind.API, "openai", "gpt-5", "xhigh"))
+                .isEqualTo("medium");
+        assertThat(service.resolveEffort(
+                WorkModelKind.CLI, "claude-code", "claude-opus-4-8", "minimal"))
+                .isEqualTo("high");
+        // Sonnet has no xhigh rung even though Opus does.
+        assertThat(service.resolveEffort(
+                WorkModelKind.API, "anthropic", "claude-sonnet-4-6", "xhigh"))
+                .isEqualTo("high");
+        // A model with no effort control sends none at all.
+        assertThat(service.resolveEffort(
+                WorkModelKind.API, "anthropic", "claude-haiku-4-5", "high"))
+                .isNull();
+    }
+
+    @Test
+    void codexEffortsComeFromItsLiveCatalogWhenAvailable()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+        CodexModelCatalogProbe codexModels = Mockito.mock(CodexModelCatalogProbe.class);
+        when(codexModels.models(false)).thenReturn(Optional.of(List.of(
+                new CodexModelCatalogProbe.Model(
+                        "gpt-6-preview",
+                        "GPT-6 preview",
+                        null,
+                        true,
+                        "low",
+                        List.of(new CodexModelCatalogProbe.ReasoningEffort("low", null),
+                                new CodexModelCatalogProbe.ReasoningEffort("ludicrous", null))))));
+        WorkModelService service = new WorkModelService(credentials, codexModels);
+
+        // The curated list never heard of this model or that rung; the live
+        // catalog is what Codex will actually accept.
+        assertThat(service.resolveEffort(
+                WorkModelKind.CLI, "codex", "gpt-6-preview", "ludicrous"))
+                .isEqualTo("ludicrous");
+        assertThat(service.resolveEffort(
+                WorkModelKind.CLI, "codex", "gpt-6-preview", "xhigh"))
+                .isEqualTo("low");
+    }
+
+    @Test
     void freezingACodexPickerChoiceCapturesTheLiveDefaultModel()
     {
         CredentialService credentials = Mockito.mock(CredentialService.class);

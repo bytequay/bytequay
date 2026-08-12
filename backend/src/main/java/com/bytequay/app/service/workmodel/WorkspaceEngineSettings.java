@@ -124,18 +124,27 @@ public class WorkspaceEngineSettings
             return Optional.of(new WorkModel(
                     WorkModelKind.API, LOCAL_PROVIDER, LOCAL_MODEL, null));
         }
-        String[] parts = value.split(":", 3);
+        String[] parts = value.split(":", 4);
         if (parts.length >= 2 && parts[0].equals("cli") && !parts[1].isBlank()) {
-            // No model id: the CLI keeps using whichever model it defaults to.
+            // Blank model id: the CLI keeps using whichever model it defaults to.
             return Optional.of(new WorkModel(
-                    WorkModelKind.CLI, parts[1], null, null));
+                    WorkModelKind.CLI, parts[1], segment(parts, 2), null,
+                    segment(parts, 3)));
         }
         if (parts.length >= 2 && parts[0].equals("api") && !parts[1].isBlank()) {
-            String account = parts.length == 3 && !parts[2].isBlank() ? parts[2] : null;
             return Optional.of(new WorkModel(
-                    WorkModelKind.API, parts[1], null, account));
+                    WorkModelKind.API, parts[1], null, segment(parts, 2),
+                    segment(parts, 3)));
         }
         return Optional.empty();
+    }
+
+    /** A missing or empty segment reads as unset, so {@code cli:codex::high}
+     *  means "the agent's default model, at high effort". */
+    private static String segment(String[] parts, int index)
+    {
+        return parts.length > index && !parts[index].isBlank()
+                ? parts[index].strip() : null;
     }
 
     /**

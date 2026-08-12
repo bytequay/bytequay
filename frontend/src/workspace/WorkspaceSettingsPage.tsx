@@ -28,8 +28,11 @@ import {
   choiceGlyph,
   choicesFrom,
   choiceText,
+  effortsFor,
   normalizeChoice,
   selectableChoice,
+  splitChoice,
+  withEffort,
 } from './agentChoices';
 
 const AUTOMATION_REFRESH_MS = 30_000;
@@ -360,6 +363,7 @@ export default function WorkspaceSettingsPage({
               <SettingsCard title="Engine" subtitle="every session in this workspace runs on this">
                 <ModelRow label="Workspace default" tone="default" value={settings.defaultModel}
                   choices={agentChoices}
+                  options={modelOptions}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('defaultModel', value)} />
@@ -372,6 +376,7 @@ export default function WorkspaceSettingsPage({
                   allowInherit
                   inherited={settings.defaultModel}
                   choices={agentChoices}
+                  options={modelOptions}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('planModel', value)} />
@@ -379,6 +384,7 @@ export default function WorkspaceSettingsPage({
                   allowInherit
                   inherited={settings.defaultModel}
                   choices={agentChoices}
+                  options={modelOptions}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('devModel', value)} />
@@ -386,6 +392,7 @@ export default function WorkspaceSettingsPage({
                   allowInherit
                   inherited={settings.defaultModel}
                   choices={agentChoices}
+                  options={modelOptions}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('reviewModel', value)} />
@@ -393,6 +400,7 @@ export default function WorkspaceSettingsPage({
                   allowInherit
                   inherited={settings.defaultModel}
                   choices={agentChoices}
+                  options={modelOptions}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('ciFixModel', value)} />
@@ -570,7 +578,7 @@ function SettingRow({ label, detail, children }: {
 }
 
 function ModelRow({
-  label, tone, value, inherited, choices, refreshing, allowInherit = false, onRefresh, onChange,
+  label, tone, value, inherited, choices, options, refreshing, allowInherit = false, onRefresh, onChange,
 }: {
   label: string;
   tone: string;
@@ -578,6 +586,8 @@ function ModelRow({
   /** Account-level default for this session kind, when known. */
   inherited?: string;
   choices: AgentChoice[];
+  /** Live catalog, for the effort ladder this engine's default model accepts. */
+  options: WorkModelOptionsDto | null;
   refreshing: boolean;
   /** Offer "Workspace default" as the first option, and keep an empty
    *  stored value meaning exactly that. */
@@ -586,9 +596,14 @@ function ModelRow({
   onChange: (value: string) => void;
 }) {
   const inheriting = allowInherit && value === INHERIT;
-  const selected = inheriting ? INHERIT : selectableChoice(value, choices);
+  const stored = inheriting ? INHERIT : selectableChoice(value, choices);
+  const { engine: selected, effort } = inheriting
+    ? { engine: INHERIT, effort: null }
+    : splitChoice(stored);
   const selectedChoice = choices.find(choice => choice.value === selected);
-  const overridden = !inheriting && inherited !== undefined && normalizeChoice(inherited) !== selected;
+  const efforts = inheriting ? { ids: [], fallback: null } : effortsFor(options, selected);
+  const overridden = !inheriting && inherited !== undefined
+    && splitChoice(normalizeChoice(inherited)).engine !== selected;
   return (
     <div className="wu-setting-row wu-model-row">
       <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
@@ -603,7 +618,8 @@ function ModelRow({
             ? 'Workspace default'
             : selectedChoice === undefined ? selected : choiceText(selectedChoice)}
         </span>
-        <select aria-label={`${label} model`} value={selected} onChange={event => onChange(event.target.value)}>
+        <select aria-label={`${label} model`} value={selected}
+          onChange={event => onChange(withEffort(event.target.value, effort))}>
           {allowInherit && <option value={INHERIT}>Workspace default</option>}
           {choices.map(choice => (
             <option key={choice.value} value={choice.value} disabled={choice.disabled}>
@@ -613,6 +629,17 @@ function ModelRow({
         </select>
         <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
       </label>
+      {efforts.ids.length > 0 && (
+        <label className="wu-model-picker wu-effort-picker">
+          <span className="wu-model-picker__value">{effort ?? `Default${efforts.fallback === null ? '' : ` · ${efforts.fallback}`}`}</span>
+          <select aria-label={`${label} reasoning effort`} value={effort ?? ''}
+            onChange={event => onChange(withEffort(selected, event.target.value === '' ? null : event.target.value))}>
+            <option value="">{`Default${efforts.fallback === null ? '' : ` · ${efforts.fallback}`}`}</option>
+            {efforts.ids.map(id => <option key={id} value={id}>{id}</option>)}
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+        </label>
+      )}
       <button type="button" className="wu-model-refresh" disabled={refreshing} onClick={onRefresh}>
         {refreshing ? 'Checking…' : 'Check'}
       </button>

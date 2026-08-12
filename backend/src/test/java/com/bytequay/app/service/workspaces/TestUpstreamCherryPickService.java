@@ -1404,6 +1404,9 @@ class TestUpstreamCherryPickService
                     local_gate_unavailable INTEGER NOT NULL DEFAULT 0,
                     spent_milli_usd INTEGER NOT NULL DEFAULT 0,
                     agent_session_id TEXT,
+                    pr_result TEXT
+                        CHECK (pr_result IS NULL
+                               OR pr_result IN ('merged', 'closed')),
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL)
                 """);

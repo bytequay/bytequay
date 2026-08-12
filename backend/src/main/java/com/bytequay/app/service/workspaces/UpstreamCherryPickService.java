@@ -75,7 +75,32 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class UpstreamCherryPickService
 {
+    /**
+     * Every read of a job row, plus the {@code RUN #12} label the run view and
+     * the sync list both show. The number is derived from creation order within
+     * the workspace rather than stored: it is a display label, never an identity,
+     * and deriving it keeps the list numbered 1..n after a run is deleted. The
+     * tie-break on id keeps two runs enqueued in the same millisecond stable.
+     */
+    private static final String JOB_COLUMNS = """
+            SELECT j.*, (
+                SELECT COUNT(*) FROM upstream_cherry_pick_job o
+                WHERE o.workspace_id = j.workspace_id
+                  AND (o.created_at_ms < j.created_at_ms
+                       OR (o.created_at_ms = j.created_at_ms AND o.id <= j.id))
+            ) AS run_number
+            FROM upstream_cherry_pick_job j
+            """;
+
     private static final int MAX_COMMITS = 500;
+    /**
+     * The run's ceiling, and the only hard stop on phase 2 — fix rounds are
+     * deliberately unbounded by count, because a compile failure masks every test
+     * behind it and a large range legitimately needs many rounds. Three rounds on
+     * a big range can already reach $60, so the old $100 cap ended long runs
+     * rather than guarding against a runaway one.
+     */
+    private static final long MAX_BUDGET_MILLI_USD = 1_000_000L;
     private static final int HISTORY_LIMIT = 5_000;
     private static final Set<String> LIVE_STATUSES = ImmutableSet.of("QUEUED", "RUNNING");
     private static final Logger log = LoggerFactory.getLogger(UpstreamCherryPickService.class);
@@ -201,10 +226,10 @@ public class UpstreamCherryPickService
         long budget = request.budgetMilliUsd() == null
                 ? 5_000L
                 : request.budgetMilliUsd();
-        if (budget < 100 || budget > 100_000L) {
+        if (budget < 100 || budget > MAX_BUDGET_MILLI_USD) {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
-                    "budgetMilliUsd must be between 100 and 100000");
+                    "budgetMilliUsd must be between 100 and " + MAX_BUDGET_MILLI_USD);
         }
 
         WorkspaceRelationService.ResolvedRelation relation =
@@ -470,10 +495,11 @@ public class UpstreamCherryPickService
                 WHERE id = ? AND closed_at_ms IS NULL
                 """, now(), now(), row.id());
         record(row.id(), null, "closed",
-                "Run closed " + reason + " — worktree removed",
-                "the result branch and this log are kept", null, null);
+                "Run closed " + reason, null, null, null);
         if (!activeJobs.contains(row.id())) {
             removeWorktree(requireRow(row.id()));
+            record(row.id(), null, "cleanup", "Removed the isolated worktree",
+                    row.worktreePath(), null, null);
         }
         releaseResources(row);
     }
@@ -490,6 +516,8 @@ public class UpstreamCherryPickService
     private void releaseResources(JobRow row)
     {
         removeAgentSession(row);
+        record(row.id(), null, "cleanup", "Dropped the agent session",
+                "its stored transcripts go with it", null, null);
         // The transcripts are by far the biggest thing in the log, and the run
         // they explain is finished. The agent's one-line summaries stay.
         jdbc.update("""
@@ -544,6 +572,9 @@ public class UpstreamCherryPickService
                     relations.requireResolved(row.workspaceId());
             if (git.refExists(relation.targetClone(), row.resultBranch())) {
                 git.deleteBranches(relation.targetClone(), List.of(row.resultBranch()));
+                record(row.id(), null, "cleanup",
+                        "Deleted local " + row.resultBranch(),
+                        "the remote copy is the one that matters now", null, null);
             }
         }
         catch (InterruptedException e) {
@@ -557,6 +588,48 @@ public class UpstreamCherryPickService
     }
 
     /**
+     * Removes the pushed branch, once its pull request is merged.
+     *
+     * <p>Only on a merge. A pull request closed without merging leaves commits
+     * on that branch that exist nowhere else, and deleting it would be the one
+     * step of the teardown that destroys work rather than releasing a hold.
+     *
+     * <p>Best-effort like the rest of the teardown: a branch GitHub already
+     * deleted on merge, or one a user removed by hand, is a normal outcome and
+     * is recorded as already gone rather than retried.
+     */
+    private void deleteRemoteBranch(JobRow row)
+    {
+        if (row.prNumber() == null || row.resultBranch() == null) {
+            return;
+        }
+        try {
+            WorkspaceRelationService.ResolvedRelation relation =
+                    relations.requireResolved(row.workspaceId());
+            git.deleteRemoteBranch(
+                    relation.targetClone(), "origin", row.resultBranch());
+            record(row.id(), null, "cleanup",
+                    "Deleted remote " + row.resultBranch(),
+                    "the merge is the only copy that matters now", null, null);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("deleting remote sync branch {} was interrupted",
+                    row.resultBranch());
+        }
+        catch (IOException | RuntimeException e) {
+            // Most often it is simply not there any more, which is the state we
+            // wanted. Recorded either way so the receipt never claims a delete
+            // that did not happen.
+            record(row.id(), null, "cleanup",
+                    "Remote " + row.resultBranch() + " was not deleted",
+                    e.getMessage() == null
+                            ? "it may already be gone" : e.getMessage(),
+                    null, null);
+        }
+    }
+
+    /**
      * The second way a run closes: its pull request reached a terminal state on
      * the remote, so neither the run nor the worktree it holds has anything left
      * to do. Polled on a background cadence — never on a user's turn.
@@ -564,10 +637,10 @@ public class UpstreamCherryPickService
     @Scheduled(fixedDelay = 300_000, initialDelay = 120_000)
     public void closeRunsWhosePullRequestEnded()
     {
-        for (JobRow row : jdbc.query("""
-                SELECT * FROM upstream_cherry_pick_job
-                WHERE closed_at_ms IS NULL AND pr_number IS NOT NULL
-                """, this::mapRow)) {
+        for (JobRow row : jdbc.query(
+                JOB_COLUMNS + """
+                        WHERE j.closed_at_ms IS NULL AND j.pr_number IS NOT NULL
+                        """, this::mapRow)) {
             try {
                 WorkspaceRelationService.ResolvedRelation relation =
                         relations.requireResolved(row.workspaceId());
@@ -576,11 +649,26 @@ public class UpstreamCherryPickService
                         .filter(status -> PR.STATUS_MERGED.equals(status)
                                 || PR.STATUS_CLOSED.equals(status))
                         .ifPresent(status -> {
+                            boolean merged = PR.STATUS_MERGED.equals(status);
+                            // Written before the close, because the close tears
+                            // the run down and nothing afterwards can ask its
+                            // pull request how it ended.
+                            jdbc.update("""
+                                    UPDATE upstream_cherry_pick_job
+                                    SET pr_result = ?, updated_at_ms = ?
+                                    WHERE id = ? AND pr_result IS NULL
+                                    """,
+                                    merged ? "merged" : "closed", now(), row.id());
                             closeRun(
                                     requireRow(row.id()),
                                     "— pull request #" + row.prNumber() + " was "
-                                            + (PR.STATUS_MERGED.equals(status)
-                                                    ? "merged" : "closed"));
+                                            + (merged ? "merged" : "closed"));
+                            // Phase 3. Only a merge authorizes this: a closed
+                            // pull request's branch may hold the only copy of
+                            // commits nobody has anywhere else.
+                            if (merged) {
+                                deleteRemoteBranch(requireRow(row.id()));
+                            }
                         });
             }
             catch (RuntimeException e) {
@@ -814,12 +902,12 @@ public class UpstreamCherryPickService
     public List<UpstreamCherryPickJobDto> list(String workspaceId, int requestedLimit)
     {
         int limit = Math.clamp(requestedLimit, 1, 100);
-        return jdbc.query("""
-                SELECT * FROM upstream_cherry_pick_job
-                WHERE workspace_id = ?
-                ORDER BY created_at_ms DESC
-                LIMIT ?
-                """, this::mapRow, workspaceId, limit).stream()
+        return jdbc.query(
+                JOB_COLUMNS + """
+                        WHERE j.workspace_id = ?
+                        ORDER BY j.created_at_ms DESC
+                        LIMIT ?
+                        """, this::mapRow, workspaceId, limit).stream()
                 .map(JobRow::dto)
                 .toList();
     }
@@ -917,10 +1005,20 @@ public class UpstreamCherryPickService
             throws IOException, InterruptedException
     {
         JobRow row = requireOpen(workspaceId, id);
-        if (additionalMilliUsd < 100 || additionalMilliUsd > 1_000_000) {
+        if (additionalMilliUsd < 100 || additionalMilliUsd > MAX_BUDGET_MILLI_USD) {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
-                    "additionalMilliUsd must be between 100 and 1000000");
+                    "additionalMilliUsd must be between 100 and "
+                            + MAX_BUDGET_MILLI_USD);
+        }
+        // The increment was bounded but the total was not, so a large raise used
+        // to fail on the column CHECK rather than be refused with a reason.
+        if (row.budgetMilliUsd() + additionalMilliUsd > MAX_BUDGET_MILLI_USD) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "the run's budget cannot exceed " + MAX_BUDGET_MILLI_USD
+                            + " milli-USD; it is already "
+                            + row.budgetMilliUsd());
         }
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
@@ -1829,9 +1927,8 @@ public class UpstreamCherryPickService
 
     private JobRow requireRow(String id)
     {
-        List<JobRow> rows = jdbc.query("""
-                SELECT * FROM upstream_cherry_pick_job WHERE id = ?
-                """, this::mapRow, id);
+        List<JobRow> rows = jdbc.query(
+                JOB_COLUMNS + "WHERE j.id = ?", this::mapRow, id);
         if (rows.isEmpty()) {
             throw new NoSuchElementException("no upstream cherry-pick job: " + id);
         }
@@ -1845,6 +1942,7 @@ public class UpstreamCherryPickService
         Integer prNumber = rs.wasNull() ? null : pr;
         return new JobRow(
                 rs.getString("id"),
+                rs.getInt("run_number"),
                 rs.getString("workspace_id"),
                 rs.getString("upstream_workspace_id"),
                 rs.getString("status"),
@@ -1874,6 +1972,7 @@ public class UpstreamCherryPickService
                 prNumber,
                 rs.getString("pr_url"),
                 rs.getString("harness_watch_id"),
+                rs.getString("pr_result"),
                 rs.getString("error_message"),
                 closedAt(rs),
                 Instant.ofEpochMilli(rs.getLong("created_at_ms")),
@@ -2098,6 +2197,11 @@ public class UpstreamCherryPickService
 
     public record UpstreamCherryPickJobDto(
             String jobId,
+            /**
+             * The run's {@code RUN #12} label, derived from creation order within
+             * the workspace. A display label, never an identity.
+             */
+            int runNumber,
             String workspaceId,
             String upstreamWorkspaceId,
             String status,
@@ -2105,6 +2209,13 @@ public class UpstreamCherryPickService
             String resultBranch,
             String baseRef,
             int requestedCount,
+            /**
+             * The range's oldest and newest selected commit — the {@code a1b2c3d
+             * -> e4f5g6h} pair the sync list shows. Both null for a run with no
+             * range of its own.
+             */
+            String rangeFromSha,
+            String rangeToSha,
             int appliedCount,
             int skippedCount,
             int conflictedCount,
@@ -2121,6 +2232,8 @@ public class UpstreamCherryPickService
             Integer prNumber,
             String prUrl,
             String harnessWatchId,
+            /** {@code merged | closed} once the pull request ended; null while open. */
+            String prResult,
             String errorMessage,
             /** Set once the user closed the run; every action but reading is refused after. */
             Instant closedAt,
@@ -2159,6 +2272,7 @@ public class UpstreamCherryPickService
 
     private record JobRow(
             String id,
+            int runNumber,
             String workspaceId,
             String upstreamWorkspaceId,
             String status,
@@ -2188,6 +2302,7 @@ public class UpstreamCherryPickService
             Integer prNumber,
             String prUrl,
             String harnessWatchId,
+            String prResult,
             String errorMessage,
             Instant closedAt,
             Instant createdAt,
@@ -2197,6 +2312,7 @@ public class UpstreamCherryPickService
         {
             return new UpstreamCherryPickJobDto(
                     id,
+                    runNumber,
                     workspaceId,
                     upstreamWorkspaceId,
                     status,
@@ -2204,6 +2320,8 @@ public class UpstreamCherryPickService
                     resultBranch,
                     baseRef,
                     specs.size(),
+                    specs.isEmpty() ? null : specs.getFirst().sha(),
+                    specs.isEmpty() ? null : specs.getLast().sha(),
                     appliedShas.size(),
                     skippedShas.size(),
                     conflictedShas.size(),
@@ -2217,6 +2335,7 @@ public class UpstreamCherryPickService
                     prNumber,
                     prUrl,
                     harnessWatchId,
+                    prResult,
                     errorMessage,
                     closedAt,
                     createdAt,

@@ -72,6 +72,12 @@
   cursor: default !important;
 }
 
+/* Opt back in per control. Outranks the rule above (0,3,1 vs 0,2,1), so a
+   button that needs to read as clickable can say so. */
+:root button.ui-hand:not(:disabled) {
+  cursor: pointer !important;
+}
+
 :root[data-theme="github-light"] ::selection {
   background: rgba(9, 105, 218, 0.18);
 }

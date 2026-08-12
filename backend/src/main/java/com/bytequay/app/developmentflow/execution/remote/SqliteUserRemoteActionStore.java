@@ -163,6 +163,19 @@ public class SqliteUserRemoteActionStore
     @Override
     public Action require(String operationId)
     {
+        return find(operationId).orElseThrow(() -> new IllegalStateException(
+                "Exact V2 user remote action is missing"));
+    }
+
+    /**
+     * Empty when the operation belongs to another ledger. Callers that route
+     * between ledgers must ask with this rather than catching {@link #require}'s
+     * failure: this is a {@code @Repository}, so Spring's persistence-exception
+     * translation rewrites the thrown type and a typed catch silently misses.
+     */
+    @Override
+    public Optional<Action> find(String operationId)
+    {
         List<Action> rows = jdbc.query("""
                 SELECT action.*
                 FROM v2_user_remote_action_v270 action
@@ -171,11 +184,7 @@ public class SqliteUserRemoteActionStore
                 WHERE dispatch.operation_id = ?
                   AND action.operation_id = dispatch.operation_id
                 """, (rs, row) -> action(rs), operationId);
-        if (rows.size() != 1) {
-            throw new IllegalStateException(
-                    "Exact V2 user remote action is missing");
-        }
-        return rows.getFirst();
+        return rows.size() == 1 ? Optional.of(rows.getFirst()) : Optional.empty();
     }
 
     @Override

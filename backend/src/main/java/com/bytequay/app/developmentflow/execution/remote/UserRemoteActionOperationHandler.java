@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.digest;
 import static java.util.Objects.requireNonNull;
@@ -277,6 +278,9 @@ public final class UserRemoteActionOperationHandler
     public interface OperationStore
     {
         Action require(String operationId);
+
+        /** Empty when the operation is owned by a different ledger. */
+        Optional<Action> find(String operationId);
 
         Action claim(
                 String actionId,

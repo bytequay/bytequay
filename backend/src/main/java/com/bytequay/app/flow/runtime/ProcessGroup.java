@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -67,8 +68,61 @@ final class ProcessGroup
     /**
      * @param pgid the group every process of this turn belongs to, and the only
      *         handle needed to signal or bury it later
+     * @param leaderStartedAt when the group leader began, or null when the OS
+     *         would not say. Persisted with the group id because a pgid on its
+     *         own is not an identity: once the group empties the OS may hand the
+     *         same number to somebody else, and a restart that buried it on the
+     *         number alone would kill an unrelated process group.
      */
-    record Spawned(Process process, long pgid) {}
+    record Spawned(Process process, long pgid, Instant leaderStartedAt) {}
+
+    /**
+     * What a persisted group turns out to be after a restart.
+     *
+     * <p>The three answers are deliberately not two. {@code GONE} admits a
+     * successor writer, {@code OURS} must be buried before one is admitted, and
+     * {@code UNCERTAIN} is neither — burying it might kill a stranger's processes
+     * and admitting past it might hand a live agent's worktree to its successor.
+     * A restart that cannot tell the difference has to stop and say so.
+     */
+    enum Reclaimed
+    {
+        /** No process of that group is alive, or the number was recycled. */
+        GONE,
+        /** The group we recorded, still running. */
+        OURS,
+        /** Alive, but not provably the group we recorded. */
+        UNCERTAIN
+    }
+
+    /**
+     * Decides what a group id persisted by an earlier JVM refers to now.
+     *
+     * @param leaderStartedAt what {@link Spawned#leaderStartedAt} recorded
+     */
+    static Reclaimed reclaim(long pgid, Instant leaderStartedAt)
+            throws InterruptedException
+    {
+        if (!isAlive(pgid)) {
+            // Either it ended, or the number was recycled onto a process that
+            // leads no group. Both mean nothing of ours is running.
+            return Reclaimed.GONE;
+        }
+        ProcessHandle leader = ProcessHandle.of(pgid).orElse(null);
+        if (leader == null || !leader.isAlive()) {
+            // Members outlived their leader, which is the orphan case this class
+            // exists for — but with the leader gone there is nothing left to
+            // compare a start time against, so the group cannot be identified.
+            return Reclaimed.UNCERTAIN;
+        }
+        Instant now = leader.info().startInstant().orElse(null);
+        if (leaderStartedAt == null || now == null) {
+            return Reclaimed.UNCERTAIN;
+        }
+        // A leader alive with a different start time is not the one we recorded,
+        // so our group must have emptied before the number was reused.
+        return leaderStartedAt.equals(now) ? Reclaimed.OURS : Reclaimed.GONE;
+    }
 
     /**
      * Starts {@code argv} as its own process group.
@@ -107,7 +161,12 @@ final class ProcessGroup
                 "BQ_PGID_FILE", groupIdFile.toAbsolutePath().toString());
         Process process = builder.start();
         long pgid = awaitGroupId(groupIdFile, process);
-        return new Spawned(process, pgid);
+        // Read while the leader is still the thing we just started; asking later
+        // would be asking about whatever holds the number by then.
+        Instant leaderStartedAt = ProcessHandle.of(pgid)
+                .flatMap(leader -> leader.info().startInstant())
+                .orElse(null);
+        return new Spawned(process, pgid, leaderStartedAt);
     }
 
     /** Whether any process in the group is still alive. */

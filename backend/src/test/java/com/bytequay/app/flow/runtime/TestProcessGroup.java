@@ -121,6 +121,82 @@ final class TestProcessGroup
     }
 
     @Test
+    void aLiveGroupIsReclaimedByItsRecordedStartTime(@TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        ProcessGroup.Spawned spawned = ProcessGroup.start(
+                List.of("sleep", SLEEP), root, Map.of(), root.resolve("pgid"));
+        try {
+            // What a restart does before admitting a successor writer: this is
+            // the group we recorded, so it has to be buried rather than
+            // stepped around.
+            assertThat(spawned.leaderStartedAt()).isNotNull();
+            assertThat(ProcessGroup.reclaim(
+                    spawned.pgid(), spawned.leaderStartedAt()))
+                    .isEqualTo(ProcessGroup.Reclaimed.OURS);
+        }
+        finally {
+            ProcessGroup.bury(spawned.pgid());
+        }
+    }
+
+    @Test
+    void aBuriedGroupIsGone(@TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        ProcessGroup.Spawned spawned = ProcessGroup.start(
+                List.of("sleep", SLEEP), root, Map.of(), root.resolve("pgid"));
+        assertThat(ProcessGroup.bury(spawned.pgid())).isEmpty();
+
+        // The ordinary restart: nothing of ours is running, so the successor
+        // writer may have the worktree.
+        assertThat(ProcessGroup.reclaim(
+                spawned.pgid(), spawned.leaderStartedAt()))
+                .isEqualTo(ProcessGroup.Reclaimed.GONE);
+    }
+
+    @Test
+    void aRecycledGroupNumberIsNotOurGroup(@TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        // The trap a bare pgid walks into. Once a group empties the OS may hand
+        // the number to somebody else, and burying on the number alone would
+        // kill a stranger's processes. A start time that does not match is the
+        // proof that our group already ended.
+        ProcessGroup.Spawned spawned = ProcessGroup.start(
+                List.of("sleep", SLEEP), root, Map.of(), root.resolve("pgid"));
+        try {
+            assertThat(ProcessGroup.reclaim(
+                    spawned.pgid(),
+                    spawned.leaderStartedAt().minusSeconds(600)))
+                    .isEqualTo(ProcessGroup.Reclaimed.GONE);
+        }
+        finally {
+            ProcessGroup.bury(spawned.pgid());
+        }
+    }
+
+    @Test
+    void anUnidentifiableLiveGroupIsUncertainRatherThanEitherAnswer(
+            @TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        // No recorded start time and a live group: burying it might kill a
+        // stranger, admitting past it might hand a live agent's worktree to its
+        // successor. Neither is safe to guess, so this is the one case that
+        // stops the run instead of resolving it.
+        ProcessGroup.Spawned spawned = ProcessGroup.start(
+                List.of("sleep", SLEEP), root, Map.of(), root.resolve("pgid"));
+        try {
+            assertThat(ProcessGroup.reclaim(spawned.pgid(), null))
+                    .isEqualTo(ProcessGroup.Reclaimed.UNCERTAIN);
+        }
+        finally {
+            ProcessGroup.bury(spawned.pgid());
+        }
+    }
+
+    @Test
     void refusesToSignalItsOwnGroupOrInit()
     {
         // Group 0 means "the caller's own group", so a bug that let it through

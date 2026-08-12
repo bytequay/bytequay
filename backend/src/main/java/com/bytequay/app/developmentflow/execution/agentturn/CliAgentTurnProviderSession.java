@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.execution.agentturn;
 
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.service.agents.cli.CliAgentArgv;
 import com.bytequay.app.service.threads.CliStreamParser;
 import com.bytequay.app.service.threads.CodexJsonParser;
 import com.bytequay.app.service.threads.StreamJsonParser;
@@ -25,7 +26,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,10 +46,6 @@ import static java.util.Objects.requireNonNull;
 public final class CliAgentTurnProviderSession
         implements AgentTurnProviderSession
 {
-    private static final String CLAUDE_ISOLATED_SETTINGS =
-            "{\"autoMemoryEnabled\":false,\"attribution\":{\"commit\":\"\"}}";
-    private static final String CLAUDE_READ_ONLY_TOOLS =
-            "Read,Glob,Grep,WebFetch,WebSearch";
     private static final String CLAUDE_REVIEW_TOOLS =
             "mcp__bytequay__record_assignment,mcp__bytequay__record_hypothesis,"
             + "mcp__bytequay__record_step,mcp__bytequay__read_diff,"
@@ -93,6 +89,12 @@ public final class CliAgentTurnProviderSession
         return new CliSession(request, provider, executable, observer, mapper);
     }
 
+    /**
+     * Maps this flow's request onto the shared launch. The vendor flags live in
+     * {@link CliAgentArgv}; what stays here is this flow's own policy — which
+     * tool profile earns which allowlist — because that is the part the
+     * greenfield runtime does not share.
+     */
     static List<String> buildArgv(
             Request request,
             CliProvider provider,
@@ -100,111 +102,37 @@ public final class CliAgentTurnProviderSession
             Path mcpConfig)
     {
         requireNonNull(request, "request is null");
-        if (provider == CliProvider.CLAUDE_CODE) {
-            ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
-                    .add(executable)
-                    .add("-p")
-                    .add("--output-format", "stream-json")
-                    .add("--verbose")
-                    .add("--setting-sources", "")
-                    .add("--disable-slash-commands")
-                    .add("--no-chrome")
-                    .add("--settings", CLAUDE_ISOLATED_SETTINGS)
-                    .add("--include-partial-messages")
-                    .add("--mcp-config", requireNonNull(
-                            mcpConfig, "Claude MCP config is null").toString())
-                    .add("--strict-mcp-config");
-            if (request.permissionPromptTool() != null) {
-                argv.add("--permission-prompt-tool",
-                        request.permissionPromptTool());
-            }
-            argv.add("--model", request.model());
-            if (request.reasoningEffort() != null) {
-                argv.add("--effort", request.reasoningEffort());
-            }
-            if (request.maxCostUsdMilli() != null) {
-                argv.add("--max-budget-usd", BigDecimal.valueOf(
-                                request.maxCostUsdMilli(), 3)
-                        .stripTrailingZeros().toPlainString());
-            }
-            if (request.access() == READ_ONLY) {
-                argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
-            }
-            if (!request.preapprovedMcpTools().isEmpty()) {
-                argv.add("--allowedTools", request.preapprovedMcpTools().stream()
-                        .sorted()
-                        .map(tool -> "mcp__" + request.toolEndpoint().serverName()
-                                + "__" + tool)
-                        .collect(Collectors.joining(",")));
-            }
-            if (request.toolEndpoint().profile()
-                    == ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY) {
-                argv.add("--allowedTools", CLAUDE_REVIEW_TOOLS);
-            }
-            if (request.systemPrompt() != null) {
-                argv.add("--append-system-prompt", request.systemPrompt());
-            }
-            if (request.resumeSessionId() != null) {
-                argv.add("--resume", request.resumeSessionId());
-            }
-            request.images().stream()
-                    .map(AgentTurnProviderSession.ImageAttachment::path)
-                    .map(Path::of)
-                    .map(Path::getParent)
-                    .distinct()
-                    .forEach(directory -> argv.add(
-                            "--add-dir", directory.toString()));
-            if (!request.images().isEmpty()) {
-                argv.add("--allowedTools", request.images().stream()
+        ImmutableList.Builder<String> allowed = ImmutableList.builder();
+        if (!request.preapprovedMcpTools().isEmpty()) {
+            allowed.add(request.preapprovedMcpTools().stream()
+                    .sorted()
+                    .map(tool -> "mcp__" + request.toolEndpoint().serverName()
+                            + "__" + tool)
+                    .collect(Collectors.joining(",")));
+        }
+        if (request.toolEndpoint().profile()
+                == ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY) {
+            allowed.add(CLAUDE_REVIEW_TOOLS);
+        }
+        return CliAgentArgv.of(new CliAgentArgv.Launch(
+                provider == CliProvider.CLAUDE_CODE
+                        ? CliAgentArgv.Vendor.CLAUDE_CODE
+                        : CliAgentArgv.Vendor.CODEX,
+                executable,
+                request.model(),
+                request.reasoningEffort(),
+                request.workingDirectory(),
+                request.systemPrompt(),
+                request.access() == READ_ONLY,
+                mcpConfig,
+                request.toolEndpoint().url(),
+                request.permissionPromptTool(),
+                request.maxCostUsdMilli(),
+                request.resumeSessionId(),
+                allowed.build(),
+                request.images().stream()
                         .map(AgentTurnProviderSession.ImageAttachment::path)
-                        .map(CliAgentTurnProviderSession::absoluteReadRule)
-                        .reduce((left, right) -> left + "," + right)
-                        .orElseThrow());
-            }
-            return argv.build();
-        }
-
-        ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
-                .add(executable)
-                // Replace the complete MCP table. Combined with
-                // --ignore-user-config this exposes one owner-scoped server,
-                // never an inherited personal MCP catalog.
-                .add("-c", "mcp_servers={bytequay={url=\""
-                        + request.toolEndpoint().url()
-                        + "\",default_tools_approval_mode=\"approve\"}}")
-                .add("-c", "experimental_use_rmcp_client=true")
-                .add("-c", "project_doc_max_bytes=0");
-        if (request.reasoningEffort() != null) {
-            argv.add("-c", "model_reasoning_effort=\""
-                    + request.reasoningEffort() + "\"");
-        }
-        argv.add("exec")
-                .add("--ignore-user-config");
-        if (request.resumeSessionId() != null) {
-            // The recorded session already owns its cwd and sandbox. Codex
-            // rejects those first-turn flags after the resume subcommand.
-            argv.add("resume")
-                    .add("--json")
-                    .add("--skip-git-repo-check")
-                    .add("-m", request.model());
-        }
-        else {
-            argv.add("--json")
-                    .add("--skip-git-repo-check")
-                    .add("--sandbox", request.access() == READ_ONLY
-                            ? "read-only" : "workspace-write")
-                    .add("-C", request.workingDirectory().toString())
-                    .add("-m", request.model());
-        }
-        request.images().forEach(image -> argv.add("-i", image.path()));
-        if (request.resumeSessionId() != null) {
-            argv.add(request.resumeSessionId());
-        }
-        // Keep the frozen fallback out of argv. Stage reconstruction can be
-        // large, and an expired-session restart must not fail at exec(2)'s
-        // argument-size limit before the provider can read it.
-        argv.add("-");
-        return argv.build();
+                        .toList()));
     }
 
     private static String composePrompt(Request request)
@@ -242,12 +170,6 @@ public final class CliAgentTurnProviderSession
                 + String.join("\n- ", request.images().stream()
                         .map(AgentTurnProviderSession.ImageAttachment::path)
                         .toList());
-    }
-
-    /** Claude permission patterns use a double slash for an absolute path. */
-    private static String absoluteReadRule(String image)
-    {
-        return "Read(/" + Path.of(image).toAbsolutePath().normalize() + ")";
     }
 
     private static final class CliSession

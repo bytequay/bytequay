@@ -17,10 +17,11 @@ import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.flow.ci.CiAutofix;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.LearningCompletionState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.ci.CiLearningCoordinator;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
 import com.bytequay.app.flow.gate.UserGateRecords.UserGate;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
@@ -254,8 +255,10 @@ final class TestNewFlowEndToEnd
                     assertThat(effects.initialPublishStepReceipts(
                             initialPlan.planId())).hasSize(2);
 
-                    CiAutofixCoordinator coordinator = context.getBean(
-                            CiAutofixCoordinator.class);
+                    CiObservationCoordinator coordinator = context.getBean(
+                            CiObservationCoordinator.class);
+                    CiLearningCoordinator learning = context.getBean(
+                            CiLearningCoordinator.class);
                     CiAutofixDispatcher agents = context.getBean(
                             CiAutofixDispatcher.class);
                     try (var dispatcher = new GitHubCiObservationDispatcher(
@@ -321,11 +324,11 @@ final class TestNewFlowEndToEnd
                     String learningOperation = jdbc.queryForObject(
                             "SELECT learning_operation_id FROM flow_ci_lesson",
                             String.class);
-                    var completion = coordinator.learningCompletion(
+                    var completion = learning.learningCompletion(
                             learningOperation).orElseThrow();
                     assertThat(completion.state()).isEqualTo(
                             LearningCompletionState.CANDIDATE);
-                    assertThat(coordinator.lesson(completion.lessonId()))
+                    assertThat(learning.lesson(completion.lessonId()))
                             .hasValueSatisfying(lesson -> {
                                 assertThat(lesson.title())
                                         .isEqualTo("Exact CI repair");

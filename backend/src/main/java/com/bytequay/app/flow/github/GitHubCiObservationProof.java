@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
+import com.bytequay.app.flow.ci.CiObservationCoordinator.CiObservationActivation;
 
 import java.util.List;
 import java.util.Map;

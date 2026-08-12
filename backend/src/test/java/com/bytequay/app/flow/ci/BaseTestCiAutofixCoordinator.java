@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.flow.ci;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CleanupBinding;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairBinding;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
@@ -23,6 +21,8 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator.CleanupBinding;
+import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGates;
@@ -132,7 +132,13 @@ abstract class BaseTestCiAutofixCoordinator
 
     UserGates userGates;
 
-    CiAutofixCoordinator coordinator;
+    CiRepairCoordinator repairCoordinator;
+
+    CiCleanupCoordinator cleanupCoordinator;
+
+    CiLearningCoordinator learningCoordinator;
+
+    CiObservationCoordinator observationCoordinator;
 
     Task task;
 
@@ -202,8 +208,7 @@ abstract class BaseTestCiAutofixCoordinator
                 autofix,
                 githubEffects,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
+        rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
     }
 
@@ -636,7 +641,7 @@ abstract class BaseTestCiAutofixCoordinator
                 red.checkObservationIds().getFirst(),
                 "failure".getBytes(StandardCharsets.UTF_8),
                 List.of());
-        return coordinator.enqueueRepair(red.roundId()).round();
+        return repairCoordinator.enqueueRepair(red.roundId()).round();
     }
 
     void publishCheckPolicy(String name, List<String> command)
@@ -696,10 +701,10 @@ abstract class BaseTestCiAutofixCoordinator
     ReviewReady prepareCleanCleanupReview(String suffix)
     {
         ReservedCleanup reserved = reserveCleanup(suffix);
-        CleanupBinding cleanup = coordinator.beginCleanup(
+        CleanupBinding cleanup = cleanupCoordinator.beginCleanup(
                 reserved.claim(), repositoryRoot, TTL).orElseThrow();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchCleanup(
+        var handle = cleanupCoordinator.launchCleanup(
                 supervisor,
                 cleanup,
                 reserved.claim(),
@@ -722,10 +727,10 @@ abstract class BaseTestCiAutofixCoordinator
                             "opaque cleanup " + suffix,
                             null);
                 });
-        coordinator.awaitCleanup(
+        cleanupCoordinator.awaitCleanup(
                 supervisor, cleanup, handle, TTL);
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
-        assertThat(coordinator.selectNext(reconciliation).orElseThrow().kind())
+        assertThat(repairCoordinator.selectNext(reconciliation).orElseThrow().kind())
                 .isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
         CiFixReviewCoordinator review = new CiFixReviewCoordinator(
@@ -757,7 +762,7 @@ abstract class BaseTestCiAutofixCoordinator
             String suffix, StartedRepair started)
     {
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -773,10 +778,10 @@ abstract class BaseTestCiAutofixCoordinator
                             "opaque fixer " + suffix,
                             null);
                 });
-        coordinator.awaitRepair(
+        repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
-        Operation selected = coordinator.selectNext(reconciliation)
+        Operation selected = repairCoordinator.selectNext(reconciliation)
                 .orElseThrow();
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
@@ -894,9 +899,9 @@ abstract class BaseTestCiAutofixCoordinator
 
     StartedRepair startRepair(CiRound red)
     {
-        CiRound round = coordinator.enqueueRepair(red.roundId()).round();
+        CiRound round = repairCoordinator.enqueueRepair(red.roundId()).round();
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
-        Operation selected = coordinator.selectNext(reconciliation)
+        Operation selected = repairCoordinator.selectNext(reconciliation)
                 .orElseThrow();
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_CI_FIXER);
         Claim fix = claim(OperationKind.RUN_CI_FIXER);
@@ -910,7 +915,7 @@ abstract class BaseTestCiAutofixCoordinator
                         input.headTreeDigest(),
                         "ci-input:" + input.changeSetRevisionId()),
                 TTL);
-        RepairBinding binding = coordinator.beginRepair(
+        RepairBinding binding = repairCoordinator.beginRepair(
                 round.roundId(), fix, fence);
         return new StartedRepair(fix, fence, binding);
     }
@@ -926,7 +931,7 @@ abstract class BaseTestCiAutofixCoordinator
                         "opaque predecessor " + suffix,
                         null);
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = coordinator.launchRepair(
+        var handle = repairCoordinator.launchRepair(
                 supervisor,
                 started.binding(),
                 started.claim(),
@@ -950,7 +955,7 @@ abstract class BaseTestCiAutofixCoordinator
                     });
                     return predecessorCompletion;
                 });
-        coordinator.awaitRepair(
+        repairCoordinator.awaitRepair(
                 supervisor, started.binding(), handle, TTL);
         CiRepairAttempt predecessor = autofix.repairAttempt(
                 started.binding().attempt().attemptId()).orElseThrow();
@@ -988,8 +993,8 @@ abstract class BaseTestCiAutofixCoordinator
                 "failure".getBytes(StandardCharsets.UTF_8),
                 List.of());
 
-        var first = coordinator.enqueueRepair(red.roundId());
-        var duplicate = coordinator.enqueueRepair(red.roundId());
+        var first = repairCoordinator.enqueueRepair(red.roundId());
+        var duplicate = repairCoordinator.enqueueRepair(red.roundId());
 
         assertThat(duplicate).isEqualTo(first);
         assertThat(first.round().state()).isEqualTo(RoundState.FINAL_RED);
@@ -1023,14 +1028,14 @@ abstract class BaseTestCiAutofixCoordinator
         if (parkedStatus != null) {
             transition(parkedStatus);
         }
-        var queued = coordinator.enqueueRepair(red.roundId());
+        var queued = repairCoordinator.enqueueRepair(red.roundId());
         assertThat(queued.round().state()).isEqualTo(RoundState.QUEUED);
         assertThat(queued.reconciliationOperationId()).isNotNull();
 
         transition(terminal);
         restart();
-        var terminalRegistration = coordinator.enqueueRepair(red.roundId());
-        var duplicate = coordinator.enqueueRepair(red.roundId());
+        var terminalRegistration = repairCoordinator.enqueueRepair(red.roundId());
+        var duplicate = repairCoordinator.enqueueRepair(red.roundId());
 
         assertThat(duplicate).isEqualTo(terminalRegistration);
         assertThat(terminalRegistration.round().state())
@@ -1190,9 +1195,19 @@ abstract class BaseTestCiAutofixCoordinator
                 autofix,
                 githubEffects,
                 clock);
-        coordinator = new CiAutofixCoordinator(
-                dataSource, autofix, runtime, userGates,
-                clock);
+        rebuildCiCoordinators(clock);
+    }
+
+    void rebuildCiCoordinators(Clock clock)
+    {
+        learningCoordinator = new CiLearningCoordinator(
+                dataSource, autofix, runtime, userGates, clock);
+        observationCoordinator = new CiObservationCoordinator(
+                dataSource, autofix, runtime, learningCoordinator, clock);
+        repairCoordinator = new CiRepairCoordinator(
+                dataSource, autofix, runtime, learningCoordinator);
+        cleanupCoordinator = new CiCleanupCoordinator(
+                dataSource, autofix, runtime);
     }
 
     void transition(TaskStatus next)

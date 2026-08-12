@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiObservationCoordinator;
+import com.bytequay.app.flow.ci.CiObservationCoordinator.CiObservationActivation;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -35,13 +35,13 @@ public final class GitHubCiObservationExecutor
     private static final Duration UNSUPPORTED_DELAY = Duration.ofMinutes(5);
 
     private final FlowRuntime runtime;
-    private final CiAutofixCoordinator coordinator;
+    private final CiObservationCoordinator coordinator;
     private final GitHubCiProvider provider;
     private final Clock clock;
 
     GitHubCiObservationExecutor(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiObservationCoordinator coordinator,
             GitHubCiProvider provider,
             Clock clock)
     {

@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.flow.runtime;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.CleanupBinding;
-import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairLaunchBinding;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator;
+import com.bytequay.app.flow.ci.CiCleanupCoordinator.CleanupBinding;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
+import com.bytequay.app.flow.ci.CiLearningCoordinator;
+import com.bytequay.app.flow.ci.CiRepairCoordinator;
+import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairLaunchBinding;
 import com.bytequay.app.flow.runtime.FlowRuntime.CiLearningStart;
 import com.bytequay.app.flow.runtime.FlowRuntime.ReviewerStart;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
@@ -74,7 +76,9 @@ public final class CiAutofixDispatcher
     }
 
     private final FlowRuntime runtime;
-    private final CiAutofixCoordinator coordinator;
+    private final CiRepairCoordinator repairs;
+    private final CiCleanupCoordinator cleanups;
+    private final CiLearningCoordinator learning;
     private final CiFixReviewCoordinator reviewCoordinator;
     private final InProcessWriterAgentSupervisor writers;
     private final InProcessReviewerAgentSupervisor reviewers;
@@ -94,7 +98,9 @@ public final class CiAutofixDispatcher
 
     public CiAutofixDispatcher(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
+            CiRepairCoordinator repairs,
+            CiCleanupCoordinator cleanups,
+            CiLearningCoordinator learning,
             CiFixReviewCoordinator reviewCoordinator,
             InProcessWriterAgentSupervisor writers,
             InProcessReviewerAgentSupervisor reviewers,
@@ -103,7 +109,9 @@ public final class CiAutofixDispatcher
             Config config)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
-        this.coordinator = requireNonNull(coordinator, "coordinator is null");
+        this.repairs = requireNonNull(repairs, "repairs is null");
+        this.cleanups = requireNonNull(cleanups, "cleanups is null");
+        this.learning = requireNonNull(learning, "learning is null");
         this.reviewCoordinator = requireNonNull(
                 reviewCoordinator, "reviewCoordinator is null");
         this.writers = requireNonNull(writers, "writers is null");
@@ -224,7 +232,7 @@ public final class CiAutofixDispatcher
     private void dispatch(Claim claim)
     {
         switch (claim.kind()) {
-            case RECONCILE_TASK -> coordinator.selectNext(claim);
+            case RECONCILE_TASK -> repairs.selectNext(claim);
             case RUN_CI_FIXER -> dispatchFixer(claim);
             case RUN_TASK_TURN -> dispatchTaskTurn(claim);
             case RUN_REVIEWER -> dispatchReviewer(claim);
@@ -239,13 +247,13 @@ public final class CiAutofixDispatcher
         Operation operation = runtime.operation(claim.operationId())
                 .orElseThrow();
         if (operation.ownerKind().equals("CI_ROUND")) {
-            RepairLaunchBinding start = coordinator.beginInspectedRepair(
+            RepairLaunchBinding start = repairs.beginInspectedRepair(
                     claim, config.claimTtl());
             var launch = bodies.bindRepair(start.repair().run());
-            var context = coordinator.repairToolContext(start.repair());
+            var context = repairs.repairToolContext(start.repair());
             var handle = launchRegistered(
                     claim.operationId(),
-                    () -> coordinator.launchRepair(
+                    () -> repairs.launchRepair(
                             writers,
                             start.repair(),
                             claim,
@@ -257,7 +265,7 @@ public final class CiAutofixDispatcher
                                     capability)),
                     value -> () -> writers.cancel(
                             value, config.shutdownTimeout()));
-            awaitRegistered(() -> coordinator.awaitRepair(
+            awaitRegistered(() -> repairs.awaitRepair(
                     writers, start.repair(), handle, config.bodyTimeout()));
             return;
         }
@@ -266,7 +274,7 @@ public final class CiAutofixDispatcher
         }
         var task = runtime.task(operation.taskId()).orElseThrow();
         Path repositoryRoot = Path.of(task.repositoryRoot());
-        Optional<CleanupBinding> start = coordinator.beginCleanup(
+        Optional<CleanupBinding> start = cleanups.beginCleanup(
                 claim, repositoryRoot, config.claimTtl());
         if (start.isEmpty()) {
             return;
@@ -279,7 +287,7 @@ public final class CiAutofixDispatcher
                         .map(Enum::name).toList();
         var handle = launchRegistered(
                 claim.operationId(),
-                () -> coordinator.launchCleanup(
+                () -> cleanups.launchCleanup(
                         writers,
                         binding,
                         claim,
@@ -289,7 +297,7 @@ public final class CiAutofixDispatcher
                                 capability)),
                 value -> () -> writers.cancel(
                         value, config.shutdownTimeout()));
-        awaitRegistered(() -> coordinator.awaitCleanup(
+        awaitRegistered(() -> cleanups.awaitCleanup(
                 writers, binding, handle, config.bodyTimeout()));
     }
 
@@ -364,20 +372,20 @@ public final class CiAutofixDispatcher
 
     private void dispatchLearner(Claim claim)
     {
-        Optional<CiLearningStart> start = coordinator.beginCiLearning(claim);
+        Optional<CiLearningStart> start = learning.beginCiLearning(claim);
         if (start.isEmpty()) {
             return;
         }
         CiLearningStart binding = start.orElseThrow();
         var launch = bodies.bindLearner(binding.run());
-        var subject = coordinator.learningSubject(binding.run().inputRef())
+        var subject = learning.learningSubject(binding.run().inputRef())
                 .orElseThrow();
         var handle = launchRegistered(
                 claim.operationId(),
                 () -> learners.launch(
                         binding,
                         claim,
-                        coordinator,
+                        learning,
                         capability -> bodies.learner(
                                 launch, subject.failedLogRefs(), capability)),
                 value -> () -> learners.cancel(
@@ -499,7 +507,7 @@ public final class CiAutofixDispatcher
         for (ExpiredClaim expired : runtime.expiredClaims()) {
             try {
                 if (expired.kind() == OperationKind.RUN_CI_LEARNING) {
-                    coordinator.recoverExpiredCiLearning(
+                    learning.recoverExpiredCiLearning(
                             expired.operationId(), expired.generation());
                     changed = true;
                     continue;
@@ -512,11 +520,25 @@ public final class CiAutofixDispatcher
                 if (expired.processAttemptState()
                         == ProcessAttemptState.STOPPED) {
                     switch (operation.kind()) {
-                        case RUN_CI_FIXER ->
-                                coordinator.recoverExpiredStoppedFixer(
+                        case RUN_CI_FIXER -> {
+                            if (operation.ownerKind().equals("CI_ROUND")) {
+                                repairs.recoverExpiredStoppedRepair(
                                         operation.operationId(),
                                         expired.generation(),
                                         config.claimTtl());
+                            }
+                            else if (operation.ownerKind().equals(
+                                    "CI_CLEANUP")) {
+                                cleanups.recoverExpiredStoppedCleanup(
+                                        operation.operationId(),
+                                        expired.generation(),
+                                        config.claimTtl());
+                            }
+                            else {
+                                throw new IllegalArgumentException(
+                                        "unknown CI fixer owner");
+                            }
+                        }
                         case RUN_TASK_TURN ->
                                 reviewCoordinator
                                         .recoverExpiredStoppedTaskTurn(

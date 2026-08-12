@@ -23,6 +23,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -83,6 +84,7 @@ public final class InitialTaskDispatcher
     private final AtomicReference<String> activeOperationId =
             new AtomicReference<>();
     private volatile Thread thread;
+    private volatile UpstreamSyncCoordinator upstream;
 
     public InitialTaskDispatcher(
             FlowRuntime runtime,
@@ -101,6 +103,21 @@ public final class InitialTaskDispatcher
         this.repositories = requireNonNull(
                 repositories, "repositories is null");
         this.config = requireNonNull(config, "config is null");
+    }
+
+    /**
+     * Installs upstream synchronization's replacement for the INITIAL body.
+     *
+     * <p>Injected rather than constructed because upstream synchronization is
+     * composed separately, and set before {@code start()} so a Task already
+     * mid-range at restart can never be handed the ordinary body. Absent
+     * everywhere upstream synchronization is not composed, which is the
+     * unchanged default.
+     */
+    @Autowired(required = false)
+    public void bindUpstreamSync(UpstreamSyncCoordinator coordinator)
+    {
+        this.upstream = requireNonNull(coordinator, "coordinator is null");
     }
 
     public void start()
@@ -207,6 +224,9 @@ public final class InitialTaskDispatcher
         var launch = binding.reviewContinuation()
                 ? bodies.bindInitialReviewResult(binding.run())
                 : bodies.bindInitialTask(binding.run());
+        UpstreamSyncCoordinator upstreamSync = upstream;
+        boolean upstreamRange = upstreamSync != null
+                && upstreamSync.owns(claim.taskId());
         InProcessWriterAgentSupervisor.ExecutionHandle handle;
         synchronized (lifecycle) {
             if (!running.get()) {
@@ -216,12 +236,22 @@ public final class InitialTaskDispatcher
             handle = coordinator.launchTask(
                     writers, binding, claim,
                     () -> repositories.observe(binding.run().runId()),
-                    capability -> bodies.initialTask(
-                            launch,
-                            Path.of(runtime.task(claim.taskId()).orElseThrow()
-                                    .worktreePath()),
-                            capability,
-                            binding.reviewContinuation()));
+                    capability -> {
+                        Path worktree = Path.of(
+                                runtime.task(claim.taskId()).orElseThrow()
+                                        .worktreePath());
+                        // An upstream range replaces only what happens between
+                        // the Task's start and its review request; the gate,
+                        // the reviewer and publication stay the ordinary ones.
+                        return upstreamRange
+                                ? upstreamSync.runTurn(
+                                        launch, worktree, capability,
+                                        claim.taskId(),
+                                        binding.reviewContinuation())
+                                : bodies.initialTask(
+                                        launch, worktree, capability,
+                                        binding.reviewContinuation());
+                    });
             registerCancellation(
                     claim.operationId(),
                     () -> writers.cancel(

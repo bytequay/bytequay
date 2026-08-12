@@ -1,0 +1,212 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.flow.upstream;
+
+import com.bytequay.app.flow.upstream.UpstreamPicker.Outcome;
+import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
+import com.bytequay.app.flow.upstream.UpstreamPicker.UnresolvedRepairException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+final class TestUpstreamPicker
+{
+    @TempDir
+    private Path temporaryDirectory;
+
+    private Path repository;
+    private String cleanCommit;
+    private String conflictingCommit;
+    private String alreadyPresentCommit;
+
+    @BeforeEach
+    void createRangeAndFork()
+            throws Exception
+    {
+        repository = temporaryDirectory.resolve("repository");
+        Files.createDirectories(repository);
+        git("init", "-b", "main");
+        write("shared.txt", "shared v1\n");
+        write("contested.txt", "original\n");
+        git("add", "-A");
+        git("commit", "-m", "base");
+
+        git("checkout", "-b", "upstream");
+        write("added.txt", "upstream addition\n");
+        git("add", "-A");
+        git("commit", "-m", "Add a file the fork does not have");
+        cleanCommit = revision("HEAD");
+
+        write("contested.txt", "upstream rewrite\n");
+        git("add", "-A");
+        git("commit", "-m", "Rewrite the contested file upstream");
+        conflictingCommit = revision("HEAD");
+
+        write("shared.txt", "shared v2\n");
+        git("add", "-A");
+        git("commit", "-m", "Bump the shared file");
+        alreadyPresentCommit = revision("HEAD");
+
+        git("checkout", "main");
+        write("contested.txt", "fork rewrite\n");
+        write("shared.txt", "shared v2\n");
+        git("add", "-A");
+        git("commit", "-m", "Fork changes, including one upstream also made");
+    }
+
+    @Test
+    void appliesACleanCommitWithItsUpstreamProvenance()
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        String before = picker.head();
+
+        PickResult result = picker.pick(cleanCommit);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.CLEAN);
+        assertThat(result.head()).isNotEqualTo(before);
+        assertThat(result.provenanceVerified()).isTrue();
+        assertThat(picker.message(result.head()))
+                .contains("(cherry picked from commit " + cleanCommit + ")");
+        assertThat(picker.clean()).isTrue();
+        assertThat(picker.sequencerActive()).isFalse();
+    }
+
+    @Test
+    void skipsACommitTheForkAlreadyCarriesInsteadOfParking()
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        String before = picker.head();
+
+        PickResult result = picker.pick(alreadyPresentCommit);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.EMPTY);
+        assertThat(result.commitSha()).isNull();
+        assertThat(picker.head()).isEqualTo(before);
+        // The point of skipping: Git will not record an empty commit, so a
+        // sequencer left open here could never be finished by anyone.
+        assertThat(picker.sequencerActive()).isFalse();
+        assertThat(picker.clean()).isTrue();
+    }
+
+    @Test
+    void closesTheSequencerOnAConflictAndAttributesTheRepairToItsPick()
+            throws Exception
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+
+        PickResult result = picker.pick(conflictingCommit);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.CONFLICTED);
+        assertThat(result.conflictedPaths()).containsExactly("contested.txt");
+        assertThat(result.provenanceVerified()).isTrue();
+        assertThat(picker.sequencerActive()).isFalse();
+        assertThat(picker.clean()).isTrue();
+
+        // Git's own resolution is already history, so an unedited file is a
+        // marker heading for the pull request rather than a pending edit.
+        assertThatThrownBy(() ->
+                picker.verifyRepair(result.conflictedPaths()))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("conflict marker");
+
+        String targetSubject = picker.subject(result.commitSha());
+        write("contested.txt", "merged rewrite\n");
+        String fixup = picker.commitFixup(targetSubject, false);
+        picker.verifyRepair(result.conflictedPaths());
+
+        assertThat(picker.subject(fixup))
+                .isEqualTo("fixup! " + targetSubject);
+        assertThat(picker.changedPaths(result.commitSha(), fixup))
+                .containsExactly("contested.txt");
+    }
+
+    @Test
+    void amendsTheOneFixupAPickCarriesRatherThanAddingASecond()
+            throws Exception
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        PickResult result = picker.pick(conflictingCommit);
+        String targetSubject = picker.subject(result.commitSha());
+        write("contested.txt", "first attempt\n");
+        String first = picker.commitFixup(targetSubject, false);
+
+        write("contested.txt", "second attempt\n");
+        String second = picker.commitFixup(targetSubject, true);
+
+        assertThat(second).isNotEqualTo(first);
+        assertThat(picker.subject(second))
+                .isEqualTo("fixup! " + targetSubject);
+        assertThat(revision("HEAD~1")).isEqualTo(result.commitSha());
+        assertThat(Files.readString(repository.resolve("contested.txt")))
+                .isEqualTo("second attempt\n");
+    }
+
+    @Test
+    void refusesToAttributeARepairThatChangedNothing()
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        PickResult result = picker.pick(conflictingCommit);
+
+        assertThatThrownBy(() -> picker.commitFixup(
+                picker.subject(result.commitSha()), false))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("nothing to attribute");
+    }
+
+    private void write(String path, String content)
+            throws IOException
+    {
+        Files.writeString(
+                repository.resolve(path), content, StandardCharsets.UTF_8);
+    }
+
+    private String revision(String reference)
+            throws Exception
+    {
+        return git("rev-parse", "--verify", reference).strip();
+    }
+
+    private String git(String... arguments)
+            throws IOException, InterruptedException
+    {
+        String[] command = new String[arguments.length + 7];
+        command[0] = "/usr/bin/git";
+        command[1] = "-C";
+        command[2] = repository.toString();
+        command[3] = "-c";
+        command[4] = "user.name=ByteQuay Test";
+        command[5] = "-c";
+        command[6] = "user.email=test@bytequay.invalid";
+        System.arraycopy(arguments, 0, command, 7, arguments.length);
+        Process process = new ProcessBuilder(command)
+                .redirectErrorStream(true).start();
+        String output = new String(
+                process.getInputStream().readAllBytes(),
+                StandardCharsets.UTF_8);
+        if (process.waitFor() != 0) {
+            throw new IllegalStateException(
+                    String.join(" ", List.of(arguments)) + ": " + output);
+        }
+        return output;
+    }
+}

@@ -9,8 +9,10 @@ sole writer lease. It never pushes. The Task Agent inspects and adversarially
 reviews the exact new head before the program may publish it.
 
 This specification replaces every earlier generic post-PR CI/harness design.
-Upstream range construction and special history shaping now belong only to
-[upstream-sync.md](./upstream-sync.md).
+Upstream range construction belongs only to
+[upstream-sync.md](./upstream-sync.md). Pre-publication history shaping belongs
+there too; post-publication repair placement is owned here, as the
+`RepairPlacementPolicy` below.
 Read [README.md](./README.md), [workflow-runtime.md](./workflow-runtime.md),
 [task-agent.md](./task-agent.md), [adversarial-reviewer.md](./adversarial-reviewer.md),
 [user-gates.md](./user-gates.md), [github-integration.md](./github-integration.md),
@@ -35,15 +37,27 @@ CI Autofix begins only after the Task's stable PR has GitHub identity. It owns:
 - one persistent runtime `AgentSession` for the CI Fixer per Task, created lazily;
 - repair attempts and exact input/output heads;
 - CI lesson candidates written after remote green; and
+- repair placement, including attributed-fixup positioning and the boundary
+  compile proof that gates publishing a rewritten series; and
 - the dispatch contract back to the Task Agent.
 
-It does not own upstream commit selection, cherry-pick conflicts, fixup-history
-placement, PR publication, remote feedback, merge, or the user gate.
+It does not own upstream commit selection, cherry-pick conflicts, pre-publication
+history shaping, PR publication, remote feedback, merge, or the user gate.
+
+It does own where its own repair commits land, including positioning them behind
+an attributed target under `ATTRIBUTED_FIXUP`. That is placement of repairs this
+component authored, not editing of history it did not write.
 
 ## Hard invariants
 
 - A repair round is created only for a finalized required-CI state bound to one
-  exact remote head SHA.
+  exact remote head SHA, except for the compile-priority admission below.
+- Compile-priority admission: when the policy marks a selector
+  `perCommitCompile` and that selector's current attempt is terminal and failed,
+  repair may be enqueued while other selectors are still `COLLECTING`. The round
+  is still bound to one exact head. Nothing else may be admitted early: a
+  compile failure is deterministic, and no later check finishing can change its
+  verdict, which is the only reason waiting is not required.
 - Duplicate matrix/check updates do not create duplicate rounds.
 - The program observes CI and schedules repair directly. There is no CI monitor
   agent and no Task Agent relay.
@@ -54,8 +68,22 @@ placement, PR publication, remote feedback, merge, or the user gate.
   inspection are durable.
 - The CI Fixer may edit, run commands/checks, and commit. It cannot push,
   force-push, reply, resolve, merge, or spawn another agent.
-- A normal repair commit stays at the Task branch tip. Generic CI Autofix never
-  rewrites upstream-sync history or chooses a `fixup!` owner.
+- Repair placement is a program-resolved `RepairPlacementPolicy` per Task, never
+  an agent choice. Under `TIP` a repair commit stays at the Task branch tip.
+  Under `ATTRIBUTED_FIXUP` the program repositions each repair commit the fixer
+  marked `fixup! <exact target subject>` to sit immediately after that target,
+  and merges it into that target's existing fixup when one is already there, so
+  a target never carries two.
+- The fixer chooses the target, because that is judgment; the program does the
+  repositioning, because a `fixup!` subject is fenced Git state and the rebase
+  is then mechanical. A fix the fixer cannot attribute to one target stays a
+  plain tip commit rather than being attached to a guess.
+- Under `ATTRIBUTED_FIXUP` the program proves every commit boundary it changed
+  compiles, from its own local build, before it may publish. A bare target that
+  compiles red is accepted only when its own fixup is proven green at the
+  boundary — never by reading a remote log to decide which commit failed.
+- Rewriting published history requires force-with-lease and is authority the
+  ordinary `CI_UPDATE` path does not carry; see `allowsHistoryRewrite` below.
 - Program code never parses the CI Fixer's final prose. The runtime stores it as
   an opaque `AgentResult` and derives the handoff only from fenced Git state.
 - The Task Agent must inspect the stored result and exact diff, and a fresh
@@ -68,6 +96,17 @@ placement, PR publication, remote feedback, merge, or the user gate.
   edit/recipe or bypasses raw-log investigation.
 - CI logs and lesson prose are untrusted evidence. They cannot expand the CI
   Fixer's tool surface, authority, goal, or sandbox.
+- Rounds are not bounded by a count. A large range legitimately needs many: a
+  compile failure masks every test behind it, so each round can reveal work the
+  previous one could not see, and a fixed ceiling would stop a converging run.
+  This component does not enforce a spend ceiling of its own; it records what a
+  run cost and leaves the ceiling to whoever owns the run. So the stops below are
+  the only ones, and each is a fact rather than a quota.
+- A round count is also the wrong non-convergence signal, because a good round
+  often raises the failing count — repairing the compile failure lets the tests
+  that never ran report. The program parks instead when the head changed and the
+  provider reported the identical set of failing selectors: the fixer published
+  something and it moved nothing, which is a judgment for the user.
 
 ## Accepted CI
 
@@ -84,6 +123,14 @@ For head `H`, `acceptedRequiredCi(H)` means:
 If the repository policy defines no required checks, acceptance is explicit and
 vacuous for that policy revision. A green check on another SHA is never evidence
 for `H`.
+
+Under `ATTRIBUTED_FIXUP` one narrow exception applies, and only to a selector the
+policy marks `perCommitCompile`. Such a check reports per-commit results for the
+whole series, so a target commit whose repair lives in the fixup after it is red
+in isolation by construction. That failure is accepted when the program holds its
+own `BoundaryCompileProof` for the exact head showing the target+fixup boundary
+compiles. The exception never applies to any other selector, never to a commit
+without a following fixup, and never rests on remote log text.
 
 ## Logical data model
 
@@ -219,6 +266,42 @@ CI Autofix owns no session table. Repairs use the one runtime-owned persistent
 [workflow-runtime.md](./workflow-runtime.md). Optional post-green learning uses
 one distinct receipt-owned, one-shot `CI_LEARNER` session/run. It has no Task
 writer pointer, writer lease, effect authority, or reuse as a repair session.
+
+### `RepairPlacementPolicy`
+
+```text
+taskId, placement = TIP | ATTRIBUTED_FIXUP,
+perCommitCompileSelectors[], allowsHistoryRewrite,
+recordedAt
+```
+
+Program-owned and immutable per Task, resolved when the Task is created from what
+produced it: an ordinary Task is `TIP`, a Task whose branch was built by
+[Upstream Sync](./upstream-sync.md) is `ATTRIBUTED_FIXUP`. No agent reads or
+writes it, and it is not a user setting to be toggled mid-run — the placement
+decides how every round of that Task publishes, so changing it under a live
+series would leave a branch shaped two different ways.
+
+`allowsHistoryRewrite` is the standing authority a rewriting placement needs. It
+is granted once, with the Task, by the same user act that chose an upstream sync;
+a one-shot `CI_UPDATE` consent never confers it. Without it an
+`ATTRIBUTED_FIXUP` round that would rewrite requires an explicit gate per round.
+
+### `BoundaryCompileProof`
+
+```text
+proofId, taskId, attemptId, headSha,
+boundaries[] = { commitSha, kind = TARGET_WITH_FIXUP | FIXUP | PLAIN,
+                 exitState, evidenceRef },
+profileRevisionId, provedAt
+```
+
+The program's own evidence that a rewritten series compiles where it matters. It
+is produced by one rebase whose `exec` lines the program generates, placed only at
+boundaries: after a fixup, and after a target that has no fixup. A bare target
+followed by its fixup is deliberately not a boundary, which is exactly what makes
+the acceptance exception provable rather than assumed. A missing or failed
+boundary blocks publication; it never downgrades to a warning.
 
 ### `CiLesson`
 
@@ -420,6 +503,144 @@ build/compile failure, investigate that before downstream test/style failures,
 which may be consequences of a tree that never built. This preserves a useful
 ordering heuristic without making the program classify arbitrary log prose.
 
+## Engine selection
+
+The CI Fixer's engine is user configuration, not a program constant. No engine,
+model, reasoning effort, provider endpoint, or credential name is compiled in as
+a default or supplied by a deployment property file. A machine with no
+configured and no discoverable engine has no CI Fixer, and says so.
+
+### Audience resolution
+
+Every new-flow agent role resolves exactly one workspace audience:
+
+| Role | Audience |
+| --- | --- |
+| `TASK_AGENT` | `dev` |
+| `CI_FIXER` | `ci-fix` |
+| `CI_LEARNER` | `ci-fix` |
+| `ADVERSARIAL_REVIEWER` | `review` |
+
+The workspace is derived from the Task's frozen `repositoryId` against the
+workspace repository list. A repository claimed by more than one workspace
+resolves to the lowest non-scratch workspace ID. The rule is deterministic and
+is never "most recently used".
+
+### Resolution order
+
+1. the workspace's row for the role's audience;
+2. the workspace's default row;
+3. the workspace's stored engine column;
+4. discovery — the first installed CLI agent in catalog order, then the first
+   API provider holding a stored credential, skipping any engine whose
+   transport the runtime does not admit;
+5. none — a stable non-effect `LaunchUnavailableException`, the Task moved to
+   `NEEDS_ATTENTION` with `NO_ENGINE_CONFIGURED`, and its selected pointer and
+   writer lease retained for a later retry.
+
+Discovery probes each CLI agent's `--version` under a bounded timeout and
+memoizes the outcome briefly. A probe never runs inside the launch-binding
+transaction: an uninstalled CLI must not lengthen a database write.
+
+### Choice grammar
+
+Workspace settings store one picker choice id per audience. The grammar gains an
+optional trailing effort segment and stays backward compatible — a value with
+fewer segments means the omitted fields take the engine's own default.
+
+```text
+cli:<agent>[:<model>][:<effort>]
+api:<provider>[:<account>][:<effort>]
+local
+```
+
+An empty segment reads as unset, so `cli:claude-code::xhigh` selects the agent's
+default model at `xhigh` effort.
+
+### Reasoning effort
+
+Effort vocabulary belongs to the engine and the model, not to a shared enum.
+Claude and Codex do not accept the same values, and within Claude the ladder
+narrows by model family:
+
+| Engine | Model family | Accepted efforts | Default |
+| --- | --- | --- | --- |
+| `claude-code`, `anthropic` | Opus | low, medium, high, xhigh, max | high |
+| `claude-code`, `anthropic` | Sonnet | low, medium, high, max | high |
+| `claude-code`, `anthropic` | Haiku | none | — |
+| `codex`, `openai` | GPT-5 family | minimal, low, medium, high | medium |
+| any | other | none | — |
+
+The stored effort is validated against the *selected model's* list during
+resolution. When the choice omits a model — the common workspace case — the list
+is the one belonging to that engine's default model, which is what the settings
+page must offer too. A value that model does not accept is dropped to the engine default,
+never passed through and never raised: a red build is not left unrepaired
+because a saved effort outlived a model change.
+
+Effort reaches the transport in that engine's native form:
+
+- Claude Code CLI — `--effort <value>`, after `--model`.
+- Codex CLI — `-c model_reasoning_effort="<value>"`, positioned before the
+  `exec` subcommand so it survives `exec resume`, which rejects first-turn flags.
+- Anthropic and OpenAI API — the transport's own effort field.
+- Any other API provider — effort is rejected at resolution, not silently sent.
+
+### Binding immutability
+
+Resolution happens once, at launch binding. The binding freezes engine kind,
+agent/provider, model, effort, endpoint, and the exact credential row and
+revision, and every one of those values is part of the binding digest. A
+settings change during an open repair therefore cannot move that run, and a
+redelivery that resolves differently fails the identity check instead of
+quietly running a second engine. The next CI round resolves fresh.
+
+### CLI admission gate
+
+Workflow Runtime did not admit an OS-process agent transport (see
+[workflow-runtime.md](./workflow-runtime.md)), so a resolved `cli:` engine parked
+the operation with `ENGINE_TRANSPORT_UNSUPPORTED`. It must never silently
+downgrade to an API engine: a user who picked a CLI agent has made a billing and
+privacy choice the program may not overrule, and that rule stands regardless of
+what the transport can do.
+
+What the gate demanded is now built, so the gate is closing rather than standing:
+
+- a CLI turn leads **its own process group**, and the group — not a descendant
+  walk — is the death receipt, because leaving a group takes a deliberate
+  `setpgid` while outliving a parent is free;
+- a writer turn is **mechanically unable to publish**: no push destination, no
+  credential helper, no agent socket, no prompt, and the program separately
+  verifies the remote head did not move and quarantines the turn if it did; and
+- execution kind (`API` or `CLI`) is its own dimension, **not** a member of the
+  wire-dialect enum, and a CLI launch binding records what it can honestly pin —
+  binary and version — while naming no credential, because the login lives in the
+  user's CLI where this program cannot see it.
+
+The consequence to keep in view: a CLI run's sealed binding proves strictly less
+than an API run's, permanently. That is a property of delegating authentication,
+not a gap to be closed later.
+
+Both CLI engines are supported writers, and which one runs is workspace
+configuration resolved through the same chain every other agent uses — not a
+safety decision. Containment removes the capability rather than policing the
+command, so it does not depend on a particular vendor's sandbox.
+
+Discovery is the exception, and only because nobody chose anything there: an
+installed CLI it cannot launch is passed over for a runnable API engine rather
+than parking a red build on a preference no user expressed.
+
+### Build order
+
+1. Per-run resolution replacing the constructor-injected launch config, API
+   engines only. Workspace picks take effect for every new-flow role.
+2. Removal of the compiled-in engine defaults, plus the discovery and
+   `NO_ENGINE_CONFIGURED` rungs.
+3. Effort segment in the choice grammar, catalog-aware validation, and the
+   settings-page effort control beside each audience's model control.
+4. The out-of-process supervisor and CLI lane, which clears the admission gate
+   above and is the only step that changes Workflow Runtime invariants.
+
 ## CI Fixer tools
 
 ```text
@@ -498,6 +719,15 @@ writer lease and no code, Git, GitHub, lesson-read, or supersession tools.
    Task's deduplicated reconciliation ticket, even while another writer runs.
    `WorkSelector` waits for writer admission and gives current final red CI
    priority over feedback; event ingestion itself never drops or delays the fact.
+6. Compile-priority admission short-circuits steps 2-4 for one case only: a
+   `perCommitCompile` selector whose current attempt is terminal and failed
+   enqueues repair immediately, at `PARTIAL_RED_COMPILE`, with only that
+   selector's logs frozen. The round stays bound to the same exact head and is
+   superseded normally once the repair publishes and the head moves. Every other
+   selector still waits to be terminal, so nothing else is judged early.
+7. Within a round the fixer is given compile failures first and told the rest of
+   the board is unjudged. A series that does not compile makes every downstream
+   test result meaningless, so spending a round on those results first is waste.
 
 ### 2. Diagnose and commit locally
 
@@ -516,6 +746,14 @@ writer lease and no code, Git, GitHub, lesson-read, or supersession tools.
 7. A clean unchanged head still persists a Task-inspection continuation and
    ensures reconciliation; a dirty head receives bounded cleanup recovery and
    otherwise becomes attention.
+8. Under `ATTRIBUTED_FIXUP`, and only after the attempt's output head is durable,
+   the program rewrites: it generates a rebase todo that moves each `fixup!`
+   commit behind its target, merges it into that target's existing fixup if one
+   is present, and places `exec` boundary builds. The result is a new head `H2'`
+   and a `BoundaryCompileProof`. A rewrite that cannot be generated
+   deterministically, or whose proof is incomplete or red, leaves the attempt at
+   its unrewritten head and becomes attention — the program never publishes a
+   series it could not prove.
 
 ### 3. Task Agent inspection
 
@@ -584,6 +822,11 @@ commits a distinct immutable attempt before each possible exact-lease call
 Configurable/multi-use consent, consent UI, general observation routing, and
 timeline events remain deferred.
 
+Under `ATTRIBUTED_FIXUP` the Task Agent and the adversarial reviewer inspect the
+rewritten series and `H2'`, not the pre-rewrite tip. The rewrite is what will be
+published, so reviewing anything else reviews a head that will never exist
+remotely.
+
 ### 4. Authorize and push
 
 If there is pending remote feedback, a local user-review comment, or any non-CI
@@ -605,6 +848,14 @@ Either authorization path atomically persists the authorization, frozen GitHub
 effect plan, runtime `Operation`, and unique `DispatchTicket`. A best-effort
 in-process dispatcher nudge occurs only after commit; ticket polling recovers a
 lost nudge. There is no separate GitHub-effect submission or claim protocol.
+
+A rewriting round publishes with force-with-lease against the remote head the
+round was bound to, so a remote that moved underneath rejects the push instead of
+discarding it; a rejected lease becomes a fresh observation, never a retry with
+the lease dropped. The gate action carries that it rewrites, plus the outgoing and
+incoming heads, and is authorized by `allowsHistoryRewrite` or an explicit
+per-round gate. Each rewrite restarts the whole remote board, which is the cost
+that makes attribution a placement policy rather than a default.
 
 [GitHub integration](./github-integration.md) pushes exact `H2`, confirms the
 remote head, and atomically installs a receipt-owned `OBSERVE_CI` watch. Its

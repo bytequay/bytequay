@@ -27,6 +27,7 @@ import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.RepoMetaStore;
 import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.threads.NotificationService;
@@ -84,6 +85,7 @@ class TestWorkspaceOverviewRuntimeProjection
                 tasks, taskRuntime,
                 mock(SessionProjectionService.class), mock(SqliteBacklogStore.class),
                 mock(NotificationService.class), mock(WatchedRepoStore.class),
+                mock(RepoMetaStore.class),
                 mock(JdbcTemplate.class));
 
         WorkspaceSummaryDto summary = service.overview("workspace-1")

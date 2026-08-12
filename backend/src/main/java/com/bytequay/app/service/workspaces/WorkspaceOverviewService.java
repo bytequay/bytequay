@@ -33,6 +33,7 @@ import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.RepoMetaStore;
 import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.threads.NotificationService;
@@ -65,6 +66,7 @@ public class WorkspaceOverviewService
     private final SqliteBacklogStore backlog;
     private final NotificationService notifications;
     private final WatchedRepoStore watchedRepos;
+    private final RepoMetaStore repoMetaStore;
     private final JdbcTemplate jdbc;
 
     public WorkspaceOverviewService(
@@ -79,6 +81,7 @@ public class WorkspaceOverviewService
             SqliteBacklogStore backlog,
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
+            RepoMetaStore repoMetaStore,
             JdbcTemplate jdbc)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -93,6 +96,7 @@ public class WorkspaceOverviewService
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
@@ -249,6 +253,9 @@ public class WorkspaceOverviewService
         String repo = fullName.substring(slash + 1);
         WatchedRepo watched = watchedRepos.find(owner, repo).orElse(null);
         String clonePath = watched == null ? null : watched.localClonePath();
+        String ownerAvatarUrl = repoMetaStore.find(owner, repo)
+                .map(stored -> stored.meta().ownerAvatarUrl())
+                .orElse(null);
         return new WorkspaceSummaryDto.RepositoryDto(
                 owner,
                 repo,
@@ -258,7 +265,8 @@ public class WorkspaceOverviewService
                 directory(clonePath),
                 watched != null
                         && watched.upstreamRemoteName() != null
-                        && !watched.upstreamRemoteName().isBlank());
+                        && !watched.upstreamRemoteName().isBlank(),
+                ownerAvatarUrl);
     }
 
     private List<Thread> publicTrunks(String workspaceId)

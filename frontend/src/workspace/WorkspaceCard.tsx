@@ -14,16 +14,18 @@
 import { useState } from 'react';
 import type { WorkspaceCardDto } from '../types';
 
-/** Render the repo owner's GitHub avatar on the first paint. The workspace
- *  summary already carries the owner, so a second metadata lookup only
- *  caused a coloured-letter flash before the same image appeared. */
-function RepoLogo({ repo, owner }: { repo: string; owner?: string }) {
+/** Render the exact GitHub avatar cached with the repository metadata. */
+function RepoLogo({ repo, owner, avatarUrl }: {
+  repo: string;
+  owner?: string;
+  avatarUrl?: string | null;
+}) {
   const [failedOwner, setFailedOwner] = useState<string | null>(null);
 
-  if (owner !== undefined && owner !== '' && failedOwner !== owner) {
+  if (avatarUrl?.trim() && owner !== undefined && owner !== '' && failedOwner !== owner) {
     return (
       <img
-        src={`https://github.com/${encodeURIComponent(owner)}.png?size=72`}
+        src={avatarUrl}
         alt=""
         title={repo}
         className="workspace-landing-card__repo-avatar"
@@ -86,7 +88,11 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
       aria-label={`Enter workspace ${card.name}`}
     >
       <header className="workspace-landing-card__head">
-        <RepoLogo repo={card.repos[0] ?? card.name} owner={card.repository?.owner} />
+        <RepoLogo
+          repo={card.repos[0] ?? card.name}
+          owner={card.repository?.owner}
+          avatarUrl={card.repository?.ownerAvatarUrl}
+        />
         <div className="workspace-landing-card__heading">
           <div className="workspace-landing-card__name-row">
             <span className="workspace-landing-card__name" title={card.id}>{card.name}</span>

@@ -72,7 +72,8 @@ public record WorkspaceSummaryDto(
             String defaultBaseBranch,
             String clonePath,
             boolean verified,
-            boolean forked)
+            boolean forked,
+            String ownerAvatarUrl)
     {
     }
 

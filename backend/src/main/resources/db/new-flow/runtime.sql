@@ -511,23 +511,67 @@ CREATE TABLE flow_runtime_agent_result (
 CREATE TABLE flow_runtime_agent_launch_binding (
     run_id TEXT PRIMARY KEY,
     provider_name TEXT NOT NULL,
-    transport TEXT NOT NULL CHECK (
-        transport IN ('ANTHROPIC', 'OPENAI_COMPAT')
+    -- How the turn ran, which is not the same question as which wire dialect it
+    -- spoke: a CLI turn speaks no wire at all.
+    execution TEXT NOT NULL DEFAULT 'API' CHECK (execution IN ('API', 'CLI')),
+    transport TEXT CHECK (
+        transport IS NULL OR transport IN ('ANTHROPIC', 'OPENAI_COMPAT')
     ),
-    endpoint TEXT NOT NULL,
+    -- An API turn is pinned by where it was called and which stored credential
+    -- answered. A CLI turn has neither: it is a subprocess reading the user's own
+    -- CLI login, which this program never sees and must not. That is the billing
+    -- and privacy choice a user makes by choosing a CLI agent, so the binding
+    -- records less for those runs rather than inventing an endpoint or a
+    -- credential it does not have.
+    endpoint TEXT,
     model TEXT NOT NULL,
     reasoning_effort TEXT,
-    credential_id INTEGER NOT NULL,
-    credential_name TEXT NOT NULL,
-    credential_instance TEXT NOT NULL,
-    credential_updated_at TEXT NOT NULL,
+    credential_id INTEGER,
+    credential_name TEXT,
+    credential_instance TEXT,
+    credential_updated_at TEXT,
     prompt_revision TEXT NOT NULL,
     prompt_digest TEXT NOT NULL,
     tool_manifest_digest TEXT NOT NULL,
-    max_output_tokens INTEGER NOT NULL CHECK (max_output_tokens > 0),
-    max_tool_iterations INTEGER NOT NULL CHECK (max_tool_iterations > 0),
+    -- Output and tool-iteration ceilings are properties of an API call. A
+    -- subprocess is bounded by its cost cap and its process lifetime.
+    max_output_tokens INTEGER CHECK (
+        max_output_tokens IS NULL OR max_output_tokens > 0
+    ),
+    max_tool_iterations INTEGER CHECK (
+        max_tool_iterations IS NULL OR max_tool_iterations > 0
+    ),
+    -- What a CLI run can be pinned to. Weaker than a credential identity, and
+    -- recorded explicitly so the gap is visible rather than implied by absence.
+    cli_binary TEXT,
+    cli_version TEXT,
     binding_digest TEXT NOT NULL,
     bound_at INTEGER NOT NULL,
+    -- The two shapes, kept apart. Neither can borrow the other's fields, so a row
+    -- states its own execution kind before you read the column.
+    CHECK (
+        (execution = 'API'
+            AND transport IS NOT NULL
+            AND endpoint IS NOT NULL
+            AND credential_id IS NOT NULL
+            AND credential_name IS NOT NULL
+            AND credential_instance IS NOT NULL
+            AND credential_updated_at IS NOT NULL
+            AND max_output_tokens IS NOT NULL
+            AND max_tool_iterations IS NOT NULL
+            AND cli_binary IS NULL
+            AND cli_version IS NULL)
+        OR (execution = 'CLI'
+            AND transport IS NULL
+            AND endpoint IS NULL
+            AND credential_id IS NULL
+            AND credential_name IS NULL
+            AND credential_instance IS NULL
+            AND credential_updated_at IS NULL
+            AND max_output_tokens IS NULL
+            AND max_tool_iterations IS NULL
+            AND cli_binary IS NOT NULL)
+    ),
     FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
 );
 
@@ -546,6 +590,13 @@ CREATE TABLE flow_runtime_agent_process_attempt (
     jvm_started_at INTEGER,
     thread_id INTEGER,
     thread_name TEXT,
+    -- A CLI turn's identity is its process group, recorded before the prompt is
+    -- delivered so the crash that makes it matter cannot lose it. The owning Java
+    -- thread still holds the fence, so the thread columns above stay populated
+    -- too; these say which group that thread must bury before it may return.
+    agent_pid INTEGER,
+    agent_pgid INTEGER CHECK (agent_pgid IS NULL OR agent_pgid > 1),
+    agent_started_at INTEGER,
     reserved_at INTEGER NOT NULL,
     activated_at INTEGER,
     capability_revoked_at INTEGER,

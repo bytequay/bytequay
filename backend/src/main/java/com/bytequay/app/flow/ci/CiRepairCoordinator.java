@@ -57,7 +57,9 @@ import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -214,15 +216,31 @@ public final class CiRepairCoordinator
         CiRound round = autofix.roundById(binding.attempt().roundId())
                 .orElseThrow();
         Task task = runtime.task(round.taskId()).orElseThrow();
-        List<String> failures = round.checkObservationIds().stream()
+        // A series that does not compile makes every test result behind it
+        // meaningless, so the compile failures are named first and, when the
+        // board is still collecting, the rest is handed over marked unjudged.
+        List<String> failures = new ArrayList<>(round.checkObservationIds()
+                .stream()
                 .map(autofix::observation)
                 .flatMap(Optional::stream)
+                .sorted(Comparator.comparing(observation ->
+                        !autofix.isPerCommitCompileSelector(
+                                round.taskId(),
+                                observation.check().selectorKey())))
                 .map(observation -> observation.check().name()
+                        + (autofix.isPerCommitCompileSelector(
+                                round.taskId(),
+                                observation.check().selectorKey())
+                                ? " [per-commit compile]" : "")
                         + ": status=" + observation.check().status()
                         + ", conclusion="
                         + Objects.toString(
                                 observation.check().conclusion(), "unknown"))
-                .toList();
+                .toList());
+        if (round.state() == RoundState.PARTIAL_RED_COMPILE) {
+            failures.add("The rest of the required board has not finished "
+                    + "and is unjudged.");
+        }
         RepairToolContext context = new RepairToolContext(
                 binding, task.repositoryId(), task.goalText(),
                 round.policyRevisionId(), failures,
@@ -272,7 +290,7 @@ public final class CiRepairCoordinator
                 var refreshed = autofix.finalizeHeadSnapshot(
                         round.prId(), round.remoteHead());
                 if (!(refreshed instanceof FinalizedRound finalized)
-                        || (finalized.round().state() != RoundState.FINAL_RED
+                        || (!CiAutofix.admitsRepair(finalized.round().state())
                         && finalized.round().state() != RoundState.QUEUED)) {
                     throw new IllegalStateException(
                             "Terminal Task has no current red CI evidence");
@@ -338,7 +356,7 @@ public final class CiRepairCoordinator
                     return runtime.selectNext(reconciliationClaim);
                 }
                 if (refreshed instanceof FinalizedRound finalized
-                        && finalized.round().state() == RoundState.FINAL_RED
+                        && CiAutofix.admitsRepair(finalized.round().state())
                         && exactNonterminalSubject(finalized.round())) {
                     CiRound successor = autofix.queueCurrentFinalRed(
                             finalized.round().roundId());

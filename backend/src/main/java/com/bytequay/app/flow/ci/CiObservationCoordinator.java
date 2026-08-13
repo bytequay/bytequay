@@ -274,7 +274,7 @@ public final class CiObservationCoordinator
                         "sealed CI batch did not finalize its current head");
             }
             CiRound round = exact.round();
-            if (round.state() == RoundState.FINAL_RED) {
+            if (CiAutofix.admitsRepair(round.state())) {
                 round = autofix.queueCurrentFinalRed(round.roundId());
                 runtime.registerFinalRed(
                         round.roundId(), round.taskId(), round.prId(),
@@ -284,7 +284,10 @@ public final class CiObservationCoordinator
                 learning.reserveCiLearningIfEligible(round);
             }
             String resultRef = replayPrefix + round.roundId();
+            // A compile-priority round is still collecting the rest of its
+            // board, so it keeps the short poll while its repair runs.
             Duration pollDelay = round.state() == RoundState.COLLECTING
+                    || round.state() == RoundState.PARTIAL_RED_COMPILE
                     ? Duration.ofMinutes(1) : Duration.ofMinutes(5);
             runtime.rearmCiObservation(
                     claim, resultRef,

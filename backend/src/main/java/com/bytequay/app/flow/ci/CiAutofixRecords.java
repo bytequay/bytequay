@@ -219,6 +219,12 @@ public final class CiAutofixRecords
     public enum RoundState
     {
         COLLECTING,
+        /**
+         * A per-commit compile check failed while the rest of the board is
+         * still collecting. Sound for exactly one reason: a compile failure is
+         * deterministic, so no later check finishing can change its verdict.
+         */
+        PARTIAL_RED_COMPILE,
         FINAL_RED,
         QUEUED,
         ACTIVE,

@@ -20,6 +20,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.runtime.NewFlowDatabase;
@@ -644,6 +645,64 @@ class TestCiAutofix
         assertThat(current.sequence()).isEqualTo(1);
         assertThat(current.requiredCheckSelectors()).containsExactly("build", "test");
         assertThat(current.acceptedConclusions()).containsExactly("NEUTRAL", "SUCCESS");
+    }
+
+    @Test
+    void aFailedPerCommitCompileCheckAdmitsRepairBeforeTheBoardFinishes()
+    {
+        resolvedPolicy(List.of("check-commits", "test"));
+        autofix.recordPlacementPolicy(
+                "task-1",
+                RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of("check-commits"),
+                ".github/workflows/ci.yml",
+                "sha256:ci",
+                true);
+        var compile = autofix.observeCi("pr-1", check(
+                "compile-id", "check-commits", "COMPLETED", "FAILURE",
+                "1", NOW));
+        autofix.observeCi("pr-1", check(
+                "test-id", "test", "IN_PROGRESS", null, "1", NOW));
+        autofix.attachLog(
+                compile.observationId(),
+                "cannot find symbol".getBytes(StandardCharsets.UTF_8),
+                List.of());
+
+        var finalized = (FinalizedRound) autofix.finalizeHeadSnapshot(
+                "pr-1", "H1");
+
+        assertThat(finalized.round().state())
+                .isEqualTo(RoundState.PARTIAL_RED_COMPILE);
+        assertThat(finalized.newlyFinal()).isTrue();
+        // Only the compile selector's logs are frozen: nothing else on the
+        // board has been judged yet.
+        var queued = autofix.queueCurrentFinalRed(finalized.round().roundId());
+        assertThat(queued.state()).isEqualTo(RoundState.QUEUED);
+        assertThat(queued.failedLogRefs()).hasSize(1);
+    }
+
+    @Test
+    void anUndeclaredCompileCheckWaitsForTheWholeBoard()
+    {
+        resolvedPolicy(List.of("check-commits", "test"));
+        var compile = autofix.observeCi("pr-1", check(
+                "compile-id", "check-commits", "COMPLETED", "FAILURE",
+                "1", NOW));
+        autofix.observeCi("pr-1", check(
+                "test-id", "test", "IN_PROGRESS", null, "1", NOW));
+        autofix.attachLog(
+                compile.observationId(),
+                "cannot find symbol".getBytes(StandardCharsets.UTF_8),
+                List.of());
+
+        var finalized = (FinalizedRound) autofix.finalizeHeadSnapshot(
+                "pr-1", "H1");
+
+        // The name says per-commit compile. Nothing proved it, so nothing is
+        // judged early.
+        assertThat(finalized.round().state())
+                .isEqualTo(RoundState.COLLECTING);
+        assertThat(finalized.newlyFinal()).isFalse();
     }
 
     private RequiredCiPolicyRevision resolvedPolicy(List<String> checks)

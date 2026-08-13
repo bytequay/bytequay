@@ -574,6 +574,12 @@ public final class CiAutofix
                 proofId);
     }
 
+    /** Empty unless the Task proved a per-commit compile check exists. */
+    private List<String> compileSelectors(String taskId)
+    {
+        return placementPolicy(taskId).perCommitCompileSelectors();
+    }
+
     private Optional<RepairPlacementPolicy> storedPlacementPolicy(String taskId)
     {
         return jdbc.query(
@@ -994,7 +1000,9 @@ public final class CiAutofix
             }
             return storeFinalizedRound(
                     subject, headSha, policy,
-                    calculateRound(exact, policy), source);
+                    calculateRound(
+                            exact, policy, compileSelectors(subject.taskId())),
+                    source);
         }), "provider batch finalize transaction returned null");
     }
 
@@ -1023,6 +1031,7 @@ public final class CiAutofix
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Unknown CI round: " + roundId));
             if (requested.state() != RoundState.FINAL_RED
+                    && requested.state() != RoundState.PARTIAL_RED_COMPILE
                     && requested.state() != RoundState.QUEUED) {
                 throw new IllegalStateException(
                         "CI round is not queueable: " + requested.state());
@@ -1049,16 +1058,24 @@ public final class CiAutofix
             RoundCalculation calculation = calculateStoredRound(
                     requested, policy);
             if (!latest.roundId().equals(roundId)
-                    || calculation.state() != RoundState.FINAL_RED
+                    || !admitsRepair(calculation.state())
                     || !calculation.observationIds().equals(
                             requested.checkObservationIds())) {
                 throw new IllegalStateException(
                         "CI observations no longer match this red round");
             }
-            List<String> failedLogs = requiredFailedLogs(requested, policy);
+            // A compile-priority round freezes only the compile selector's
+            // logs: the rest of the board is still collecting and nothing else
+            // has been judged.
+            List<String> failedLogs = requiredFailedLogs(
+                    requested,
+                    policy,
+                    calculation.state() == RoundState.PARTIAL_RED_COMPILE
+                            ? compileSelectors(requested.taskId())
+                            : List.of());
             if (failedLogs.isEmpty()) {
                 throw new IllegalStateException(
-                        "FINAL_RED has no failed required log evidence");
+                        "red CI round has no failed required log evidence");
             }
             if (requested.state() == RoundState.QUEUED) {
                 if (!requested.failedLogRefs().equals(failedLogs)) {
@@ -1071,7 +1088,8 @@ public final class CiAutofix
                     """
                     UPDATE flow_ci_round
                     SET failed_log_refs_json = ?, state = 'QUEUED'
-                    WHERE round_id = ? AND state = 'FINAL_RED'
+                    WHERE round_id = ?
+                      AND state IN ('FINAL_RED', 'PARTIAL_RED_COMPILE')
                     """,
                     writeJson(failedLogs),
                     roundId);
@@ -1237,7 +1255,8 @@ public final class CiAutofix
                     FinalizeBlocker.CI_OBSERVATION_PENDING,
                     "Current CI policy awaits its next exhaustive provider poll");
         }
-        RoundCalculation calculation = calculateRound(prId, headSha, policy);
+        RoundCalculation calculation = calculateRound(
+                prId, headSha, policy, compileSelectors(subject.taskId()));
         return storeFinalizedRound(
                 subject, headSha, policy, calculation, null);
     }
@@ -1266,22 +1285,39 @@ public final class CiAutofix
                 subject.prId(),
                 headSha,
                 policy.policyRevisionId());
-        boolean newlyFinal = stored.state() == RoundState.FINAL_RED
-                && before.filter(previous -> previous.roundId().equals(stored.roundId()))
+        boolean newlyFinal = admitsRepair(stored.state())
+                && !admitsRepair(before
+                        .filter(previous -> previous.roundId().equals(
+                                stored.roundId()))
                         .map(CiRound::state)
-                        .orElse(null) != RoundState.FINAL_RED;
+                        .orElse(null));
         return new FinalizedRound(stored, newlyFinal);
     }
 
     private RoundCalculation calculateRound(
-            String prId, String headSha, RequiredCiPolicyRevision policy)
+            String prId,
+            String headSha,
+            RequiredCiPolicyRevision policy,
+            List<String> compileSelectors)
     {
-        return calculateRound(observations(prId, headSha), policy);
+        return calculateRound(
+                observations(prId, headSha), policy, compileSelectors);
     }
 
+    /**
+     * A round's objective state.
+     *
+     * <p>{@code PARTIAL_RED_COMPILE} is the one thing judged before the board
+     * is complete, and only for a selector the Task's placement proved to be a
+     * per-commit compile check. A compile failure is deterministic, so no later
+     * check finishing can change its verdict, and a series that does not
+     * compile makes every test result behind it meaningless. Nothing else is
+     * admitted early.
+     */
     private RoundCalculation calculateRound(
             List<CiCheckObservation> exactObservations,
-            RequiredCiPolicyRevision policy)
+            RequiredCiPolicyRevision policy,
+            List<String> compileSelectors)
     {
         Map<String, List<CiCheckObservation>> observationsBySelector = new HashMap<>();
         for (CiCheckObservation observation : exactObservations) {
@@ -1293,6 +1329,7 @@ public final class CiAutofix
         List<CiCheckObservation> selected = new ArrayList<>();
         boolean collecting = false;
         boolean failed = false;
+        boolean compileFailed = false;
         boolean needsAttention = false;
         for (String selector : policy.requiredCheckSelectors()) {
             ObservationSelection selection = selectLatestObservation(
@@ -1311,6 +1348,8 @@ public final class CiAutofix
             if (!policy.acceptedConclusions().contains(conclusion)) {
                 if ("FAILURE".equals(conclusion)) {
                     failed = true;
+                    compileFailed = compileFailed
+                            || compileSelectors.contains(selector);
                 }
                 else {
                     needsAttention = true;
@@ -1320,7 +1359,9 @@ public final class CiAutofix
         RoundState state = needsAttention
                 ? RoundState.NEEDS_ATTENTION
                 : collecting
-                        ? RoundState.COLLECTING
+                        ? (compileFailed
+                                ? RoundState.PARTIAL_RED_COMPILE
+                                : RoundState.COLLECTING)
                         : failed ? RoundState.FINAL_RED : RoundState.GREEN;
         return new RoundCalculation(
                 selected.stream().map(CiCheckObservation::observationId).toList(),
@@ -1330,8 +1371,10 @@ public final class CiAutofix
     private RoundCalculation calculateStoredRound(
             CiRound round, RequiredCiPolicyRevision policy)
     {
+        List<String> compileSelectors = compileSelectors(round.taskId());
         if (round.sourceObservationOperationId() == null) {
-            return calculateRound(round.prId(), round.remoteHead(), policy);
+            return calculateRound(
+                    round.prId(), round.remoteHead(), policy, compileSelectors);
         }
         List<CiCheckObservation> exact = round.checkObservationIds().stream()
                 .map(id -> observation(id).orElseThrow(() ->
@@ -1352,7 +1395,7 @@ public final class CiAutofix
                         "sourced CI round mixes observation authority");
             }
         }
-        return calculateRound(exact, policy);
+        return calculateRound(exact, policy, compileSelectors);
     }
 
     private CiRound storeRound(
@@ -2243,11 +2286,19 @@ public final class CiAutofix
                 observationId).stream().findFirst();
     }
 
+    /**
+     * Frozen failed-log evidence, narrowed to {@code onlySelectors} when the
+     * round was admitted before the rest of the board finished.
+     */
     private List<String> requiredFailedLogs(
-            CiRound round, RequiredCiPolicyRevision policy)
+            CiRound round,
+            RequiredCiPolicyRevision policy,
+            List<String> onlySelectors)
     {
         return round.checkObservationIds().stream()
                 .map(id -> observation(id).orElseThrow())
+                .filter(value -> onlySelectors.isEmpty()
+                        || onlySelectors.contains(value.check().selectorKey()))
                 .filter(value -> !policy.acceptedConclusions().contains(
                         normalizeNullableToken(value.check().conclusion())))
                 .map(value -> logForObservation(value.observationId())
@@ -2436,6 +2487,13 @@ public final class CiAutofix
         return latest.size() == 1
                 ? new ObservationSelection(latest.getFirst(), false)
                 : new ObservationSelection(null, true);
+    }
+
+    /** The two states a repair writer may be dispatched from. */
+    static boolean admitsRepair(RoundState state)
+    {
+        return state == RoundState.FINAL_RED
+                || state == RoundState.PARTIAL_RED_COMPILE;
     }
 
     private static boolean canRefreshEvidence(RoundState state)

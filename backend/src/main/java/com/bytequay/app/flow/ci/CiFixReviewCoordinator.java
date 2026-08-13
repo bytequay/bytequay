@@ -54,6 +54,7 @@ import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ReviewerTo
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
 import com.bytequay.app.flow.runtime.LocalChecks;
+import com.bytequay.app.flow.runtime.NewFlowAgentLaunches;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -73,9 +74,9 @@ public final class CiFixReviewCoordinator
     private static final String TASK_CAPABILITIES =
             "task-ci-inspection-capabilities:v2";
     private static final String REVIEWER_PROMPT =
-            "adversarial-reviewer-prompt:v3";
+            NewFlowAgentLaunches.currentReviewerPromptManifestRef();
     private static final String REVIEWER_CAPABILITIES =
-            "immutable-git-object-reader:v1";
+            NewFlowAgentLaunches.currentReviewerCapabilitySetRef();
 
     private final CiAutofix autofix;
     private final FlowRuntime runtime;

@@ -574,10 +574,55 @@ public final class CiAutofix
                 proofId);
     }
 
-    /** Empty unless the Task proved a per-commit compile check exists. */
-    private List<String> compileSelectors(String taskId)
+    /**
+     * How this Task's per-commit compile selectors are judged for one head.
+     *
+     * <p>{@code selectors} is empty unless the Task proved a per-commit compile
+     * check exists. {@code excused} is the narrow acceptance exception: such a
+     * check reports one red for the whole series, so a target whose repair
+     * lives in the fixup after it is red in isolation by construction. That red
+     * is accepted only while the program holds its own complete, all-green
+     * boundary proof for this exact head covering at least one target+fixup
+     * boundary — never by reading what a remote log said failed.
+     */
+    private CompileJudgment compileJudgment(String taskId, String headSha)
     {
-        return placementPolicy(taskId).perCommitCompileSelectors();
+        RepairPlacementPolicy placement = placementPolicy(taskId);
+        if (placement.placement() != RepairPlacement.ATTRIBUTED_FIXUP
+                || placement.perCommitCompileSelectors().isEmpty()) {
+            return new CompileJudgment(List.of(), false);
+        }
+        boolean excused = boundaryCompileProofForHead(headSha)
+                .filter(BoundaryCompileProof::allPassed)
+                .filter(proof -> proof.boundaries().stream().anyMatch(
+                        boundary -> boundary.kind()
+                                == BoundaryKind.TARGET_WITH_FIXUP))
+                .isPresent();
+        return new CompileJudgment(
+                placement.perCommitCompileSelectors(), excused);
+    }
+
+    /** The newest proof for this exact head, whichever attempt produced it. */
+    public Optional<BoundaryCompileProof> boundaryCompileProofForHead(
+            String headSha)
+    {
+        requireText(headSha, "headSha");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_ci_boundary_compile_proof
+                WHERE head_sha = ?
+                ORDER BY proved_at DESC, proof_id DESC
+                LIMIT 1
+                """,
+                (result, row) -> new BoundaryCompileProof(
+                        result.getString("proof_id"),
+                        result.getString("task_id"),
+                        result.getString("attempt_id"),
+                        result.getString("head_sha"),
+                        result.getString("profile_revision_id"),
+                        boundaryResults(result.getString("proof_id")),
+                        instant(result.getLong("proved_at"))),
+                headSha).stream().findFirst();
     }
 
     private Optional<RepairPlacementPolicy> storedPlacementPolicy(String taskId)
@@ -1001,7 +1046,9 @@ public final class CiAutofix
             return storeFinalizedRound(
                     subject, headSha, policy,
                     calculateRound(
-                            exact, policy, compileSelectors(subject.taskId())),
+                            exact,
+                            policy,
+                            compileJudgment(subject.taskId(), headSha)),
                     source);
         }), "provider batch finalize transaction returned null");
     }
@@ -1071,7 +1118,9 @@ public final class CiAutofix
                     requested,
                     policy,
                     calculation.state() == RoundState.PARTIAL_RED_COMPILE
-                            ? compileSelectors(requested.taskId())
+                            ? compileJudgment(
+                                    requested.taskId(),
+                                    requested.remoteHead()).selectors()
                             : List.of());
             if (failedLogs.isEmpty()) {
                 throw new IllegalStateException(
@@ -1256,7 +1305,8 @@ public final class CiAutofix
                     "Current CI policy awaits its next exhaustive provider poll");
         }
         RoundCalculation calculation = calculateRound(
-                prId, headSha, policy, compileSelectors(subject.taskId()));
+                prId, headSha, policy,
+                compileJudgment(subject.taskId(), headSha));
         return storeFinalizedRound(
                 subject, headSha, policy, calculation, null);
     }
@@ -1298,10 +1348,9 @@ public final class CiAutofix
             String prId,
             String headSha,
             RequiredCiPolicyRevision policy,
-            List<String> compileSelectors)
+            CompileJudgment compile)
     {
-        return calculateRound(
-                observations(prId, headSha), policy, compileSelectors);
+        return calculateRound(observations(prId, headSha), policy, compile);
     }
 
     /**
@@ -1317,7 +1366,7 @@ public final class CiAutofix
     private RoundCalculation calculateRound(
             List<CiCheckObservation> exactObservations,
             RequiredCiPolicyRevision policy,
-            List<String> compileSelectors)
+            CompileJudgment compile)
     {
         Map<String, List<CiCheckObservation>> observationsBySelector = new HashMap<>();
         for (CiCheckObservation observation : exactObservations) {
@@ -1346,10 +1395,17 @@ public final class CiAutofix
             selected.add(observation);
             String conclusion = normalizeNullableToken(observation.check().conclusion());
             if (!policy.acceptedConclusions().contains(conclusion)) {
+                // The one red a boundary proof may excuse, and only a red:
+                // an infrastructure or cancelled conclusion still needs a
+                // human, because nothing local proves anything about it.
+                if ("FAILURE".equals(conclusion)
+                        && compile.excuses(selector)) {
+                    continue;
+                }
                 if ("FAILURE".equals(conclusion)) {
                     failed = true;
                     compileFailed = compileFailed
-                            || compileSelectors.contains(selector);
+                            || compile.selectors().contains(selector);
                 }
                 else {
                     needsAttention = true;
@@ -1371,10 +1427,11 @@ public final class CiAutofix
     private RoundCalculation calculateStoredRound(
             CiRound round, RequiredCiPolicyRevision policy)
     {
-        List<String> compileSelectors = compileSelectors(round.taskId());
+        CompileJudgment compile = compileJudgment(
+                round.taskId(), round.remoteHead());
         if (round.sourceObservationOperationId() == null) {
             return calculateRound(
-                    round.prId(), round.remoteHead(), policy, compileSelectors);
+                    round.prId(), round.remoteHead(), policy, compile);
         }
         List<CiCheckObservation> exact = round.checkObservationIds().stream()
                 .map(id -> observation(id).orElseThrow(() ->
@@ -1395,7 +1452,7 @@ public final class CiAutofix
                         "sourced CI round mixes observation authority");
             }
         }
-        return calculateRound(exact, policy, compileSelectors);
+        return calculateRound(exact, policy, compile);
     }
 
     private CiRound storeRound(
@@ -2804,6 +2861,19 @@ public final class CiAutofix
                         policy.unavailableReasonRef(), unavailableReasonRef)
                 && policy.requiredCheckSelectors().equals(selectors)
                 && policy.acceptedConclusions().equals(conclusions);
+    }
+
+    private record CompileJudgment(List<String> selectors, boolean excused)
+    {
+        private CompileJudgment
+        {
+            selectors = List.copyOf(selectors);
+        }
+
+        private boolean excuses(String selector)
+        {
+            return excused && selectors.contains(selector);
+        }
     }
 
     private record RoundCalculation(

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLesson;
@@ -20,6 +21,8 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.QueuedRepair;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntime.CleanupHandoff;
@@ -80,6 +83,10 @@ public final class CiRepairCoordinator
 {
     private static final String CI_PROMPT_MANIFEST = "ci-fix-prompt:v1";
     private static final String CI_CAPABILITY_SET = "ci-fix-capabilities:v1";
+    private static final Duration REWRITE_TIMEOUT = Duration.ofMinutes(10);
+    // ponytail: one flat ceiling for every boundary build in a series. Make it
+    // per-Task configuration if a range ever needs longer than this.
+    private static final Duration BOUNDARY_PROOF_TIMEOUT = Duration.ofHours(2);
 
     private final TransactionTemplate transactions;
     private final CiAutofix autofix;
@@ -87,6 +94,7 @@ public final class CiRepairCoordinator
     private final CiLearningCoordinator learning;
     private final FlowWorktreeInspector worktreeInspector =
             new FlowWorktreeInspector();
+    private final AttributedFixupRebase rebase = new AttributedFixupRebase();
 
     public CiRepairCoordinator(
             DataSource dataSource,
@@ -647,13 +655,29 @@ public final class CiRepairCoordinator
             }
             throw failure;
         }
+        // Attributed placement publishes a reviewable series, so the repair is
+        // repositioned behind the commit it names and proven at the boundaries
+        // before anything adopts it. What the Task Agent and the reviewer see
+        // is then the series that gets pushed.
+        AttributedSeriesResult series = attributeAndProve(
+                attempt, claim, fence, programOwnedRepositoryRoot, prepared);
+        FlowRuntime.PreparedChangeSet adopted = series.prepared();
         return requireNonNull(transactions.execute(ignored -> {
             CiRepairAttempt current = autofix.repairAttempt(attemptId)
                     .orElseThrow();
             assertAttemptIdentity(current, runId, claim, fence);
             requireActiveAttemptSubject(current, runId, claim, fence, true);
             ChangeSetRevision output = runtime.adoptPreparedChangeSet(
-                    claim, fence, prepared);
+                    claim, fence, adopted);
+            if (series.boundaries() != null) {
+                autofix.storeBoundaryCompileProof(
+                        autofix.roundById(current.roundId())
+                                .orElseThrow().taskId(),
+                        attemptId,
+                        output.headSha(),
+                        series.profileRevisionId(),
+                        series.boundaries());
+            }
             CiFixOutcome outcome = output.headSha().equals(
                     current.inputLocalHead())
                     ? CiFixOutcome.NO_HEAD_CHANGE
@@ -679,6 +703,71 @@ public final class CiRepairCoordinator
             return result;
         }), "repair finalization transaction returned null");
     }
+
+    /**
+     * Repositions this Task's series and proves it, when its placement says so.
+     *
+     * <p>Returns the adoption to use. A Task that does not rewrite, a rewrite
+     * that cannot be generated, and a proof that is incomplete or red all fall
+     * back to the fixer's own head with no proof stored, which leaves the
+     * repair visible and blocks publication rather than pushing a series this
+     * program could not prove.
+     */
+    private AttributedSeriesResult attributeAndProve(
+            CiRepairAttempt attempt,
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            FlowRuntime.PreparedChangeSet prepared)
+    {
+        CiRound round = autofix.roundById(attempt.roundId()).orElseThrow();
+        RepairPlacementPolicy placement = autofix.placementPolicy(
+                round.taskId());
+        if (placement.placement() != RepairPlacement.ATTRIBUTED_FIXUP
+                || placement.boundaryBuildCommand().isEmpty()) {
+            return new AttributedSeriesResult(prepared, null, null);
+        }
+        Task task = runtime.task(round.taskId()).orElseThrow();
+        Path worktree = Path.of(task.worktreePath());
+        String baseSha = task.currentBaseSha();
+        String head = prepared.headSha();
+        List<BoundaryOutcome> boundaries;
+        String rewritten;
+        try {
+            rewritten = rebase.reposition(
+                    worktree, baseSha, head, REWRITE_TIMEOUT).outputHead();
+            boundaries = rebase.proveBoundaries(
+                    worktree,
+                    baseSha,
+                    rewritten,
+                    placement.boundaryBuildCommand(),
+                    BOUNDARY_PROOF_TIMEOUT);
+        }
+        catch (AttributedFixupRebase.RebaseFailure failure) {
+            return new AttributedSeriesResult(prepared, null, null);
+        }
+        if (boundaries.isEmpty()
+                || !boundaries.stream().allMatch(BoundaryOutcome::passed)) {
+            return new AttributedSeriesResult(prepared, null, null);
+        }
+        FlowRuntime.PreparedChangeSet adoption = rewritten.equals(head)
+                ? prepared
+                : runtime.prepareRewrittenChangeSet(
+                        claim,
+                        fence,
+                        programOwnedRepositoryRoot,
+                        attempt.inputChangeSetRevisionId(),
+                        rewritten);
+        return new AttributedSeriesResult(
+                adoption,
+                boundaries,
+                "boundary-build:" + placement.boundaryBuildCommand().hashCode());
+    }
+
+    private record AttributedSeriesResult(
+            FlowRuntime.PreparedChangeSet prepared,
+            List<BoundaryOutcome> boundaries,
+            String profileRevisionId) {}
 
     private AgentResult handoffDirtyRepair(
             CiRepairAttempt attempt,

@@ -173,6 +173,12 @@ public final class FlowRuntime
             this.snapshot = snapshot;
             this.inspection = inspection;
         }
+
+        /** The exact head this inspection found. */
+        public String headSha()
+        {
+            return inspection.headSha();
+        }
     }
 
     /** Private-construction proof of one exact inspected Task turn input. */
@@ -3197,6 +3203,52 @@ public final class FlowRuntime
                 snapshot.branchName(),
                 snapshot.baseSha(),
                 snapshot.predecessorHeadSha());
+        return new PreparedChangeSet(
+                expectedChangeSetRevisionId, snapshot, inspection);
+    }
+
+    /**
+     * Inspects a head the program itself rewrote, for one exact proven head.
+     *
+     * <p>Ordinary adoption requires the head to descend from the predecessor.
+     * A program-generated rebase breaks that on purpose, so this variant drops
+     * only that rule. The caller must name the exact head it holds evidence
+     * for, and an inspection that finds any other head fails closed: the point
+     * is to adopt one proven rewrite, never whatever the worktree happens to
+     * contain.
+     */
+    public PreparedChangeSet prepareRewrittenChangeSet(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId,
+            String provenHeadSha)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        requireText(provenHeadSha, "provenHeadSha");
+        AdoptionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() -> adoptionSnapshot(
+                    claim, fence, expectedChangeSetRevisionId));
+            if (!requireOperation(snapshot.operationId())
+                    .ownerKind().equals("CI_ROUND")) {
+                throw new MutationRejectedException(
+                        "only a CI round may adopt a rewritten head");
+            }
+        }
+        Inspection inspection = worktreeInspector.inspectRewritten(
+                programOwnedRepositoryRoot,
+                snapshot.worktree(),
+                snapshot.branchName(),
+                snapshot.baseSha(),
+                snapshot.predecessorHeadSha());
+        if (!inspection.headSha().equals(provenHeadSha)) {
+            throw new MutationRejectedException(
+                    "rewritten worktree is not the head that was proven");
+        }
         return new PreparedChangeSet(
                 expectedChangeSetRevisionId, snapshot, inspection);
     }

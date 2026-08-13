@@ -73,6 +73,7 @@ export default function WorkspaceSyncRunPage({
   /** Best-effort live turns. Completed turns stay in the conversation folded. */
   const [agentTurns, setAgentTurns] = useState<LiveAgentTurn[]>([]);
   const nextAgentTurnId = useRef(1);
+  const reviewerRef = useRef<UpstreamCherryPickRunDto['reviewer']>(null);
   const [prOpen, setPrOpen] = useState(true);
   const { sidebarWidth: queueWidth, shellRef, onResize: onQueueResize } =
     useSidebarWidth(QUEUE_WIDTH_KEY, 292);
@@ -106,6 +107,7 @@ export default function WorkspaceSyncRunPage({
   }, [load]);
 
   const live = run !== null && (isLiveSync(run.job) || run.job.pauseRequested);
+  reviewerRef.current = run?.reviewer ?? null;
   // An authorized publish is program work the run view has to watch: the run
   // itself is parked, and the pull request appears without it moving.
   const publishing = run?.publishGate != null
@@ -149,6 +151,17 @@ export default function WorkspaceSyncRunPage({
     nextAgentTurnId.current = 1;
   }, [jobId]);
 
+  // The reviewer is a separate read-only agent. Reconcile its durable run into
+  // the conversation so opening this page mid-review still shows the handoff,
+  // even if the best-effort start line was emitted before we subscribed.
+  useEffect(() => {
+    const reviewer = run?.reviewer;
+    if (!flow || reviewer === undefined || reviewer === null) return;
+    const running = reviewer.state === 'QUEUED' || reviewer.state === 'RUNNING';
+    setAgentTurns(current => upsertReviewerTurn(
+      current, reviewer.runId, running, nextAgentTurnId));
+  }, [flow, run?.reviewer?.runId, run?.reviewer?.state]);
+
   // Cancellation and process failure can close a turn before the CLI writes
   // its final result line. The durable run state is authoritative: once the
   // run is no longer live, no transcript may stay labelled "working".
@@ -168,12 +181,24 @@ export default function WorkspaceSyncRunPage({
       ? window.bridge.subscribeFlowSyncRunStream
       : window.bridge.subscribeSyncRunStream;
     return subscribe(jobId, event => {
+      const boundary = liveAgentBoundary(event.data);
+      if (boundary !== null) {
+        setAgentTurns(current => upsertReviewerTurn(
+          current, boundary.runId, boundary.running, nextAgentTurnId));
+        return;
+      }
       const entries = transcriptEntries(event.data);
       if (entries.length === 0) return;
       const finished = entries.some(entry => entry.kind === 'result');
       setAgentTurns(current => {
+        const reviewer = reviewerRef.current;
+        const reviewerRunning = flow && reviewer !== undefined && reviewer !== null
+          && (reviewer.state === 'QUEUED' || reviewer.state === 'RUNNING');
+        const role = reviewerRunning ? 'reviewer' : 'sync';
+        const agentRunId = reviewerRunning ? reviewer.runId : undefined;
         const open = current.at(-1);
-        if (open !== undefined && open.running) {
+        if (open !== undefined && open.running
+            && (agentRunId === undefined || open.agentRunId === agentRunId)) {
           return [
             ...current.slice(0, -1),
             {
@@ -183,8 +208,13 @@ export default function WorkspaceSyncRunPage({
             },
           ];
         }
-        return [...current, {
+        const settled = current.map(turn => turn.running
+          ? { ...turn, running: false }
+          : turn);
+        return [...settled, {
           id: nextAgentTurnId.current++,
+          agentRunId,
+          role,
           entries: entries.slice(-MAX_LIVE_ENTRIES),
           running: !finished,
         }];
@@ -529,6 +559,41 @@ export default function WorkspaceSyncRunPage({
       )}
     </div>
   );
+}
+
+function upsertReviewerTurn(
+  turns: LiveAgentTurn[],
+  agentRunId: string,
+  running: boolean,
+  nextId: { current: number },
+): LiveAgentTurn[] {
+  const settled = turns.map(turn => turn.running && turn.agentRunId !== agentRunId
+    ? { ...turn, running: false }
+    : turn);
+  const index = settled.findIndex(turn => turn.agentRunId === agentRunId);
+  if (index === -1) {
+    return [...settled, {
+      id: nextId.current++, agentRunId, role: 'reviewer', entries: [], running,
+    }];
+  }
+  if (settled[index].running === running) return settled;
+  return settled.map((turn, turnIndex) => turnIndex === index
+    ? { ...turn, running }
+    : turn);
+}
+
+function liveAgentBoundary(value: unknown): {
+  runId: string;
+  running: boolean;
+} | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const line = value as Record<string, unknown>;
+  return line.type === 'bytequay_agent'
+      && line.role === 'reviewer'
+      && typeof line.run_id === 'string'
+      && typeof line.running === 'boolean'
+    ? { runId: line.run_id, running: line.running }
+    : null;
 }
 
 function AgentApproval({ approval, onAnswer }: {

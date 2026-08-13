@@ -37,6 +37,8 @@ const PICK_ROWS = 3;
 
 export type LiveAgentTurn = {
   id: number;
+  agentRunId?: string;
+  role: 'sync' | 'reviewer';
   entries: TranscriptEntry[];
   running: boolean;
 };
@@ -292,9 +294,11 @@ function LiveAgentTurnView({ turn, waiting }: {
   const ran = turn.entries.filter(entry => entry.kind === 'tool').length;
   const result = turn.entries.findLast(entry => entry.kind === 'result');
   const failed = result?.kind === 'result' && result.failed;
-  const label = waiting && turn.running
-    ? 'Agent waiting for permission'
-    : turn.running ? 'Agent working' : 'Agent log';
+  const label = turn.role === 'reviewer'
+    ? turn.running ? 'Reviewer agent started · working' : 'Reviewer agent log'
+    : waiting && turn.running
+      ? 'Sync agent waiting for permission'
+      : turn.running ? 'Sync agent working' : 'Sync agent log';
   return (
     <div className="sf-agent" aria-live={turn.running ? 'polite' : undefined}>
       <button type="button" className="sf-disclose is-agent" aria-expanded={open}

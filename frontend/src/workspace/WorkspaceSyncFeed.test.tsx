@@ -128,6 +128,7 @@ describe('WorkspaceSyncFeed', () => {
     const run = syncRun();
     const turn = {
       id: 1,
+      role: 'sync' as const,
       running: true,
       entries: [{
         kind: 'tool' as const,
@@ -139,14 +140,14 @@ describe('WorkspaceSyncFeed', () => {
     const view = render(<WorkspaceSyncFeed job={run.job} commits={run.commits}
       events={run.events} liveAgentTurns={[turn]} />);
 
-    expect(screen.getByText('Agent working')).toBeTruthy();
+    expect(screen.getByText('Sync agent working')).toBeTruthy();
     expect(screen.getByText('core/trino-spi/pom.xml')).toBeTruthy();
 
     view.rerender(<WorkspaceSyncFeed job={run.job} commits={run.commits}
       events={run.events} liveAgentTurns={[{ ...turn, running: false }]} />);
-    expect(screen.getByText('Agent log')).toBeTruthy();
+    expect(screen.getByText('Sync agent log')).toBeTruthy();
     expect(screen.queryByText('core/trino-spi/pom.xml')).toBeNull();
-    fireEvent.click(screen.getByText('Agent log'));
+    fireEvent.click(screen.getByText('Sync agent log'));
     expect(screen.getByText('core/trino-spi/pom.xml')).toBeTruthy();
   });
 
@@ -154,6 +155,7 @@ describe('WorkspaceSyncFeed', () => {
     render(<WorkspaceSyncFeed job={syncRun().job} commits={[]} events={[]}
       agentWaitingForApproval liveAgentTurns={[{
         id: 1,
+        role: 'sync',
         running: true,
         entries: [{
           kind: 'tool', name: 'Bash', summary: 'git hash-object pom.xml',
@@ -161,8 +163,8 @@ describe('WorkspaceSyncFeed', () => {
         }],
       }]} />);
 
-    expect(screen.getByText('Agent waiting for permission')).toBeTruthy();
-    expect(screen.queryByText('Agent working')).toBeNull();
+    expect(screen.getByText('Sync agent waiting for permission')).toBeTruthy();
+    expect(screen.queryByText('Sync agent working')).toBeNull();
   });
 
   it('shows the user’s steering as theirs, not as the agent’s', () => {

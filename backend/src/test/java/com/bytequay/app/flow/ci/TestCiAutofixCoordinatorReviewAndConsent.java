@@ -646,7 +646,7 @@ class TestCiAutofixCoordinatorReviewAndConsent
         var start = runtime.startReviewerAgent(
                 reviewer.request().requestId(),
                 redriven,
-                "adversarial-reviewer-prompt:v1",
+                "adversarial-reviewer-prompt:v2",
                 "immutable-git-object-reader:v1");
         assertThat(start.run().runId()).isEqualTo(reviewer.start().run().runId());
         assertThat(redriven.generation())

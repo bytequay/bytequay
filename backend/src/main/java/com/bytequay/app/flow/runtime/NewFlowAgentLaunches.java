@@ -213,11 +213,14 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer", "ready_for_review")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
-                "adversarial-reviewer-prompt:v1",
+                "adversarial-reviewer-prompt:v2",
                 "immutable-git-object-reader:v1",
-                "ci-adversarial-review-turn:v1",
+                "ci-adversarial-review-turn:v2",
                 "Review the immutable base-to-head change adversarially using "
-                        + "read-only tools. Return findings as opaque prose.",
+                        + "read-only tools. For an upstream cherry-pick range, "
+                        + "identify and review only fork-authored conflict "
+                        + "resolutions and fixups; do not re-review clean "
+                        + "cherry-picks. Return findings as opaque prose.",
                 List.of("list_tree", "read_diff", "read_reviewed_blob",
                         "read_base_blob")),
         CI_LEARNER(

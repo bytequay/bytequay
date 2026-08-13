@@ -515,6 +515,15 @@ export type UpstreamCherryPickRunDto = {
   fixups?: SyncFixupDto[];
   compileProof?: SyncCompileProofDto | null;
   publishGate?: SyncPublishGateDto | null;
+  /** The isolated read-only agent reviewing this range, once one is started. */
+  reviewer?: SyncReviewerDto | null;
+};
+
+export type SyncReviewerDto = {
+  runId: string;
+  state: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
+  startedAt: string | null;
+  completedAt: string | null;
 };
 
 /** One CI round on the pull request, oldest first. */

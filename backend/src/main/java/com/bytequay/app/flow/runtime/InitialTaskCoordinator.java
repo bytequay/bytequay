@@ -66,7 +66,7 @@ public final class InitialTaskCoordinator
     private static final String TASK_REVIEW_CAPABILITIES =
             "task-initial-review-capabilities:v2";
     private static final String REVIEWER_PROMPT =
-            "adversarial-reviewer-prompt:v1";
+            "adversarial-reviewer-prompt:v2";
     private static final String REVIEWER_CAPABILITIES =
             "immutable-git-object-reader:v1";
 

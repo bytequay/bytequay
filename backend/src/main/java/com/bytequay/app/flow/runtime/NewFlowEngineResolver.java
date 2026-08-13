@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -151,6 +152,10 @@ public class NewFlowEngineResolver
                         String.class,
                         workspaceId)
                 .stream()
+                // The column is nullable, and a workspace that never picked an
+                // engine stores NULL — which is "no stored engine", not a row
+                // findFirst may trip over.
+                .filter(Objects::nonNull)
                 .findFirst()
                 .map(json -> WorkModelJson.deserialise(mapper, json))
                 .filter(model -> model != null

@@ -14,7 +14,10 @@
 package com.bytequay.app.flow.gate;
 
 import com.bytequay.app.flow.ci.CiAutofix;
+import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryCompileProof;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedInitialPublish;
@@ -2932,6 +2935,29 @@ public final class UserGates
                         reviewerRequest.originCiFixPendingId())) {
             blockers.add("CI_FIX_SOURCE_STALE");
         }
+        RepairPlacementPolicy placement = autofix.placementPolicy(
+                task.taskId());
+        boolean rewrites = placement.placement()
+                == RepairPlacement.ATTRIBUTED_FIXUP;
+        if (rewrites) {
+            // The program never publishes a series it could not prove. A
+            // missing or failed boundary blocks publication; it never
+            // downgrades to a warning, because the acceptance exception a
+            // rewritten series depends on rests entirely on this proof.
+            if (autofix.boundaryCompileProofForHead(changeSet.headSha())
+                    .filter(BoundaryCompileProof::allPassed)
+                    .isEmpty()) {
+                blockers.add("BOUNDARY_COMPILE_PROOF_MISSING");
+            }
+            if (!placement.allowsHistoryRewrite()) {
+                // Rewriting published history is authority the ordinary
+                // CI_UPDATE path does not carry. Without the standing grant
+                // the revision is manual-only, so a one-shot consent cannot
+                // rewrite history by accident; the user authorizes this exact
+                // round or nothing rewrites.
+                warnings.add("HISTORY_REWRITE_UNAUTHORIZED");
+            }
+        }
         if (!blockers.isEmpty()) {
             throw new ReadyRejectedException(
                     blockers.stream().distinct().toList());
@@ -3020,15 +3046,28 @@ public final class UserGates
                 subjectDigest,
                 runId,
                 createdAt);
-        String actionDigest = stableId(
-                "ci-update-action",
-                pr.headRepositoryExternalId(),
-                pr.headRepositoryOwner(),
-                pr.headRepositoryName(),
-                branchRef,
-                pr.currentRemoteHead(),
-                changeSet.headSha(),
-                "force:false");
+        // A rewriting publication is a different action from a fast-forward
+        // of the same heads, so it can never inherit one's authorization.
+        String actionDigest = rewrites
+                ? stableId(
+                        "ci-update-action",
+                        pr.headRepositoryExternalId(),
+                        pr.headRepositoryOwner(),
+                        pr.headRepositoryName(),
+                        branchRef,
+                        pr.currentRemoteHead(),
+                        changeSet.headSha(),
+                        "force:false",
+                        "rewrite:attributed-fixup")
+                : stableId(
+                        "ci-update-action",
+                        pr.headRepositoryExternalId(),
+                        pr.headRepositoryOwner(),
+                        pr.headRepositoryName(),
+                        branchRef,
+                        pr.currentRemoteHead(),
+                        changeSet.headSha(),
+                        "force:false");
         return new GateBundle(
                 localReviewBinding,
                 subject,

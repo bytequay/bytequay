@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -80,6 +81,51 @@ final class NewFlowAgentBodies
         // Null only where no CLI engine can be reached, which the turn path
         // refuses explicitly rather than silently running on the wrong one.
         this.cliTurn = cliTurn;
+    }
+
+    /**
+     * Pairs a capability's two journal writes into the one seam a CLI turn
+     * takes. Each role has its own capability type but the same two writes, so
+     * this is the whole of the adaptation.
+     */
+    private static NewFlowCliTurn.TurnJournal journal(
+            GroupWrite group, UsageWrite usage)
+    {
+        return new NewFlowCliTurn.TurnJournal()
+        {
+            @Override
+            public void group(long pid, long pgid, Instant startedAt)
+            {
+                group.record(pid, pgid, startedAt);
+            }
+
+            @Override
+            public void usage(
+                    String providerSessionId,
+                    long tokensIn,
+                    long tokensOut,
+                    long costMilliUsd)
+            {
+                usage.record(
+                        providerSessionId, tokensIn, tokensOut, costMilliUsd);
+            }
+        };
+    }
+
+    @FunctionalInterface
+    private interface GroupWrite
+    {
+        void record(long pid, long pgid, Instant startedAt);
+    }
+
+    @FunctionalInterface
+    private interface UsageWrite
+    {
+        void record(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd);
     }
 
     NewFlowAgentLaunches.Binding bindRepair(AgentRun run)
@@ -163,7 +209,7 @@ final class NewFlowAgentBodies
         });
         return sealedWriterCompletion(
                 run(binding, program, executor, terminal, worktree,
-                        capability::recordAgentGroup),
+                        journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)),
                 terminal.get());
     }
 
@@ -237,7 +283,7 @@ final class NewFlowAgentBodies
             default -> ToolCallResult.error("tool is not available");
         });
         return writerCompletion(run(binding, CI_REPAIR, executor, stop,
-                worktree, capability::recordAgentGroup));
+                worktree, journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)));
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion cleanup(
@@ -273,7 +319,7 @@ final class NewFlowAgentBodies
             default -> ToolCallResult.error("tool is not available");
         });
         return writerCompletion(run(binding, CI_CLEANUP, executor, stop,
-                worktree, capability::recordAgentGroup));
+                worktree, journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)));
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion taskFixReview(
@@ -333,7 +379,7 @@ final class NewFlowAgentBodies
         });
         return sealedWriterCompletion(
                 run(binding, program, executor, terminal, worktree,
-                        capability::recordAgentGroup),
+                        journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)),
                 terminal.get());
     }
 
@@ -356,7 +402,7 @@ final class NewFlowAgentBodies
         });
         TurnResult result = run(
                 binding, REVIEWER, executor, stop, null,
-                capability::recordAgentGroup);
+                journal(capability::recordAgentGroup, capability::recordAgentTurnUsage));
         return new InProcessReviewerAgentSupervisor.AgentCompletion(
                 terminal(result), result.finalText(), error(result));
     }
@@ -390,7 +436,7 @@ final class NewFlowAgentBodies
         });
         TurnResult result = run(
                 binding, CI_LEARNER, executor, saved, null,
-                capability::recordAgentGroup);
+                journal(capability::recordAgentGroup, capability::recordAgentTurnUsage));
         TerminalOutcome outcome = saved.get()
                 ? TerminalOutcome.COMPLETED : terminal(result);
         String failure = saved.get() ? null : error(result);
@@ -416,10 +462,10 @@ final class NewFlowAgentBodies
             ToolExecutor executor,
             AtomicBoolean terminalSeal,
             Path worktree,
-            NewFlowCliTurn.GroupRecorder recorder)
+            NewFlowCliTurn.TurnJournal journal)
     {
         if (!binding.isApi()) {
-            if (cliTurn == null || recorder == null) {
+            if (cliTurn == null || journal == null) {
                 // Refused rather than downgraded to an API engine, which would
                 // overrule the user's billing and privacy choice, and rather
                 // than run a subprocess whose death nothing could prove.
@@ -437,10 +483,10 @@ final class NewFlowAgentBodies
             return (worktree == null
                     ? cliTurn.runReadOnly(
                             binding.runId(), binding, cliTools, cliSystem,
-                            executor, recorder, stop)
+                            executor, journal, stop)
                     : cliTurn.runInWorktree(
                             binding.runId(), binding, cliTools, cliSystem,
-                            executor, worktree, recorder, stop))
+                            executor, worktree, journal, stop))
                     .turn();
         }
         ArrayNode messages = mapper.createArrayNode();

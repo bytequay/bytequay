@@ -420,6 +420,20 @@ CREATE TABLE flow_runtime_agent_session (
     ),
     last_run_id TEXT,
     close_reason TEXT,
+    -- The vendor's own handle on this conversation, so a later turn continues
+    -- it rather than starting over. This is the whole reason the session row
+    -- outlives a run: without it "one persistent CI_FIXER session per Task" is
+    -- a claim the program cannot keep across a restart. Null until a CLI turn
+    -- reports one; an API turn never has one, because the transcript this
+    -- program replays is the transcript.
+    provider_session_id TEXT,
+    -- What the session has cost so far, accumulated per turn. Held here rather
+    -- than summed over attempts on demand because attempts are pruned and a
+    -- budget that forgets spending is not a budget.
+    total_tokens_in INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens_in >= 0),
+    total_tokens_out INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens_out >= 0),
+    total_cost_milli_usd INTEGER NOT NULL DEFAULT 0
+        CHECK (total_cost_milli_usd >= 0),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
@@ -597,6 +611,20 @@ CREATE TABLE flow_runtime_agent_process_attempt (
     agent_pid INTEGER,
     agent_pgid INTEGER CHECK (agent_pgid IS NULL OR agent_pgid > 1),
     agent_started_at INTEGER,
+    -- This attempt's own share of the session totals, snapshotted when the turn
+    -- ends. The session row says what has been spent; these say which attempt
+    -- spent it, which is the only way to read a runaway turn apart from a long
+    -- but healthy one after the fact.
+    attempt_provider_session_id TEXT,
+    attempt_tokens_in INTEGER CHECK (
+        attempt_tokens_in IS NULL OR attempt_tokens_in >= 0
+    ),
+    attempt_tokens_out INTEGER CHECK (
+        attempt_tokens_out IS NULL OR attempt_tokens_out >= 0
+    ),
+    attempt_cost_milli_usd INTEGER CHECK (
+        attempt_cost_milli_usd IS NULL OR attempt_cost_milli_usd >= 0
+    ),
     reserved_at INTEGER NOT NULL,
     activated_at INTEGER,
     capability_revoked_at INTEGER,

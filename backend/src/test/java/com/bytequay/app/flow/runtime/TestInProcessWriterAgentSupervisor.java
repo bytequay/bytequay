@@ -1155,6 +1155,73 @@ class TestInProcessWriterAgentSupervisor
     }
 
     @Test
+    void turnUsageLandsOnTheAttemptAndAccumulatesOnTheSession()
+    {
+        // What has to survive the turn: the vendor's handle on the conversation
+        // so the next one continues it, and the spend a budget stops on.
+        ActiveWriter writer = startWriter("turn-usage");
+        AgentProcessAttempt attempt = activatedAttempt(writer);
+
+        runtime.recordAgentTurnUsage(
+                attempt.processAttemptId(), writer.claim(), "prov-1",
+                11, 5, 250);
+
+        assertThat(runtime.resumableProviderSession(writer.run().runId()))
+                .contains("prov-1");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT total_tokens_in || '/' || total_tokens_out || '/'
+                    || total_cost_milli_usd || '/' || provider_session_id
+                FROM flow_runtime_agent_session
+                """,
+                String.class))
+                .isEqualTo("11/5/250/prov-1");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT attempt_tokens_in FROM flow_runtime_agent_process_attempt
+                WHERE process_attempt_id = ?
+                """,
+                Long.class,
+                attempt.processAttemptId()))
+                .isEqualTo(11L);
+    }
+
+    @Test
+    void turnUsageIsCountedOnceEvenIfTheCompletionIsRedelivered()
+    {
+        // A redelivery that quietly added again would inflate the session total
+        // and stop a healthy run on a budget it never actually spent.
+        ActiveWriter writer = startWriter("turn-usage-once");
+        AgentProcessAttempt attempt = activatedAttempt(writer);
+        runtime.recordAgentTurnUsage(
+                attempt.processAttemptId(), writer.claim(), "prov-1", 11, 5, 250);
+
+        assertThatThrownBy(() -> runtime.recordAgentTurnUsage(
+                attempt.processAttemptId(), writer.claim(), "prov-1", 11, 5, 250))
+                .isInstanceOf(FlowRuntime.StaleOwnerRevisionException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT total_tokens_in FROM flow_runtime_agent_session",
+                Long.class))
+                .isEqualTo(11L);
+    }
+
+    private AgentProcessAttempt activatedAttempt(ActiveWriter writer)
+    {
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+        runtime.activateInProcessWriterAttempt(
+                attempt.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        return attempt;
+    }
+
+    @Test
     void anAgentGroupIsRecordedOnceAndNeverSilentlyReplaced()
     {
         // Two agents under one attempt is not a state to overwrite quietly: the

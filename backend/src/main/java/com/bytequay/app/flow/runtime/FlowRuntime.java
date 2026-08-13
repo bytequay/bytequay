@@ -6429,6 +6429,112 @@ public final class FlowRuntime
         });
     }
 
+    /**
+     * Records what one agent turn spent, and what the provider calls the
+     * conversation it spent it on.
+     *
+     * <p>Two writes, one transaction, because they answer different questions
+     * and a half-applied pair would lie about both: the attempt keeps this
+     * turn's own figures, and the session accumulates them. Sessions outlive
+     * attempts, so a total derived by summing attempts on demand would shrink
+     * as old ones are pruned — a budget that forgets spending is not a budget.
+     *
+     * <p>Set-once per attempt. A redelivered completion must not be counted
+     * twice, and the attempt's own snapshot is what makes that checkable rather
+     * than assumed.
+     *
+     * @param providerSessionId the vendor's handle for resuming this role's
+     *         next turn, or null for a transport that has none
+     */
+    synchronized void recordAgentTurnUsage(
+            String processAttemptId,
+            Claim claim,
+            String providerSessionId,
+            long tokensIn,
+            long tokensOut,
+            long costMilliUsd)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        if (tokensIn < 0 || tokensOut < 0 || costMilliUsd < 0) {
+            throw new IllegalArgumentException("agent turn usage is negative");
+        }
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+            if (!attempt.operationId().equals(claim.operationId())
+                    || attempt.claimGeneration() != claim.generation()) {
+                throw new StaleClaimException(
+                        "process attempt belongs to another claim generation");
+            }
+            AgentRun run = requireRun(attempt.runId());
+            int attemptUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET attempt_provider_session_id = ?, attempt_tokens_in = ?,
+                        attempt_tokens_out = ?, attempt_cost_milli_usd = ?
+                    WHERE process_attempt_id = ?
+                        AND attempt_tokens_in IS NULL
+                    """,
+                    providerSessionId,
+                    tokensIn,
+                    tokensOut,
+                    costMilliUsd,
+                    processAttemptId);
+            if (attemptUpdated != 1) {
+                // Already counted. Silence here would double the session totals
+                // on any redelivery, which is exactly what the budget stops on.
+                throw new StaleOwnerRevisionException(
+                        "agent turn usage was already recorded for this"
+                                + " attempt");
+            }
+            int sessionUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET total_tokens_in = total_tokens_in + ?,
+                        total_tokens_out = total_tokens_out + ?,
+                        total_cost_milli_usd = total_cost_milli_usd + ?,
+                        provider_session_id = COALESCE(?, provider_session_id),
+                        updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    tokensIn,
+                    tokensOut,
+                    costMilliUsd,
+                    providerSessionId,
+                    clock.instant().toEpochMilli(),
+                    run.sessionId());
+            if (sessionUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "agent session changed while recording turn usage");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    /**
+     * The provider session a run's role should continue, if it has one.
+     *
+     * <p>Read per run rather than held in memory because the point is surviving
+     * a restart: an id that only exists in this JVM resumes nothing.
+     */
+    synchronized Optional<String> resumableProviderSession(String runId)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                """
+                SELECT s.provider_session_id
+                FROM flow_runtime_agent_session s
+                JOIN flow_runtime_agent_run r ON r.session_id = s.session_id
+                WHERE r.run_id = ?
+                """,
+                (result, row) -> result.getString("provider_session_id"),
+                runId)
+                .stream()
+                .findFirst()
+                .filter(id -> id != null && !id.isBlank());
+    }
+
     /** Authorizes one tool call for the exact live in-process capability. */
     synchronized void assertInProcessWriterToolCapability(
             String runId,

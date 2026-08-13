@@ -149,6 +149,17 @@ public final class InProcessCiLearningAgentSupervisor
             execution.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
         }
 
+        /** What this turn spent, and the handle its successor resumes. */
+        public void recordAgentTurnUsage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd)
+        {
+            execution.recordAgentTurnUsage(
+                    providerSessionId, tokensIn, tokensOut, costMilliUsd);
+        }
+
         @Override
         public String toString()
         {
@@ -459,6 +470,26 @@ public final class InProcessCiLearningAgentSupervisor
         {
             aborted = true;
             gate.countDown();
+        }
+
+        private void recordAgentTurnUsage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd)
+        {
+            if (Thread.currentThread() != thread) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "recording turn usage requires the owned learning"
+                                + " thread");
+            }
+            runtime.recordAgentTurnUsage(
+                    attempt.processAttemptId(),
+                    claim,
+                    providerSessionId,
+                    tokensIn,
+                    tokensOut,
+                    costMilliUsd);
         }
 
         private void recordAgentGroup(

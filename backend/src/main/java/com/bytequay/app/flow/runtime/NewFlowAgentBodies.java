@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_CLEANUP;
@@ -353,7 +354,9 @@ final class NewFlowAgentBodies
                     capability.readBaseBlob(text(call, "path"))));
             default -> ToolCallResult.error("tool is not available");
         });
-        TurnResult result = run(binding, REVIEWER, executor, stop);
+        TurnResult result = run(
+                binding, REVIEWER, executor, stop, null,
+                capability::recordAgentGroup);
         return new InProcessReviewerAgentSupervisor.AgentCompletion(
                 terminal(result), result.finalText(), error(result));
     }
@@ -385,7 +388,9 @@ final class NewFlowAgentBodies
             });
             default -> ToolCallResult.error("tool is not available");
         });
-        TurnResult result = run(binding, CI_LEARNER, executor, saved);
+        TurnResult result = run(
+                binding, CI_LEARNER, executor, saved, null,
+                capability::recordAgentGroup);
         TerminalOutcome outcome = saved.get()
                 ? TerminalOutcome.COMPLETED : terminal(result);
         String failure = saved.get() ? null : error(result);
@@ -395,20 +400,6 @@ final class NewFlowAgentBodies
         }
         return new InProcessCiLearningAgentSupervisor.AgentCompletion(
                 outcome, result.finalText(), failure);
-    }
-
-    /**
-     * An API turn. Kept as the no-worktree overload so the two roles that have
-     * no worktree — and therefore no CLI transport — cannot accidentally be
-     * given one.
-     */
-    private TurnResult run(
-            NewFlowAgentLaunches.Binding binding,
-            NewFlowAgentLaunches.Program program,
-            ToolExecutor executor,
-            AtomicBoolean terminalSeal)
-    {
-        return run(binding, program, executor, terminalSeal, null, null);
     }
 
     /**
@@ -428,27 +419,28 @@ final class NewFlowAgentBodies
             NewFlowCliTurn.GroupRecorder recorder)
     {
         if (!binding.isApi()) {
-            if (cliTurn == null || worktree == null || recorder == null) {
-                // ponytail: only the writer roles carry a worktree and a group
-                // recorder, so only they can run a CLI agent whose death is
-                // provable. Refused rather than downgraded to an API engine,
-                // which would overrule the user's billing and privacy choice,
-                // and rather than run without a receipt. Lift by giving the
-                // reviewer and learner supervisors the same seam.
+            if (cliTurn == null || recorder == null) {
+                // Refused rather than downgraded to an API engine, which would
+                // overrule the user's billing and privacy choice, and rather
+                // than run a subprocess whose death nothing could prove.
                 throw new NewFlowAgentLaunches.LaunchUnavailableException(
                         "this role has no CLI transport; run "
                                 + binding.runId() + " cannot start");
             }
-            return cliTurn.run(
-                    binding.runId(),
-                    binding,
-                    launches.mcpTools(program),
-                    launches.systemPrompt(program),
-                    executor,
-                    worktree,
-                    recorder,
-                    () -> terminalSeal.get()
-                            || Thread.currentThread().isInterrupted())
+            BooleanSupplier stop = () -> terminalSeal.get()
+                    || Thread.currentThread().isInterrupted();
+            ArrayNode cliTools = launches.mcpTools(program);
+            String cliSystem = launches.systemPrompt(program);
+            // A worktree is what separates the two shapes: a writer edits one
+            // and has to be contained in it, while a reviewer or learner reads
+            // only through its tools and is handed nothing to edit.
+            return (worktree == null
+                    ? cliTurn.runReadOnly(
+                            binding.runId(), binding, cliTools, cliSystem,
+                            executor, recorder, stop)
+                    : cliTurn.runInWorktree(
+                            binding.runId(), binding, cliTools, cliSystem,
+                            executor, worktree, recorder, stop))
                     .turn();
         }
         ArrayNode messages = mapper.createArrayNode();

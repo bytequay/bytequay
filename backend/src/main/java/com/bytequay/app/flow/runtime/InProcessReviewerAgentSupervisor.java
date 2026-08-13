@@ -114,6 +114,17 @@ public final class InProcessReviewerAgentSupervisor
             return execution.read(() -> execution.reader.readDiff());
         }
 
+        /**
+         * Records the process group a CLI reviewer just launched, before its
+         * prompt goes in. Not a read: this is the program recording what it
+         * started, and it must work even once the read surface is closed.
+         */
+        public void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            execution.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
+        }
+
         @Override
         public String toString()
         {
@@ -532,6 +543,24 @@ public final class InProcessReviewerAgentSupervisor
         {
             abortBeforeActivation = true;
             startGate.countDown();
+        }
+
+        private void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            // Only the thread that owns the turn may say what it launched; any
+            // other caller would be naming a group it does not hold.
+            if (Thread.currentThread() != thread) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "recording an agent group requires the owned reviewer"
+                                + " thread");
+            }
+            runtime.recordInProcessReadOnlyAgentGroup(
+                    attempt.processAttemptId(),
+                    claim,
+                    agentPid,
+                    agentPgid,
+                    agentStartedAt);
         }
 
         private ExecutionHandle handle()

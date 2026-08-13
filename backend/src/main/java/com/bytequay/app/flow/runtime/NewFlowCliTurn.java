@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,13 +119,72 @@ final class NewFlowCliTurn
      */
     record Outcome(TurnResult turn, String providerSessionId) {}
 
-    Outcome run(
+    /**
+     * A writing turn, in the Task's own worktree and contained there.
+     */
+    Outcome runInWorktree(
             String runId,
             NewFlowAgentLaunches.Binding binding,
             ArrayNode tools,
             String systemPrompt,
             ToolExecutor executor,
             Path worktree,
+            GroupRecorder recorder,
+            BooleanSupplier interrupted)
+    {
+        requireNonNull(worktree, "worktree is null");
+        Path scratch = worktree.resolve(".git").resolve("bytequay-cli");
+        return run(
+                runId, binding, tools, systemPrompt, executor, worktree,
+                scratch, false, recorder, interrupted);
+    }
+
+    /**
+     * A read-only turn, which has no worktree at all.
+     *
+     * <p>A reviewer or learner reads through its tools — the immutable git
+     * objects, the frozen CI logs — and never through the filesystem, so it is
+     * given a directory with nothing in it rather than the repository. That is
+     * stronger than containment, not weaker: there is no remote to poison
+     * because there is no repository to push from, and the environment is
+     * scrubbed of credentials all the same.
+     */
+    Outcome runReadOnly(
+            String runId,
+            NewFlowAgentLaunches.Binding binding,
+            ArrayNode tools,
+            String systemPrompt,
+            ToolExecutor executor,
+            GroupRecorder recorder,
+            BooleanSupplier interrupted)
+    {
+        Path scratch;
+        try {
+            scratch = Files.createTempDirectory("bytequay-readonly-agent-");
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(
+                    "could not create the agent's scratch directory", failure);
+        }
+        try {
+            return run(
+                    runId, binding, tools, systemPrompt, executor, scratch,
+                    scratch, true, recorder, interrupted);
+        }
+        finally {
+            deleteRecursively(scratch);
+        }
+    }
+
+    private Outcome run(
+            String runId,
+            NewFlowAgentLaunches.Binding binding,
+            ArrayNode tools,
+            String systemPrompt,
+            ToolExecutor executor,
+            Path directory,
+            Path scratch,
+            boolean readOnly,
             GroupRecorder recorder,
             BooleanSupplier interrupted)
     {
@@ -135,21 +195,36 @@ final class NewFlowCliTurn
         }
         requireNonNull(tools, "tools is null");
         requireNonNull(executor, "executor is null");
-        requireNonNull(worktree, "worktree is null");
         requireNonNull(recorder, "recorder is null");
 
         CliAgentArgv.Vendor vendor = vendor(binding);
-        Path scratch = worktree.resolve(".git").resolve("bytequay-cli");
         try (NewFlowAgentToolBridge.Registration registration =
                      bridge.open(runId, tools, executor)) {
             String mcpUrl = "http://127.0.0.1:" + serverPort
                     + registration.path();
             Path mcpConfig = vendor == CliAgentArgv.Vendor.CLAUDE_CODE
                     ? writeMcpConfig(scratch, mcpUrl) : null;
+            if (readOnly) {
+                Map<String, String> scrubbed;
+                try {
+                    scrubbed = CliWriterContainment.environment(scratch);
+                }
+                catch (IOException failure) {
+                    // The scrub is the only thing standing between a read-only
+                    // agent and the user's own git credentials, so a turn that
+                    // cannot have it does not run.
+                    throw new UncheckedIOException(
+                            "could not scrub the agent's environment", failure);
+                }
+                return execute(
+                        binding, systemPrompt, vendor, directory,
+                        scratch.resolve("pgid"), mcpConfig, mcpUrl, scrubbed,
+                        true, recorder, interrupted);
+            }
             CliWriterContainment.Applied contained;
             try {
                 contained = CliWriterContainment.apply(
-                        worktree, scratch, "origin");
+                        directory, scratch, "origin");
             }
             catch (IOException failure) {
                 // Containment is not optional. A turn that cannot be contained
@@ -165,15 +240,35 @@ final class NewFlowCliTurn
             }
             try {
                 return execute(
-                        binding, systemPrompt, vendor, worktree, scratch,
-                        mcpConfig, mcpUrl, contained, recorder, interrupted);
+                        binding, systemPrompt, vendor, directory,
+                        scratch.resolve("pgid"), mcpConfig, mcpUrl,
+                        contained.environment(), false, recorder, interrupted);
             }
             finally {
                 // Lifted even when the turn threw: a crashed turn otherwise
                 // leaves the refusing push URL behind and the program's own
                 // publish would fail on it later, far from the cause.
-                lift(worktree, contained);
+                lift(directory, contained);
             }
+        }
+    }
+
+    private static void deleteRecursively(Path root)
+    {
+        try (var paths = Files.walk(root)) {
+            paths.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        }
+                        catch (IOException ignored) {
+                            // A leftover scratch directory is litter, not a
+                            // correctness problem, and must not fail the turn.
+                        }
+                    });
+        }
+        catch (IOException ignored) {
+            log.debug("could not clean the agent scratch directory {}", root);
         }
     }
 
@@ -200,11 +295,12 @@ final class NewFlowCliTurn
             NewFlowAgentLaunches.Binding binding,
             String systemPrompt,
             CliAgentArgv.Vendor vendor,
-            Path worktree,
-            Path scratch,
+            Path directory,
+            Path pgidFile,
             Path mcpConfig,
             String mcpUrl,
-            CliWriterContainment.Applied contained,
+            Map<String, String> scrubbed,
+            boolean readOnly,
             GroupRecorder recorder,
             BooleanSupplier interrupted)
     {
@@ -213,9 +309,9 @@ final class NewFlowCliTurn
                 binding.cliBinary(),
                 binding.model(),
                 binding.reasoningEffort(),
-                worktree,
+                directory,
                 systemPrompt,
-                false,
+                readOnly,
                 mcpConfig,
                 mcpUrl,
                 null,
@@ -223,8 +319,7 @@ final class NewFlowCliTurn
                 null,
                 List.of(),
                 List.of()));
-        Map<String, String> environment = new HashMap<>(
-                contained.environment());
+        Map<String, String> environment = new HashMap<>(scrubbed);
         // The bridge resolves run, capability, role and fence from the run id in
         // the URL. Nothing about the fence is put in the environment, where the
         // agent could read it and forge a call.
@@ -233,7 +328,7 @@ final class NewFlowCliTurn
         ProcessGroup.Spawned spawned;
         try {
             spawned = ProcessGroup.start(
-                    argv, worktree, environment, scratch.resolve("pgid"));
+                    argv, directory, environment, pgidFile);
         }
         catch (IOException failure) {
             throw new UncheckedIOException(

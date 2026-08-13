@@ -59,6 +59,7 @@ public final class WorkspaceUpstreamSyncController
     private static final int DEFAULT_LIST_LIMIT = 25;
     private static final int MAX_SELECTED_COMMITS = 2_000;
     private static final int MAX_REPAIR_TURNS = 500;
+    private static final int MAX_COMMAND_ID = 256;
 
     private final WorkspaceRepositoryResolver resolver;
     private final WorkspaceRelationService relations;
@@ -111,6 +112,7 @@ public final class WorkspaceUpstreamSyncController
             @RequestBody StartSyncBody body)
     {
         requireNonNull(body, "body is null");
+        String commandId = requireCommandId(body.commandId());
         ResolvedRelation relation = relations.requireResolved(workspaceId);
         String repositoryId = relation.target().fullName();
         List<SelectedCommit> selected = selection(body);
@@ -132,10 +134,7 @@ public final class WorkspaceUpstreamSyncController
         String targetRef = text(body.targetRef(), "HEAD");
         int repairTurnBudget = repairTurns(body.repairTurnBudget());
         UpstreamSyncCommands.StartReceipt receipt = commands.startConfirmed(
-                requestKey(
-                        repositoryId, selected, goalText, prTitle, sourceRemote,
-                        sourceFromRef, sourceToRef, targetRef,
-                        repairTurnBudget),
+                requestKey(repositoryId, commandId),
                 repositoryId,
                 goalText,
                 prTitle,
@@ -348,19 +347,11 @@ public final class WorkspaceUpstreamSyncController
     }
 
     /**
-     * Idempotent on the command itself, so a double-submitted picker returns
-     * the run it already started rather than a second one over the same range.
+     * Idempotent on one user submission. A transport retry replays its durable
+     * result, while reopening the picker supplies a new command id and may
+     * intentionally run the same range again.
      */
-    private static String requestKey(
-            String repositoryId,
-            List<SelectedCommit> selected,
-            String goalText,
-            String prTitle,
-            String sourceRemote,
-            String sourceFromRef,
-            String sourceToRef,
-            String targetRef,
-            int repairTurnBudget)
+    static String requestKey(String repositoryId, String commandId)
     {
         MessageDigest digest;
         try {
@@ -370,18 +361,20 @@ public final class WorkspaceUpstreamSyncController
             throw new AssertionError(impossible);
         }
         update(digest, repositoryId);
-        update(digest, goalText);
-        update(digest, prTitle == null ? "" : prTitle);
-        update(digest, sourceRemote);
-        update(digest, sourceFromRef);
-        update(digest, sourceToRef);
-        update(digest, targetRef);
-        update(digest, Integer.toString(repairTurnBudget));
-        for (SelectedCommit commit : selected) {
-            update(digest, commit.sha());
-        }
-        return "upstream-sync-command:v3:"
+        update(digest, commandId);
+        return "upstream-sync-command:v4:"
                 + HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static String requireCommandId(String value)
+    {
+        if (value == null || value.isBlank() || value.length() > MAX_COMMAND_ID
+                || !value.equals(value.strip())
+                || value.chars().anyMatch(Character::isISOControl)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "commandId is invalid");
+        }
+        return value;
     }
 
     private static void update(MessageDigest digest, String value)
@@ -419,6 +412,7 @@ public final class WorkspaceUpstreamSyncController
      *         whole range; null or zero runs without one.
      */
     public record StartSyncBody(
+            String commandId,
             List<SelectedCommitBody> commits,
             String goalText,
             String prTitle,

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import { githubHandle } from './CommitEditorUi';
@@ -139,6 +139,9 @@ export function UpstreamCherryPicker({
   const [discoveringJob, setDiscoveringJob] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Reuse only while retrying one uncertain POST. A completed POST clears the
+  // key, so reopening the picker for the same commits starts a new run.
+  const pendingCommandId = useRef<string | null>(null);
   const skipped = commits.filter(commit => commit.picked).length;
   const uncapped = repairTurns.trim() === '';
   const parsedTurns = Number(repairTurns);
@@ -355,6 +358,9 @@ export function UpstreamCherryPicker({
               onClick={() => {
                 setBusy(true);
                 setError(null);
+                const commandId = pendingCommandId.current
+                  ?? globalThis.crypto.randomUUID();
+                pendingCommandId.current = commandId;
                 // The run owns a range, so it is confirmed as an explicit list
                 // of commits. The dry run is what resolves a typed range and
                 // the filters into that list — including commits the visible
@@ -369,6 +375,7 @@ export function UpstreamCherryPicker({
                       throw new Error('The filters leave no commit to pick.');
                     }
                     return workspaceApi.createUpstreamSync(workspaceId, {
+                      commandId,
                       commits: picked.map(entry => ({
                         sha: entry.sha, subject: entry.subject,
                       })),
@@ -388,7 +395,10 @@ export function UpstreamCherryPicker({
                       repairTurnBudget: uncapped ? undefined : parsedTurns,
                     });
                   })
-                  .then(setJob)
+                  .then(next => {
+                    pendingCommandId.current = null;
+                    setJob(next);
+                  })
                   .catch(reason => setError(message(reason)))
                   .finally(() => setBusy(false));
               }}>{busy ? 'Starting…' : 'Start cherry-pick'}</button>
@@ -511,6 +521,7 @@ function commitDay(value: string | null): string {
 }
 
 function jobStatusTitle(job: UpstreamCherryPickJobDto): string {
+  if (job.status === 'CLOSED') return 'Run closed';
   if (job.status === 'COMPLETED') return 'Cherry-pick complete';
   if (job.status === 'PAUSED_CONFLICT') return 'Conflict needs you';
   if (job.status === 'FAILED') return 'Cherry-pick failed';
@@ -518,6 +529,7 @@ function jobStatusTitle(job: UpstreamCherryPickJobDto): string {
 }
 
 function jobResultCopy(job: UpstreamCherryPickJobDto): string {
+  if (job.status === 'CLOSED') return 'This run is closed and no operation is running.';
   if (job.status === 'COMPLETED') {
     const result = `${job.appliedCount} applied, ${job.skippedCount} skipped on ${job.resultBranch}.`;
     return job.prNumber === null

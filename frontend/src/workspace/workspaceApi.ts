@@ -953,6 +953,8 @@ export const workspaceApi = {
   createUpstreamSync: (
     workspaceId: string,
     input: {
+      /** One user submission. Reused only when retrying an uncertain POST. */
+      commandId: string;
       commits: SyncSelectedCommit[];
       goalText: string;
       /** Omitted: the agent names the PR when it requests the review. */

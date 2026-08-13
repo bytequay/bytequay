@@ -117,6 +117,7 @@ describe('UpstreamCherryPicker dry run', () => {
       path: '/api/workspaces/fork/upstream/syncs',
       method: 'POST',
       body: {
+        commandId: expect.any(String),
         commits: [{ sha: commit.sha, subject: commit.subject }],
         goalText: 'Cherry-pick 1 commit from Upstream/master',
         sourceRemote: 'upstream/widget',
@@ -126,6 +127,79 @@ describe('UpstreamCherryPicker dry run', () => {
         repairTurnBudget: 12,
       },
     });
+  });
+
+  it('scopes idempotency to one submission instead of the selected range', async () => {
+    const posted: string[] = [];
+    let attempts = 0;
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/syncs'
+          && input.method === 'POST') {
+        const commandId = (input.body as { commandId: string }).commandId;
+        posted.push(commandId);
+        attempts += 1;
+        if (attempts === 1) throw new Error('connection lost');
+        return { ...running, source: 'flow' };
+      }
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return { pickCount: 1, skipCount: 0, commits: [{
+          sha: commit.sha, shortSha: commit.shortSha, subject: commit.subject,
+          authorName: 'A', pick: true, skipReason: null,
+        }] };
+      }
+      if (input.path === '/api/workspaces/fork/upstream/syncs') return [];
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    const picker = <UpstreamCherryPicker workspaceId="fork" repo={repository}
+      snapshot={snapshot} commits={[commit]} onClose={() => {}} />;
+    const first = render(picker);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
+    await flush();
+    expect(posted[1]).toBe(posted[0]);
+
+    first.unmount();
+    render(picker);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
+    await flush();
+    expect(posted[2]).not.toBe(posted[1]);
+  });
+
+  it('never describes a closed response as an operation still running', async () => {
+    const closed = {
+      ...running, source: 'flow' as const, status: 'CLOSED' as const,
+      closedAt: '2026-08-06T10:19:00Z',
+    };
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/syncs'
+          && input.method === 'POST') return closed;
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return { pickCount: 1, skipCount: 0, commits: [{
+          sha: commit.sha, shortSha: commit.shortSha, subject: commit.subject,
+          authorName: 'A', pick: true, skipReason: null,
+        }] };
+      }
+      if (input.path === '/api/workspaces/fork/upstream/syncs') return [];
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
+    await flush();
+
+    expect(screen.getByText('Run closed')).toBeTruthy();
+    expect(screen.getByText('This run is closed and no operation is running.')).toBeTruthy();
+    expect(screen.queryByText('The local operation is still running.')).toBeNull();
   });
 
   it('splits the plan into a picked list and a skipped list that carries reasons', async () => {

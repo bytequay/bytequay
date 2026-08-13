@@ -71,6 +71,89 @@ public final class CiAutofixRecords
         UNAVAILABLE
     }
 
+    public enum RepairPlacement
+    {
+        TIP,
+        ATTRIBUTED_FIXUP
+    }
+
+    /**
+     * Where this component's own repair commits land for one Task.
+     *
+     * <p>Program-owned and immutable per Task. No agent reads or writes it, and
+     * it is not a user setting to be toggled mid-run.
+     *
+     * <p>{@code perCommitCompileSelectors} names the repository's per-commit
+     * compile check, resolved from the repository's own CI configuration and
+     * never from a check-name heuristic. Empty means the compile check could not
+     * be determined, which is fail-safe rather than fail-open: no compile
+     * priority, and no boundary acceptance exception.
+     *
+     * <p>{@code allowsHistoryRewrite} is the standing authority a rewriting
+     * placement needs. It is granted once, with the Task; a one-shot
+     * {@code CI_UPDATE} consent never confers it.
+     */
+    public record RepairPlacementPolicy(
+            String taskId,
+            RepairPlacement placement,
+            List<String> perCommitCompileSelectors,
+            String compileSourceRef,
+            String compileSourceDigest,
+            boolean allowsHistoryRewrite,
+            Instant recordedAt)
+    {
+        public RepairPlacementPolicy
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(placement, "placement is null");
+            perCommitCompileSelectors = List.copyOf(perCommitCompileSelectors);
+            if ((compileSourceRef == null) != (compileSourceDigest == null)) {
+                throw new IllegalArgumentException(
+                        "compile source reference and digest must be paired");
+            }
+            if (!perCommitCompileSelectors.isEmpty()
+                    && compileSourceRef == null) {
+                throw new IllegalArgumentException(
+                        "a compile selector must cite its CI configuration");
+            }
+            requireNonNull(recordedAt, "recordedAt is null");
+        }
+
+        /** A Task with no stored placement is an ordinary {@code TIP} Task. */
+        public static RepairPlacementPolicy tip(String taskId, Instant now)
+        {
+            return new RepairPlacementPolicy(
+                    taskId, RepairPlacement.TIP, List.of(), null, null,
+                    false, now);
+        }
+    }
+
+    /**
+     * What the repository's own CI configuration says runs a build per commit.
+     *
+     * <p>Each check is identified by its exact application and check name, the
+     * same identity the required-CI policy selects on. The source reference and
+     * digest are the citation: this component stores no compile selector it
+     * cannot attribute to configuration it read, precisely so that a check whose
+     * name merely looks per-commit cannot excuse a red result.
+     */
+    public record RepositoryCompileConfiguration(
+            String sourceRef,
+            String sourceDigest,
+            List<GitHubCheckSelector> perCommitCompileChecks)
+    {
+        public RepositoryCompileConfiguration
+        {
+            requireNonNull(sourceRef, "sourceRef is null");
+            requireNonNull(sourceDigest, "sourceDigest is null");
+            if (sourceRef.isBlank() || sourceDigest.isBlank()) {
+                throw new IllegalArgumentException(
+                        "compile configuration citation is blank");
+            }
+            perCommitCompileChecks = List.copyOf(perCommitCompileChecks);
+        }
+    }
+
     public enum RoundState
     {
         COLLECTING,

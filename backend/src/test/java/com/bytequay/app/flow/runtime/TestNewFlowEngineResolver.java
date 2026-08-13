@@ -27,6 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -117,6 +118,25 @@ class TestNewFlowEngineResolver
         assertThatThrownBy(() -> resolver.resolve(task(), AgentRole.CI_FIXER))
                 .isInstanceOf(LaunchUnavailableException.class)
                 .hasMessageContaining("no agent engine is configured");
+    }
+
+    @Test
+    void aWorkspaceWithANullStoredEngineFallsThroughToDiscovery()
+    {
+        // The workspaces row exists with work_model_json NULL — the shape
+        // every workspace has before the user ever picks an engine. That is
+        // "nothing stored", not a null to trip over.
+        workspace("ws-1");
+        when(settings.forAudience(anyString(), anyString())).thenReturn(Optional.empty());
+        when(jdbc.queryForList(contains("work_model_json"), eq(String.class), any()))
+                .thenReturn(Collections.singletonList(null));
+        WorkModel cli = new WorkModel(WorkModelKind.CLI, "claude-code", null, null, null);
+        when(workModels.discoverEngines()).thenReturn(List.of(cli));
+        when(workModels.freeze(cli)).thenReturn(new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-opus-4-8", null, null));
+
+        assertThat(resolver.resolve(task(), AgentRole.CI_FIXER).providerName())
+                .isEqualTo("claude-code");
     }
 
     @Test

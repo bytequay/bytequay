@@ -105,6 +105,7 @@ async function runPrRemoteCommand(
   return response;
 }
 import { BACKEND_BASE, killBackend, reportBackendFailure, spawnBackend, waitForBackendReady } from './backendProcess';
+import { responseJsonOrNull } from './responseJson';
 import { registerTaskStreamIpc } from './threadStreamBridge';
 
 // Override the menu-bar / About-box / dock display name. Without this
@@ -2329,8 +2330,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const detail = await response.text().catch(() => '');
       throw new Error(`workspace request ${method} ${request.path} returned ${response.status}: ${detail}`);
     }
-    if (response.status === 204) return null;
-    return response.json();
+    return responseJsonOrNull(response);
   });
 
   ipcMain.handle('workspaces:delete', async (_event, workspaceId: unknown) => {

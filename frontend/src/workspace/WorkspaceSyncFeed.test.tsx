@@ -144,10 +144,25 @@ describe('WorkspaceSyncFeed', () => {
 
     view.rerender(<WorkspaceSyncFeed job={run.job} commits={run.commits}
       events={run.events} liveAgentTurns={[{ ...turn, running: false }]} />);
-    expect(screen.getByText('Agent turn')).toBeTruthy();
+    expect(screen.getByText('Agent log')).toBeTruthy();
     expect(screen.queryByText('core/trino-spi/pom.xml')).toBeNull();
     fireEvent.click(screen.getByText('Agent log'));
     expect(screen.getByText('core/trino-spi/pom.xml')).toBeTruthy();
+  });
+
+  it('says when the live agent is waiting for a permission decision', () => {
+    render(<WorkspaceSyncFeed job={syncRun().job} commits={[]} events={[]}
+      agentWaitingForApproval liveAgentTurns={[{
+        id: 1,
+        running: true,
+        entries: [{
+          kind: 'tool', name: 'Bash', summary: 'git hash-object pom.xml',
+          full: 'git hash-object pom.xml',
+        }],
+      }]} />);
+
+    expect(screen.getByText('Agent waiting for permission')).toBeTruthy();
+    expect(screen.queryByText('Agent working')).toBeNull();
   });
 
   it('shows the user’s steering as theirs, not as the agent’s', () => {

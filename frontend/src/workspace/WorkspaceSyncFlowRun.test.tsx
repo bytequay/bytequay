@@ -13,10 +13,10 @@
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceApiRequest } from '../types';
+import type { ThreadStreamEvent, WorkspaceApiRequest } from '../types';
 import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
 import { syncRun } from './syncRunFixture';
-import type { UpstreamCherryPickRunDto } from './workspaceApi';
+import type { AgentToolApprovalDto, UpstreamCherryPickRunDto } from './workspaceApi';
 
 afterEach(() => {
   cleanup();
@@ -59,26 +59,35 @@ function flowRun(): UpstreamCherryPickRunDto {
   };
 }
 
-function mount(run = flowRun()) {
+function mount(run = flowRun(), approvals: AgentToolApprovalDto[] = []) {
   const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
     if (input.path.includes('/upstream/cherry-picks')) {
       throw new Error(`the retired path must not be read: ${input.path}`);
     }
+    if (input.path.endsWith('/permissions')) return approvals;
     return run;
   });
   const subscriptions: string[] = [];
+  let stream: ((event: ThreadStreamEvent) => void) | undefined;
   (window as unknown as { bridge: unknown }).bridge = {
     workspaceApi: request,
     subscribeSyncRunStream: () => () => {
       throw new Error('the retired runner does not stream this run');
     },
-    subscribeFlowSyncRunStream: (runId: string) => {
+    subscribeFlowSyncRunStream: (
+      runId: string, onEvent: (event: ThreadStreamEvent) => void,
+    ) => {
       subscriptions.push(runId);
+      stream = onEvent;
       return () => {};
     },
   };
   render(<WorkspaceSyncRunPage workspaceId="fork" jobId={RUN_ID} />);
-  return { request, subscriptions };
+  return {
+    request,
+    subscriptions,
+    emit: (data: Record<string, unknown>) => stream?.({ name: 'line', data }),
+  };
 }
 
 describe('a greenfield sync run', () => {
@@ -229,6 +238,32 @@ describe('a greenfield sync run', () => {
     await flush();
 
     expect(subscriptions).toEqual([RUN_ID]);
+  });
+
+  it('shows the exact permission request and names the waiting state', async () => {
+    const run = flowRun();
+    run.job.status = 'RUNNING';
+    const command = 'git hash-object core/trino-spi/pom.xml';
+    const { emit } = mount(run, [{
+      approvalId: 'approval-1', runId: RUN_ID, toolName: 'Bash',
+      inputJson: JSON.stringify({ command }), requestedAtEpochMilli: 1,
+    }]);
+    await flush();
+    act(() => emit({
+      type: 'assistant',
+      message: { content: [{
+        type: 'tool_use', name: 'Read', input: { file_path: 'core/trino-spi/pom.xml' },
+      }] },
+    }));
+
+    expect(await screen.findByText(command)).toBeTruthy();
+    expect(screen.getByText(command).tagName).toBe('PRE');
+    expect(screen.getByRole('button', { name: 'Approve once' })).toBeTruthy();
+    expect(screen.getByText('Agent waiting for permission')).toBeTruthy();
+
+    act(() => emit({ type: 'result', num_turns: 1, total_cost_usd: 0 }));
+    expect(screen.getByText('Agent log')).toBeTruthy();
+    expect(screen.queryByText('core/trino-spi/pom.xml')).toBeNull();
   });
 
   it('reports repair turns where a dollar ceiling does not exist', async () => {

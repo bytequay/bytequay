@@ -52,7 +52,7 @@ export type LiveAgentTurn = {
  */
 export default function WorkspaceSyncFeed({
   job, commits, events, rounds = [], fixups = [], compileProof,
-  liveAgentTurns = [], onOpenPr,
+  liveAgentTurns = [], agentWaitingForApproval = false, onOpenPr,
 }: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
@@ -65,6 +65,8 @@ export default function WorkspaceSyncFeed({
   compileProof?: SyncCompileProofDto | null;
   /** Best-effort activity for turns that started while this page was open. */
   liveAgentTurns?: LiveAgentTurn[];
+  /** The current live turn is blocked on an exact user decision. */
+  agentWaitingForApproval?: boolean;
   onOpenPr?: () => void;
 }) {
   const items = syncFeed(events);
@@ -89,7 +91,10 @@ export default function WorkspaceSyncFeed({
       {compileProof !== undefined && compileProof !== null && (
         <SyncExcusedCheck proof={compileProof} />
       )}
-      {liveAgentTurns.map(turn => <LiveAgentTurnView key={turn.id} turn={turn} />)}
+      {liveAgentTurns.map((turn, index) => (
+        <LiveAgentTurnView key={turn.id} turn={turn}
+          waiting={agentWaitingForApproval && index === liveAgentTurns.length - 1} />
+      ))}
       {decision !== null && (
         <div className={`sf-decision is-${decision.tone}`}>
           <div className="sf-decision__head">
@@ -277,35 +282,35 @@ function AgentTurn({ event, transcript }: {
 }
 
 /** A streaming turn is ordinary conversation content: open live, folded when done. */
-function LiveAgentTurnView({ turn }: { turn: LiveAgentTurn }) {
+function LiveAgentTurnView({ turn, waiting }: {
+  turn: LiveAgentTurn;
+  waiting: boolean;
+}) {
   const [open, setOpen] = useState(turn.running);
   useEffect(() => setOpen(turn.running), [turn.running]);
   const said = turn.entries.filter(entry => entry.kind === 'say').length;
   const ran = turn.entries.filter(entry => entry.kind === 'tool').length;
   const result = turn.entries.findLast(entry => entry.kind === 'result');
   const failed = result?.kind === 'result' && result.failed;
+  const label = waiting && turn.running
+    ? 'Agent waiting for permission'
+    : turn.running ? 'Agent working' : 'Agent log';
   return (
     <div className="sf-agent" aria-live={turn.running ? 'polite' : undefined}>
-      <div className="sf-agent__head">
-        <span className="sf-pill is-agent">
-          {turn.running
-            ? <span className="sf-agent__live-dot" aria-hidden />
-            : <span className="sf-pill__glyph is-agent" aria-hidden><SparkIcon /></span>}
-          {turn.running ? 'Agent working' : 'Agent turn'}
-        </span>
-        {!turn.running && <span className="sf-agent__when">finished</span>}
-        {failed && <span className="sf-agent__failed">failed</span>}
-      </div>
-      <button type="button" className="sf-disclose" aria-expanded={open}
+      <button type="button" className="sf-disclose is-agent" aria-expanded={open}
         onClick={() => setOpen(current => !current)}>
         <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
           <ChevronIcon size={13} />
         </span>
-        <span className="sf-disclose__glyph" aria-hidden><TerminalIcon size={12} /></span>
-        <span>Agent log</span>
+        {turn.running
+          ? <span className="sf-agent__live-dot" aria-hidden />
+          : <span className="sf-disclose__glyph" aria-hidden><SparkIcon /></span>}
+        <span>{label}</span>
         <span className="sf-disclose__count">
           {said} note{said === 1 ? '' : 's'} · {ran} tool{ran === 1 ? '' : 's'}
         </span>
+        {!turn.running && <span className="sf-agent__when">finished</span>}
+        {failed && <span className="sf-agent__failed">failed</span>}
       </button>
       {open && <TranscriptLines entries={turn.entries} />}
     </div>

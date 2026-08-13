@@ -88,7 +88,8 @@ final class TestCliAgentArgv
         assertThat(argv).containsSequence(
                 "--permission-prompt-tool",
                 "mcp__bytequay__request_tool_permission");
-        assertThat(argv).doesNotContain("--permission-mode", "--tools");
+        assertThat(argv).containsSequence("--permission-mode", "auto");
+        assertThat(argv).doesNotContain("--tools");
         List<String> allowed = List.of(argv.get(
                 argv.indexOf("--allowedTools") + 1).split(","));
         assertThat(allowed).contains(

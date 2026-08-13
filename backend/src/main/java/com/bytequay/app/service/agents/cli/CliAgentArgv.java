@@ -174,6 +174,7 @@ public final class CliAgentArgv
                 .add("--strict-mcp-config");
         if (launch.permissionPromptTool() != null) {
             argv.add("--permission-prompt-tool", launch.permissionPromptTool());
+            argv.add("--permission-mode", "auto");
         }
         else {
             // Print-mode agents have nobody at a terminal to approve a tool.

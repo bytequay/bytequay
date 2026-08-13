@@ -488,3 +488,32 @@ CREATE TABLE flow_ci_learning_completion (
         REFERENCES flow_runtime_agent_result (result_id),
     FOREIGN KEY (lesson_id) REFERENCES flow_ci_lesson (lesson_id)
 );
+
+-- Where this component's own repair commits land, resolved by the program once
+-- per Task and never afterwards: the placement decides how every round of that
+-- Task publishes, so changing it under a live series would leave a branch shaped
+-- two different ways. A Task with no row is TIP, which is the ordinary Task
+-- behaviour and reads this table only to find nothing.
+CREATE TABLE flow_ci_repair_placement (
+    task_id TEXT PRIMARY KEY,
+    placement TEXT NOT NULL CHECK (
+        placement IN ('TIP', 'ATTRIBUTED_FIXUP')
+    ),
+    per_commit_compile_selectors_json TEXT NOT NULL,
+    -- The exact repository CI configuration a compile selector was read from.
+    -- A selector without that citation cannot be stored, which is what keeps
+    -- the identification out of reach of a check-name heuristic: a guessed
+    -- selector would excuse red checks it has no business excusing.
+    compile_source_ref TEXT,
+    compile_source_digest TEXT,
+    allows_history_rewrite INTEGER NOT NULL CHECK (
+        allows_history_rewrite IN (0, 1)
+    ),
+    recorded_at INTEGER NOT NULL,
+    CHECK ((compile_source_ref IS NULL) = (compile_source_digest IS NULL)),
+    CHECK (
+        per_commit_compile_selectors_json = '[]'
+        OR compile_source_ref IS NOT NULL
+    )
+);
+

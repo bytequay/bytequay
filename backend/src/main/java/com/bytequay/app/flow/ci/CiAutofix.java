@@ -29,9 +29,13 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocked;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocker;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeHeadResult;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
+import com.bytequay.app.flow.ci.CiAutofixRecords.GitHubCheckSelector;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacementPolicy;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepositoryCompileConfiguration;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.runtime.FlowRuntime.CiCleanupFinalizationReceipt;
@@ -299,6 +303,163 @@ public final class CiAutofix
                 """,
                 policy.repositoryId(), policy.scopeKey(),
                 policy.policyRevisionId()) == 1;
+    }
+
+    /**
+     * Resolves the one immutable repair placement for a Task.
+     *
+     * <p>An ordinary Task never calls this and reads {@code TIP} below, so its
+     * repair commits keep landing at the branch tip exactly as before. A Task
+     * whose branch was built as a reviewable upstream series records
+     * {@code ATTRIBUTED_FIXUP} once, when the Task is created from what produced
+     * it. Recording the identical policy again is idempotent; recording a
+     * different one is rejected, because the placement decides how every round
+     * of that Task publishes.
+     */
+    public RepairPlacementPolicy recordPlacementPolicy(
+            String taskId,
+            RepairPlacement placement,
+            List<String> perCommitCompileSelectors,
+            String compileSourceRef,
+            String compileSourceDigest,
+            boolean allowsHistoryRewrite)
+    {
+        requireText(taskId, "taskId");
+        requireNonNull(placement, "placement is null");
+        List<String> selectors = normalize(perCommitCompileSelectors, false);
+        RepairPlacementPolicy requested = new RepairPlacementPolicy(
+                taskId,
+                placement,
+                selectors,
+                compileSourceRef,
+                compileSourceDigest,
+                allowsHistoryRewrite,
+                clock.instant());
+        return requireNonNull(transactions.execute(ignored -> {
+            Optional<RepairPlacementPolicy> stored = storedPlacementPolicy(
+                    taskId);
+            if (stored.isPresent()) {
+                RepairPlacementPolicy current = stored.orElseThrow();
+                if (!current.placement().equals(requested.placement())
+                        || !current.perCommitCompileSelectors().equals(
+                                requested.perCommitCompileSelectors())
+                        || !Objects.equals(
+                                current.compileSourceRef(),
+                                requested.compileSourceRef())
+                        || !Objects.equals(
+                                current.compileSourceDigest(),
+                                requested.compileSourceDigest())
+                        || current.allowsHistoryRewrite()
+                                != requested.allowsHistoryRewrite()) {
+                    throw new IllegalStateException(
+                            "repair placement is immutable per Task");
+                }
+                return current;
+            }
+            jdbc.update(
+                    """
+                    INSERT INTO flow_ci_repair_placement (
+                        task_id, placement, per_commit_compile_selectors_json,
+                        compile_source_ref, compile_source_digest,
+                        allows_history_rewrite, recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    taskId,
+                    placement.name(),
+                    writeJson(selectors),
+                    compileSourceRef,
+                    compileSourceDigest,
+                    allowsHistoryRewrite ? 1 : 0,
+                    requested.recordedAt().toEpochMilli());
+            return requested;
+        }), "placement transaction returned null");
+    }
+
+    /**
+     * Records one Task's placement with its compile selectors resolved from the
+     * repository's own CI configuration.
+     *
+     * <p>A declared check counts only when the current required-CI policy also
+     * requires that exact application and check name: the exception it later
+     * buys applies to a required red check, so a check the policy does not
+     * require has nothing to excuse. Absent configuration, an unresolved or
+     * unavailable policy, and a declaration that matches nothing all resolve to
+     * no selectors, which degrades this Task to plain finalized-red behaviour.
+     * That is deliberate. A guessed selector would excuse red checks it has no
+     * business excusing, so being unable to determine the compile check must
+     * cost priority rather than buy an exception.
+     */
+    public RepairPlacementPolicy resolvePlacementPolicy(
+            String taskId,
+            RepairPlacement placement,
+            boolean allowsHistoryRewrite,
+            RepositoryCompileConfiguration configuration,
+            RequiredCiPolicyRevision policy)
+    {
+        List<String> resolved = resolveCompileSelectors(configuration, policy);
+        return recordPlacementPolicy(
+                taskId,
+                placement,
+                resolved,
+                resolved.isEmpty() ? null : configuration.sourceRef(),
+                resolved.isEmpty() ? null : configuration.sourceDigest(),
+                allowsHistoryRewrite);
+    }
+
+    private static List<String> resolveCompileSelectors(
+            RepositoryCompileConfiguration configuration,
+            RequiredCiPolicyRevision policy)
+    {
+        if (configuration == null
+                || policy == null
+                || policy.resolution() != PolicyResolution.RESOLVED) {
+            return List.of();
+        }
+        return configuration.perCommitCompileChecks().stream()
+                .map(GitHubCheckSelector::key)
+                .filter(policy.requiredCheckSelectors()::contains)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * Whether this exact selector is a proven per-commit compile check.
+     *
+     * <p>The only source of a true answer is a stored selector that cited the
+     * repository's CI configuration, so an undetermined compile check gets no
+     * compile priority and no acceptance exception rather than a guess.
+     */
+    public boolean isPerCommitCompileSelector(String taskId, String selectorKey)
+    {
+        requireText(selectorKey, "selectorKey");
+        return placementPolicy(taskId).perCommitCompileSelectors()
+                .contains(selectorKey);
+    }
+
+    /** A Task with no recorded placement is an ordinary {@code TIP} Task. */
+    public RepairPlacementPolicy placementPolicy(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return storedPlacementPolicy(taskId).orElseGet(
+                () -> RepairPlacementPolicy.tip(taskId, clock.instant()));
+    }
+
+    private Optional<RepairPlacementPolicy> storedPlacementPolicy(String taskId)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_ci_repair_placement WHERE task_id = ?
+                """,
+                (result, row) -> new RepairPlacementPolicy(
+                        result.getString("task_id"),
+                        RepairPlacement.valueOf(result.getString("placement")),
+                        readStringList(result.getString(
+                                "per_commit_compile_selectors_json")),
+                        result.getString("compile_source_ref"),
+                        result.getString("compile_source_digest"),
+                        result.getBoolean("allows_history_rewrite"),
+                        instant(result.getLong("recorded_at"))),
+                taskId).stream().findFirst();
     }
 
     /** Current actionable CI-fix facts for one local CI_UPDATE gate. */

@@ -122,7 +122,11 @@ export default function WorkspaceSyncTimeline({
             : <span className="st-node is-live"><SyncIcon size={9} /></span>}
           connectAfter
           title="Local cherry-picks"
-          note={elapsedLabel(job.createdAt, phaseOneEndedAt(events) ?? job.updatedAt)}
+          // While the picking is still going the phase runs to now, not to the
+          // last row the poll happened to write — otherwise it reads 0s beside
+          // a header already counting seconds.
+          note={elapsedLabel(
+            job.createdAt, phaseOneEndedAt(events) ?? (live ? undefined : job.updatedAt))}
           onToggle={() => setPicksOpen(open => !open)}
           open={picksOpen}>
           <span className="st-bar">

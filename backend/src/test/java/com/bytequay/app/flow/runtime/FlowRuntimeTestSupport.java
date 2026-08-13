@@ -354,8 +354,8 @@ public final class FlowRuntimeTestSupport
             jdbc.update("UPDATE flow_runtime_pr SET current_draft_revision_id = ? WHERE pr_id = ?", draftId, prId);
             String checkId = stableId("test-initial-check", task.taskId());
             jdbc.update("INSERT OR IGNORE INTO flow_runtime_local_check_run "
-                            + "(check_run_id, task_id, change_set_revision_id, policy_revision_id, profile_id, operation_id, agent_run_id, attempt_sequence, observed_start_head, observed_end_head, started_at, completed_at, conclusion, exit_code, unavailable_reason_code, output_ref, output_text, output_truncated, tracked_tree_clean_before, tracked_tree_clean_after) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 0, 'PASSED', 0, NULL, ?, '', 0, 1, 1)",
+                            + "(check_run_id, task_id, change_set_revision_id, policy_revision_id, profile_id, operation_id, agent_run_id, command_json, working_directory, attempt_sequence, observed_start_head, observed_end_head, started_at, completed_at, conclusion, exit_code, unavailable_reason_code, output_ref, output_text, output_truncated, tracked_tree_clean_before, tracked_tree_clean_after) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, '[\"true\"]', '.', 1, ?, ?, 0, 0, 'PASSED', 0, NULL, ?, '', 0, 1, 1)",
                     checkId, task.taskId(), change.changeSetRevisionId(), localPolicy, profile,
                     parent[1], parent[0], change.headSha(), change.headSha(), "output:" + checkId);
             String session = stableId("test-initial-reviewer-session", task.taskId());

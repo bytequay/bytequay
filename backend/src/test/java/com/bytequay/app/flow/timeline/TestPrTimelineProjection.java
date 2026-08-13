@@ -524,12 +524,14 @@ class TestPrTimelineProjection
                 INSERT INTO flow_runtime_local_check_run (
                     check_run_id, task_id, change_set_revision_id,
                     policy_revision_id, profile_id, operation_id, agent_run_id,
+                    command_json, working_directory,
                     attempt_sequence, observed_start_head, observed_end_head,
                     started_at, completed_at, conclusion, exit_code, output_ref,
                     output_text, output_truncated, tracked_tree_clean_before,
                     tracked_tree_clean_after
                 ) VALUES ('check-1', 'task-1', 'change-1', 'local-policy-1',
-                    'profile-1', 'operation-check', 'run-1', 1, 'H1', 'HX',
+                    'profile-1', 'operation-check', 'run-1',
+                    '["true"]', '.', 1, 'H1', 'HX',
                     ?, ?, 'PASSED', 0, 'private-output-ref',
                     'private check output', 0, 1, 1)
                 """, AT, AT);

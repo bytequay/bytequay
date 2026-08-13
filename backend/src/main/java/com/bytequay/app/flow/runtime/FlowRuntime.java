@@ -829,62 +829,26 @@ public final class FlowRuntime
             String publicationReceiptId,
             boolean requireCurrentLocalHead)
     {
-            PullRequestSubject pr = requirePullRequest(prId);
-            if (pr.published()) {
-                if (!"GITHUB".equals(pr.provider())
-                        || !baseRepository.repositoryExternalId().equals(
-                                pr.repositoryExternalId())
-                        || !baseRepository.owner().equals(pr.repositoryOwner())
-                        || !baseRepository.name().equals(pr.repositoryName())
-                        || !headRepository.repositoryExternalId().equals(
-                                pr.headRepositoryExternalId())
-                        || !headRepository.owner().equals(
-                                pr.headRepositoryOwner())
-                        || !headRepository.name().equals(
-                                pr.headRepositoryName())
-                        || !Long.valueOf(prNumber).equals(pr.prNumber())
-                        || !expectedLocalHead.equals(pr.currentRemoteHead())) {
-                    throw new IllegalStateException(
-                            "PR already owns a different remote identity");
-                }
-                assertRemoteIdentityMatches(
-                        pr.remoteIdentityId(),
-                        "GITHUB",
-                        baseRepository.repositoryExternalId(),
-                        baseRepository.owner(),
-                        baseRepository.name(),
-                        headRepository.repositoryExternalId(),
-                        headRepository.owner(),
-                        headRepository.name(),
-                        prNumber,
-                        prNodeId,
-                        htmlUrl,
-                        publicationReceiptId);
-                return pr;
+        PullRequestSubject pr = requirePullRequest(prId);
+        if (pr.published()) {
+            if (!"GITHUB".equals(pr.provider())
+                    || !baseRepository.repositoryExternalId().equals(
+                            pr.repositoryExternalId())
+                    || !baseRepository.owner().equals(pr.repositoryOwner())
+                    || !baseRepository.name().equals(pr.repositoryName())
+                    || !headRepository.repositoryExternalId().equals(
+                            pr.headRepositoryExternalId())
+                    || !headRepository.owner().equals(
+                            pr.headRepositoryOwner())
+                    || !headRepository.name().equals(
+                            pr.headRepositoryName())
+                    || !Long.valueOf(prNumber).equals(pr.prNumber())
+                    || !expectedLocalHead.equals(pr.currentRemoteHead())) {
+                throw new IllegalStateException(
+                        "PR already owns a different remote identity");
             }
-            Task task = requireTask(pr.taskId());
-            if (requireCurrentLocalHead
-                    && !expectedLocalHead.equals(task.currentHeadSha())) {
-                throw new StaleOwnerRevisionException(
-                        "publication head is not current");
-            }
-
-            String identityId = stableId(
-                    "remote-pr", "GITHUB",
-                    baseRepository.repositoryExternalId(),
-                    Long.toString(prNumber));
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_remote_identity (
-                        remote_identity_id, provider, repository_external_id,
-                        repository_owner, repository_name,
-                        head_repository_external_id,
-                        head_repository_owner, head_repository_name,
-                        pr_number, pr_node_id, html_url,
-                        publication_receipt_id, bound_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    identityId,
+            assertRemoteIdentityMatches(
+                    pr.remoteIdentityId(),
                     "GITHUB",
                     baseRepository.repositoryExternalId(),
                     baseRepository.owner(),
@@ -895,22 +859,58 @@ public final class FlowRuntime
                     prNumber,
                     prNodeId,
                     htmlUrl,
-                    publicationReceiptId,
-                    clock.instant().toEpochMilli());
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_pr
-                    SET remote_identity_id = ?, current_remote_head = ?
-                    WHERE pr_id = ? AND remote_identity_id IS NULL
-                    """,
-                    identityId,
-                    expectedLocalHead,
-                    prId);
-            if (updated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "PR remote identity changed while binding");
-            }
-            return requirePullRequest(prId);
+                    publicationReceiptId);
+            return pr;
+        }
+        Task task = requireTask(pr.taskId());
+        if (requireCurrentLocalHead
+                && !expectedLocalHead.equals(task.currentHeadSha())) {
+            throw new StaleOwnerRevisionException(
+                    "publication head is not current");
+        }
+
+        String identityId = stableId(
+                "remote-pr", "GITHUB",
+                baseRepository.repositoryExternalId(),
+                Long.toString(prNumber));
+        jdbc.update(
+                """
+                INSERT INTO flow_runtime_remote_identity (
+                    remote_identity_id, provider, repository_external_id,
+                    repository_owner, repository_name,
+                    head_repository_external_id,
+                    head_repository_owner, head_repository_name,
+                    pr_number, pr_node_id, html_url,
+                    publication_receipt_id, bound_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                identityId,
+                "GITHUB",
+                baseRepository.repositoryExternalId(),
+                baseRepository.owner(),
+                baseRepository.name(),
+                headRepository.repositoryExternalId(),
+                headRepository.owner(),
+                headRepository.name(),
+                prNumber,
+                prNodeId,
+                htmlUrl,
+                publicationReceiptId,
+                clock.instant().toEpochMilli());
+        int updated = jdbc.update(
+                """
+                UPDATE flow_runtime_pr
+                SET remote_identity_id = ?, current_remote_head = ?
+                WHERE pr_id = ? AND remote_identity_id IS NULL
+                """,
+                identityId,
+                expectedLocalHead,
+                prId);
+        if (updated != 1) {
+            throw new StaleOwnerRevisionException(
+                    "PR remote identity changed while binding");
+        }
+        return requirePullRequest(prId);
     }
 
     /** Consumes only a GitHub-owner settlement capability in the outer tx. */

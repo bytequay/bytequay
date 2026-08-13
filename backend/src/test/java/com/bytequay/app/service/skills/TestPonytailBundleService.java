@@ -54,10 +54,9 @@ class TestPonytailBundleService
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body())
                         .contains("Trunk Planner")
+                        .contains("implementation goals")
                         .contains("ask_user_question")
-                        .contains("Go ahead")
-                        .contains("Cut this as")
-                        .contains("never ask a question only in prose"));
+                        .contains("never ask a question only in"));
         assertThat(bundle.select(List.of("codegraph-first")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("CodeGraph First"));

@@ -149,6 +149,16 @@ export default function WorkspaceSyncRunPage({
     nextAgentTurnId.current = 1;
   }, [jobId]);
 
+  // Cancellation and process failure can close a turn before the CLI writes
+  // its final result line. The durable run state is authoritative: once the
+  // run is no longer live, no transcript may stay labelled "working".
+  useEffect(() => {
+    if (live) return;
+    setAgentTurns(current => current.map(turn => turn.running
+      ? { ...turn, running: false }
+      : turn));
+  }, [live]);
+
   // The turn in flight. Keep it in the conversation after completion so its
   // final tool output does not disappear while the durable run view catches up.
   useEffect(() => {
@@ -316,20 +326,8 @@ export default function WorkspaceSyncRunPage({
         </header>
 
         {approvals.map(approval => (
-          <div key={approval.approvalId} className="sr-approval" role="alert">
-            <div className="sr-approval__text">
-              <strong>Agent asks to use “{approval.toolName}”</strong>
-              <code title={approval.inputJson}>{approval.inputJson}</code>
-            </div>
-            <button type="button" className="sr-topbar__action is-primary"
-              onClick={() => answerApproval(approval.approvalId, true)}>
-              Approve
-            </button>
-            <button type="button" className="sr-topbar__action"
-              onClick={() => answerApproval(approval.approvalId, false)}>
-              Deny
-            </button>
-          </div>
+          <AgentApproval key={approval.approvalId} approval={approval}
+            onAnswer={allow => answerApproval(approval.approvalId, allow)} />
         ))}
 
         {/* The session the whole run shares, and what it has cost. `claude
@@ -398,6 +396,7 @@ export default function WorkspaceSyncRunPage({
                 rounds={run.rounds} fixups={run.fixups}
                 compileProof={run.compileProof}
                 liveAgentTurns={agentTurns}
+                agentWaitingForApproval={approvals.length > 0}
                 onOpenPr={canOpenPr ? () => setPrOpen(true) : undefined} />
               {gate !== null && (
                 <WorkspaceSyncPublishCard gate={gate} branch={job.resultBranch} busy={busy}
@@ -530,6 +529,47 @@ export default function WorkspaceSyncRunPage({
       )}
     </div>
   );
+}
+
+function AgentApproval({ approval, onAnswer }: {
+  approval: AgentToolApprovalDto;
+  onAnswer: (allow: boolean) => void;
+}) {
+  const request = approvalRequest(approval.inputJson);
+  return (
+    <div className="sr-approval" role="alert">
+      <div className="sr-approval__text">
+        <strong>Agent requests permission to use “{approval.toolName}”</strong>
+        <span>{request.label}</span>
+        <pre>{request.value}</pre>
+      </div>
+      <button type="button" className="sr-topbar__action is-primary"
+        onClick={() => onAnswer(true)}>
+        Approve once
+      </button>
+      <button type="button" className="sr-topbar__action"
+        onClick={() => onAnswer(false)}>
+        Deny
+      </button>
+    </div>
+  );
+}
+
+/** Pull the actionable field out of Claude's protocol wrapper. */
+function approvalRequest(inputJson: string): { label: string; value: string } {
+  try {
+    const input: unknown = JSON.parse(inputJson);
+    if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
+      const fields = input as Record<string, unknown>;
+      if (typeof fields.command === 'string') {
+        return { label: 'Command', value: fields.command };
+      }
+      return { label: 'Requested input', value: JSON.stringify(fields, null, 2) };
+    }
+  } catch {
+    // Show the exact payload when a provider sends non-JSON input.
+  }
+  return { label: 'Requested input', value: inputJson };
 }
 
 /** The design's PR-panel toggle: a pane with a divided right edge. */

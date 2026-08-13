@@ -1196,15 +1196,18 @@
 
 /* The run's agent session, and how to watch it from a terminal. */
 .sr-approval {
-  align-items: center; background: #fff8e6; border-bottom: 1px solid #f0dfb6;
+  align-items: flex-start; background: #fff8e6; border-bottom: 1px solid #f0dfb6;
   display: flex; gap: 10px; font-size: 12px; padding: 8px 18px;
 }
 .sr-approval__text {
-  display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1;
 }
-.sr-approval__text code {
-  color: #57606a; font-size: 11px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
+.sr-approval__text > span { color: #8a8178; font-size: 10.5px; font-weight: 600; }
+.sr-approval__text pre {
+  background: rgba(255, 255, 255, 0.72); border: 1px solid #ead7a6;
+  border-radius: 6px; color: #3f3b36; font-size: 11px; line-height: 1.45;
+  margin: 0; max-height: 150px; overflow: auto; overflow-wrap: anywhere;
+  padding: 6px 8px; user-select: text; white-space: pre-wrap;
 }
 
 .sr-session {
@@ -2418,6 +2421,7 @@
 }
 
 .sf-disclose:hover { background: rgba(0, 0, 0, 0.04); }
+.sf-disclose.is-agent { margin-top: 0; }
 .sf-disclose__glyph { align-items: center; display: inline-flex; }
 .sf-disclose span:nth-of-type(2) { font-size: 12px; font-weight: 500; }
 .sf-disclose__count { color: #b7b0a7; font-size: 10.5px; }

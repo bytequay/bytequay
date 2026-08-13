@@ -18,6 +18,9 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.upstream.UpstreamSync;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -35,24 +38,14 @@ final class UpstreamSyncTeardown
     /**
      * Closes the run, and releases what it holds if nothing else does.
      *
-     * <p>The run's own record goes first because it is the only part that is
-     * always ours to close. Everything after it belongs to the Task, and a
-     * Task's lifecycle may not move while a writer lease is live or an
-     * operation is claimed — the runtime refuses it, and rightly: that lease
-     * is what says an agent may still be mutating the worktree, so cancelling
-     * around it would be cancelling around a live process.
-     *
-     * <p>So a run whose turn is still in flight closes with its checkout
-     * intact. The lease and the claim clear when the turn ends, and closing
-     * again from there finishes the release. This is deliberately not a wait:
-     * the user asked for the run to stop and the run has stopped.
+     * <p>The CLOSED state is written last. A writer lease or claimed operation
+     * means an agent may still mutate the worktree, so teardown waits for the
+     * supervisor's stop proof instead of reporting a half-closed run.
      *
      * @return whether the run's local hold was torn down — false only when a
-     *         live turn still has it. Git's own success at removing the
-     *         directory is not part of this: a worktree someone already
-     *         deleted by hand is one nothing is holding.
+     *         live turn or an on-disk worktree still has it
      */
-    static boolean close(
+    static synchronized boolean close(
             FlowRuntime runtime,
             TaskProvisioning provisioning,
             UpstreamSync upstreamSync,
@@ -65,20 +58,25 @@ final class UpstreamSyncTeardown
         requireNonNull(upstreamSync, "upstreamSync is null");
         requireNonNull(task, "task is null");
         requireNonNull(runId, "runId is null");
-        upstreamSync.advanceState(runId, RunState.CANCELED);
-        if (heldByALiveTurn(runtime, task)) {
+        Task current = runtime.task(task.taskId()).orElseThrow();
+        if (heldByALiveTurn(runtime, current)) {
             return false;
         }
-        if (task.status() != TaskStatus.COMPLETED
-                && task.status() != TaskStatus.CANCELED) {
+        if (current.status() != TaskStatus.COMPLETED
+                && current.status() != TaskStatus.CANCELED) {
             runtime.transitionTask(
-                    task.taskId(),
-                    task.currentLifecycleRevisionId(),
+                    current.taskId(),
+                    current.currentLifecycleRevisionId(),
                     TaskStatus.CANCELED,
                     reasonCode,
                     null);
         }
-        provisioning.releaseWorktree(task);
+        boolean removed = provisioning.releaseWorktree(current);
+        if (!removed && Files.exists(Path.of(current.worktreePath()))) {
+            return false;
+        }
+        // CLOSED is the cleanup receipt, not the request to begin cleanup.
+        upstreamSync.advanceState(runId, RunState.CANCELED);
         return true;
     }
 

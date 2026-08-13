@@ -743,9 +743,13 @@ public final class UpstreamSync
         jdbc.update(
                 """
                 UPDATE flow_upstream_sync_run
-                SET state = ?, updated_at = ? WHERE run_id = ?
+                SET state = ?,
+                    park_reason = CASE WHEN ? = 'CANCELED' THEN NULL
+                                       ELSE park_reason END,
+                    updated_at = ? WHERE run_id = ?
                 """,
-                state.name(), clock.instant().toEpochMilli(), runId);
+                state.name(), state.name(), clock.instant().toEpochMilli(),
+                runId);
     }
 
     private UpstreamSyncRequest readRequest(ResultSet result)

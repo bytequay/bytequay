@@ -483,15 +483,13 @@ public final class UpstreamSyncViews
             throws SQLException
     {
         String state = rows.getString("state");
-        String taskStatus = rows.getString("task_status");
         long prNumber = rows.getLong("pr_number");
         boolean noPrNumber = rows.wasNull();
         // A pull request that ended is the end of the run: there is nothing
         // left for it to do, whatever it still holds on disk.
         String prResult = rows.getString("pr_result");
         boolean closed = prResult != null
-                || "CANCELED".equals(state)
-                || "CANCELED".equals(taskStatus);
+                || "CANCELED".equals(state);
         // A stop the user asked for and the run has not reached yet — a park or
         // a close, which wait at the same boundary. Both share the parked run's
         // column, so both are reported as the pending request they are rather
@@ -508,7 +506,7 @@ public final class UpstreamSyncViews
                 rows.getString("repository_id"),
                 "flow",
                 rows.getInt("run_number"),
-                status(state, taskStatus),
+                status(state),
                 state,
                 // What the run is picking from, as the surface names it. The
                 // range's own endpoints are shas and are reported as such.
@@ -565,9 +563,9 @@ public final class UpstreamSyncViews
      * is older than this model, so the mapping lives here rather than being
      * pushed into every component.
      */
-    private static String status(String state, String taskStatus)
+    private static String status(String state)
     {
-        if ("CANCELED".equals(state) || "CANCELED".equals(taskStatus)) {
+        if ("CANCELED".equals(state)) {
             return "CLOSED";
         }
         return switch (state) {

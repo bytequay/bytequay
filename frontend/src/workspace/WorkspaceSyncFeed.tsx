@@ -11,14 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CheckIcon, ChevronIcon, PauseIcon, TerminalIcon } from './WorkspaceSyncIcons';
 import { SyncExcusedCheck, SyncFixupAttribution } from './WorkspaceSyncEvidence';
 import { SyncFeedRounds } from './WorkspaceSyncRounds';
-import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
+import WorkspaceSyncRunLog, {
+  TranscriptTool, TranscriptToolResult,
+} from './WorkspaceSyncRunLog';
 import {
   clockLabel, durationLabel, elapsedLabel, parseTranscript, phaseOneEndedAt,
   syncDecision, syncFeed, syncPhaseNumber, syncQueue, type SyncFeedItem,
+  type TranscriptEntry,
 } from './syncRunModel';
 import type {
   SyncCompileProofDto,
@@ -32,6 +35,12 @@ import type {
 /** Picks listed inside the folded phase-1 group before "View all". */
 const PICK_ROWS = 3;
 
+export type LiveAgentTurn = {
+  id: number;
+  entries: TranscriptEntry[];
+  running: boolean;
+};
+
 /**
  * The run's conversation: what it did, what the agent decided, and what it is
  * asking of you.
@@ -42,7 +51,8 @@ const PICK_ROWS = 3;
  * behind chips, the agent's reasoning as prose.
  */
 export default function WorkspaceSyncFeed({
-  job, commits, events, rounds = [], fixups = [], compileProof, onOpenPr,
+  job, commits, events, rounds = [], fixups = [], compileProof,
+  liveAgentTurns = [], onOpenPr,
 }: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
@@ -53,6 +63,8 @@ export default function WorkspaceSyncFeed({
   fixups?: SyncFixupDto[];
   /** The only thing that may excuse a red per-commit compile check. */
   compileProof?: SyncCompileProofDto | null;
+  /** Best-effort activity for turns that started while this page was open. */
+  liveAgentTurns?: LiveAgentTurn[];
   onOpenPr?: () => void;
 }) {
   const items = syncFeed(events);
@@ -77,6 +89,7 @@ export default function WorkspaceSyncFeed({
       {compileProof !== undefined && compileProof !== null && (
         <SyncExcusedCheck proof={compileProof} />
       )}
+      {liveAgentTurns.map(turn => <LiveAgentTurnView key={turn.id} turn={turn} />)}
       {decision !== null && (
         <div className={`sf-decision is-${decision.tone}`}>
           <div className="sf-decision__head">
@@ -255,25 +268,70 @@ function AgentTurn({ event, transcript }: {
             </span>
           </button>
           {open && (
-            <div className="sf-transcript">
-              {entries.map((entry, index) => {
-                if (entry.kind === 'say') {
-                  return <p key={index} className="sr-transcript__say">{entry.text}</p>;
-                }
-                if (entry.kind === 'tool') {
-                  return <TranscriptTool key={index} entry={entry} />;
-                }
-                return (
-                  <p key={index}
-                    className={`sr-transcript__result${entry.failed ? ' is-failed' : ''}`}>
-                    {entry.failed ? 'Turn failed' : 'Turn complete'} · {entry.turns} turns
-                  </p>
-                );
-              })}
-            </div>
+            <TranscriptLines entries={entries} />
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** A streaming turn is ordinary conversation content: open live, folded when done. */
+function LiveAgentTurnView({ turn }: { turn: LiveAgentTurn }) {
+  const [open, setOpen] = useState(turn.running);
+  useEffect(() => setOpen(turn.running), [turn.running]);
+  const said = turn.entries.filter(entry => entry.kind === 'say').length;
+  const ran = turn.entries.filter(entry => entry.kind === 'tool').length;
+  const result = turn.entries.findLast(entry => entry.kind === 'result');
+  const failed = result?.kind === 'result' && result.failed;
+  return (
+    <div className="sf-agent" aria-live={turn.running ? 'polite' : undefined}>
+      <div className="sf-agent__head">
+        <span className="sf-pill is-agent">
+          {turn.running
+            ? <span className="sf-agent__live-dot" aria-hidden />
+            : <span className="sf-pill__glyph is-agent" aria-hidden><SparkIcon /></span>}
+          {turn.running ? 'Agent working' : 'Agent turn'}
+        </span>
+        {!turn.running && <span className="sf-agent__when">finished</span>}
+        {failed && <span className="sf-agent__failed">failed</span>}
+      </div>
+      <button type="button" className="sf-disclose" aria-expanded={open}
+        onClick={() => setOpen(current => !current)}>
+        <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+          <ChevronIcon size={13} />
+        </span>
+        <span className="sf-disclose__glyph" aria-hidden><TerminalIcon size={12} /></span>
+        <span>Agent log</span>
+        <span className="sf-disclose__count">
+          {said} note{said === 1 ? '' : 's'} · {ran} tool{ran === 1 ? '' : 's'}
+        </span>
+      </button>
+      {open && <TranscriptLines entries={turn.entries} />}
+    </div>
+  );
+}
+
+function TranscriptLines({ entries }: { entries: TranscriptEntry[] }) {
+  return (
+    <div className="sf-transcript">
+      {entries.map((entry, index) => {
+        if (entry.kind === 'say') {
+          return <p key={index} className="sr-transcript__say">{entry.text}</p>;
+        }
+        if (entry.kind === 'tool') {
+          return <TranscriptTool key={index} entry={entry} />;
+        }
+        if (entry.kind === 'tool_result') {
+          return <TranscriptToolResult key={index} entry={entry} />;
+        }
+        return (
+          <p key={index}
+            className={`sr-transcript__result${entry.failed ? ' is-failed' : ''}`}>
+            {entry.failed ? 'Turn failed' : 'Turn complete'} · {entry.turns} turns
+          </p>
+        );
+      })}
     </div>
   );
 }

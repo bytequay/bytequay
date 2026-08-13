@@ -113,47 +113,41 @@ public final class UpstreamSyncCommands
         upstreamSync.requestPause(runId);
     }
 
-    /**
-     * Stops a run for good and releases what it holds locally.
-     *
-     * <p>Where that happens depends on whether a turn is in flight. A run that
-     * is picking closes from its own loop, at the boundary where nothing is
-     * writing to the worktree — this only records the request. A run that is
-     * parked or finished holds nothing, so it closes here and now.
-     *
-     * <p>Closing an already-closed run is not an error; it is how a run that
-     * still held its worktree finishes letting go of it.
-     *
-     * @return whether the run let go of what it held locally; false when the
-     *         close is only recorded, or when a live turn still holds it
-     */
+    /** Stops the run, settles its writer, and only then reports it closed. */
     public boolean close(String runId)
     {
         UpstreamSyncRun run = upstreamSync.run(runId).orElseThrow(
                 () -> new IllegalArgumentException(
                         "unknown upstream sync run: " + runId));
-        // A close the run never reached. The boundary that honours one is
-        // inside the pick loop, so a run whose turn is wedged — claimed and
-        // never started, or dead with its claim outstanding — would wait for
-        // it forever. Asking a second time closes it here instead, which is
-        // the only exit that does not depend on the stuck thing running.
-        if (mayHaveATurnInFlight(run.state())
-                && !upstreamSync.closeRequested(runId)) {
-            upstreamSync.requestClose(runId);
-            return false;
+        Task task = runtime.task(run.taskId()).orElseThrow(
+                () -> new IllegalStateException(
+                        "upstream sync run has no Task"));
+        if (initialTasks.cancelActiveTask(task.taskId())) {
+            task = runtime.task(run.taskId()).orElseThrow();
         }
-        // Not short-circuited on an already-closed run: closing again is how a
-        // run that could not release its worktree the first time releases it
-        // once the turn holding it has ended.
-        return UpstreamSyncTeardown.close(
+        else if (runtime.retireDeadWriterForClose(task.taskId())) {
+            task = runtime.task(run.taskId()).orElseThrow();
+        }
+
+        boolean released = UpstreamSyncTeardown.close(
                 runtime,
                 provisioning,
                 upstreamSync,
-                runtime.task(run.taskId()).orElseThrow(
-                        () -> new IllegalStateException(
-                                "upstream sync run has no Task")),
+                task,
                 runId,
                 "UPSTREAM_SYNC_CLOSED");
+        if (released) {
+            return true;
+        }
+        RunState state = upstreamSync.run(runId).orElseThrow().state();
+        if (canReachCloseBoundary(state)) {
+            if (!upstreamSync.closeRequested(runId)) {
+                upstreamSync.requestClose(runId);
+            }
+            return false;
+        }
+        throw new IllegalStateException(
+                "the run still owns a writer that could not be stopped");
     }
 
     /**
@@ -176,7 +170,7 @@ public final class UpstreamSyncCommands
             // Dropping the row here would strand the checkout: the run is the
             // only thing that knows the worktree is there to release.
             throw new IllegalStateException(
-                    "the run is closed but its worktree is still held by a"
+                    "the run is still closing and its worktree is held by a"
                             + " turn; it can be deleted once that ends");
         }
         upstreamSync.delete(runId);
@@ -190,15 +184,18 @@ public final class UpstreamSyncCommands
      * on the publish gate, handed off, needing attention — is a run standing
      * still.
      *
-     * <p>{@code READY} is not one of them. Advancing to {@code PICKING} is the
-     * loop's own first act, so a run still in {@code READY} has not reached
-     * the boundary check and has nothing to honour a request with — recording
-     * one there is how a close waits forever.
+     * <p>{@code READY} is handled separately: its first turn advances to
+     * {@code PICKING} and observes the already-recorded close request.
      */
     static boolean mayHaveATurnInFlight(RunState state)
     {
         return state == RunState.PICKING
                 || state == RunState.WAITING_CONFLICT_REPAIR;
+    }
+
+    private static boolean canReachCloseBoundary(RunState state)
+    {
+        return state == RunState.READY || mayHaveATurnInFlight(state);
     }
 
     /**

@@ -407,6 +407,8 @@ export type UpstreamCherryPickJobDto = {
   /** The run's "RUN #12" label — creation order in the workspace, not an id. */
   runNumber: number;
   status: UpstreamCherryPickStatus;
+  /** Exact greenfield runtime state; absent on runs from the retired engine. */
+  runState?: string;
   sourceBranch: string;
   resultBranch: string;
   baseRef: string;
@@ -442,6 +444,8 @@ export type UpstreamCherryPickJobDto = {
   roundCount?: number;
   /** The local compile could not run, so CI carries the verdict from here on. */
   localGateUnavailable?: boolean;
+  /** The locally constructed range passed its immutable history proof. */
+  verified?: boolean;
   /** The CLI session the whole run shares, null until the first turn. */
   agentSessionId: string | null;
   conflictPaths: string[];

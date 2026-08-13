@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
@@ -50,9 +51,11 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -125,6 +128,20 @@ public final class UpstreamSyncCoordinator
         return upstreamSync.runForTask(taskId).isPresent();
     }
 
+    /** Completes teardown after a boundary close's writer has finalized. */
+    void finishCanceledTask(String taskId)
+    {
+        upstreamSync.runForTask(taskId)
+                .filter(run -> run.state() == RunState.CANCELED)
+                .ifPresent(run -> UpstreamSyncTeardown.close(
+                        runtime,
+                        provisioning,
+                        upstreamSync,
+                        runtime.task(taskId).orElseThrow(),
+                        run.runId(),
+                        "UPSTREAM_SYNC_CLOSED"));
+    }
+
     /**
      * Runs one INITIAL Task turn for an upstream sync Task.
      *
@@ -153,7 +170,8 @@ public final class UpstreamSyncCoordinator
         try {
             if (reviewContinuation) {
                 AgentCompletion completion = bodies.initialTask(
-                        binding, worktree, capability, true);
+                        binding, worktree, capability, true,
+                        agentActivity(run.runId(), false));
                 if (completion.terminalOutcome() == TerminalOutcome.COMPLETED) {
                     if (runtime.readyForReviewRequestForRun(binding.runId())
                             .isPresent()) {
@@ -526,8 +544,10 @@ public final class UpstreamSyncCoordinator
                     default -> ToolCallResult.error("tool is not available");
                 });
         TurnResult turn = bodies.upstreamPickRepair(
-                binding, watched(runId, executor), terminal, worktree,
-                capability);
+                binding,
+                binding.isApi() ? executor : watched(runId, executor),
+                terminal, worktree, capability,
+                agentActivity(runId, !binding.isApi()));
         publishTurnEnd(runId, turn);
         if (stopReason.get() != null) {
             return stopReason.get();
@@ -596,8 +616,10 @@ public final class UpstreamSyncCoordinator
                     default -> ToolCallResult.error("tool is not available");
                 });
         TurnResult turn = bodies.upstreamPickRepair(
-                binding, watched(runId, executor), terminal, worktree,
-                capability);
+                binding,
+                binding.isApi() ? executor : watched(runId, executor),
+                terminal, worktree, capability,
+                agentActivity(runId, !binding.isApi()));
         publishTurnEnd(runId, turn);
         return terminal.get() ? null : "FINAL_REVIEW_UNRESOLVED";
     }
@@ -670,7 +692,8 @@ public final class UpstreamSyncCoordinator
             return ToolCallResult.ok(checkSummary(runs));
         }
         catch (RuntimeException failure) {
-            return ToolCallResult.error("tool failed closed");
+            return ToolCallResult.error(
+                    "local validation failed closed: " + describe(failure));
         }
     }
 
@@ -959,27 +982,112 @@ public final class UpstreamSyncCoordinator
     private ToolExecutor watched(String runId, ToolExecutor delegate)
     {
         return call -> {
-            try {
-                live.publish(runId, toolLine(call));
-            }
-            catch (RuntimeException ignored) {
-                // A watcher that broke is not the agent's problem.
-            }
-            return delegate.execute(call);
+            publish(runId, toolLine(call));
+            ToolCallResult result = delegate.execute(call);
+            publish(runId, toolResultLine(
+                    call.id(), result.text(), result.isError()));
+            return result;
         };
     }
 
     private String toolLine(ToolCall call)
+    {
+        return toolLine(
+                call.id(), call.name(), call.input() == null
+                        ? mapper.createObjectNode() : call.input());
+    }
+
+    private String toolLine(String callId, String name, JsonNode input)
     {
         ObjectNode line = mapper.createObjectNode();
         line.put("type", "assistant");
         ObjectNode block = line.putObject("message").putArray("content")
                 .addObject();
         block.put("type", "tool_use");
-        block.put("name", call.name());
-        block.set("input", call.input() == null
-                ? mapper.createObjectNode() : call.input());
+        block.put("id", callId);
+        block.put("name", name);
+        block.set("input", input);
         return line.toString();
+    }
+
+    private String toolResultLine(
+            String callId, String result, boolean isError)
+    {
+        ObjectNode line = mapper.createObjectNode();
+        line.put("type", "user");
+        ObjectNode block = line.putObject("message").putArray("content")
+                .addObject();
+        block.put("type", "tool_result");
+        block.put("tool_use_id", callId);
+        block.set("content", jsonOrText(result));
+        block.put("is_error", isError);
+        return line.toString();
+    }
+
+    private String assistantLine(String text)
+    {
+        ObjectNode line = mapper.createObjectNode();
+        line.put("type", "assistant");
+        ObjectNode block = line.putObject("message").putArray("content")
+                .addObject();
+        block.put("type", "text");
+        block.put("text", text);
+        return line.toString();
+    }
+
+    /** CLI/API activity, optionally excluding calls already shown by watched. */
+    private Consumer<StreamEvent> agentActivity(
+            String runId, boolean suppressBridgedCalls)
+    {
+        Set<String> bridgedCalls = ConcurrentHashMap.newKeySet();
+        return event -> {
+            if (suppressBridgedCalls
+                    && event instanceof StreamEvent.ToolCallStarted started
+                    && started.toolName().startsWith("mcp__bytequay__")) {
+                bridgedCalls.add(started.callId());
+                return;
+            }
+            if (suppressBridgedCalls
+                    && event instanceof StreamEvent.ToolCallDone done
+                    && bridgedCalls.remove(done.callId())) {
+                return;
+            }
+            String line = switch (event) {
+                case StreamEvent.AssistantText text ->
+                        assistantLine(text.text());
+                case StreamEvent.ToolCallStarted started -> toolLine(
+                        started.callId(), started.toolName(),
+                        jsonOrText(started.inputJson()));
+                case StreamEvent.ToolCallDone done -> toolResultLine(
+                        done.callId(), done.outputJson(), done.isError());
+                case StreamEvent.ErrorOccurred error -> assistantLine(
+                        "Agent error: " + error.message());
+                default -> null;
+            };
+            if (line != null) {
+                publish(runId, line);
+            }
+        };
+    }
+
+    private JsonNode jsonOrText(String value)
+    {
+        try {
+            return mapper.readTree(value == null ? "" : value);
+        }
+        catch (JsonProcessingException ignored) {
+            return mapper.getNodeFactory().textNode(value == null ? "" : value);
+        }
+    }
+
+    private void publish(String runId, String line)
+    {
+        try {
+            live.publish(runId, line);
+        }
+        catch (RuntimeException ignored) {
+            // A watcher that broke is not the agent's problem.
+        }
     }
 
     private void publishTurnEnd(String runId, TurnResult turn)
@@ -990,7 +1098,7 @@ public final class UpstreamSyncCoordinator
             line.put("is_error", turn.end() != TurnResult.End.COMPLETED);
             line.put("num_turns", turn.rounds());
             line.put("total_cost_usd", turn.costMilliUsd() / 1000.0);
-            live.publish(runId, line.toString());
+            publish(runId, line.toString());
         }
         catch (RuntimeException ignored) {
             // As above: the durable record of the turn is elsewhere.
@@ -1035,7 +1143,8 @@ public final class UpstreamSyncCoordinator
             return ToolCallResult.ok(action.get());
         }
         catch (RuntimeException failure) {
-            return ToolCallResult.error("tool failed closed");
+            return ToolCallResult.error(
+                    "tool failed closed: " + describe(failure));
         }
     }
 

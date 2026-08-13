@@ -653,6 +653,7 @@ final class DispatchRuntime
                     FROM flow_runtime_agent_process_attempt p
                     JOIN flow_runtime_agent_run r ON r.run_id = p.run_id
                     WHERE p.state = 'ACTIVATED'
+                      AND p.quarantine_reason IS NULL
                       AND r.role <> 'CI_LEARNER'
                 ) active
                 """,

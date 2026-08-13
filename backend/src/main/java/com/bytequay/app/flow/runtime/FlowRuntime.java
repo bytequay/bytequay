@@ -1719,6 +1719,187 @@ public final class FlowRuntime
         return dispatches.activeDispatchCount();
     }
 
+    /**
+     * Retires one writer whose owning JVM and recorded agent group are gone.
+     *
+     * <p>This is the crash-recovery half of a destructive close. It never
+     * manufactures a normal stop proof: the abandoned attempt remains as a
+     * quarantined audit record, while its dead claim, lease and Task pointer
+     * are released so ordinary terminal teardown can remove the worktree.
+     */
+    synchronized boolean retireDeadWriterForClose(String taskId)
+    {
+        requireText(taskId, "taskId");
+        Optional<AgentProcessAttempt> candidate = activeWriterAttempt(taskId);
+        if (candidate.isEmpty()) {
+            return false;
+        }
+        AgentProcessAttempt attempt = candidate.orElseThrow();
+        if (!processIdentityGone(attempt.jvmPid(), attempt.jvmStartedAt())
+                || !recordedAgentGroupGone(attempt)) {
+            return false;
+        }
+        return inTransaction(() -> {
+            Integer exact = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_task t
+                    JOIN flow_runtime_writer_lease l
+                      ON l.task_id = t.task_id
+                     AND l.operation_id = t.selected_writer_operation_id
+                    JOIN flow_runtime_operation o
+                      ON o.operation_id = l.operation_id
+                     AND o.task_id = t.task_id
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_runtime_agent_run r
+                      ON r.operation_id = o.operation_id
+                     AND r.state = 'RUNNING'
+                    JOIN flow_runtime_agent_process_attempt p
+                      ON p.run_id = r.run_id
+                     AND p.operation_id = o.operation_id
+                     AND p.claim_generation = d.claim_generation
+                    WHERE t.task_id = ? AND t.status = 'ACTIVE'
+                      AND o.state = 'CLAIMED'
+                      AND d.delivery_state = 'CLAIMED'
+                      AND p.process_attempt_id = ?
+                      AND p.state = 'ACTIVATED'
+                      AND p.quarantine_reason IS NULL
+                    """,
+                    Integer.class, taskId, attempt.processAttemptId());
+            if (requireNonNull(exact,
+                    "dead writer owner count is null") != 1) {
+                throw new StaleOwnerRevisionException(
+                        "dead writer ownership changed during close");
+            }
+            AgentRun run = requireRun(attempt.runId());
+            AgentSession session = requireSession(run.sessionId());
+            Instant now = clock.instant();
+            String reason = "UPSTREAM_SYNC_DEAD_OWNER_CLOSED:"
+                    + attempt.processAttemptId();
+            int attemptRetired = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET capability_revoked_at = COALESCE(
+                            capability_revoked_at, ?),
+                        quarantine_reason = 'IN_PROCESS_OWNER_UNAVAILABLE',
+                        quarantined_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND quarantine_reason IS NULL
+                    """,
+                    now.toEpochMilli(), now.toEpochMilli(),
+                    attempt.processAttemptId());
+            int runClosed = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = 'CANCELED', failure_reason_code = ?,
+                        completed_at = ?
+                    WHERE run_id = ? AND state = 'RUNNING'
+                    """,
+                    reason, now.toEpochMilli(), run.runId());
+            int sessionClosed = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'CLOSED', close_reason = ?, updated_at = ?
+                    WHERE session_id = ? AND state = 'RUNNING'
+                      AND last_run_id = ?
+                    """,
+                    reason, now.toEpochMilli(), session.sessionId(),
+                    run.runId());
+            settleDispatch(
+                    attempt.operationId(), OperationState.CANCELED, reason);
+            int pointerReleased = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET selected_writer_operation_id = NULL
+                    WHERE task_id = ?
+                      AND selected_writer_operation_id = ?
+                    """,
+                    taskId, attempt.operationId());
+            int leaseReleased = jdbc.update(
+                    """
+                    DELETE FROM flow_runtime_writer_lease
+                    WHERE task_id = ? AND operation_id = ?
+                    """,
+                    taskId, attempt.operationId());
+            if (attemptRetired != 1 || runClosed != 1
+                    || sessionClosed != 1 || pointerReleased != 1
+                    || leaseReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "dead writer changed during close");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    private Optional<AgentProcessAttempt> activeWriterAttempt(String taskId)
+    {
+        List<AgentProcessAttempt> attempts = jdbc.query(
+                """
+                SELECT p.*
+                FROM flow_runtime_task t
+                JOIN flow_runtime_writer_lease l
+                  ON l.task_id = t.task_id
+                 AND l.operation_id = t.selected_writer_operation_id
+                JOIN flow_runtime_operation o
+                  ON o.operation_id = l.operation_id
+                 AND o.task_id = t.task_id
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                JOIN flow_runtime_agent_run r
+                  ON r.operation_id = o.operation_id
+                 AND r.state = 'RUNNING'
+                JOIN flow_runtime_agent_process_attempt p
+                  ON p.run_id = r.run_id
+                 AND p.operation_id = o.operation_id
+                 AND p.claim_generation = d.claim_generation
+                WHERE t.task_id = ? AND t.status = 'ACTIVE'
+                  AND o.state = 'CLAIMED'
+                  AND d.delivery_state = 'CLAIMED'
+                  AND p.state = 'ACTIVATED'
+                  AND p.quarantine_reason IS NULL
+                """,
+                (result, row) -> readProcessAttempt(result), taskId);
+        if (attempts.size() > 1) {
+            throw new IllegalStateException(
+                    "Task has more than one active writer attempt");
+        }
+        return attempts.stream().findFirst();
+    }
+
+    private static boolean processIdentityGone(Long pid, Instant startedAt)
+    {
+        if (pid == null || startedAt == null) {
+            return false;
+        }
+        ProcessHandle process = ProcessHandle.of(pid).orElse(null);
+        if (process == null || !process.isAlive()) {
+            return true;
+        }
+        return process.info().startInstant()
+                .map(current -> !current.equals(startedAt))
+                .orElse(false);
+    }
+
+    private static boolean recordedAgentGroupGone(AgentProcessAttempt attempt)
+    {
+        if (attempt.agentPgid() == null) {
+            return attempt.agentPid() == null;
+        }
+        try {
+            return switch (ProcessGroup.reclaim(
+                    attempt.agentPgid(), attempt.agentStartedAt())) {
+                case GONE -> true;
+                case UNCERTAIN -> false;
+                case OURS -> ProcessGroup.bury(attempt.agentPgid()).isEmpty();
+            };
+        }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     /** Claims the oldest exact authorized publication plan for one PR. */
     public synchronized Optional<Claim> claimNextPublish(
             String workerId, Duration claimTtl)

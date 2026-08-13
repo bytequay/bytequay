@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -87,6 +88,8 @@ final class NewFlowCliTurn
             "Work only on the exact program-selected subject.";
     /** The pipe is already closed by burial; this only bounds a stuck reader. */
     private static final long READER_JOIN_TIMEOUT = 5_000;
+    /** Longer than the two-hour local-check ceiling plus inspection overhead. */
+    private static final String CLAUDE_MCP_TOOL_TIMEOUT_MILLIS = "7500000";
     private static final int DIAGNOSTIC_LIMIT = 16 * 1024;
 
     /** Appended to every CLI turn's prompt; transport details are added below. */
@@ -140,6 +143,9 @@ final class NewFlowCliTurn
                 long tokensIn,
                 long tokensOut,
                 long costMilliUsd);
+
+        /** Best-effort live activity; never part of the durable outcome. */
+        default void activity(StreamEvent event) {}
     }
 
     /**
@@ -490,6 +496,10 @@ final class NewFlowCliTurn
         // the URL. Nothing about the fence is put in the environment, where the
         // agent could read it and forge a call.
         environment.put("BYTEQUAY_NEW_FLOW_MCP_URL", mcpUrl);
+        if (vendor == CliAgentArgv.Vendor.CLAUDE_CODE) {
+            environment.put(
+                    "MCP_TOOL_TIMEOUT", CLAUDE_MCP_TOOL_TIMEOUT_MILLIS);
+        }
 
         ProcessGroup.Spawned spawned;
         try {
@@ -510,7 +520,8 @@ final class NewFlowCliTurn
                 vendor == CliAgentArgv.Vendor.CLAUDE_CODE
                         ? new StreamJsonParser(mapper)
                         : new CodexJsonParser(mapper),
-                usageBaseline);
+                usageBaseline,
+                journal::activity);
         boolean stopped;
         int exit = -1;
         Thread reader;
@@ -628,6 +639,7 @@ final class NewFlowCliTurn
     private static final class Transcript
     {
         private final CliStreamParser parser;
+        private final Consumer<StreamEvent> activity;
         private String sessionId;
         private String finalText;
         private long tokensIn;
@@ -642,9 +654,11 @@ final class NewFlowCliTurn
 
         private Transcript(
                 CliStreamParser parser,
-                FlowRuntime.ProviderUsageBaseline usageBaseline)
+                FlowRuntime.ProviderUsageBaseline usageBaseline,
+                Consumer<StreamEvent> activity)
         {
             this.parser = parser;
+            this.activity = requireNonNull(activity, "activity is null");
             priorTokensIn = usageBaseline.tokensIn();
             priorTokensOut = usageBaseline.tokensOut();
         }
@@ -669,6 +683,7 @@ final class NewFlowCliTurn
                         }
                     }
                     for (StreamEvent event : events) {
+                        activity.accept(event);
                         accept(event);
                     }
                 }

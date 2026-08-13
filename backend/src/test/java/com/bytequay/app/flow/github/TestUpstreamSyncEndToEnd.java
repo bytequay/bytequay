@@ -537,6 +537,9 @@ final class TestUpstreamSyncEndToEnd
                 .contains("\"type\":\"tool_use\"")
                 .contains("commit_pick_repair"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("\"type\":\"tool_result\"")
+                .contains("conflictedPaths"));
+        assertThat(lines).anySatisfy(line -> assertThat(line)
                 .contains("\"type\":\"result\""));
     }
 

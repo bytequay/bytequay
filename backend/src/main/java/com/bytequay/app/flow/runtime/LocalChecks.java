@@ -422,7 +422,8 @@ public final class LocalChecks
                 && !validationRequest.command().get(0).equals(
                         selected.get(0).command().get(0))) {
             throw new IllegalArgumentException(
-                    "validation executable is not allowed by the local-check policy");
+                    "validation executable must be "
+                            + selected.get(0).command().get(0));
         }
         Duration duration = INSPECTION_BOUND.multipliedBy(
                         selected.size() * 2L + 3L)

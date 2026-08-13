@@ -16,6 +16,7 @@ package com.bytequay.app.flow.ci;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryKind;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryExitState;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -87,6 +88,92 @@ class TestCiBoundaryCompileProof
                 List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("proves nothing");
+    }
+
+    @Test
+    void onlyAProvenBoundaryExcusesTheSeriesCompileCheck()
+    {
+        var started = startRepair();
+        String attemptId = started.binding().attempt().attemptId();
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of("build"), ".github/workflows/ci.yml", "sha256:ci",
+                true);
+
+        // The per-commit check is red because a target is red in isolation by
+        // construction. Without the program's own proof that is simply red.
+        assertThat(acceptedRequiredCi()).isFalse();
+
+        autofix.storeBoundaryCompileProof(
+                task.taskId(), attemptId, publishedHead, "profile-1",
+                List.of(
+                        new BoundaryOutcome(
+                                TARGET_FIXUP, BoundaryKind.TARGET_WITH_FIXUP,
+                                0, "sha256:one"),
+                        new BoundaryOutcome(
+                                PLAIN, BoundaryKind.PLAIN, 0, "sha256:two")));
+
+        assertThat(acceptedRequiredCi()).isTrue();
+    }
+
+    @Test
+    void aFailedOrFixuplessProofExcusesNothing()
+    {
+        var started = startRepair();
+        String attemptId = started.binding().attempt().attemptId();
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of("build"), ".github/workflows/ci.yml", "sha256:ci",
+                true);
+
+        // Green, but no commit in it carries a following fixup, so there is no
+        // by-construction red to excuse.
+        autofix.storeBoundaryCompileProof(
+                task.taskId(), attemptId, publishedHead, "profile-1",
+                List.of(new BoundaryOutcome(
+                        PLAIN, BoundaryKind.PLAIN, 0, "sha256:two")));
+        assertThat(acceptedRequiredCi()).isFalse();
+
+        // A proof for some other head is not evidence about this one.
+        autofix.storeBoundaryCompileProof(
+                task.taskId(), attemptId, TARGET_FIXUP, "profile-1",
+                List.of(new BoundaryOutcome(
+                        TARGET_FIXUP, BoundaryKind.TARGET_WITH_FIXUP,
+                        0, "sha256:one")));
+        assertThat(acceptedRequiredCi()).isFalse();
+    }
+
+    @Test
+    void aTaskWithoutTheRewritingPlacementIsNeverExcused()
+    {
+        var started = startRepair();
+
+        autofix.storeBoundaryCompileProof(
+                task.taskId(),
+                started.binding().attempt().attemptId(),
+                publishedHead,
+                "profile-1",
+                List.of(new BoundaryOutcome(
+                        TARGET_FIXUP, BoundaryKind.TARGET_WITH_FIXUP,
+                        0, "sha256:one")));
+
+        assertThat(acceptedRequiredCi()).isFalse();
+    }
+
+    /** Whether required CI counts as accepted for the published head. */
+    private boolean acceptedRequiredCi()
+    {
+        try {
+            autofix.acceptedRequiredCiSnapshot(
+                    pr.prId(),
+                    publishedHead,
+                    autofix.currentPolicy(task.repositoryId(), pr.scopeKey())
+                            .orElseThrow().policyRevisionId());
+            return true;
+        }
+        catch (CiAutofix.CiEvidenceUnavailableException expected) {
+            return false;
+        }
     }
 
     @Test

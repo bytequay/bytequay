@@ -46,6 +46,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -67,6 +68,14 @@ class TestProjectLearningService
     private WorkspaceRepositoryResolver resolver;
     private WatchedRepoStore watchedRepos;
     private PrEvidenceFetcher evidenceFetcher;
+    private PatResolver patResolver;
+    private PrPriorityScorer scorer;
+    private ModuleCoverageSelector selector;
+    private LessonExtractor extractor;
+    private KnowledgeIngestor ingestor;
+    private KnowledgeItemStore knowledge;
+    private SqliteWorkspaceStore workspaceStore;
+    private ObjectMapper json;
     private ProjectLearningService service;
 
     @BeforeEach
@@ -87,9 +96,10 @@ class TestProjectLearningService
         catalog = mock(MergedPrCatalog.class);
         resolver = mock(WorkspaceRepositoryResolver.class);
         watchedRepos = mock(WatchedRepoStore.class);
-        PatResolver patResolver = mock(PatResolver.class);
-        PrPriorityScorer scorer = new PrPriorityScorer(new ObjectMapper());
-        ModuleCoverageSelector selector = new ModuleCoverageSelector();
+        patResolver = mock(PatResolver.class);
+        json = new ObjectMapper();
+        scorer = new PrPriorityScorer(json);
+        selector = new ModuleCoverageSelector();
         evidenceFetcher = mock(PrEvidenceFetcher.class);
 
         when(resolver.resolve("ws-1")).thenReturn(new WorkspaceRepositoryResolver
@@ -100,18 +110,16 @@ class TestProjectLearningService
         when(indexer.index(anyString(), anyString(), any(), any()))
                 .thenReturn(new DocumentIndexer.IndexResult(0, "capsule", "digest"));
 
-        LessonExtractor extractor = mock(LessonExtractor.class);
+        extractor = mock(LessonExtractor.class);
         when(extractor.extract(anyString(), any(), any())).thenReturn(List.of());
-        KnowledgeIngestor ingestor = mock(KnowledgeIngestor.class);
+        ingestor = mock(KnowledgeIngestor.class);
         when(ingestor.ingest(anyString(), any(), any(), any()))
                 .thenReturn(new KnowledgeIngestor.IngestResult(0, 0, 0));
-        KnowledgeItemStore knowledge = new KnowledgeItemStore(jdbc, new ObjectMapper());
-        SqliteWorkspaceStore workspaceStore = mock(SqliteWorkspaceStore.class);
+        knowledge = new KnowledgeItemStore(jdbc, json);
+        workspaceStore = mock(SqliteWorkspaceStore.class);
         when(workspaceStore.listWorkspaces()).thenReturn(List.of());
 
-        service = new ProjectLearningService(store, resolver, watchedRepos, workspaceStore,
-                indexer, catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
-                knowledge, patResolver, new ObjectMapper(), Runnable::run);
+        service = service(true);
     }
 
     @Test
@@ -122,8 +130,10 @@ class TestProjectLearningService
                 .thenAnswer(inv -> new MergedPrCatalog.Outcome(
                         inv.getArgument(4), MergedPrCatalog.State.CAUGHT_UP, null));
 
-        ProjectLearningRun first = service.enqueue("ws-1", "acme/widget", "clone");
-        ProjectLearningRun second = service.enqueue("ws-1", "acme/widget", "clone");
+        ProjectLearningRun first = service.enqueue("ws-1", "acme/widget", "clone")
+                .orElseThrow();
+        ProjectLearningRun second = service.enqueue("ws-1", "acme/widget", "clone")
+                .orElseThrow();
 
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(jdbc.queryForObject(
@@ -131,6 +141,33 @@ class TestProjectLearningService
         // Let the background run (launched after enqueue) settle before the
         // temp DB is torn down.
         awaitTerminal(first.id());
+    }
+
+    @Test
+    void testDisabledLearningDoesNotStartAndPausesResumableWork()
+    {
+        ProjectLearningService disabled = service(false);
+
+        assertThat(disabled.enqueue("ws-1", "acme/widget", "clone")).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM repo_learning_run", Integer.class)).isZero();
+
+        store.insertRun(new ProjectLearningRun("run-1", "ws-1", "acme/widget", "clone",
+                "analyzing", "sha", null, "{}", 1, 1, 1, null, null));
+        disabled.recover();
+        disabled.onMergedPr("acme/widget", 42, "Fix retry", "alice");
+        disabled.execute("run-1");
+
+        assertThat(store.findRun("run-1")).get()
+                .extracting(ProjectLearningRun::state).isEqualTo("paused");
+        verifyNoInteractions(indexer, catalog, evidenceFetcher);
+    }
+
+    private ProjectLearningService service(boolean enabled)
+    {
+        return new ProjectLearningService(store, resolver, watchedRepos, workspaceStore,
+                indexer, catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
+                knowledge, patResolver, json, Runnable::run, enabled);
     }
 
     private void awaitTerminal(String id)

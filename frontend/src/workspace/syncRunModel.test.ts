@@ -99,6 +99,11 @@ describe('sync run model', () => {
     expect(syncPhase({ ...job, status: 'COMPLETED' })).toBe('COMPLETE');
     expect(syncPhase({ ...job, status: 'COMPLETED', harnessWatchId: 'watch-1' }))
       .toBe('COMPLETE');
+    // A close and a park wait at the same boundary but do not end in the same
+    // place, so the run must not report one as the other.
+    expect(syncPhase({ ...job, closeRequested: true })).toBe('CLOSING');
+    expect(syncPhase({ ...job, pauseRequested: true, closeRequested: true }))
+      .toBe('CLOSING');
   });
 
   it('says what the run is doing rather than that it is busy', () => {
@@ -108,6 +113,8 @@ describe('sync run model', () => {
     expect(syncNowLine(
       { ...job, status: 'COMPLETED', prNumber: 214 }, syncQueue(commits),
     )).toContain('#214');
+    expect(syncNowLine({ ...job, closeRequested: true }, syncQueue(commits)))
+      .toContain('close again to stop now');
   });
 
   it('formats command durations the way a terminal reads', () => {

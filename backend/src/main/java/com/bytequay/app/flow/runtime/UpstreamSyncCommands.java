@@ -121,22 +121,31 @@ public final class UpstreamSyncCommands
      * writing to the worktree — this only records the request. A run that is
      * parked or finished holds nothing, so it closes here and now.
      *
-     * <p>Closing an already-closed run is not an error; the user asked for a
-     * state it is already in.
+     * <p>Closing an already-closed run is not an error; it is how a run that
+     * still held its worktree finishes letting go of it.
+     *
+     * @return whether the run let go of what it held locally; false when the
+     *         close is only recorded, or when a live turn still holds it
      */
-    public void close(String runId)
+    public boolean close(String runId)
     {
         UpstreamSyncRun run = upstreamSync.run(runId).orElseThrow(
                 () -> new IllegalArgumentException(
                         "unknown upstream sync run: " + runId));
-        if (run.state() == RunState.CANCELED) {
-            return;
-        }
-        if (mayHaveATurnInFlight(run.state())) {
+        // A close the run never reached. The boundary that honours one is
+        // inside the pick loop, so a run whose turn is wedged — claimed and
+        // never started, or dead with its claim outstanding — would wait for
+        // it forever. Asking a second time closes it here instead, which is
+        // the only exit that does not depend on the stuck thing running.
+        if (mayHaveATurnInFlight(run.state())
+                && !upstreamSync.closeRequested(runId)) {
             upstreamSync.requestClose(runId);
-            return;
+            return false;
         }
-        UpstreamSyncTeardown.close(
+        // Not short-circuited on an already-closed run: closing again is how a
+        // run that could not release its worktree the first time releases it
+        // once the turn holding it has ended.
+        return UpstreamSyncTeardown.close(
                 runtime,
                 provisioning,
                 upstreamSync,
@@ -157,11 +166,18 @@ public final class UpstreamSyncCommands
      */
     public void delete(String runId)
     {
-        close(runId);
+        boolean released = close(runId);
         if (upstreamSync.closeRequested(runId)) {
             throw new IllegalStateException(
                     "the run stops at its next commit and can be deleted once"
                             + " it has");
+        }
+        if (!released) {
+            // Dropping the row here would strand the checkout: the run is the
+            // only thing that knows the worktree is there to release.
+            throw new IllegalStateException(
+                    "the run is closed but its worktree is still held by a"
+                            + " turn; it can be deleted once that ends");
         }
         upstreamSync.delete(runId);
     }
@@ -173,11 +189,15 @@ public final class UpstreamSyncCommands
      * can have an agent holding the checkout. Everything else — parked, waiting
      * on the publish gate, handed off, needing attention — is a run standing
      * still.
+     *
+     * <p>{@code READY} is not one of them. Advancing to {@code PICKING} is the
+     * loop's own first act, so a run still in {@code READY} has not reached
+     * the boundary check and has nothing to honour a request with — recording
+     * one there is how a close waits forever.
      */
-    private static boolean mayHaveATurnInFlight(RunState state)
+    static boolean mayHaveATurnInFlight(RunState state)
     {
-        return state == RunState.READY
-                || state == RunState.PICKING
+        return state == RunState.PICKING
                 || state == RunState.WAITING_CONFLICT_REPAIR;
     }
 

@@ -1399,6 +1399,29 @@ public final class CiAutofix
                 calculation.observationIds(), RoundState.NEEDS_ATTENTION);
     }
 
+    /**
+     * Whether this round is parked because the fixer moved nothing.
+     *
+     * <p>The park is otherwise invisible: the round simply stops admitting a
+     * writer. Its owner uses this to tell the user, which is the whole point of
+     * a stop that is a judgment rather than a quota.
+     */
+    public boolean parkedForRepeatedFailure(String roundId)
+    {
+        CiRound round = roundById(roundId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Unknown CI round: " + roundId));
+        if (round.state() != RoundState.NEEDS_ATTENTION
+                || placementPolicy(round.taskId()).placement()
+                        != RepairPlacement.ATTRIBUTED_FIXUP) {
+            return false;
+        }
+        List<String> failing = failingSelectors(round.checkObservationIds());
+        return !failing.isEmpty()
+                && previousHeadFailures(round.prId(), round.remoteHead())
+                        .equals(Optional.of(failing));
+    }
+
     /** The failing selectors of the newest round on this PR's previous head. */
     private Optional<List<String>> previousHeadFailures(
             String prId, String headSha)

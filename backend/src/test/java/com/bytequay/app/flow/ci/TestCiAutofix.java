@@ -732,6 +732,30 @@ class TestCiAutofix
     }
 
     @Test
+    void aParkedRoundSaysSoSoItsOwnerCanTellTheUser()
+    {
+        resolvedPolicy(List.of("build"));
+        autofix.recordPlacementPolicy(
+                "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
+                null, null, true);
+        autofix.observeCi("pr-1", check(
+                "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
+        var first = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
+        assertThat(autofix.parkedForRepeatedFailure(
+                first.round().roundId())).isFalse();
+
+        subject.set(new PublishedPrSubject(
+                "pr-1", "task-1", "repo-1", "main", "main", "H2"));
+        autofix.observeCi("pr-1", check(
+                "H2", "build", "build-id-2", "run-2", 1, "build",
+                "COMPLETED", "FAILURE", "1", NOW, NOW, NOW, "raw:2"));
+        var parked = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H2");
+
+        assertThat(autofix.parkedForRepeatedFailure(
+                parked.round().roundId())).isTrue();
+    }
+
+    @Test
     void aMovedBoardIsStillRepairedAndAnOrdinaryTaskNeverParks()
     {
         resolvedPolicy(List.of("build", "test"));

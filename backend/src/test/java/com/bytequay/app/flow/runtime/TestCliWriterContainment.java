@@ -120,6 +120,21 @@ final class TestCliWriterContainment
     }
 
     @Test
+    void aNewTurnRepairsContainmentLeftByADeadProcess(@TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        Fixture fixture = Fixture.create(root);
+        CliWriterContainment.apply(
+                fixture.worktree, root.resolve("dead-turn"), "origin");
+
+        CliWriterContainment.Applied recovered = CliWriterContainment.apply(
+                fixture.worktree, root.resolve("new-turn"), "origin");
+        CliWriterContainment.lift(fixture.worktree, "origin", recovered);
+
+        assertThat(fixture.push(Map.of()).exitCode()).isZero();
+    }
+
+    @Test
     void aMovedRemoteHeadIsQuarantinedRatherThanReconciled(@TempDir Path root)
             throws IOException, InterruptedException
     {

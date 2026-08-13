@@ -95,6 +95,12 @@ final class CliWriterContainment
         requireNonNull(scratch, "scratch is null");
         requireNonNull(remote, "remote is null");
         String original = pushUrl(worktree, remote);
+        // A killed process can leave our own sentinel in the shared repository
+        // config. It is not a user push URL to preserve: treating it as the
+        // original makes every later turn restore the poison forever.
+        if (REFUSING_PUSH_URL.equals(original)) {
+            original = null;
+        }
         git(worktree, "remote", "set-url", "--push", remote, REFUSING_PUSH_URL);
         return new Applied(writerEnvironment(scratch), original);
     }

@@ -148,35 +148,23 @@ final class TestGitHubCiProvider
     }
 
     @Test
-    void logIsRequiredOnlyWhenTheWholeSnapshotCanBeFinalRed()
+    void failedLogIsCapturedWhileAnotherRequiredCheckIsCollecting()
     {
         ScenarioHttp http = new ScenarioHttp();
-        String unsupportedFailure = run(
-                11, "build", "failure", "https://ci.invalid/build/11");
         http.runs = List.of(
-                unsupportedFailure,
-                run(12, "test", "cancelled", null));
+                run(11, "build", "failure",
+                        "https://github.com/base/repo/actions/runs/9/job/12"),
+                run(12, "test", null, null, "in_progress"));
         CiObservationActivation activation = activation(
                 List.of("GITHUB_CHECK:7:build", "GITHUB_CHECK:7:test"),
                 List.of("SUCCESS"));
 
-        assertThat(provider(http).poll(activation).failure()).isNull();
-        assertThat(http.logRequests).isZero();
+        GitHubCiProvider.PollResult collecting =
+                provider(http).poll(activation);
 
-        http.runs = List.of(
-                unsupportedFailure,
-                run(13, "test", null, null, "in_progress"));
-        assertThat(provider(http).poll(activation).failure()).isNull();
-        assertThat(http.logRequests).isZero();
-
-        http.runs = List.of(
-                run(14, "build", "failure",
-                        "https://github.com/base/repo/actions/runs/9/job/12"),
-                run(15, "test", "success", null));
-        GitHubCiProvider.PollResult finalRed = provider(http).poll(activation);
-        assertThat(finalRed.failure()).isNull();
-        assertThat(finalRed.proof().failedLogsByProviderCheckId())
-                .containsOnlyKeys("14");
+        assertThat(collecting.failure()).isNull();
+        assertThat(collecting.proof().failedLogsByProviderCheckId())
+                .containsOnlyKeys("11");
         assertThat(http.logRequests).isOne();
     }
 

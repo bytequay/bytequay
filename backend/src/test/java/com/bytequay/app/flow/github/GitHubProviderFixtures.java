@@ -71,6 +71,7 @@ public final class GitHubProviderFixtures
     {
         GREEN,
         FAILED_ACTIONS,
+        FAILED_ACTIONS_WITH_PENDING,
         FAILED_UNSUPPORTED,
         PENDING,
         UNSTABLE
@@ -945,9 +946,31 @@ public final class GitHubProviderFixtures
                         """.formatted(subject.proposedHead()));
             }
             if (value.contains("/check-suites/1/check-runs?")) {
+                if (mode == CiObservationMode.FAILED_ACTIONS_WITH_PENDING) {
+                    return json("""
+                            {"total_count":2,"check_runs":[{
+                              "id":1,"check_suite":{"id":1},
+                              "app":{"id":7,"slug":"github-actions"},
+                              "head_sha":"%s","name":"build",
+                              "status":"completed","conclusion":"failure",
+                              "started_at":"2026-08-11T00:00:00Z",
+                              "completed_at":"2026-08-11T00:01:00Z",
+                              "details_url":"https://github.com/%s/%s/actions/runs/1/job/1"
+                            },{
+                              "id":2,"check_suite":{"id":1},
+                              "app":{"id":7,"slug":"github-actions"},
+                              "head_sha":"%s","name":"test",
+                              "status":"in_progress","conclusion":null,
+                              "started_at":"2026-08-11T00:00:00Z",
+                              "completed_at":null,"details_url":null}]}
+                            """.formatted(
+                            subject.proposedHead(), subject.repositoryOwner(),
+                            subject.repositoryName(), subject.proposedHead()));
+                }
                 String conclusion = switch (mode) {
                     case GREEN -> "success";
-                    case FAILED_ACTIONS, FAILED_UNSUPPORTED -> "failure";
+                    case FAILED_ACTIONS, FAILED_ACTIONS_WITH_PENDING,
+                            FAILED_UNSUPPORTED -> "failure";
                     case PENDING -> null;
                     case UNSTABLE -> runReads++ == 0 ? "success" : null;
                 };

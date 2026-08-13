@@ -18,6 +18,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.LearningCompletionState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
@@ -52,6 +53,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_ACTIONS;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_ACTIONS_WITH_PENDING;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_UNSUPPORTED;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.GREEN;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.PENDING;
@@ -1528,6 +1530,44 @@ class TestCiAutofixCoordinatorLearningAndReceipts
         assertThat(runtime.pendingWork(task.taskId()))
                 .noneMatch(work -> work.kind() == PendingKind.FINAL_RED
                         && work.externalKey().equals(collecting.roundId()));
+    }
+
+    @Test
+    void perCommitCompileFailureQueuesBeforeSiblingCheckFinishes()
+    {
+        Claim claim = observationClaim("observe-partial-compile");
+        String compile = "GITHUB_CHECK:7:build";
+        String test = "GITHUB_CHECK:7:test";
+        var policy = autofix.recordPolicy(
+                task.repositoryId(), pr.scopeKey(), pr.targetBaseRef(),
+                "github-check-policy:partial-compile",
+                "github-check-policy-digest:partial-compile",
+                PolicyResolution.RESOLVED, null,
+                List.of(compile, test), List.of("SUCCESS"));
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(compile), ".github/workflows/ci.yml",
+                "workflow-digest:partial-compile", true,
+                List.of("/usr/bin/true"));
+
+        CiRound queued = executeCiObservation(
+                runtime, observationCoordinator, claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                FAILED_ACTIONS_WITH_PENDING).orElseThrow();
+
+        assertThat(queued.state()).isEqualTo(RoundState.QUEUED);
+        assertThat(queued.policyRevisionId())
+                .isEqualTo(policy.policyRevisionId());
+        assertThat(queued.failedLogRefs()).hasSize(1);
+        assertThat(count("flow_ci_check_observation",
+                "source_operation_id = '" + claim.operationId() + "' "
+                        + "AND selector_key = '" + test + "' "
+                        + "AND status = 'IN_PROGRESS'"))
+                .isOne();
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.FINAL_RED
+                        && work.externalKey().equals(queued.roundId()))
+                .hasSize(1);
     }
 
     @Test

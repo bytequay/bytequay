@@ -213,12 +213,16 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer", "ready_for_review")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
-                "adversarial-reviewer-prompt:v2",
+                "adversarial-reviewer-prompt:v3",
                 "immutable-git-object-reader:v1",
                 "ci-adversarial-review-turn:v2",
                 "Review the immutable base-to-head change adversarially using "
                         + "read-only tools. For an upstream cherry-pick range, "
-                        + "find and review only fork-authored fixup commits; "
+                        + "find fixups from commit history itself: only a "
+                        + "fork-authored commit with a fixup! subject and no "
+                        + "cherry-picked-from provenance is a fixup. Review "
+                        + "only those commits; if none exist, return no "
+                        + "findings immediately. "
                         + "do not re-review picked commits or their conflict "
                         + "resolutions. Return findings as opaque prose.",
                 List.of("list_tree", "read_diff", "read_reviewed_blob",

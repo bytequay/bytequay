@@ -482,7 +482,8 @@ CREATE TABLE flow_github_external_effect_step (
     branch_ref TEXT NOT NULL,
     expected_remote_head TEXT NOT NULL,
     proposed_head TEXT NOT NULL,
-    force_push INTEGER NOT NULL CHECK (force_push = 0),
+    -- Carried from the authorized action: a rewriting publication says so.
+    force_push INTEGER NOT NULL CHECK (force_push IN (0, 1)),
     action_ref TEXT NOT NULL,
     action_digest TEXT NOT NULL,
     precondition_digest TEXT NOT NULL,

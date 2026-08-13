@@ -184,7 +184,9 @@ CREATE TABLE flow_user_gate_ci_update_action (
     branch_ref TEXT NOT NULL,
     expected_remote_head TEXT NOT NULL,
     proposed_head TEXT NOT NULL,
-    force_push INTEGER NOT NULL CHECK (force_push = 0),
+    -- Set only for a publication that rewrites published history, which is
+    -- authority the ordinary CI_UPDATE path does not carry.
+    force_push INTEGER NOT NULL CHECK (force_push IN (0, 1)),
     action_digest TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     UNIQUE (

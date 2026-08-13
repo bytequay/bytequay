@@ -554,6 +554,7 @@ public final class GitHubEffects
             String branchRef,
             String expectedRemoteHead,
             String proposedHead,
+            boolean forcePush,
             String actionRef,
             String actionDigest,
             String requiredCiPolicyRevisionId,
@@ -592,7 +593,7 @@ public final class GitHubEffects
                     branchRef,
                     expectedRemoteHead,
                     proposedHead,
-                    "force:false");
+                    "force:" + forcePush);
             ExternalEffectStep step = new ExternalEffectStep(
                     stepId,
                     planId,
@@ -604,7 +605,7 @@ public final class GitHubEffects
                     branchRef,
                     expectedRemoteHead,
                     proposedHead,
-                    false,
+                    forcePush,
                     actionRef,
                     actionDigest,
                     preconditionDigest);
@@ -699,7 +700,7 @@ public final class GitHubEffects
                         head_repository_name, branch_ref,
                         expected_remote_head, proposed_head, force_push,
                         action_ref, action_digest, precondition_digest
-                    ) VALUES (?, ?, 1, 'PUSH_EXACT', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                    ) VALUES (?, ?, 1, 'PUSH_EXACT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     step.stepId(),
                     step.planId(),
@@ -709,6 +710,7 @@ public final class GitHubEffects
                     step.branchRef(),
                     step.expectedRemoteHead(),
                     step.proposedHead(),
+                    step.forcePush() ? 1 : 0,
                     step.actionRef(),
                     step.actionDigest(),
                     step.preconditionDigest());
@@ -2805,7 +2807,6 @@ public final class GitHubEffects
                 || !step.stepId().equals(stepId)
                 || step.ordinal() != 1
                 || step.kind() != StepKind.PUSH_EXACT
-                || step.forcePush()
                 || !step.headRepositoryExternalId().equals(
                         plan.headRepositoryExternalId())
                 || !step.headRepositoryOwner().equals(

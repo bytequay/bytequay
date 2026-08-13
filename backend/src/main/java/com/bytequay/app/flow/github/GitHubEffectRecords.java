@@ -164,9 +164,9 @@ public final class GitHubEffectRecords
             requireNonNull(actionDigest, "actionDigest is null");
             requireNonNull(preconditionDigest,
                     "preconditionDigest is null");
-            if (ordinal != 1 || forcePush) {
+            if (ordinal != 1) {
                 throw new IllegalArgumentException(
-                        "CI_UPDATE is one non-force PUSH_EXACT step");
+                        "CI_UPDATE is one PUSH_EXACT step");
             }
         }
     }

@@ -2712,6 +2712,12 @@ public final class UserGates
                 runId).stream().findFirst();
     }
 
+    public Optional<CiUpdateAction> ciUpdateAction(String actionRef)
+    {
+        requireText(actionRef, "actionRef");
+        return action(actionRef);
+    }
+
     public Optional<GateSubject> subject(String subjectId)
     {
         requireText(subjectId, "subjectId");
@@ -3048,26 +3054,15 @@ public final class UserGates
                 createdAt);
         // A rewriting publication is a different action from a fast-forward
         // of the same heads, so it can never inherit one's authorization.
-        String actionDigest = rewrites
-                ? stableId(
-                        "ci-update-action",
-                        pr.headRepositoryExternalId(),
-                        pr.headRepositoryOwner(),
-                        pr.headRepositoryName(),
-                        branchRef,
-                        pr.currentRemoteHead(),
-                        changeSet.headSha(),
-                        "force:false",
-                        "rewrite:attributed-fixup")
-                : stableId(
-                        "ci-update-action",
-                        pr.headRepositoryExternalId(),
-                        pr.headRepositoryOwner(),
-                        pr.headRepositoryName(),
-                        branchRef,
-                        pr.currentRemoteHead(),
-                        changeSet.headSha(),
-                        "force:false");
+        String actionDigest = stableId(
+                "ci-update-action",
+                pr.headRepositoryExternalId(),
+                pr.headRepositoryOwner(),
+                pr.headRepositoryName(),
+                branchRef,
+                pr.currentRemoteHead(),
+                changeSet.headSha(),
+                "force:" + rewrites);
         return new GateBundle(
                 localReviewBinding,
                 subject,
@@ -3079,7 +3074,7 @@ public final class UserGates
                         branchRef,
                         pr.currentRemoteHead(),
                         changeSet.headSha(),
-                        false,
+                        rewrites,
                         actionDigest,
                         createdAt));
     }
@@ -3657,7 +3652,7 @@ public final class UserGates
                     head_repository_owner, head_repository_name,
                     branch_ref, expected_remote_head,
                     proposed_head, force_push, action_digest, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 action.actionRef(),
                 action.headRepositoryExternalId(),
@@ -3666,6 +3661,7 @@ public final class UserGates
                 action.branchRef(),
                 action.expectedRemoteHead(),
                 action.proposedHead(),
+                action.forcePush() ? 1 : 0,
                 action.actionDigest(),
                 action.createdAt().toEpochMilli());
     }
@@ -4215,7 +4211,11 @@ public final class UserGates
                 && action.headRepositoryName().equals(
                         consent.headRepositoryName())
                 && action.branchRef().equals(consent.branchRef())
-                && !action.forcePush();
+                // Rewriting published history needs the standing authority
+                // granted with the Task. A one-shot consent never confers it.
+                && (!action.forcePush()
+                        || autofix.placementPolicy(subject.taskId())
+                                .allowsHistoryRewrite());
     }
 
     private Optional<CiUpdateConsentRevision> consentByKey(String key)
@@ -4530,6 +4530,7 @@ public final class UserGates
                 action.branchRef(),
                 action.expectedRemoteHead(),
                 action.proposedHead(),
+                action.forcePush(),
                 action.actionRef(),
                 action.actionDigest(),
                 subject.requiredCiPolicyRevisionId(),
@@ -5132,7 +5133,7 @@ public final class UserGates
                 || !step.expectedRemoteHead().equals(
                         action.expectedRemoteHead())
                 || !step.proposedHead().equals(action.proposedHead())
-                || step.forcePush()
+                || step.forcePush() != action.forcePush()
                 || !operation.ownerKind().equals("GITHUB_EFFECT_PLAN")
                 || !operation.ownerId().equals(plan.planId())
                 || !operation.taskId().equals(subject.taskId())
@@ -5495,8 +5496,7 @@ public final class UserGates
                         subject.headRepositoryName())
                 || !action.expectedRemoteHead().equals(
                         subject.expectedRemoteHead())
-                || !action.proposedHead().equals(subject.proposedHead())
-                || action.forcePush()) {
+                || !action.proposedHead().equals(subject.proposedHead())) {
             throw new IllegalStateException(
                     "CI_UPDATE action does not match its subject");
         }

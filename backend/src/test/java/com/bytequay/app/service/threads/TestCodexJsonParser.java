@@ -150,6 +150,19 @@ class TestCodexJsonParser
     }
 
     @Test
+    void mapsTopLevelErrorToProviderFailure()
+    {
+        List<StreamEvent> events = parser.parse(
+                "{\"type\":\"error\",\"message\":\"connection closed\"}", NOW);
+
+        assertThat(events).singleElement()
+                .isInstanceOfSatisfying(
+                        StreamEvent.ErrorOccurred.class,
+                        error -> assertThat(error.message())
+                                .isEqualTo("connection closed"));
+    }
+
+    @Test
     void mapsCompletedReasoningToThinkingStartedThenDone()
     {
         List<StreamEvent> events = parser.parse(

@@ -149,13 +149,17 @@ final class ProcessGroup
         // set -m puts the background job in its own group; $! is both its pid and
         // its group id. `wait` then makes this shell's exit status the agent's,
         // so the caller's Process still means what it usually means.
-        String script = "set -m; \"$@\" & printf %s \"$!\" > \"$BQ_PGID_FILE\";"
+        String script = "set -m; \"$@\" 2>&1 & printf %s \"$!\" > \"$BQ_PGID_FILE\";"
                 + " wait $!";
         List<String> command = new ArrayList<>(
                 List.of("/bin/sh", "-c", script, "sh"));
         command.addAll(argv);
         ProcessBuilder builder = new ProcessBuilder(command)
-                .directory(workingDirectory.toFile());
+                .directory(workingDirectory.toFile())
+                // The wrapper's own job-control notices are not provider
+                // output. The child redirect above joins provider stderr into
+                // its stdout; discard only this shell's bookkeeping stream.
+                .redirectError(ProcessBuilder.Redirect.DISCARD);
         builder.environment().putAll(environment);
         builder.environment().put(
                 "BQ_PGID_FILE", groupIdFile.toAbsolutePath().toString());

@@ -136,6 +136,27 @@ final class TestCliAgentArgv
         assertThat(argv).containsSequence("--sandbox", "workspace-write");
     }
 
+    @Test
+    void codexUsesFreshSandboxesAndTheExecResumeArgumentOrder()
+    {
+        List<String> readOnly = CliAgentArgv.of(new CliAgentArgv.Launch(
+                CliAgentArgv.Vendor.CODEX, "codex", "gpt-5", null,
+                WORKTREE, null, true, null,
+                "http://127.0.0.1:1/mcp", null, null, null,
+                List.of(), List.of(), true));
+        List<String> resumed = CliAgentArgv.of(new CliAgentArgv.Launch(
+                CliAgentArgv.Vendor.CODEX, "codex", "gpt-5", null,
+                WORKTREE, null, false, null,
+                "http://127.0.0.1:1/mcp", null, null, "session-1",
+                List.of(), List.of(), true));
+
+        assertThat(readOnly).containsSequence("--sandbox", "read-only");
+        assertThat(resumed).containsSequence(
+                "exec", "--ignore-user-config", "resume", "--json",
+                "--skip-git-repo-check", "-m", "gpt-5", "session-1", "-");
+        assertThat(resumed).doesNotContain("--sandbox", "-C");
+    }
+
     private static void launch(
             CliAgentArgv.Vendor vendor, Path mcpConfig, String mcpUrl)
     {

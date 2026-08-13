@@ -121,7 +121,20 @@ final class TestUpstreamSyncEndToEnd
     private List<String> confirmedRange;
 
     @Test
-    void aPickedRangePublishesThroughTheGateAndCiAutofixAdoptsThePr()
+    void claudeCliCarriesAPickedRangeThroughGreenCi()
+            throws Exception
+    {
+        runScenario(CliVendor.CLAUDE);
+    }
+
+    @Test
+    void codexCliCarriesAPickedRangeThroughGreenCi()
+            throws Exception
+    {
+        runScenario(CliVendor.CODEX);
+    }
+
+    private void runScenario(CliVendor vendor)
             throws Exception
     {
         Path upstreamRepository = temporaryDirectory.resolve("upstream");
@@ -131,12 +144,12 @@ final class TestUpstreamSyncEndToEnd
         Path primaryDatabase = temporaryDirectory.resolve("primary.db");
         Path reviewerEntered = temporaryDirectory.resolve("reviewer-entered");
         Path policyReady = temporaryDirectory.resolve("policy-ready");
-        Path launchLog = temporaryDirectory.resolve("claude-launches");
+        Path launchLog = temporaryDirectory.resolve("cli-launches");
         Path reviewerCount = temporaryDirectory.resolve("reviewer-count");
         Path fixupTarget = temporaryDirectory.resolve("fixup-target");
-        Path fakeClaude = fakeClaude(
-                reviewerEntered, policyReady, launchLog, reviewerCount,
-                fixupTarget);
+        Path fakeCli = fakeCli(
+                vendor, reviewerEntered, policyReady, launchLog,
+                reviewerCount, fixupTarget);
         initializeRepositories(upstreamRepository, repository);
         assertThat(confirmedRange).allSatisfy(sha ->
                 assertThat(hasCommit(repository, sha)).isFalse());
@@ -158,8 +171,8 @@ final class TestUpstreamSyncEndToEnd
                 UpstreamSyncPolicyPublisher.class);
         when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class)))
                 .thenReturn(NewFlowAgentLaunches.Config.cli(
-                        "claude-code", "sonnet", "high",
-                        fakeClaude.toString(), "test"));
+                        vendor.provider, vendor.model, "high",
+                        fakeCli.toString(), "test"));
 
         // What a watcher would see while the repair turn is still going.
         List<String> liveLines = new CopyOnWriteArrayList<>();
@@ -465,6 +478,11 @@ final class TestUpstreamSyncEndToEnd
                                 Duration.ofMillis(10), 1)) {
                             assertThat(dispatcher.dispatchOnce()).isTrue();
                         }
+                        awaitCondition(() -> jdbc.queryForObject(
+                                """
+                                SELECT COUNT(*) FROM flow_runtime_operation
+                                WHERE kind = 'OBSERVE_CI' AND state = 'CLAIMED'
+                                """, Integer.class) == 0);
                         PullRequestSubject repaired = runtime.pullRequest(
                                 localPr.prId()).orElseThrow();
                         assertThat(autofix.round(
@@ -484,7 +502,7 @@ final class TestUpstreamSyncEndToEnd
                         // reviewer inspects it, then the same persistent Task
                         // Agent session accepts that exact result.
                         verifyNoInteractions(runner);
-                        assertClaudeSessions(readIfPresent(launchLog));
+                        assertCliSessions(readIfPresent(launchLog));
 
                         // An ordinary Task never appears in these records, so it
                         // resolves to the default placement without this
@@ -624,7 +642,8 @@ final class TestUpstreamSyncEndToEnd
                 .isNotNull();
     }
 
-    private Path fakeClaude(
+    private Path fakeCli(
+            CliVendor vendor,
             Path reviewerEntered,
             Path policyReady,
             Path launchLog,
@@ -632,28 +651,38 @@ final class TestUpstreamSyncEndToEnd
             Path fixupTarget)
             throws IOException
     {
-        Path executable = temporaryDirectory.resolve("fake-claude");
+        Path executable = temporaryDirectory.resolve("fake-" + vendor.provider);
         String script = """
                 #!/bin/sh
-                IFS= read -r prompt
-                printf 'argv|%s\n' "$*" >> "@LAUNCH_LOG@"
+                prompt=$(cat)
                 args="$*"
-                case "$args" in
-                  *read_pick_conflict_context*) role=upstream ;;
-                  *read_initial_review_context*) role=initial-review ;;
-                  *read_ci_failure_context*) role=ci-fixer ;;
-                  *ready_for_review*) role=ci-ready ;;
-                  *spawn_adversarial_reviewer*) role=ci-task ;;
-                  *save_ci_lesson*) role=learner ;;
-                  *read_diff*) role=reviewer ;;
+                case "$args $prompt" in
+                  *read_pick_conflict_context*|*"Repair each conflicted cherry-pick"*) role=upstream ;;
+                  *read_initial_review_context*|*"Inspect the exact initial adversarial review"*) role=initial-review ;;
+                  *read_ci_failure_context*|*"Repair the observed CI failures"*) role=ci-fixer ;;
+                  *ready_for_review*|*"Inspect the exact adversarial review continuation"*) role=ci-ready ;;
+                  *spawn_adversarial_reviewer*|*"Inspect the exact CI fix"*) role=ci-task ;;
+                  *save_ci_lesson*|*"Extract one bounded reusable CI lesson"*) role=learner ;;
+                  *read_diff*|*"Review the immutable base-to-head change adversarially"*) role=reviewer ;;
                   *) exit 43 ;;
                 esac
                 resume=none
-                previous=
-                for argument in "$@"; do
-                  if [ "$previous" = resume ]; then resume="$argument"; fi
-                  if [ "$argument" = --resume ]; then previous=resume; else previous=; fi
-                done
+                if [ "@VENDOR@" = codex ]; then
+                  case "$args" in
+                    *"exec --ignore-user-config resume"*)
+                      previous=
+                      last=
+                      for argument in "$@"; do previous="$last"; last="$argument"; done
+                      resume="$previous"
+                      ;;
+                  esac
+                else
+                  previous=
+                  for argument in "$@"; do
+                    if [ "$previous" = resume ]; then resume="$argument"; fi
+                    if [ "$argument" = --resume ]; then previous=resume; else previous=; fi
+                  done
+                fi
                 session=writer-session
                 reviewer_number=0
                 if [ "$role" = reviewer ]; then
@@ -665,7 +694,11 @@ final class TestUpstreamSyncEndToEnd
                   session=learner-session
                 fi
                 printf '%s|%s|%s\n' "$role" "$resume" "$session" >> "@LAUNCH_LOG@"
-                printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session"
+                if [ "@VENDOR@" = codex ]; then
+                  printf '{"type":"thread.started","thread_id":"%s"}\n' "$session"
+                else
+                  printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session"
+                fi
                 rpc() {
                   rpc_number=$((rpc_number + 1))
                   printf 'rpc-begin-%s\n' "$rpc_number" >> "@LAUNCH_LOG@"
@@ -676,16 +709,31 @@ final class TestUpstreamSyncEndToEnd
                 case "$role" in
                   upstream)
                     rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
-                    rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
+                    if [ "@VENDOR@" = codex ]; then
+                      test -n "$(cat contested-two.txt)"
+                      printf 'merged rewrite two\n' > contested-two.txt
+                    else
+                      rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
+                      rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
+                    fi
                     rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
-                    rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
+                    if [ "@VENDOR@" = codex ]; then
+                      test -n "$(cat contested.txt)"
+                      printf 'merged rewrite\n' > contested.txt
+                    else
+                      rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
+                      rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
+                    fi
                     rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_upstream_review_context","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
+                    if [ "@VENDOR@" = codex ]; then
+                      printf 'ready\n' > local-check-ready
+                      test -f local-check-ready
+                    else
+                      rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
+                    fi
                     rpc '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"commit_initial_change","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f local-check-ready"],"working_directory":"."}}}'
                     rpc '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
@@ -698,7 +746,12 @@ final class TestUpstreamSyncEndToEnd
                   ci-fixer)
                     rpc '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"read_ci_failure_context","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"read_ci_log","arguments":{"index":0,"offset":0}}}'
-                    rpc '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"repair.txt","content":"fixed build\\n"}}}'
+                    if [ "@VENDOR@" = codex ]; then
+                      printf 'fixed build\n' > repair.txt
+                      test -s repair.txt
+                    else
+                      rpc '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"repair.txt","content":"fixed build\\n"}}}'
+                    fi
                     target=$(cat "@FIXUP_TARGET@")
                     rpc '{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"commit_repair","arguments":{"target_commit":"'"$target"'"}}}'
                     ;;
@@ -728,8 +781,21 @@ final class TestUpstreamSyncEndToEnd
                     rpc '{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"save_ci_lesson","arguments":{"title":"Upstream CI repair","markdown":"The failed build was repaired."}}}'
                     ;;
                 esac
-                echo '{"type":"result","subtype":"success","result":"opaque"}'
+                if [ "@VENDOR@" = codex ]; then
+                  usage=10
+                  case "$role" in
+                    initial-review) usage=20 ;;
+                    ci-fixer) usage=30 ;;
+                    ci-task) usage=40 ;;
+                    ci-ready) usage=50 ;;
+                  esac
+                  echo '{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"opaque"}}'
+                  printf '{"type":"turn.completed","usage":{"input_tokens":%s,"output_tokens":%s}}\n' "$usage" "$usage"
+                else
+                  echo '{"type":"result","subtype":"success","result":"opaque"}'
+                fi
                 """
+                .replace("@VENDOR@", vendor.provider)
                 .replace("@REVIEWER_ENTERED@", reviewerEntered.toString())
                 .replace("@POLICY_READY@", policyReady.toString())
                 .replace("@LAUNCH_LOG@", launchLog.toString())
@@ -771,7 +837,7 @@ final class TestUpstreamSyncEndToEnd
         return server;
     }
 
-    private static void assertClaudeSessions(String launches)
+    private static void assertCliSessions(String launches)
     {
         List<String> phases = launches.lines()
                 .filter(line -> line.matches("[a-z-]+\\|.*"))
@@ -792,6 +858,21 @@ final class TestUpstreamSyncEndToEnd
                 .containsExactlyInAnyOrder(
                         "reviewer|none|reviewer-1",
                         "reviewer|none|reviewer-2");
+    }
+
+    private enum CliVendor
+    {
+        CLAUDE("claude-code", "sonnet"),
+        CODEX("codex", "gpt-5");
+
+        private final String provider;
+        private final String model;
+
+        CliVendor(String provider, String model)
+        {
+            this.provider = provider;
+            this.model = model;
+        }
     }
 
     private static String readIfPresent(Path path)

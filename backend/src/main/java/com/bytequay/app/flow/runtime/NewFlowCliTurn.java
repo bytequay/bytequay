@@ -87,22 +87,17 @@ final class NewFlowCliTurn
             "Work only on the exact program-selected subject.";
     /** The pipe is already closed by burial; this only bounds a stuck reader. */
     private static final long READER_JOIN_TIMEOUT = 5_000;
+    private static final int DIAGNOSTIC_LIMIT = 16 * 1024;
 
-    /**
-     * Appended to every CLI turn's prompt. The agent's own tools are open;
-     * this tells it where the program's protocol still lives.
-     */
+    /** Appended to every CLI turn's prompt; transport details are added below. */
     private static final String TOOLING_GUIDANCE =
-            "Your own built-in tools are available for this turn; reading,"
-            + " searching, editing, and common build/test commands are"
-            + " pre-approved. The supplied bytequay tools are the recommended"
-            + " way to read, edit, and check this worktree, and their terminal"
+            "Your own built-in tools are available for this turn; decide which"
+            + " are useful. The supplied bytequay tools are the recommended"
+            + " way to interact with this worktree, and their terminal"
             + " call is the only completion signal the program reads — always"
             + " finish with the exact terminal tool the instructions name."
             + " Never run git commit or git push yourself; the program owns"
-            + " the repository history. A shell command or tool outside the"
-            + " pre-approved set raises an approval card for the user; a"
-            + " denial means continue another way, not stop.";
+            + " the repository history.";
 
     private final FlowRuntime runtime;
     private final NewFlowAgentToolBridge bridge;
@@ -151,7 +146,10 @@ final class NewFlowCliTurn
      * @param providerSessionId the vendor's own session id, for resuming this
      *         role's next turn; null when the CLI never reported one
      */
-    record Outcome(TurnResult turn, String providerSessionId) {}
+    record Outcome(
+            TurnResult turn,
+            String providerSessionId,
+            boolean providerWorkStarted) {}
 
     /**
      * A writing turn, in the Task's own worktree and contained there.
@@ -250,30 +248,33 @@ final class NewFlowCliTurn
         requireNonNull(executor, "executor is null");
         requireNonNull(journal, "journal is null");
 
-        // The bridge additionally serves the permission tool so a tool use
-        // outside the pre-approved set becomes a user question, not a dead
-        // end. It is answered here rather than by the turn's own executor —
-        // approval is the program's conversation with the user, not work.
-        ArrayNode bridgeTools = tools.deepCopy();
-        ObjectNode permissionTool = bridgeTools.addObject()
-                .put("name", NewFlowAgentPermissions.TOOL_NAME)
-                .put("description", "Ask the user to approve a tool use that"
-                        + " is not pre-approved.");
-        permissionTool.putObject("inputSchema")
-                .put("type", "object")
-                .put("additionalProperties", true);
-        ToolExecutor gated = call ->
-                NewFlowAgentPermissions.TOOL_NAME.equals(call.name())
-                        ? ToolExecutor.ToolCallResult.ok(
-                                permissions.ask(runId, call.input()))
-                        : executor.execute(call);
-        String prompt = systemPrompt == null || systemPrompt.isBlank()
-                ? TOOLING_GUIDANCE
-                : systemPrompt + "\n\n" + TOOLING_GUIDANCE;
-
         CliAgentArgv.Vendor vendor = vendor(binding);
+        ArrayNode bridgeTools = tools.deepCopy();
+        ToolExecutor bridgedExecutor = executor;
+        if (vendor == CliAgentArgv.Vendor.CLAUDE_CODE) {
+            // Claude can route a native permission prompt through this MCP
+            // tool. Codex exec is non-interactive and does not emit approval
+            // requests, so advertising the tool there would promise authority
+            // it cannot apply to Codex's sandbox.
+            ObjectNode permissionTool = bridgeTools.addObject()
+                    .put("name", NewFlowAgentPermissions.TOOL_NAME)
+                    .put("description", "Ask the user to approve a tool use"
+                            + " that is not pre-approved.");
+            permissionTool.putObject("inputSchema")
+                    .put("type", "object")
+                    .put("additionalProperties", true);
+            bridgedExecutor = call ->
+                    NewFlowAgentPermissions.TOOL_NAME.equals(call.name())
+                            ? ToolExecutor.ToolCallResult.ok(
+                                    permissions.ask(runId, call.input()))
+                            : executor.execute(call);
+        }
+        String guidance = toolingGuidance(vendor, readOnly);
+        String prompt = systemPrompt == null || systemPrompt.isBlank()
+                ? guidance
+                : systemPrompt + "\n\n" + guidance;
         try (NewFlowAgentToolBridge.Registration registration =
-                     bridge.open(runId, bridgeTools, gated)) {
+                     bridge.open(runId, bridgeTools, bridgedExecutor)) {
             String mcpUrl = "http://127.0.0.1:" + serverPort
                     + registration.path();
             Path mcpConfig = vendor == CliAgentArgv.Vendor.CLAUDE_CODE
@@ -327,6 +328,23 @@ final class NewFlowCliTurn
                 lift(directory, contained);
             }
         }
+    }
+
+    private static String toolingGuidance(
+            CliAgentArgv.Vendor vendor, boolean readOnly)
+    {
+        String scope = readOnly
+                ? " This is a read-only role: inspect and search without"
+                        + " editing the worktree."
+                : " You may read, search, edit, and run common builds or tests"
+                        + " inside the supplied worktree.";
+        String unavailable = vendor == CliAgentArgv.Vendor.CLAUDE_CODE
+                ? " A native operation outside the pre-approved set raises an"
+                        + " approval card for the user; a denial means continue"
+                        + " another way, not stop."
+                : " Stay within the supplied sandbox; if a native operation is"
+                        + " unavailable, continue another way.";
+        return TOOLING_GUIDANCE + scope + unavailable;
     }
 
     private static void deleteRecursively(Path root)
@@ -388,10 +406,13 @@ final class NewFlowCliTurn
         // case that matters is a restart — an id that only exists in this JVM
         // resumes nothing.
         String resume = runtime.resumableProviderSession(runId).orElse(null);
+        FlowRuntime.ProviderUsageBaseline usageBaseline = resume == null
+                ? FlowRuntime.ProviderUsageBaseline.ZERO
+                : runtime.providerUsageBaseline(runId, resume);
         Outcome outcome = attempt(
                 binding, systemPrompt, vendor, directory, pgidFile,
                 mcpConfig, mcpUrl, scrubbed, readOnly, allowedTools, resume,
-                registration, journal, interrupted);
+                usageBaseline, registration, journal, interrupted);
         if (resume != null && resumeFailedBeforeWork(outcome)) {
             // The CLI refused the stored session — a wiped vendor state or an
             // engine switch — and exited before opening a conversation, so
@@ -404,6 +425,7 @@ final class NewFlowCliTurn
             outcome = attempt(
                     binding, systemPrompt, vendor, directory, pgidFile,
                     mcpConfig, mcpUrl, scrubbed, readOnly, allowedTools, null,
+                    FlowRuntime.ProviderUsageBaseline.ZERO,
                     registration, journal, interrupted);
         }
         // After burial, so a turn that could not be proven dead never adds to a
@@ -425,7 +447,7 @@ final class NewFlowCliTurn
     {
         return outcome.turn().end() == TurnResult.End.ABORTED
                 && outcome.providerSessionId() == null
-                && outcome.turn().rounds() == 0;
+                && !outcome.providerWorkStarted();
     }
 
     private Outcome attempt(
@@ -440,6 +462,7 @@ final class NewFlowCliTurn
             boolean readOnly,
             List<String> allowedTools,
             String resumeSessionId,
+            FlowRuntime.ProviderUsageBaseline usageBaseline,
             NewFlowAgentToolBridge.Registration registration,
             TurnJournal journal,
             BooleanSupplier interrupted)
@@ -454,7 +477,9 @@ final class NewFlowCliTurn
                 readOnly,
                 mcpConfig,
                 mcpUrl,
-                "mcp__bytequay__" + NewFlowAgentPermissions.TOOL_NAME,
+                vendor == CliAgentArgv.Vendor.CLAUDE_CODE
+                        ? "mcp__bytequay__" + NewFlowAgentPermissions.TOOL_NAME
+                        : null,
                 null,
                 resumeSessionId,
                 allowedTools,
@@ -484,7 +509,8 @@ final class NewFlowCliTurn
         Transcript transcript = new Transcript(
                 vendor == CliAgentArgv.Vendor.CLAUDE_CODE
                         ? new StreamJsonParser(mapper)
-                        : new CodexJsonParser(mapper));
+                        : new CodexJsonParser(mapper),
+                usageBaseline);
         boolean stopped;
         int exit = -1;
         Thread reader;
@@ -495,7 +521,11 @@ final class NewFlowCliTurn
                     spawned.process().pid(),
                     spawned.pgid(),
                     spawned.leaderStartedAt());
-            deliverPrompt(spawned.process());
+            deliverPrompt(
+                    spawned.process(),
+                    vendor == CliAgentArgv.Vendor.CODEX
+                            ? systemPrompt + "\n\n" + USER_MESSAGE
+                            : USER_MESSAGE);
             // Read on its own thread rather than inline. A background child the
             // agent leaves behind inherits stdout, so waiting for end-of-stream
             // would wait for that child — which is precisely the process this
@@ -575,10 +605,10 @@ final class NewFlowCliTurn
      * <p>Not in argv: a reconstructed context is large, and an oversized command
      * line fails at {@code exec(2)} before the agent exists to report it.
      */
-    private void deliverPrompt(Process process)
+    private void deliverPrompt(Process process, String prompt)
     {
         try (OutputStream stdin = process.getOutputStream()) {
-            stdin.write(USER_MESSAGE.getBytes(StandardCharsets.UTF_8));
+            stdin.write(prompt.getBytes(StandardCharsets.UTF_8));
             stdin.flush();
         }
         catch (IOException closed) {
@@ -604,10 +634,19 @@ final class NewFlowCliTurn
         private long tokensOut;
         private long costMilliUsd;
         private int rounds;
+        private final long priorTokensIn;
+        private final long priorTokensOut;
+        private String failureText;
+        private final StringBuilder diagnostic = new StringBuilder();
+        private boolean providerWorkStarted;
 
-        private Transcript(CliStreamParser parser)
+        private Transcript(
+                CliStreamParser parser,
+                FlowRuntime.ProviderUsageBaseline usageBaseline)
         {
             this.parser = parser;
+            priorTokensIn = usageBaseline.tokensIn();
+            priorTokensOut = usageBaseline.tokensOut();
         }
 
         private void read(InputStream stdout)
@@ -616,7 +655,20 @@ final class NewFlowCliTurn
                     new InputStreamReader(stdout, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = out.readLine()) != null) {
-                    for (StreamEvent event : parser.parse(line, Instant.now())) {
+                    List<StreamEvent> events = parser.parse(line, Instant.now());
+                    if (events.isEmpty() && !line.isBlank()
+                            && !line.stripLeading().startsWith("{")
+                            && diagnostic.length() < DIAGNOSTIC_LIMIT) {
+                        if (!diagnostic.isEmpty()) {
+                            diagnostic.append('\n');
+                        }
+                        int remaining = DIAGNOSTIC_LIMIT - diagnostic.length();
+                        if (remaining > 0) {
+                            diagnostic.append(line.strip(), 0,
+                                    Math.min(line.strip().length(), remaining));
+                        }
+                    }
+                    for (StreamEvent event : events) {
                         accept(event);
                     }
                 }
@@ -637,19 +689,40 @@ final class NewFlowCliTurn
             else if (event instanceof StreamEvent.AssistantText text) {
                 finalText = text.text();
                 rounds++;
+                providerWorkStarted = true;
             }
             else if (event instanceof StreamEvent.TurnDone done) {
+                providerWorkStarted = true;
                 costMilliUsd += done.costUsdMilli();
                 if (parser.reportsCumulativeUsage()) {
                     // Codex reports the session running total on every turn, so
-                    // summing them would grow quadratically.
-                    tokensIn = done.tokensIn();
-                    tokensOut = done.tokensOut();
+                    // subtract the durable session baseline before recording
+                    // this attempt's own share.
+                    if (done.tokensIn() < priorTokensIn
+                            || done.tokensOut() < priorTokensOut) {
+                        tokensIn = 0;
+                        tokensOut = 0;
+                        failureText = "provider cumulative usage regressed"
+                                + " below the frozen session baseline";
+                    }
+                    else {
+                        tokensIn = done.tokensIn() - priorTokensIn;
+                        tokensOut = done.tokensOut() - priorTokensOut;
+                    }
                 }
                 else {
                     tokensIn += done.tokensIn();
                     tokensOut += done.tokensOut();
                 }
+            }
+            else if (event instanceof StreamEvent.ErrorOccurred failed) {
+                failureText = failed.message();
+            }
+            else if (event instanceof StreamEvent.ToolCallStarted
+                    || event instanceof StreamEvent.ToolCallDone
+                    || event instanceof StreamEvent.ThinkingStarted
+                    || event instanceof StreamEvent.ThinkingDone) {
+                providerWorkStarted = true;
             }
         }
 
@@ -657,11 +730,16 @@ final class NewFlowCliTurn
         {
             // Claude reports the authoritative answer separately from the
             // assistant envelopes the stream is built from; prefer it.
-            String text = parser.terminalResult().orElse(finalText);
             TurnResult.End end = stopped
                     ? TurnResult.End.INTERRUPTED
-                    : exit == 0
+                    : exit == 0 && failureText == null
                             ? TurnResult.End.COMPLETED : TurnResult.End.ABORTED;
+            String text = end == TurnResult.End.ABORTED
+                    && failureText != null
+                    ? failureText
+                    : end == TurnResult.End.ABORTED && !diagnostic.isEmpty()
+                            ? diagnostic.toString()
+                            : parser.terminalResult().orElse(finalText);
             return new Outcome(
                     new TurnResult(
                             text == null ? "" : text,
@@ -670,7 +748,8 @@ final class NewFlowCliTurn
                             costMilliUsd,
                             rounds,
                             end),
-                    sessionId);
+                    sessionId,
+                    providerWorkStarted);
         }
     }
 

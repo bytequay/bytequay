@@ -97,6 +97,8 @@ public class CodexJsonParser
             case "turn.completed" -> parseTurnCompleted(root.path("usage"), now);
             case "turn.failed" -> ImmutableList.of(new StreamEvent.ErrorOccurred(
                     now, errorMessage(root.path("error")), true));
+            case "error" -> ImmutableList.of(new StreamEvent.ErrorOccurred(
+                    now, root.path("message").asText("Codex failed"), true));
             default -> ImmutableList.of();
         };
     }

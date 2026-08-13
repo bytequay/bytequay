@@ -88,6 +88,11 @@ CREATE TABLE flow_ci_round (
     state TEXT NOT NULL CHECK (
         state IN (
             'COLLECTING',
+            -- A per-commit compile check failed while the rest of the board is
+            -- still collecting. A compile failure is deterministic, so nothing
+            -- finishing later can change its verdict; nothing else is judged
+            -- before its selectors are terminal.
+            'PARTIAL_RED_COMPILE',
             'FINAL_RED',
             'QUEUED',
             'ACTIVE',

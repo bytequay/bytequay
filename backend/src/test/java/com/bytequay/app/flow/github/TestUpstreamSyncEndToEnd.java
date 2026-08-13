@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.ci.CiObservationCoordinator;
 import com.bytequay.app.flow.gate.UserGateRecords.UserGate;
@@ -32,6 +33,7 @@ import com.bytequay.app.flow.runtime.LocalChecks;
 import com.bytequay.app.flow.runtime.LocalChecks.ProfileDefinition;
 import com.bytequay.app.flow.runtime.NewFlowAgentBridgeConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowAgentLaunches;
+import com.bytequay.app.flow.runtime.NewFlowAgentToolBridge;
 import com.bytequay.app.flow.runtime.NewFlowConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowEngineResolver;
 import com.bytequay.app.flow.runtime.UpstreamSyncCommands;
@@ -51,14 +53,11 @@ import com.bytequay.app.flow.upstream.UpstreamSyncViewConfiguration;
 import com.bytequay.app.flow.upstream.UpstreamSyncViews;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.agents.ToolCall;
-import com.bytequay.app.service.agents.ToolExecutor;
-import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
-import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -68,9 +67,11 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import javax.sql.DataSource;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -78,20 +79,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.FAILED_ACTIONS;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.CiObservationMode.GREEN;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.ciObservationExecutor;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.ciUpdateLane;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.initialLane;
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.initialRepositoryObservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -127,6 +129,14 @@ final class TestUpstreamSyncEndToEnd
         Path worktrees = temporaryDirectory.resolve("worktrees");
         Path database = temporaryDirectory.resolve("new-flow.db");
         Path primaryDatabase = temporaryDirectory.resolve("primary.db");
+        Path reviewerEntered = temporaryDirectory.resolve("reviewer-entered");
+        Path policyReady = temporaryDirectory.resolve("policy-ready");
+        Path launchLog = temporaryDirectory.resolve("claude-launches");
+        Path reviewerCount = temporaryDirectory.resolve("reviewer-count");
+        Path fixupTarget = temporaryDirectory.resolve("fixup-target");
+        Path fakeClaude = fakeClaude(
+                reviewerEntered, policyReady, launchLog, reviewerCount,
+                fixupTarget);
         initializeRepositories(upstreamRepository, repository);
         assertThat(confirmedRange).allSatisfy(sha ->
                 assertThat(hasCommit(repository, sha)).isFalse());
@@ -147,30 +157,15 @@ final class TestUpstreamSyncEndToEnd
         UpstreamSyncPolicyPublisher policies = mock(
                 UpstreamSyncPolicyPublisher.class);
         when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class)))
-                .thenReturn(NewFlowAgentLaunches.Config.api(
-                        "openai", TurnSpec.Transport.OPENAI_COMPAT,
-                        "https://models.example.test/v1/chat/completions",
-                        "test-model", "medium", "openai", "default api",
-                        1024, 2));
-        CountDownLatch reviewerEntered = new CountDownLatch(1);
-        CountDownLatch policyReady = new CountDownLatch(1);
-        AtomicInteger turns = new AtomicInteger();
-        AtomicReference<Throwable> modelFailure = new AtomicReference<>();
-        when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
-            try {
-                return runModelTurn(
-                        turns.incrementAndGet(), invocation.getArgument(1),
-                        reviewerEntered, policyReady);
-            }
-            catch (Throwable failure) {
-                modelFailure.set(failure);
-                throw failure;
-            }
-        });
+                .thenReturn(NewFlowAgentLaunches.Config.cli(
+                        "claude-code", "sonnet", "high",
+                        fakeClaude.toString(), "test"));
 
         // What a watcher would see while the repair turn is still going.
         List<String> liveLines = new CopyOnWriteArrayList<>();
         AtomicReference<FlowRuntime> runtimeRef = new AtomicReference<>();
+        AtomicReference<NewFlowAgentToolBridge> bridgeRef =
+                new AtomicReference<>();
         GitHubInitialRepositoryObserver initialObserver = mock(
                 GitHubInitialRepositoryObserver.class);
         when(initialObserver.observe(anyString())).thenAnswer(invocation ->
@@ -179,268 +174,329 @@ final class TestUpstreamSyncEndToEnd
                         "101", "101", "repo-secret".toCharArray(),
                         new AtomicInteger()));
 
-        new ApplicationContextRunner()
-                .withBean("legacyPrimaryDataSource", DataSource.class,
+        HttpServer mcp = mcpServer(bridgeRef);
+        mcp.start();
+        try {
+            new ApplicationContextRunner()
+                    .withBean("legacyPrimaryDataSource", DataSource.class,
                         () -> primary,
                         definition -> definition.setPrimary(true))
-                .withBean(ObjectMapper.class, ObjectMapper::new)
-                .withBean(
+                    .withBean(ObjectMapper.class, ObjectMapper::new)
+                    .withBean(
                         "testUpstreamSyncPolicyPublisher",
                         UpstreamSyncPolicyPublisher.class,
                         () -> policies,
                         definition -> definition.setPrimary(true))
-                .withBean(WatchedRepoStore.class, () -> watched)
-                .withBean(CredentialStore.class, TestUpstreamSyncEndToEnd::credentials)
-                .withBean(TurnRunner.class, () -> runner)
-                .withBean(RunLinePublisher.class,
+                    .withBean(WatchedRepoStore.class, () -> watched)
+                    .withBean(CredentialStore.class,
+                            TestUpstreamSyncEndToEnd::credentials)
+                    .withBean(TurnRunner.class, () -> runner)
+                    .withBean(RunLinePublisher.class,
                         () -> (runId, line) -> liveLines.add(line))
-                .withBean(JdbcTemplate.class, () -> new JdbcTemplate(primary))
-                .withBean(WorkspaceEngineSettings.class,
+                    .withBean(JdbcTemplate.class,
+                            () -> new JdbcTemplate(primary))
+                    .withBean(WorkspaceEngineSettings.class,
                         () -> mock(WorkspaceEngineSettings.class))
-                .withBean(WorkModelService.class,
+                    .withBean(WorkModelService.class,
                         () -> mock(WorkModelService.class))
-                .withBean(
+                    .withBean(
                         "testEngineResolver", NewFlowEngineResolver.class,
                         () -> engines, definition -> definition.setPrimary(true))
-                .withBean(
+                    .withBean(
                         "testInitialRepositoryObserver",
                         GitHubInitialRepositoryObserver.class,
                         () -> initialObserver,
                         definition -> definition.setPrimary(true))
-                .withPropertyValues(
+                    .withPropertyValues(
+                        "server.port=" + mcp.getAddress().getPort(),
                         "bytequay.new-flow.database-path=" + database,
                         "bytequay.new-flow.worktree-root=" + worktrees)
-                .withUserConfiguration(
+                    .withUserConfiguration(
                         NewFlowConfiguration.class,
                         NewFlowAgentBridgeConfiguration.class,
                         UpstreamSyncConfiguration.class,
                         UpstreamSyncViewConfiguration.class)
-                .run(context -> {
-                    assertThat(context).hasNotFailed();
-                    FlowRuntime runtime = context.getBean(FlowRuntime.class);
-                    runtimeRef.set(runtime);
-                    context.getBean(GitHubInitialPublishDispatcher.class)
-                            .close();
-                    context.getBean(GitHubCiUpdateDispatcher.class).close();
-                    context.getBean(GitHubCiObservationDispatcher.class)
-                            .close();
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        FlowRuntime runtime = context.getBean(FlowRuntime.class);
+                        runtimeRef.set(runtime);
+                        bridgeRef.set(context.getBean(NewFlowAgentToolBridge.class));
+                        context.getBean(GitHubInitialPublishDispatcher.class)
+                                .close();
+                        context.getBean(GitHubCiUpdateDispatcher.class).close();
+                        context.getBean(GitHubCiObservationDispatcher.class)
+                                .close();
 
-                    JdbcTemplate jdbc = new JdbcTemplate(context.getBean(
-                            "newFlowDataSource", DataSource.class));
-                    context.getBean(LocalChecks.class).recordPolicy(
-                            "octocat/bytequay", null,
-                            "upstream-local-policy:v1",
-                            "upstream-local-policy-digest:v1",
-                            List.of(new ProfileDefinition(
-                                    "compile", List.of(
-                                            "/bin/sh", "-c",
-                                            "test -f local-check-ready || "
-                                                    + "{ echo missing local-check-ready; exit 1; }"), ".",
-                                    List.of(), Duration.ofSeconds(5),
-                                    List.of(
-                                            GateIntent.INITIAL_PUBLISH,
-                                            GateIntent.CI_UPDATE))));
+                        JdbcTemplate jdbc = new JdbcTemplate(context.getBean(
+                                "newFlowDataSource", DataSource.class));
+                        context.getBean(LocalChecks.class).recordPolicy(
+                                "octocat/bytequay", null,
+                                "upstream-local-policy:v1",
+                                "upstream-local-policy-digest:v1",
+                                List.of(new ProfileDefinition(
+                                        "compile", List.of(
+                                                "/bin/sh", "-c",
+                                                "test -f local-check-ready || "
+                                                        + "{ echo missing local-check-ready; exit 1; }"), ".",
+                                        List.of(), Duration.ofSeconds(5),
+                                        List.of(
+                                                GateIntent.INITIAL_PUBLISH,
+                                                GateIntent.CI_UPDATE))));
 
-                    UpstreamSyncCommands commands = context.getBean(
-                            UpstreamSyncCommands.class);
-                    UpstreamSync upstreamSync = context.getBean(
-                            UpstreamSync.class);
-                    UpstreamSyncCommands.StartReceipt started =
-                            commands.startConfirmed(
-                                    "upstream-request", "octocat/bytequay",
-                                    "Bring the selected upstream commits onto "
-                                            + "this fork",
-                                    "octocat/upstream", "source-start",
-                                    "upstream", "main",
-                                    selection(confirmedRange),
-                                    "user-1", upstreamRepository, repository);
-                    Task task = started.task();
-                    assertThat(confirmedRange).hasSize(103);
-                    assertThat(confirmedRange).allSatisfy(sha ->
-                            assertThat(hasCommit(repository, sha)).isTrue());
-                    // Enqueue is idempotent on the request key: a repeated
-                    // confirmation adopts the stored run, never a second range
-                    // over the same Task.
-                    assertThat(commands.startConfirmed(
-                            "upstream-request", "octocat/bytequay",
-                            "Bring the selected upstream commits onto this "
-                                    + "fork",
-                            "octocat/upstream", "source-start", "upstream",
-                            "main", selection(confirmedRange), "user-1",
-                            upstreamRepository, repository).run().runId())
-                            .isEqualTo(started.run().runId());
-                    assertThat(upstreamSync.repairPlacement(task.taskId()))
-                            .isEqualTo(RepairPlacementPolicy.ATTRIBUTED_FIXUP);
+                        UpstreamSyncCommands commands = context.getBean(
+                                UpstreamSyncCommands.class);
+                        UpstreamSync upstreamSync = context.getBean(
+                                UpstreamSync.class);
+                        UpstreamSyncCommands.StartReceipt started =
+                                commands.startConfirmed(
+                                        "upstream-request", "octocat/bytequay",
+                                        "Bring the selected upstream commits onto "
+                                                + "this fork",
+                                        "octocat/upstream", "source-start",
+                                        "upstream", "main",
+                                        selection(confirmedRange),
+                                        "user-1", upstreamRepository, repository);
+                        Task task = started.task();
+                        assertThat(confirmedRange).hasSize(103);
+                        assertThat(confirmedRange).allSatisfy(sha ->
+                                assertThat(hasCommit(repository, sha)).isTrue());
+                        // Enqueue is idempotent on the request key: a repeated
+                        // confirmation adopts the stored run, never a second range
+                        // over the same Task.
+                        assertThat(commands.startConfirmed(
+                                "upstream-request", "octocat/bytequay",
+                                "Bring the selected upstream commits onto this "
+                                        + "fork",
+                                "octocat/upstream", "source-start", "upstream",
+                                "main", selection(confirmedRange), "user-1",
+                                upstreamRepository, repository).run().runId())
+                                .isEqualTo(started.run().runId());
+                        assertThat(upstreamSync.repairPlacement(task.taskId()))
+                                .isEqualTo(RepairPlacementPolicy.ATTRIBUTED_FIXUP);
 
-                    try {
-                        await(reviewerEntered);
-                    }
-                    catch (AssertionError stalled) {
-                        // A stalled range says nothing on its own; the run's
-                        // own records and the turn's error reference say why.
-                        throw new AssertionError(
-                                "run=" + upstreamSync.run(
+                        try {
+                            awaitFile(reviewerEntered);
+                        }
+                        catch (AssertionError stalled) {
+                            // A stalled range says nothing on its own; the run's
+                            // own records and the turn's error reference say why.
+                            throw new AssertionError(
+                                    "run=" + upstreamSync.run(
+                                            started.run().runId())
+                                    + " picks=" + upstreamSync.picks(
+                                            started.run().runId())
+                                    + " agentErrors=" + jdbc.queryForList(
+                                            "SELECT error_ref FROM "
+                                                    + "flow_runtime_agent_result",
+                                            String.class)
+                                    + " launches=" + readIfPresent(launchLog),
+                                    stalled);
+                        }
+                        Task withPr = awaitValue(() -> runtime.task(task.taskId())
+                                .filter(current -> current.prId() != null));
+                        PullRequestSubject localPr = runtime.pullRequest(
+                                withPr.prId()).orElseThrow();
+                        CiAutofix autofix = context.getBean(CiAutofix.class);
+                        autofix.recordPlacementPolicy(
+                                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                                List.of(), null, null, true,
+                                List.of("/usr/bin/true"));
+                        autofix.recordPolicy(
+                                task.repositoryId(), localPr.scopeKey(),
+                                localPr.targetBaseRef(), "upstream-required-ci:v1",
+                                "upstream-required-ci-digest:v1",
+                                PolicyResolution.RESOLVED, null,
+                                List.of("GITHUB_CHECK:7:build"),
+                                List.of("SUCCESS"));
+                        Files.writeString(
+                                policyReady, "ready\n", StandardCharsets.UTF_8);
+
+                        UserGates gates = context.getBean(UserGates.class);
+                        UserGate initialGate;
+                        try {
+                            initialGate = awaitValue(() ->
+                                    gates.initialGate(localPr.prId()));
+                        }
+                        catch (AssertionError stalled) {
+                            throw new AssertionError(
+                                    "run=" + upstreamSync.run(
+                                            started.run().runId())
+                                    + " agentResults=" + jdbc.queryForList(
+                                            "SELECT terminal_outcome, error_ref "
+                                                    + "FROM flow_runtime_agent_result")
+                                    + " launches=" + readIfPresent(launchLog),
+                                    stalled);
+                        }
+
+                        assertPickedSeries(upstreamSync, started.run().runId());
+                        Files.writeString(
+                                fixupTarget,
+                                upstreamSync.picks(started.run().runId())
+                                        .getFirst().resultCommitSha(),
+                                StandardCharsets.UTF_8);
+                        assertThat(jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM flow_runtime_local_check_run",
+                                Integer.class)).isEqualTo(1);
+                        assertThat(history(Path.of(task.worktreePath())))
+                                .doesNotContain("<<<<<<<", "=======", ">>>>>>>");
+
+                        DisplayedGate display = displayed(jdbc, initialGate);
+                        String verificationRef = upstreamSync.run(
+                                started.run().runId()).orElseThrow()
+                                .verificationRef();
+                        assertThat(jdbc.queryForMap(
+                                "SELECT owner_verification_run_id, "
+                                        + "owner_verification_ref FROM "
+                                        + "flow_user_gate_initial_publish_subject "
+                                        + "WHERE subject_digest = ?",
+                                display.subjectDigest()))
+                                .containsEntry("owner_verification_run_id",
                                         started.run().runId())
-                                + " picks=" + upstreamSync.picks(
-                                        started.run().runId())
-                                + " agentErrors=" + jdbc.queryForList(
-                                        "SELECT error_ref FROM "
-                                                + "flow_runtime_agent_result",
-                                        String.class)
-                                + " turns=" + turns
-                                + " modelFailure=" + modelFailure.get(),
-                                stalled);
-                    }
-                    Task withPr = awaitValue(() -> runtime.task(task.taskId())
-                            .filter(current -> current.prId() != null));
-                    PullRequestSubject localPr = runtime.pullRequest(
-                            withPr.prId()).orElseThrow();
-                    CiAutofix autofix = context.getBean(CiAutofix.class);
-                    autofix.recordPolicy(
-                            task.repositoryId(), localPr.scopeKey(),
-                            localPr.targetBaseRef(), "upstream-required-ci:v1",
-                            "upstream-required-ci-digest:v1",
-                            PolicyResolution.RESOLVED, null,
-                            List.of("GITHUB_CHECK:7:build"),
-                            List.of("SUCCESS"));
-                    policyReady.countDown();
+                                .containsEntry("owner_verification_ref",
+                                        verificationRef);
+                        var authorization = gates.authorizeInitialPublish(
+                                initialGate.gateId(), display.revision(),
+                                display.subjectDigest(), display.actionDigest(),
+                                "upstream-initial-authorization");
+                        GitHubEffects effects = context.getBean(
+                                GitHubEffects.class);
+                        var plan = effects.initialPublishPlan(
+                                authorization.planId()).orElseThrow();
+                        Clock clock = context.getBean("newFlowClock", Clock.class);
+                        var lane = initialLane(
+                                runtime, gates, effects, plan, clock);
+                        try (var dispatcher = new GitHubInitialPublishDispatcher(
+                                runtime, gates, effects, lane.executor(),
+                                new GitHubInitialPublishDispatcher.Config(
+                                        "upstream-initial-publisher", TTL,
+                                        Duration.ofMillis(10), 1))) {
+                            assertThat(dispatcher.dispatchOnce()).isTrue();
+                            assertThat(dispatcher.dispatchOnce()).isTrue();
+                        }
+                        assertThat(lane.pushes()).hasValue(1);
+                        assertThat(lane.posts()).hasValue(1);
 
-                    UserGates gates = context.getBean(UserGates.class);
-                    UserGate initialGate;
-                    try {
-                        initialGate = awaitValue(() ->
-                                gates.initialGate(localPr.prId()));
-                    }
-                    catch (AssertionError stalled) {
-                        throw new AssertionError(
-                                "run=" + upstreamSync.run(
-                                        started.run().runId())
-                                + " agentResults=" + jdbc.queryForList(
-                                        "SELECT terminal_outcome, error_ref "
-                                                + "FROM flow_runtime_agent_result")
-                                + " turns=" + turns
-                                + " modelFailure=" + modelFailure.get(),
-                                stalled);
-                    }
+                        // THE BRIDGE. CI Autofix is reachable only through a
+                        // gate-authorized publish receipt, and this is that
+                        // receipt installing the watch by itself.
+                        assertThat(effects.initialPublishStepReceipts(
+                                plan.planId())).hasSize(2);
+                        String receiptId = jdbc.queryForObject(
+                                """
+                                SELECT receipt_id
+                                FROM flow_github_initial_publish_receipt
+                                WHERE plan_id = ?
+                                """,
+                                String.class, plan.planId());
+                        assertThat(jdbc.queryForObject(
+                                """
+                                SELECT COUNT(*) FROM flow_runtime_operation
+                                WHERE kind = 'OBSERVE_CI'
+                                  AND owner_kind = 'GITHUB_EFFECT_RECEIPT'
+                                  AND owner_id = ?
+                                  AND task_id = ?
+                                  AND state IN ('READY', 'CLAIMED', 'WAITING')
+                                """,
+                                Integer.class, receiptId, task.taskId()))
+                                .isEqualTo(1);
 
-                    assertPickedSeries(upstreamSync, started.run().runId());
-                    assertThat(jdbc.queryForObject(
-                            "SELECT COUNT(*) FROM flow_runtime_local_check_run",
-                            Integer.class)).isEqualTo(1);
-                    assertThat(history(Path.of(task.worktreePath())))
-                            .doesNotContain("<<<<<<<", "=======", ">>>>>>>");
+                        // And it is a live watch, not a row: one observation turns
+                        // red remote CI into a repair round CI Autofix owns.
+                        try (var dispatcher = new GitHubCiObservationDispatcher(
+                                runtime,
+                                ciObservationExecutor(
+                                        runtime,
+                                        context.getBean(
+                                                CiObservationCoordinator.class),
+                                        localPr.prId(), clock, FAILED_ACTIONS),
+                                context.getBean(CiAutofixDispatcher.class),
+                                "upstream-red-observer", TTL,
+                                Duration.ofMillis(10), 1)) {
+                            assertThat(dispatcher.dispatchOnce()).isTrue();
+                        }
+                        PullRequestSubject published = runtime.pullRequest(
+                                localPr.prId()).orElseThrow();
+                        var policy = autofix.currentPolicy(
+                                published.repositoryId(), published.scopeKey())
+                                .orElseThrow();
+                        assertThat(autofix.round(
+                                published.prId(), published.currentRemoteHead(),
+                                policy.policyRevisionId()).orElseThrow().state())
+                                .isEqualTo(RoundState.QUEUED);
 
-                    DisplayedGate display = displayed(jdbc, initialGate);
-                    String verificationRef = upstreamSync.run(
-                            started.run().runId()).orElseThrow()
-                            .verificationRef();
-                    assertThat(jdbc.queryForMap(
-                            "SELECT owner_verification_run_id, "
-                                    + "owner_verification_ref FROM "
-                                    + "flow_user_gate_initial_publish_subject "
-                                    + "WHERE subject_digest = ?",
-                            display.subjectDigest()))
-                            .containsEntry("owner_verification_run_id",
-                                    started.run().runId())
-                            .containsEntry("owner_verification_ref",
-                                    verificationRef);
-                    var authorization = gates.authorizeInitialPublish(
-                            initialGate.gateId(), display.revision(),
-                            display.subjectDigest(), display.actionDigest(),
-                            "upstream-initial-authorization");
-                    GitHubEffects effects = context.getBean(
-                            GitHubEffects.class);
-                    var plan = effects.initialPublishPlan(
-                            authorization.planId()).orElseThrow();
-                    Clock clock = context.getBean("newFlowClock", Clock.class);
-                    var lane = initialLane(
-                            runtime, gates, effects, plan, clock);
-                    try (var dispatcher = new GitHubInitialPublishDispatcher(
-                            runtime, gates, effects, lane.executor(),
-                            new GitHubInitialPublishDispatcher.Config(
-                                    "upstream-initial-publisher", TTL,
-                                    Duration.ofMillis(10), 1))) {
-                        assertThat(dispatcher.dispatchOnce()).isTrue();
-                        assertThat(dispatcher.dispatchOnce()).isTrue();
-                    }
-                    assertThat(lane.pushes()).hasValue(1);
-                    assertThat(lane.posts()).hasValue(1);
+                        UserGate ciGate = awaitValue(
+                                () -> gates.gate(localPr.prId()),
+                                Duration.ofMinutes(3));
+                        DisplayedGate ciDisplay = displayed(jdbc, ciGate);
+                        var ciAuthorization = gates.authorizeCiUpdate(
+                                ciGate.gateId(), ciDisplay.revision(),
+                                ciDisplay.subjectDigest(),
+                                ciDisplay.actionDigest(),
+                                "upstream-ci-update-authorization");
+                        var updateLane = ciUpdateLane(
+                                runtime, gates, effects,
+                                effects.steps(ciAuthorization.planId()).getFirst(),
+                                clock);
+                        try (var dispatcher = new GitHubCiUpdateDispatcher(
+                                runtime, gates, effects, updateLane.executor(),
+                                new GitHubCiUpdateDispatcher.Config(
+                                        "upstream-ci-update-publisher", TTL,
+                                        Duration.ofMillis(10), 1))) {
+                            assertThat(dispatcher.dispatchOnce()).isTrue();
+                        }
+                        assertThat(updateLane.pushes()).hasValue(1);
 
-                    // THE BRIDGE. CI Autofix is reachable only through a
-                    // gate-authorized publish receipt, and this is that
-                    // receipt installing the watch by itself.
-                    assertThat(effects.initialPublishStepReceipts(
-                            plan.planId())).hasSize(2);
-                    String receiptId = jdbc.queryForObject(
-                            """
-                            SELECT receipt_id
-                            FROM flow_github_initial_publish_receipt
-                            WHERE plan_id = ?
-                            """,
-                            String.class, plan.planId());
-                    assertThat(jdbc.queryForObject(
-                            """
-                            SELECT COUNT(*) FROM flow_runtime_operation
-                            WHERE kind = 'OBSERVE_CI'
-                              AND owner_kind = 'GITHUB_EFFECT_RECEIPT'
-                              AND owner_id = ?
-                              AND task_id = ?
-                              AND state IN ('READY', 'CLAIMED', 'WAITING')
-                            """,
-                            Integer.class, receiptId, task.taskId()))
-                            .isEqualTo(1);
+                        try (var dispatcher = new GitHubCiObservationDispatcher(
+                                runtime,
+                                ciObservationExecutor(
+                                        runtime,
+                                        context.getBean(
+                                                CiObservationCoordinator.class),
+                                        localPr.prId(), clock, GREEN),
+                                context.getBean(CiAutofixDispatcher.class),
+                                "upstream-green-observer", TTL,
+                                Duration.ofMillis(10), 1)) {
+                            assertThat(dispatcher.dispatchOnce()).isTrue();
+                        }
+                        PullRequestSubject repaired = runtime.pullRequest(
+                                localPr.prId()).orElseThrow();
+                        assertThat(autofix.round(
+                                repaired.prId(), repaired.currentRemoteHead(),
+                                policy.policyRevisionId()).orElseThrow().state())
+                                .isEqualTo(RoundState.GREEN);
 
-                    // And it is a live watch, not a row: one observation turns
-                    // red remote CI into a repair round CI Autofix owns.
-                    try (var dispatcher = new GitHubCiObservationDispatcher(
-                            runtime,
-                            ciObservationExecutor(
-                                    runtime,
-                                    context.getBean(
-                                            CiObservationCoordinator.class),
-                                    localPr.prId(), clock, FAILED_ACTIONS),
-                            context.getBean(CiAutofixDispatcher.class),
-                            "upstream-red-observer", TTL,
-                            Duration.ofMillis(10), 1)) {
-                        assertThat(dispatcher.dispatchOnce()).isTrue();
-                    }
-                    PullRequestSubject published = runtime.pullRequest(
-                            localPr.prId()).orElseThrow();
-                    var policy = autofix.currentPolicy(
-                            published.repositoryId(), published.scopeKey())
-                            .orElseThrow();
-                    assertThat(autofix.round(
-                            published.prId(), published.currentRemoteHead(),
-                            policy.policyRevisionId()).orElseThrow().state())
-                            .isEqualTo(RoundState.QUEUED);
+                        assertThat(upstreamSync.run(started.run().runId())
+                                .orElseThrow().state())
+                                .isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
+                        assertThat(upstreamSync.run(started.run().runId())
+                                .orElseThrow().remainingRepairTurns())
+                                .isEqualTo(
+                                        UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET
+                                                - 2);
+                        // The Task Agent constructs and checks the range, the
+                        // reviewer inspects it, then the same persistent Task
+                        // Agent session accepts that exact result.
+                        verifyNoInteractions(runner);
+                        assertClaudeSessions(readIfPresent(launchLog));
 
-                    assertThat(upstreamSync.run(started.run().runId())
-                            .orElseThrow().state())
-                            .isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
-                    assertThat(upstreamSync.run(started.run().runId())
-                            .orElseThrow().remainingRepairTurns())
-                            .isEqualTo(
-                                    UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET
-                                            - 2);
-                    // The Task Agent constructs and checks the range, the
-                    // reviewer inspects it, then the same persistent Task
-                    // Agent session accepts that exact result.
-                    assertThat(turns).hasValue(3);
+                        // An ordinary Task never appears in these records, so it
+                        // resolves to the default placement without this
+                        // component knowing it exists.
+                        assertThat(upstreamSync.repairPlacement("task:ordinary"))
+                                .isEqualTo(RepairPlacementPolicy.TIP);
 
-                    // An ordinary Task never appears in these records, so it
-                    // resolves to the default placement without this
-                    // component knowing it exists.
-                    assertThat(upstreamSync.repairPlacement("task:ordinary"))
-                            .isEqualTo(RepairPlacementPolicy.TIP);
-
-                    UpstreamSyncViews views =
-                            context.getBean(UpstreamSyncViews.class);
-                    assertProjectedRun(views, started.run().runId());
-                    assertWatchedTheRepairTurn(liveLines);
-                    assertObservesTheEndOfThePullRequest(
-                            upstreamSync, context.getBean(TaskViews.class),
-                            views, started.run().runId());
-                });
+                        UpstreamSyncViews views =
+                                context.getBean(UpstreamSyncViews.class);
+                        assertProjectedRun(views, started.run().runId());
+                        assertWatchedTheRepairTurn(liveLines);
+                        assertObservesTheEndOfThePullRequest(
+                                upstreamSync, context.getBean(TaskViews.class),
+                                views, started.run().runId());
+                    });
+        }
+        finally {
+            mcp.stop(0);
+        }
 
         assertThat(Files.readAllBytes(primaryDatabase))
                 .containsExactly(primaryBefore);
@@ -517,7 +573,7 @@ final class TestUpstreamSyncEndToEnd
         assertThat(detail.job().roundCount()).isEqualTo(1);
         assertThat(detail.rounds()).singleElement().satisfies(round -> {
             assertThat(round.ordinal()).isEqualTo(1);
-            assertThat(round.state()).isEqualTo("QUEUED");
+            assertThat(round.state()).isEqualTo("GREEN");
         });
         assertThat(views.list("octocat/bytequay", 25))
                 .extracting(UpstreamSyncViews.SyncJob::jobId)
@@ -561,100 +617,185 @@ final class TestUpstreamSyncEndToEnd
                 .isNotNull();
     }
 
-    private static TurnResult runModelTurn(
-            int turn,
-            ToolExecutor tools,
-            CountDownLatch reviewerEntered,
-            CountDownLatch policyReady)
-            throws Exception
+    private Path fakeClaude(
+            Path reviewerEntered,
+            Path policyReady,
+            Path launchLog,
+            Path reviewerCount,
+            Path fixupTarget)
+            throws IOException
     {
-        switch (turn) {
-            case 1 -> {
-                for (String path : List.of(
-                        "contested-two.txt", "contested.txt")) {
-                    String context = call(
-                            tools, "read_pick_conflict_context", "{}");
-                    assertThat(context)
-                            .contains("taskGoal=Bring the selected upstream")
-                            .contains("preHead=")
-                            .contains("sequencerActive=true")
-                            .contains("upstreamDiff:")
-                            .contains("conflictedPaths=" + path);
-                    assertThat(call(tools, "read_file",
-                            "{\"path\":\"" + path + "\"}"))
-                            .contains("<<<<<<<");
-                    call(tools, "write_file",
-                            "{\"path\":\"" + path + "\","
-                                    + "\"content\":\"merged rewrite\\n\"}");
-                    call(tools, "commit_pick_repair", "{}");
+        Path executable = temporaryDirectory.resolve("fake-claude");
+        String script = """
+                #!/bin/sh
+                IFS= read -r prompt
+                printf 'argv|%s\n' "$*" >> "@LAUNCH_LOG@"
+                args="$*"
+                case "$args" in
+                  *read_pick_conflict_context*) role=upstream ;;
+                  *read_initial_review_context*) role=initial-review ;;
+                  *read_ci_failure_context*) role=ci-fixer ;;
+                  *ready_for_review*) role=ci-ready ;;
+                  *spawn_adversarial_reviewer*) role=ci-task ;;
+                  *save_ci_lesson*) role=learner ;;
+                  *read_diff*) role=reviewer ;;
+                  *) exit 43 ;;
+                esac
+                resume=none
+                previous=
+                for argument in "$@"; do
+                  if [ "$previous" = resume ]; then resume="$argument"; fi
+                  if [ "$argument" = --resume ]; then previous=resume; else previous=; fi
+                done
+                session=writer-session
+                reviewer_number=0
+                if [ "$role" = reviewer ]; then
+                  reviewer_number=1
+                  if [ -f "@REVIEWER_COUNT@" ]; then reviewer_number=$(( $(cat "@REVIEWER_COUNT@") + 1 )); fi
+                  printf '%s' "$reviewer_number" > "@REVIEWER_COUNT@"
+                  session="reviewer-$reviewer_number"
+                elif [ "$role" = learner ]; then
+                  session=learner-session
+                fi
+                printf '%s|%s|%s\n' "$role" "$resume" "$session" >> "@LAUNCH_LOG@"
+                printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session"
+                rpc() {
+                  rpc_number=$((rpc_number + 1))
+                  printf 'rpc-begin-%s\n' "$rpc_number" >> "@LAUNCH_LOG@"
+                  response=$(curl -sS -X POST -H 'Content-Type: application/json' --data "$1" "$BYTEQUAY_NEW_FLOW_MCP_URL") || exit 44
+                  printf 'rpc-end-%s\n' "$rpc_number" >> "@LAUNCH_LOG@"
+                  case "$response" in *'"isError":true'*|*'"error"'*) exit 45;; esac
                 }
-                assertThat(call(tools, "read_upstream_review_context", "{}"))
-                        .contains("selectedUpstreamShas=");
-                call(tools, "read_candidate_diff", "{}");
-                call(tools, "write_file",
-                        "{\"path\":\"local-check-ready\","
-                                + "\"content\":\"ready\\n\"}");
-                call(tools, "commit_initial_change", "{}");
-                assertThat(callFails(tools, "run_checks", "{}"))
-                        .contains("argument is invalid");
-                String checkRequest = """
-                        {"command":["/bin/sh","-c","test -f local-check-ready"],
-                         "working_directory":"."}
-                        """;
-                assertThat(call(tools, "run_checks", checkRequest))
-                        .contains(":PASSED");
-                call(tools, "request_initial_review",
-                        "{\"title\":\"Bring upstream range\","
-                                + "\"body\":\"Confirmed upstream range\"}");
-                return result(TurnResult.End.COMPLETED);
+                case "$role" in
+                  upstream)
+                    rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
+                    rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
+                    rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
+                    rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
+                    rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_upstream_review_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
+                    rpc '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"commit_initial_change","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f local-check-ready"],"working_directory":"."}}}'
+                    rpc '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
+                    ;;
+                  initial-review)
+                    rpc '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"read_initial_review_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"ready_for_initial_publish","arguments":{}}}'
+                    ;;
+                  ci-fixer)
+                    rpc '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"read_ci_failure_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"read_ci_log","arguments":{"index":0,"offset":0}}}'
+                    rpc '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"repair.txt","content":"fixed build\\n"}}}'
+                    target=$(cat "@FIXUP_TARGET@")
+                    rpc '{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"commit_repair","arguments":{"target_commit":"'"$target"'"}}}'
+                    ;;
+                  ci-task)
+                    rpc '{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"read_ci_fix_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f local-check-ready"],"working_directory":"."}}}'
+                    rpc '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"spawn_adversarial_reviewer","arguments":{}}}'
+                    ;;
+                  ci-ready)
+                    rpc '{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"read_ci_fix_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"ready_for_review","arguments":{}}}'
+                    ;;
+                  reviewer)
+                    rpc '{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"read_diff","arguments":{}}}'
+                    if [ "$reviewer_number" = 1 ]; then
+                      : > "@REVIEWER_ENTERED@"
+                      waited=0
+                      while [ ! -f "@POLICY_READY@" ] && [ "$waited" -lt 1200 ]; do sleep 0.05; waited=$((waited + 1)); done
+                      [ -f "@POLICY_READY@" ] || exit 46
+                    fi
+                    ;;
+                  learner)
+                    rpc '{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"read_repair_evidence","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"read_ci_log","arguments":{"index":0,"offset":0}}}'
+                    rpc '{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"save_ci_lesson","arguments":{"title":"Upstream CI repair","markdown":"The failed build was repaired."}}}'
+                    ;;
+                esac
+                echo '{"type":"result","subtype":"success","result":"opaque"}'
+                """
+                .replace("@REVIEWER_ENTERED@", reviewerEntered.toString())
+                .replace("@POLICY_READY@", policyReady.toString())
+                .replace("@LAUNCH_LOG@", launchLog.toString())
+                .replace("@REVIEWER_COUNT@", reviewerCount.toString())
+                .replace("@FIXUP_TARGET@", fixupTarget.toString());
+        Files.writeString(executable, script, StandardCharsets.UTF_8);
+        Files.setPosixFilePermissions(
+                executable, PosixFilePermissions.fromString("rwxr-xr-x"));
+        return executable;
+    }
+
+    private static HttpServer mcpServer(
+            AtomicReference<NewFlowAgentToolBridge> bridge)
+            throws IOException
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/new-flow/runs/", exchange -> {
+            try {
+                String path = exchange.getRequestURI().getPath();
+                String prefix = "/api/new-flow/runs/";
+                String suffix = "/mcp";
+                String runId = path.substring(
+                        prefix.length(), path.length() - suffix.length());
+                var response = bridge.get().handle(
+                        runId, mapper.readTree(exchange.getRequestBody()))
+                        .orElseThrow();
+                byte[] body = mapper.writeValueAsBytes(response);
+                exchange.getResponseHeaders().add(
+                        "Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
             }
-            case 2 -> {
-                call(tools, "read_diff", "{}");
-                reviewerEntered.countDown();
-                await(policyReady);
-                return result(TurnResult.End.COMPLETED);
+            finally {
+                exchange.close();
             }
-            case 3 -> {
-                assertThat(call(tools, "read_initial_review_context", "{}"))
-                        .contains("reviewSummary=opaque");
-                call(tools, "read_candidate_diff", "{}");
-                call(tools, "ready_for_initial_publish", "{}");
-                return result(TurnResult.End.COMPLETED);
-            }
-            default -> throw new AssertionError(
-                    "unexpected model turn " + turn);
+        });
+        return server;
+    }
+
+    private static void assertClaudeSessions(String launches)
+    {
+        List<String> phases = launches.lines()
+                .filter(line -> line.matches("[a-z-]+\\|.*"))
+                .toList();
+        assertThat(phases).filteredOn(line -> line.startsWith("upstream|"))
+                .containsExactly("upstream|none|writer-session");
+        assertThat(phases).filteredOn(line ->
+                line.startsWith("initial-review|"))
+                .containsExactly(
+                        "initial-review|writer-session|writer-session");
+        assertThat(phases).filteredOn(line -> line.startsWith("ci-fixer|"))
+                .containsExactly("ci-fixer|writer-session|writer-session");
+        assertThat(phases).filteredOn(line -> line.startsWith("ci-task|"))
+                .containsExactly("ci-task|writer-session|writer-session");
+        assertThat(phases).filteredOn(line -> line.startsWith("ci-ready|"))
+                .containsExactly("ci-ready|writer-session|writer-session");
+        assertThat(phases).filteredOn(line -> line.startsWith("reviewer|"))
+                .containsExactlyInAnyOrder(
+                        "reviewer|none|reviewer-1",
+                        "reviewer|none|reviewer-2");
+    }
+
+    private static String readIfPresent(Path path)
+    {
+        try {
+            return Files.exists(path)
+                    ? Files.readString(path, StandardCharsets.UTF_8) : "";
         }
-    }
-
-    private static String call(
-            ToolExecutor tools, String name, String arguments)
-            throws Exception
-    {
-        ObjectMapper mapper = new ObjectMapper();
-        ToolExecutor.ToolCallResult result = tools.execute(new ToolCall(
-                "call-" + name, name, arguments,
-                mapper.readTree(arguments)));
-        assertThat(result.isError())
-                .as(name + ": " + result.text())
-                .isFalse();
-        return result.text();
-    }
-
-    private static String callFails(
-            ToolExecutor tools, String name, String arguments)
-            throws Exception
-    {
-        ObjectMapper mapper = new ObjectMapper();
-        ToolExecutor.ToolCallResult result = tools.execute(new ToolCall(
-                "call-" + name, name, arguments,
-                mapper.readTree(arguments)));
-        assertThat(result.isError()).as(name).isTrue();
-        return result.text();
-    }
-
-    private static TurnResult result(TurnResult.End end)
-    {
-        return new TurnResult("opaque", 1, 1, 0, 1, end);
+        catch (IOException failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static CredentialStore credentials()
@@ -699,20 +840,30 @@ final class TestUpstreamSyncEndToEnd
 
     private static <T> T awaitValue(Supplier<Optional<T>> supplier)
     {
+        return awaitValue(supplier, Duration.ofSeconds(60));
+    }
+
+    private static <T> T awaitValue(
+            Supplier<Optional<T>> supplier, Duration budget)
+    {
         AtomicReference<T> value = new AtomicReference<>();
-        awaitCondition(() -> {
-            Optional<T> candidate = supplier.get();
-            candidate.ifPresent(value::set);
-            return candidate.isPresent();
-        });
+        awaitCondition(() -> supplier.get().map(candidate -> {
+            value.set(candidate);
+            return true;
+        }).orElse(false), budget);
         return value.get();
     }
 
-    private static void await(CountDownLatch latch)
+    private static void awaitFile(Path path)
     {
+        long deadline = System.nanoTime()
+                + Duration.ofMinutes(3).toNanos();
         try {
-            if (!latch.await(180, TimeUnit.SECONDS)) {
-                throw new AssertionError("latch did not complete");
+            while (!Files.exists(path)) {
+                if (System.nanoTime() >= deadline) {
+                    throw new AssertionError("file did not appear: " + path);
+                }
+                Thread.sleep(10);
             }
         }
         catch (InterruptedException failure) {
@@ -723,7 +874,13 @@ final class TestUpstreamSyncEndToEnd
 
     private static void awaitCondition(CheckedCondition condition)
     {
-        long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        awaitCondition(condition, Duration.ofSeconds(60));
+    }
+
+    private static void awaitCondition(
+            CheckedCondition condition, Duration budget)
+    {
+        long deadline = System.nanoTime() + budget.toNanos();
         try {
             while (!condition.test()) {
                 if (System.nanoTime() >= deadline) {

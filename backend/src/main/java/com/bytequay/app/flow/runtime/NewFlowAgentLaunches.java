@@ -218,9 +218,9 @@ public final class NewFlowAgentLaunches
                 "ci-adversarial-review-turn:v2",
                 "Review the immutable base-to-head change adversarially using "
                         + "read-only tools. For an upstream cherry-pick range, "
-                        + "identify and review only fork-authored conflict "
-                        + "resolutions and fixups; do not re-review clean "
-                        + "cherry-picks. Return findings as opaque prose.",
+                        + "find and review only fork-authored fixup commits; "
+                        + "do not re-review picked commits or their conflict "
+                        + "resolutions. Return findings as opaque prose.",
                 List.of("list_tree", "read_diff", "read_reviewed_blob",
                         "read_base_blob")),
         CI_LEARNER(

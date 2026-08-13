@@ -217,8 +217,8 @@ final class TestNewFlowAgentRuntimeBoundaries
         assertThat(prompt).contains(
                 "replace_file_lines", "range is complete", "request exact review");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
-                "identify and review only fork-authored conflict resolutions and fixups",
-                "do not re-review clean cherry-picks");
+                "find and review only fork-authored fixup commits",
+                "do not re-review picked commits or their conflict resolutions");
     }
 
     @Test

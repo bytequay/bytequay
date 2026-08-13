@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -110,6 +111,7 @@ public class ProjectLearningService
     private final PatResolver patResolver;
     private final ObjectMapper json;
     private final Executor executor;
+    private final boolean enabled;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
     public ProjectLearningService(
@@ -127,7 +129,8 @@ public class ProjectLearningService
             KnowledgeItemStore knowledge,
             PatResolver patResolver,
             ObjectMapper json,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
+            @Value("${bytequay.project-learning.enabled:false}") boolean enabled)
     {
         this.store = requireNonNull(store, "store is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
@@ -144,6 +147,7 @@ public class ProjectLearningService
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.json = requireNonNull(json, "json is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.enabled = enabled;
     }
 
     /**
@@ -153,13 +157,16 @@ public class ProjectLearningService
      * work runs on the bounded application executor once the transaction commits.
      */
     @Transactional
-    public ProjectLearningRun enqueue(String workspaceId, String repo, String trigger)
+    public Optional<ProjectLearningRun> enqueue(String workspaceId, String repo, String trigger)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(repo, "repo is null");
         Optional<ProjectLearningRun> existing = store.latestRun(workspaceId, repo);
+        if (!enabled) {
+            return existing.map(this::pauseIfActive);
+        }
         if (existing.isPresent() && !"failed".equals(existing.get().state())) {
-            return existing.get();
+            return existing;
         }
         long now = Instant.now().toEpochMilli();
         ProjectLearningRun run = new ProjectLearningRun(
@@ -167,7 +174,7 @@ public class ProjectLearningService
                 "queued", null, null, "{}", EXTRACTOR_VERSION, now, now, null, null);
         store.insertRun(run);
         launchAfterCommit(run.id());
-        return run;
+        return Optional.of(run);
     }
 
     /** Resume a partial/failed run from its persisted cursor. */
@@ -177,6 +184,9 @@ public class ProjectLearningService
         Optional<ProjectLearningRun> current = store.findRun(id);
         if (current.isEmpty()) {
             return current;
+        }
+        if (!enabled) {
+            return current.map(this::pauseIfActive);
         }
         ProjectLearningRun run = current.get();
         store.requeueIncompleteEvidence(run.workspaceId(), run.repo());
@@ -199,6 +209,13 @@ public class ProjectLearningService
     @EventListener(ApplicationReadyEvent.class)
     public void recover()
     {
+        if (!enabled) {
+            store.resumableRunIds().stream()
+                    .map(store::findRun)
+                    .flatMap(Optional::stream)
+                    .forEach(this::pauseIfActive);
+            return;
+        }
         store.resumableRunIds().forEach(this::launch);
     }
 
@@ -206,11 +223,7 @@ public class ProjectLearningService
      *  restart recovery leaves it alone until Resume (retry). */
     public Optional<ProjectLearningRun> pause(String workspaceId, String repo)
     {
-        Optional<ProjectLearningRun> run = store.latestRun(workspaceId, repo);
-        run.ifPresent(current -> store.updateRun(current.id(), "paused",
-                null, current.catalogCursor(), current.countsJson(), null, null,
-                Instant.now().toEpochMilli()));
-        return store.latestRun(workspaceId, repo);
+        return store.latestRun(workspaceId, repo).map(this::pauseRun);
     }
 
     /**
@@ -223,6 +236,9 @@ public class ProjectLearningService
     public Optional<ProjectLearningRun> refreshCompleted(String id)
     {
         Optional<ProjectLearningRun> found = store.findRun(id);
+        if (!enabled) {
+            return found.map(this::pauseIfActive);
+        }
         if (found.isEmpty() || !"caught-up".equals(found.get().state())) {
             return found;
         }
@@ -251,7 +267,7 @@ public class ProjectLearningService
      */
     public void onMergedPr(String repoFullName, int prNumber, String title, String author)
     {
-        if (repoFullName == null || repoFullName.isBlank() || prNumber <= 0) {
+        if (!enabled || repoFullName == null || repoFullName.isBlank() || prNumber <= 0) {
             return;
         }
         executor.execute(() -> {
@@ -284,6 +300,9 @@ public class ProjectLearningService
             String workspaceId, String repo, int prNumber,
             String title, String author, String trigger)
     {
+        if (!enabled) {
+            return;
+        }
         String digest = MergedPrCatalog.sha256(
                 "merge|" + prNumber + "|" + nullToEmpty(title) + "|" + nullToEmpty(author));
         Optional<RepoPrSource> existing = store.findPrSource(workspaceId, repo, prNumber);
@@ -326,6 +345,9 @@ public class ProjectLearningService
      */
     void backfill(String workspaceId, String repo, int cap)
     {
+        if (!enabled) {
+            return;
+        }
         ProjectLearningRun run = store.latestRun(workspaceId, repo).orElse(null);
         if (run == null || !"useful".equals(run.state())) {
             return;
@@ -377,6 +399,10 @@ public class ProjectLearningService
 
     private void launch(String id)
     {
+        if (!enabled) {
+            store.findRun(id).ifPresent(this::pauseIfActive);
+            return;
+        }
         if (!activeJobs.add(id)) {
             return;
         }
@@ -410,6 +436,10 @@ public class ProjectLearningService
     /** Package-private so tests can drive the run synchronously. */
     void execute(String id)
     {
+        if (!enabled) {
+            store.findRun(id).ifPresent(this::pauseIfActive);
+            return;
+        }
         ProjectLearningRun run = store.findRun(id).orElse(null);
         if (run == null
                 || (!run.isLive() && !"partial".equals(run.state()) && !"analyzing".equals(run.state()))) {
@@ -604,6 +634,23 @@ public class ProjectLearningService
         return store.findRun(runId)
                 .map(current -> "paused".equals(current.state()))
                 .orElse(true);
+    }
+
+    private ProjectLearningRun pauseIfActive(ProjectLearningRun run)
+    {
+        if (!run.isLive() && !"partial".equals(run.state())
+                && !"analyzing".equals(run.state())) {
+            return run;
+        }
+        return pauseRun(run);
+    }
+
+    private ProjectLearningRun pauseRun(ProjectLearningRun run)
+    {
+        store.updateRun(run.id(), "paused", run.snapshotSha(), run.catalogCursor(),
+                run.countsJson(), run.completedAtMs(), run.lastError(),
+                Instant.now().toEpochMilli());
+        return store.findRun(run.id()).orElse(run);
     }
 
     /**

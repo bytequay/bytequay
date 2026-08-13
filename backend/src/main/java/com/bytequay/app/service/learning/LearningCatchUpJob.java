@@ -23,6 +23,7 @@ import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +43,7 @@ import static java.util.Objects.requireNonNull;
  * coding/review work; every workspace is isolated by its own try/catch.
  */
 @Component
+@ConditionalOnProperty(name = "bytequay.project-learning.enabled", havingValue = "true")
 public class LearningCatchUpJob
 {
     private static final Logger log = LoggerFactory.getLogger(LearningCatchUpJob.class);

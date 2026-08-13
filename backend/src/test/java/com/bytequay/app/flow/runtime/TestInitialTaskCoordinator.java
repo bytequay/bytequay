@@ -190,6 +190,7 @@ class TestInitialTaskCoordinator
                     String head = capability.callTool(
                             workspace::commitTaskChange);
                     capability.adoptCommittedHead(head);
+                    capability.runChecks(List.of("/usr/bin/true"), ".");
                     capability.requestReview(
                             "Implement exact Task", "Adds feature.txt");
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
@@ -271,6 +272,7 @@ class TestInitialTaskCoordinator
                             workspace::commitTaskChange);
                     capability.adoptCommittedHead(head);
                     capability.adoptCommittedHead(head);
+                    capability.runChecks(List.of("/usr/bin/true"), ".");
                     capability.requestReview(
                             "Corrected exact Task", "Corrects feature.txt");
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
@@ -406,6 +408,18 @@ class TestInitialTaskCoordinator
     void taskCommandsAndProductionLanesDriveBoundedModelToInitialGate()
             throws Exception
     {
+        var currentPolicy = localChecks.currentPolicy("octocat/bytequay")
+                .orElseThrow();
+        localChecks.recordPolicy(
+                "octocat/bytequay", currentPolicy.policyRevisionId(),
+                "unavailable-local-policy:v1",
+                "unavailable-local-policy-digest:v1",
+                List.of(new ProfileDefinition(
+                        "compile",
+                        List.of("/bytequay-intentionally-missing-check"), ".",
+                        List.of(),
+                        Duration.ofSeconds(5),
+                        List.of(GateIntent.INITIAL_PUBLISH))));
         CredentialStore credentials = mock(CredentialStore.class);
         Credential credential = new Credential(
                 7, CredentialType.AI, "openai", "default api",
@@ -438,6 +452,9 @@ class TestInitialTaskCoordinator
                         "{\"path\":\"command-flow.txt\","
                                 + "\"content\":\"implemented\\n\"}");
                 assertTool(tools, "commit_initial_change", "{}");
+                assertTool(tools, "run_checks",
+                        "{\"command\":[\"/bytequay-intentionally-missing-check\"],"
+                                + "\"working_directory\":\".\"}");
                 assertTool(tools, "request_initial_review",
                         "{\"title\":\"Command flow\","
                                 + "\"body\":\"Exact initial change\"}");
@@ -505,6 +522,9 @@ class TestInitialTaskCoordinator
 
             assertThat(turns).hasValue(3);
             assertThat(gates.initialGate(pr.prId())).isPresent();
+            assertThat(new JdbcTemplate(dataSource).queryForList(
+                    "SELECT conclusion FROM flow_runtime_local_check_run",
+                    String.class)).containsExactly("UNAVAILABLE");
             assertThat(runtime.task(task.taskId()).orElseThrow()
                     .selectedWriterOperationId()).isNull();
             assertThat(runtime.currentChangeSet(task.taskId()).orElseThrow()
@@ -548,6 +568,7 @@ class TestInitialTaskCoordinator
                     String head = capability.callTool(
                             workspace::commitTaskChange);
                     capability.adoptCommittedHead(head);
+                    capability.runChecks(List.of("/usr/bin/true"), ".");
                     capability.requestReview("Initial", "Exact change");
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "requested", null);

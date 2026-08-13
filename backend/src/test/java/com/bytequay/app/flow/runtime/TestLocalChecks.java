@@ -153,6 +153,68 @@ final class TestLocalChecks
     }
 
     @Test
+    void agentSelectedCommandExecutesAndPersistsExactInvocation()
+            throws Exception
+    {
+        Files.createDirectory(worktree.resolve("backend"));
+        advancePolicy(
+                "policy:v2",
+                "/bin/sh",
+                List.of("-c", "exit 91"),
+                Duration.ofSeconds(5));
+        List<String> command = List.of(
+                "/bin/sh", "-c", "printf 'narrow validation\\n'");
+
+        LocalCheckRun run = inWriter(capability -> capability.runChecks(
+                localChecks, repository, command, "backend").getFirst());
+
+        assertThat(run.conclusion()).isEqualTo(LocalCheckConclusion.PASSED);
+        assertThat(run.outputText()).isEqualTo("narrow validation\n");
+        assertThat(run.command()).containsExactlyElementsOf(command);
+        assertThat(run.workingDirectory()).isEqualTo("backend");
+        assertThat(localChecks.run(run.checkRunId())).contains(run);
+    }
+
+    @Test
+    void agentSelectedCommandCannotChangeTheFrozenExecutable()
+    {
+        inWriter(capability -> {
+            assertThatThrownBy(() -> capability.runChecks(
+                    localChecks,
+                    repository,
+                    List.of("/usr/bin/false"),
+                    "."))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining(
+                            "executable is not allowed by the local-check policy");
+            return true;
+        });
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_local_check_run",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void agentSelectedWorkingDirectoryCannotEscapeTheWorktree()
+    {
+        inWriter(capability -> {
+            assertThatThrownBy(() -> capability.runChecks(
+                    localChecks,
+                    repository,
+                    List.of("/usr/bin/true"),
+                    "../outside"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("unsafe relative path");
+            return true;
+        });
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_local_check_run",
+                Integer.class)).isZero();
+    }
+
+    @Test
     void cappedOutputStillDrainsToEof()
     {
         advancePolicy(

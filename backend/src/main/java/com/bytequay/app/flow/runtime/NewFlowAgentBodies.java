@@ -38,6 +38,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -59,8 +60,10 @@ import static java.util.Objects.requireNonNull;
 /** Neutral TurnRunner bodies behind role-specific, zero-owner-id tools. */
 final class NewFlowAgentBodies
 {
-    private static final int MAX_TOOL_CALLS = 16;
+    private static final int MAX_TOOL_CALLS = 64;
+    private static final int MAX_CHECK_ATTEMPTS = 10;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
+    private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
 
     private final NewFlowAgentLaunches launches;
     private final TurnRunner runner;
@@ -158,6 +161,8 @@ final class NewFlowAgentBodies
     {
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         AtomicBoolean terminal = new AtomicBoolean();
+        AtomicInteger checkAttempts = new AtomicInteger();
+        AtomicBoolean checksUnavailable = new AtomicBoolean();
         var program = reviewContinuation
                 ? TASK_INITIAL_REVIEW_RESULT : TASK_INITIAL;
         ToolExecutor executor = bounded(terminal, call -> switch (call.name()) {
@@ -190,6 +195,8 @@ final class NewFlowAgentBodies
                 workspace.deleteFile(text(call, "path"));
                 return "deleted";
             });
+            case "run_checks" -> checks(
+                    checkAttempts, checksUnavailable, capability, call);
             case "commit_initial_change" -> safe(() -> {
                 String head = capability.callTool(
                         workspace::commitTaskChange);
@@ -272,7 +279,8 @@ final class NewFlowAgentBodies
     {
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         AtomicBoolean stop = new AtomicBoolean();
-        AtomicBoolean checksUsed = new AtomicBoolean();
+        AtomicInteger checkAttempts = new AtomicInteger();
+        AtomicBoolean checksUnavailable = new AtomicBoolean();
         ToolExecutor executor = bounded(stop, call -> switch (call.name()) {
             case "read_ci_failure_context" -> guarded(capability,
                     context::failureSummary);
@@ -300,7 +308,8 @@ final class NewFlowAgentBodies
                 return "deleted";
             });
             case "run_checks" -> checks(
-                    checksUsed, capability, repositoryRoot, call);
+                    checkAttempts, checksUnavailable, capability,
+                    repositoryRoot, call);
             case "commit_repair" -> guarded(capability, () -> {
                 workspace.commitRepair(context.repairCommitMessage(
                         optionalText(call, "target_commit")));
@@ -357,7 +366,8 @@ final class NewFlowAgentBodies
     {
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         AtomicBoolean terminal = new AtomicBoolean();
-        AtomicBoolean checksUsed = new AtomicBoolean();
+        AtomicInteger checkAttempts = new AtomicInteger();
+        AtomicBoolean checksUnavailable = new AtomicBoolean();
         var program = reviewerResultContinuation
                 ? TASK_CI_REVIEW_RESULT : TASK_CI_FIX;
         ToolExecutor executor = bounded(terminal, call -> switch (call.name()) {
@@ -380,7 +390,8 @@ final class NewFlowAgentBodies
                 workspace.deleteFile(text(call, "path"));
                 return "deleted";
             });
-            case "run_checks" -> taskChecks(checksUsed, capability, call);
+            case "run_checks" -> taskChecks(
+                    checkAttempts, checksUnavailable, capability, call);
             case "commit_task_change" -> safe(() -> {
                 capability.runTool(workspace::commitRepair);
                 capability.adoptCurrentChangeSet();
@@ -593,7 +604,7 @@ final class NewFlowAgentBodies
                     "delete_file" -> Set.of("path");
             case "search_repository" -> Set.of("query");
             case "write_file" -> Set.of("path", "content");
-            case "run_checks" -> Set.of("profile");
+            case "run_checks" -> Set.of("command", "working_directory");
             case "read_ci_log" -> Set.of("index", "offset");
             case "read_candidate_lesson" -> Set.of("index");
             case "commit_repair" -> Set.of("target_commit");
@@ -606,50 +617,121 @@ final class NewFlowAgentBodies
     }
 
     private ToolCallResult checks(
-            AtomicBoolean used, WriterToolCapability capability,
+            AtomicInteger attempts,
+            AtomicBoolean unavailable,
+            WriterToolCapability capability,
             Path repositoryRoot, ToolCall call)
     {
-        String profile;
+        List<String> command;
+        String workingDirectory;
         try {
-            profile = optionalText(call, "profile");
+            command = textList(call, "command");
+            workingDirectory = text(call, "working_directory");
         }
         catch (RuntimeException invalid) {
             return ToolCallResult.error("tool argument is invalid");
         }
-        if (!used.compareAndSet(false, true)) {
-            return ToolCallResult.error("local checks already ran");
+        ToolCallResult denied = checkAttemptDenied(attempts, unavailable);
+        if (denied != null) {
+            return denied;
         }
-        return safe(() -> checkSummary(capability.runChecks(
-                localChecks, repositoryRoot, profile)));
+        return checkResult(unavailable, () -> capability.runChecks(
+                localChecks, repositoryRoot, command, workingDirectory));
     }
 
     private ToolCallResult taskChecks(
-            AtomicBoolean used,
+            AtomicInteger attempts,
+            AtomicBoolean unavailable,
             TaskInspectionToolCapability capability, ToolCall call)
     {
-        String profile;
+        List<String> command;
+        String workingDirectory;
         try {
-            profile = optionalText(call, "profile");
+            command = textList(call, "command");
+            workingDirectory = text(call, "working_directory");
         }
         catch (RuntimeException invalid) {
             return ToolCallResult.error("tool argument is invalid");
         }
-        if (!used.compareAndSet(false, true)) {
-            return ToolCallResult.error("local checks already ran");
+        ToolCallResult denied = checkAttemptDenied(attempts, unavailable);
+        if (denied != null) {
+            return denied;
         }
-        return safe(() -> {
-            return checkSummary(profile == null
-                    ? capability.runChecks()
-                    : capability.runChecks(profile));
-        });
+        return checkResult(unavailable, () ->
+                capability.runChecks(command, workingDirectory));
+    }
+
+    private ToolCallResult checks(
+            AtomicInteger attempts,
+            AtomicBoolean unavailable,
+            InitialToolCapability capability, ToolCall call)
+    {
+        List<String> command;
+        String workingDirectory;
+        try {
+            command = textList(call, "command");
+            workingDirectory = text(call, "working_directory");
+        }
+        catch (RuntimeException invalid) {
+            return ToolCallResult.error("tool argument is invalid");
+        }
+        ToolCallResult denied = checkAttemptDenied(attempts, unavailable);
+        if (denied != null) {
+            return denied;
+        }
+        return checkResult(unavailable, () ->
+                capability.runChecks(command, workingDirectory));
+    }
+
+    private static ToolCallResult checkAttemptDenied(
+            AtomicInteger attempts, AtomicBoolean unavailable)
+    {
+        if (unavailable.get()) {
+            return ToolCallResult.error(
+                    "local validation is unavailable in this environment");
+        }
+        if (attempts.incrementAndGet() > MAX_CHECK_ATTEMPTS) {
+            return ToolCallResult.error("local-check attempt bound reached");
+        }
+        return null;
+    }
+
+    private ToolCallResult checkResult(
+            AtomicBoolean unavailable,
+            Supplier<List<LocalCheckRun>> action)
+    {
+        try {
+            List<LocalCheckRun> runs = action.get();
+            unavailable.set(runs.stream().anyMatch(run ->
+                    run.conclusion()
+                            == FlowRuntimeRecords.LocalCheckConclusion.UNAVAILABLE));
+            return ToolCallResult.ok(checkSummary(runs));
+        }
+        catch (RuntimeException failure) {
+            return ToolCallResult.error("tool failed closed");
+        }
     }
 
     private static String checkSummary(List<LocalCheckRun> runs)
     {
-        return runs.stream()
-                .map(run -> run.conclusion().name())
-                .reduce((left, right) -> left + "\n" + right)
-                .orElse("no checks");
+        List<String> summaries = runs.stream()
+                .map(run -> {
+                    String summary = run.conclusion().name();
+                    if (run.unavailableReasonCode() != null) {
+                        summary = String.join(
+                                ":", summary, run.unavailableReasonCode());
+                    }
+                    String output = run.outputText();
+                    if (output == null || output.isBlank()) {
+                        return summary;
+                    }
+                    return String.join(
+                            "\n", summary, output.substring(
+                                    0, Math.min(output.length(),
+                                            MAX_CHECK_OUTPUT_CHARS)));
+                })
+                .toList();
+        return summaries.isEmpty() ? "no checks" : String.join("\n", summaries);
     }
 
     private ToolCallResult guarded(
@@ -763,6 +845,25 @@ final class NewFlowAgentBodies
             throw new IllegalArgumentException("tool argument is invalid");
         }
         return value.textValue();
+    }
+
+    private static List<String> textList(ToolCall call, String name)
+    {
+        JsonNode value = call.input().get(name);
+        if (value == null || !value.isArray()
+                || value.isEmpty() || value.size() > 128) {
+            throw new IllegalArgumentException("tool argument is invalid");
+        }
+        List<String> result = new ArrayList<>(value.size());
+        value.forEach(item -> {
+            if (!item.isTextual() || item.textValue().isBlank()
+                    || item.textValue().length() > 4_096) {
+                throw new IllegalArgumentException(
+                        "tool argument is invalid");
+            }
+            result.add(item.textValue());
+        });
+        return List.copyOf(result);
     }
 
     private static int integer(ToolCall call, String name)

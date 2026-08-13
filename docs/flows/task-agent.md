@@ -169,17 +169,23 @@ These are narrative lifecycle steps, not persisted phases or stages.
 5. Task edits and tests in the worktree. It commits coherent changes locally; it never
    pushes.
 6. Task calls `save_pr_draft(title, body)` when the change is reviewable.
-7. Task calls `run_checks()` or selects an allowed named profile. The program runs
-   every profile required by the current `LocalCheckPolicyRevision` and records each
-   immutable `LocalCheckRun` attempt, including bounded fail-closed output
-   reference/excerpt, conclusion, policy revision, attempt sequence, and
-   measured start/end head. Environment values are never hashed into evidence.
+7. Task calls the `run_checks(command, working_directory)` MCP tool with the exact
+   argv and a worktree-relative directory for one narrow useful command it selected from
+   repository instructions, build files, or CI configuration. The program validates
+   the executable against the current `LocalCheckPolicyRevision`, proves directory
+   containment and the exact clean head, executes without a shell, and records each
+   immutable `LocalCheckRun` attempt, including the actual argv/directory, bounded
+   fail-closed output reference/excerpt, conclusion, policy revision, attempt
+   sequence, and measured start/end head. Environment values are never hashed into
+   evidence. A turn may make up to ten valid attempts while repairing `FAILED`
+   results; after one `UNAVAILABLE` result it may make no further check attempt.
 
 The current ordinary-INITIAL implementation is narrower than this normative
 surface. Its first body exposes bounded read/edit, a fixed commit-and-adopt tool,
 and `request_initial_review(title, body)`. That terminal command mechanically
-materializes/reuses the one local unpublished PR, appends the exact draft, runs
-the program-selected INITIAL check profiles, and seals a fresh reviewer request.
+materializes/reuses the one local unpublished PR, appends the exact draft, requires
+already-recorded validation evidence, and seals a fresh reviewer request; it does
+not run checks itself.
 The exact reviewer-result successor may correct and commit another descendant,
 request a fresh review, or call `ready_for_initial_publish()` after a completed
 same-head review. It does not expose a generic shell, raw Git, owner IDs, or a
@@ -276,10 +282,10 @@ cannot bypass it.
 | Normal source/Git tools | Read/search/edit the one Task worktree and create local commits; remote push is denied |
 | `read_task_state()` | Returns current head, pending event refs, PR draft ref, current checks/reviews/gate, and remote identity/state |
 | `search_project_context(query, path_hints?)` | Returns advisory source-cited project knowledge |
-| `run_checks(profile?)` | With no profile, derives the active gate kind and runs all policy-required profiles; an optional allowed profile runs only that focused check. Returns stored `LocalCheckRun` references, not agent-authored evidence |
+| `run_checks(command, working_directory)` | Accepts exact argv plus a worktree-relative directory for one agent-selected narrow command. The program validates the executable against current policy, cwd containment, and the exact clean head, executes without a shell, and returns stored `LocalCheckRun` references. Up to ten valid attempts are allowed per turn for `FAILED` repair; one `UNAVAILABLE` result ends check attempts for that turn but remains manual-only evidence. |
 | `save_pr_draft(title, body)` | Before first publication only: on a clean committed non-empty diff, materializes the stable Local PR if absent and stores a title/body revision. Reject once remote identity exists; v1 has no post-publication metadata-edit effect |
 | `spawn_agent(role="adversarial_reviewer")` | Successful call returns `reviewRequestId`, seals/ends the parent turn, and durably queues the one allowed exact-head read-only reviewer request; the claimed reviewer operation later creates the child session/run |
-| `request_initial_review(title, body)` | Current ordinary-INITIAL terminal tool. After a fixed commit/adoption it materializes or reuses the one local unpublished PR, appends the bounded draft, records exact INITIAL checks, and seals the fresh read-only reviewer request. No owner IDs are accepted or returned. |
+| `request_initial_review(title, body)` | Current ordinary-INITIAL terminal tool. After a fixed commit/adoption it materializes or reuses the one local unpublished PR, appends the bounded draft, requires already-recorded exact INITIAL check evidence, and seals the fresh read-only reviewer request without executing checks. No owner IDs are accepted or returned. |
 | `ready_for_initial_publish()` | Current INITIAL reviewer-result terminal tool. It accepts no arguments, consumes one fresh authenticated repository observation into a stored target/subject/action/request bundle, and stops. Only the STOPPED finalizer may atomically open the manual INITIAL gate and settle the run/session/input/pointer/lease. |
 | `read_agent_result(run_id)` | Reads an already persisted result, primarily for recovery/history; normal completion is delivered automatically |
 | `list_local_review_items(batch_id?)` | Lists private local review items and current revision IDs; omission selects the authenticated active batch |
@@ -298,13 +304,15 @@ cannot bypass it.
 There is no timeline, push, mark-ready, GitHub-comment, GitHub-resolve, merge,
 Task-complete, arbitrary subagent, or direct CI-Fixer spawn tool.
 
-Current implementation note: `run_checks` is exposed only by the specialized
-`CI_FIX_READY`/changed-reviewer-result Task wrapper. Ordinary INITIAL instead
-runs its program-selected check profiles inside the sealed reviewer-request
-command. Its private finalizer supports exact STOPPED recovery and converts a
+Current implementation note: `run_checks` is exposed by the ordinary INITIAL,
+upstream-final/conflict, CI Fixer, and specialized
+`CI_FIX_READY`/changed-reviewer-result Task wrappers. Each wrapper applies the
+same per-turn attempt bound and stops check retries after `UNAVAILABLE`. The
+INITIAL reviewer-request command consumes existing evidence rather than running
+checks. Its private finalizer supports exact STOPPED recovery and converts a
 review-result continuation with no accepted terminal command into typed
-`MISSING_INITIAL_TERMINAL_REQUEST` attention. Upstream, feedback, local-review,
-and Task-question wrappers remain deferred.
+`MISSING_INITIAL_TERMINAL_REQUEST` attention. Feedback, local-review, and
+Task-question wrappers remain deferred.
 
 When the Task has an authenticated `UpstreamSyncRun`, runtime adds only the bounded
 `UPSTREAM_SYNC` capabilities defined by [Upstream Sync](./upstream-sync.md):
@@ -341,7 +349,7 @@ The Task Agent's standing instruction is short and explicit:
 | `AgentSessions.close(sessionId, reason)` | Close only from a program-observed Task terminal state |
 | `TaskStateReader.read(taskId)` | Assemble current objective state from owner records |
 | `WriterLeases.acquire(taskId, operationId, holderKind)` | Through canonical `MutationAdmission`, enforce one eligible Task Agent, CI Fixer, or `UPSTREAM_SYNC` program writer and issue a fencing token |
-| `LocalChecks.runAndRecord(preparedBatch, operationId, fence)` | Execute one frozen program-owned foreground profile batch inside the current writer turn and bind immutable exact-head attempts; the no-arg agent tool runs the required profile set without a nested operation/session/lease |
+| `LocalChecks.runAndRecord(preparedBatch, operationId, fence)` | Validate and execute one agent-supplied exact argv/cwd against the current program-owned profile inside the current writer turn and bind immutable exact-head evidence containing the actual command and directory, without a nested operation/session/lease |
 | `PrRecords.materialize(taskId, expectedHead)` | Idempotently create the Task's one Local PR after a clean committed diff exists |
 | `PrRecords.saveDraft(prId, expectedRevision, title, body, actor)` | Before remote identity exists, append the exact local title/body revision; reject after publication |
 | `TaskQuestions.ask(taskId, runId, question)` | Store a Task-scoped question, seal measured Git/sequencer state, install the waiting barrier, and seal the run; `AgentRuns.finish` alone persists its result, releases its fence, leaves the session `IDLE`, and exposes the question |
@@ -472,7 +480,7 @@ current production commands. No current prompt or tool manifest contains
 ### A. First publication with a local review change
 
 1. Task reads goal/repository and commits H1.
-2. `run_checks()` records green evidence for H1.
+2. `run_checks([exact argv], ".")` records green evidence for H1.
 3. Fresh reviewer result R1 is auto-persisted for H1 and delivered to Task.
 4. Task calls `ready_for_review`; gate G1 opens for H1.
 5. User submits local comment C1. G1 becomes `CHANGES_REQUESTED`; Task is resumed.

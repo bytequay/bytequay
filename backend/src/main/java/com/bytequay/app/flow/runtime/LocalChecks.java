@@ -160,6 +160,7 @@ public final class LocalChecks
         private final Task task;
         private final LocalCheckPolicyRevision policy;
         private final List<LocalCheckProfile> profiles;
+        private final ValidationRequest validationRequest;
         private final Duration requiredAuthorityDuration;
 
         private PreparedLocalCheckBatch(
@@ -167,18 +168,36 @@ public final class LocalChecks
                 Task task,
                 LocalCheckPolicyRevision policy,
                 List<LocalCheckProfile> profiles,
+                ValidationRequest validationRequest,
                 Duration requiredAuthorityDuration)
         {
             this.run = run;
             this.task = task;
             this.policy = policy;
             this.profiles = List.copyOf(profiles);
+            this.validationRequest = validationRequest;
             this.requiredAuthorityDuration = requiredAuthorityDuration;
         }
 
         Duration requiredAuthorityDuration()
         {
             return requiredAuthorityDuration;
+        }
+    }
+
+    /** Exact local validation invocation supplied by the active Task Agent. */
+    public record ValidationRequest(
+            List<String> command,
+            String workingDirectory)
+    {
+        public ValidationRequest
+        {
+            command = boundedUniqueList(
+                    command, "command", false, MAX_ARGUMENTS);
+            if (command.isEmpty()) {
+                throw new IllegalArgumentException("command is empty");
+            }
+            requireSafeRelativePath(workingDirectory, true);
         }
     }
 
@@ -368,12 +387,41 @@ public final class LocalChecks
     synchronized PreparedLocalCheckBatch prepareBatch(
             String runId, String profileName)
     {
+        return prepareBatch(runId, profileName, null);
+    }
+
+    /** Freezes one agent-selected invocation against one policy profile. */
+    synchronized PreparedLocalCheckBatch prepareBatch(
+            String runId,
+            List<String> command,
+            String workingDirectory)
+    {
+        return prepareBatch(
+                runId, null,
+                new ValidationRequest(command, workingDirectory));
+    }
+
+    private PreparedLocalCheckBatch prepareBatch(
+            String runId,
+            String profileName,
+            ValidationRequest validationRequest)
+    {
         AgentRun run = requireTaskRun(runId);
         Task task = runtime.task(runForTask(run).taskId()).orElseThrow();
         LocalCheckPolicyRevision policy = currentPolicy(task.repositoryId())
                 .orElseThrow(() -> new IllegalStateException(POLICY_MISSING));
         List<LocalCheckProfile> selected = selectProfiles(
                 policy, run.intendedGateKind(), profileName);
+        if (validationRequest != null && selected.size() != 1) {
+            throw new IllegalStateException(
+                    "agent validation requires exactly one local-check profile");
+        }
+        if (validationRequest != null
+                && !validationRequest.command().get(0).equals(
+                        selected.get(0).command().get(0))) {
+            throw new IllegalArgumentException(
+                    "validation executable is not allowed by the local-check policy");
+        }
         Duration duration = INSPECTION_BOUND.multipliedBy(
                         selected.size() * 2L + 3L)
                 .plus(PROCESS_GRACE.multipliedBy(selected.size() * 4L))
@@ -382,7 +430,7 @@ public final class LocalChecks
             duration = duration.plus(profile.timeout());
         }
         return new PreparedLocalCheckBatch(
-                run, task, policy, selected, duration);
+                run, task, policy, selected, validationRequest, duration);
     }
 
     /**
@@ -449,6 +497,7 @@ public final class LocalChecks
                     adopted,
                     programOwnedRepositoryRoot,
                     profile,
+                    batch.validationRequest,
                     onBoundaryUnproven));
         }
         return List.copyOf(results);
@@ -586,6 +635,7 @@ public final class LocalChecks
             ChangeSetRevision changeSet,
             Path programOwnedRepositoryRoot,
             LocalCheckProfile profile,
+            ValidationRequest validationRequest,
             Runnable onBoundaryUnproven)
     {
         runtime.assertWriterFence(claim, fence);
@@ -604,10 +654,16 @@ public final class LocalChecks
                     "run_checks requires the exact clean adopted head");
         }
         Path worktree = realDirectory(Path.of(task.worktreePath()), "worktree");
+        List<String> actualCommand = validationRequest == null
+                ? profile.command() : validationRequest.command();
+        String actualWorkingDirectory = validationRequest == null
+                ? profile.workingDirectory()
+                : validationRequest.workingDirectory();
         Path workingDirectory = resolveWorkingDirectory(
-                worktree, profile.workingDirectory());
+                worktree, actualWorkingDirectory);
         Instant startedAt = clock.instant();
-        CommandOutcome command = execute(profile, worktree, workingDirectory);
+        CommandOutcome command = execute(
+                profile, actualCommand, worktree, workingDirectory);
         if (PROCESS_BOUNDARY_UNPROVEN.equals(
                 command.unavailableReasonCode())) {
             onBoundaryUnproven.run();
@@ -652,6 +708,8 @@ public final class LocalChecks
                     task,
                     changeSet,
                     profile,
+                    actualCommand,
+                    actualWorkingDirectory,
                     before,
                     after,
                     cleanAfter,
@@ -672,6 +730,7 @@ public final class LocalChecks
 
     private CommandOutcome execute(
             LocalCheckProfile profile,
+            List<String> requestedCommand,
             Path worktree,
             Path workingDirectory)
     {
@@ -695,13 +754,13 @@ public final class LocalChecks
         Path executable;
         try {
             executable = resolveExecutable(
-                    profile.command().get(0), worktree, workingDirectory);
+                    requestedCommand.get(0), worktree, workingDirectory);
         }
         catch (RuntimeException unavailable) {
             return CommandOutcome.unavailable(
                     "EXECUTABLE_UNAVAILABLE", unavailable.getMessage());
         }
-        List<String> command = new ArrayList<>(profile.command());
+        List<String> command = new ArrayList<>(requestedCommand);
         command.set(0, executable.toString());
         ProcessBuilder builder = new ProcessBuilder(command)
                 .directory(workingDirectory.toFile())
@@ -806,6 +865,8 @@ public final class LocalChecks
             Task task,
             ChangeSetRevision changeSet,
             LocalCheckProfile profile,
+            List<String> actualCommand,
+            String actualWorkingDirectory,
             Inspection before,
             Inspection after,
             boolean cleanAfter,
@@ -898,14 +959,15 @@ public final class LocalChecks
                     INSERT INTO flow_runtime_local_check_run (
                         check_run_id, task_id, change_set_revision_id,
                         policy_revision_id, profile_id, operation_id,
-                        agent_run_id, attempt_sequence, observed_start_head,
+                        agent_run_id, command_json, working_directory,
+                        attempt_sequence, observed_start_head,
                         observed_end_head, started_at,
                         completed_at, conclusion, exit_code,
                         unavailable_reason_code, output_ref, output_text,
                         output_truncated, tracked_tree_clean_before,
                         tracked_tree_clean_after
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?)
                     """,
                     runId,
                     task.taskId(),
@@ -914,6 +976,8 @@ public final class LocalChecks
                     profile.profileId(),
                     claim.operationId(),
                     run.runId(),
+                    writeJson(actualCommand),
+                    actualWorkingDirectory,
                     sequence,
                     before.headSha(),
                     after == null ? null : after.headSha(),
@@ -1075,7 +1139,7 @@ public final class LocalChecks
                 Instant.ofEpochMilli(result.getLong("recorded_at")));
     }
 
-    private static LocalCheckRun readRun(ResultSet result)
+    private LocalCheckRun readRun(ResultSet result)
             throws SQLException
     {
         int exitCode = result.getInt("exit_code");
@@ -1088,6 +1152,8 @@ public final class LocalChecks
                 result.getString("profile_id"),
                 result.getString("operation_id"),
                 result.getString("agent_run_id"),
+                readStringList(result.getString("command_json")),
+                result.getString("working_directory"),
                 result.getLong("attempt_sequence"),
                 result.getString("observed_start_head"),
                 result.getString("observed_end_head"),

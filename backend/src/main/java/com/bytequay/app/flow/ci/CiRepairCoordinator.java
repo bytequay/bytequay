@@ -82,8 +82,8 @@ import static java.util.Objects.requireNonNull;
 /** Owns one exact red CI round and its fenced repair writer. */
 public final class CiRepairCoordinator
 {
-    private static final String CI_PROMPT_MANIFEST = "ci-fix-prompt:v1";
-    private static final String CI_CAPABILITY_SET = "ci-fix-capabilities:v1";
+    private static final String CI_PROMPT_MANIFEST = "ci-fix-prompt:v2";
+    private static final String CI_CAPABILITY_SET = "ci-fix-capabilities:v2";
     private static final Duration REWRITE_TIMEOUT = Duration.ofMinutes(10);
     // ponytail: one flat ceiling for every boundary build in a series. Make it
     // per-Task configuration if a range ever needs longer than this.

@@ -88,10 +88,6 @@ public final class UpstreamSyncPolicyPublisher
                 CiJobScriptReader.anyBuildInvocation(worktree)
                 .orElseThrow(() -> new IllegalStateException(
                         "no safe local build command was found in GitHub Actions"));
-        CiJobScriptReader.BuildInvocation tests =
-                CiJobScriptReader.anyTestInvocation(worktree)
-                .orElseThrow(() -> new IllegalStateException(
-                        "no safe local test command was found in GitHub Actions"));
         String inspectedHead = head(worktree);
         if (!inspectedHead.equals(policyHead)) {
             throw new IllegalStateException(
@@ -102,12 +98,12 @@ public final class UpstreamSyncPolicyPublisher
         localChecks.recordPolicy(
                 repositoryId,
                 current == null ? null : current.policyRevisionId(),
-                "git:" + policyHead + ":" + tests.sourceRef(),
-                tests.sourceDigest(),
+                "git:" + policyHead + ":" + build.sourceRef(),
+                build.sourceDigest(),
                 List.of(new ProfileDefinition(
-                        "test",
-                        tests.arguments(),
-                        tests.workingDirectory(),
+                        "agent-selected",
+                        build.arguments(),
+                        build.workingDirectory(),
                         List.of(),
                         CHECK_TIMEOUT,
                         List.of(GateIntent.INITIAL_PUBLISH,

@@ -197,7 +197,7 @@ public final class InProcessWriterAgentSupervisor
                     providerSessionId, tokensIn, tokensOut, costMilliUsd);
         }
 
-        /** Program-bound local checks; the model supplies no command/evidence. */
+        /** Legacy program-bound local checks. */
         public List<LocalCheckRun> runChecks(
                 LocalChecks localChecks,
                 Path programOwnedRepositoryRoot,
@@ -205,6 +205,18 @@ public final class InProcessWriterAgentSupervisor
         {
             return execution.runChecks(
                     localChecks, programOwnedRepositoryRoot, profileName);
+        }
+
+        /** Agent-selected validation, executed and recorded by the program. */
+        public List<LocalCheckRun> runChecks(
+                LocalChecks localChecks,
+                Path programOwnedRepositoryRoot,
+                List<String> command,
+                String workingDirectory)
+        {
+            return execution.runChecks(
+                    localChecks, programOwnedRepositoryRoot,
+                    command, workingDirectory);
         }
 
         /** Program-only inspected adoption; no model owner ids are accepted. */
@@ -1084,12 +1096,38 @@ public final class InProcessWriterAgentSupervisor
                 Path programOwnedRepositoryRoot,
                 String profileName)
         {
+            return runChecks(
+                    localChecks, programOwnedRepositoryRoot,
+                    profileName, null, null);
+        }
+
+        private List<LocalCheckRun> runChecks(
+                LocalChecks localChecks,
+                Path programOwnedRepositoryRoot,
+                List<String> command,
+                String workingDirectory)
+        {
+            return runChecks(
+                    localChecks, programOwnedRepositoryRoot,
+                    null, command, workingDirectory);
+        }
+
+        private List<LocalCheckRun> runChecks(
+                LocalChecks localChecks,
+                Path programOwnedRepositoryRoot,
+                String profileName,
+                List<String> command,
+                String workingDirectory)
+        {
             requireNonNull(localChecks, "localChecks is null");
             requireNonNull(programOwnedRepositoryRoot,
                     "programOwnedRepositoryRoot is null");
             return callTool(() -> {
                 LocalChecks.PreparedLocalCheckBatch batch =
-                        localChecks.prepareBatch(runId, profileName);
+                        command == null
+                                ? localChecks.prepareBatch(runId, profileName)
+                                : localChecks.prepareBatch(
+                                        runId, command, workingDirectory);
                 renewFor(batch.requiredAuthorityDuration());
                 try {
                     return localChecks.runAndRecord(

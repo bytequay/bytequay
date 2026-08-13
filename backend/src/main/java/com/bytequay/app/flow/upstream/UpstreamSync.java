@@ -18,6 +18,7 @@ import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RequestState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamFixup;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamPick;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRequest;
@@ -39,6 +40,7 @@ import java.time.Clock;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -83,7 +85,7 @@ public final class UpstreamSync
             String sourceFromRef,
             String sourceToRef,
             String targetRef,
-            List<String> selectedUpstreamShas,
+            List<SelectedCommit> selectedCommits,
             String requestedByUserId,
             String taskId,
             int repairTurnBudget)
@@ -92,8 +94,8 @@ public final class UpstreamSync
         requireText(repositoryId, "repositoryId");
         requireText(goalText, "goalText");
         requireText(taskId, "taskId");
-        List<String> selected = List.copyOf(requireNonNull(
-                selectedUpstreamShas, "selectedUpstreamShas is null"));
+        List<SelectedCommit> selected = List.copyOf(requireNonNull(
+                selectedCommits, "selectedCommits is null"));
         if (selected.isEmpty()) {
             throw new IllegalArgumentException(
                     "an upstream sync selects no commit");
@@ -110,7 +112,8 @@ public final class UpstreamSync
                                 "upstream request has no run"));
                 if (!existing.repositoryId().equals(repositoryId)
                         || !existing.goalText().equals(goalText)
-                        || !existing.selectedUpstreamShas().equals(selected)
+                        || !existing.selectedUpstreamShas().equals(
+                                shas(selected))
                         || !run.taskId().equals(taskId)) {
                     throw new IllegalStateException(
                             "requestKey already owns a different upstream "
@@ -125,13 +128,15 @@ public final class UpstreamSync
                     INSERT INTO flow_upstream_sync_request (
                         request_id, request_key, repository_id, goal_text,
                         source_remote, source_from_ref, source_to_ref,
-                        target_ref, selected_upstream_shas_json, state,
+                        target_ref, selected_upstream_shas_json,
+                        selected_subjects_json, state,
                         requested_by_user_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'STARTED', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'STARTED', ?, ?)
                     """,
                     requestId, requestKey, repositoryId, goalText,
                     sourceRemote, sourceFromRef, sourceToRef, targetRef,
-                    json(selected), requestedByUserId, now);
+                    json(shas(selected)), json(subjects(selected)),
+                    requestedByUserId, now);
             String runId = stableId("upstream-sync-run", requestId);
             jdbc.update(
                     """
@@ -439,7 +444,9 @@ public final class UpstreamSync
                 result.getString("source_from_ref"),
                 result.getString("source_to_ref"),
                 result.getString("target_ref"),
-                strings(result.getString("selected_upstream_shas_json")),
+                selectedCommits(
+                        strings(result.getString("selected_upstream_shas_json")),
+                        strings(result.getString("selected_subjects_json"))),
                 RequestState.valueOf(result.getString("state")),
                 result.getString("requested_by_user_id"),
                 result.getLong("created_at"));
@@ -497,6 +504,31 @@ public final class UpstreamSync
                 result.getInt("amend_count"),
                 result.getString("change_set_revision_id"),
                 result.getLong("recorded_at"));
+    }
+
+    private static List<String> shas(List<SelectedCommit> selected)
+    {
+        return selected.stream().map(SelectedCommit::sha).toList();
+    }
+
+    private static List<String> subjects(List<SelectedCommit> selected)
+    {
+        return selected.stream().map(SelectedCommit::subject).toList();
+    }
+
+    /**
+     * Rebuilds the selection from its two columns. A row written before
+     * subjects were recorded has none, which reads as an unknown subject
+     * rather than a wrong one.
+     */
+    private static List<SelectedCommit> selectedCommits(
+            List<String> shas, List<String> subjects)
+    {
+        return IntStream.range(0, shas.size())
+                .mapToObj(index -> new SelectedCommit(
+                        shas.get(index),
+                        index < subjects.size() ? subjects.get(index) : ""))
+                .toList();
     }
 
     private String json(List<String> values)

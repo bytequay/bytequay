@@ -40,7 +40,10 @@ import com.bytequay.app.flow.upstream.UpstreamSync;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamPick;
+import com.bytequay.app.flow.upstream.UpstreamSyncViewConfiguration;
+import com.bytequay.app.flow.upstream.UpstreamSyncViews;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.agents.ToolCall;
@@ -66,6 +69,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -178,7 +182,8 @@ final class TestUpstreamSyncEndToEnd
                 .withUserConfiguration(
                         NewFlowConfiguration.class,
                         NewFlowAgentBridgeConfiguration.class,
-                        UpstreamSyncConfiguration.class)
+                        UpstreamSyncConfiguration.class,
+                        UpstreamSyncViewConfiguration.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     FlowRuntime runtime = context.getBean(FlowRuntime.class);
@@ -212,7 +217,7 @@ final class TestUpstreamSyncEndToEnd
                                     "Bring the selected upstream commits onto "
                                             + "this fork",
                                     "upstream", "base", "upstream", "main",
-                                    List.of(
+                                    selection(
                                             cleanCommit, conflictingCommit,
                                             alreadyPresentCommit),
                                     "user-1");
@@ -225,7 +230,7 @@ final class TestUpstreamSyncEndToEnd
                             "Bring the selected upstream commits onto this "
                                     + "fork",
                             "upstream", "base", "upstream", "main",
-                            List.of(
+                            selection(
                                     cleanCommit, conflictingCommit,
                                     alreadyPresentCommit),
                             "user-1").run().runId())
@@ -354,10 +359,54 @@ final class TestUpstreamSyncEndToEnd
                     // component knowing it exists.
                     assertThat(upstreamSync.repairPlacement("task:ordinary"))
                             .isEqualTo(RepairPlacementPolicy.TIP);
+
+                    assertProjectedRun(
+                            context.getBean(UpstreamSyncViews.class),
+                            started.run().runId());
                 });
 
         assertThat(Files.readAllBytes(primaryDatabase))
                 .containsExactly(primaryBefore);
+    }
+
+    /**
+     * What the run surfaces read. The projection is the only thing standing
+     * between these records and the list, so a wrong count here is a wrong
+     * number on the page.
+     */
+    private void assertProjectedRun(UpstreamSyncViews views, String runId)
+    {
+        UpstreamSyncViews.SyncRunDetail detail =
+                views.detail(runId).orElseThrow();
+        assertThat(detail.job().runNumber()).isEqualTo(1);
+        assertThat(detail.job().status()).isEqualTo("COMPLETED");
+        assertThat(detail.job().requestedCount()).isEqualTo(3);
+        // Two commits landed, one was already carried by the fork, and the
+        // conflicted one is counted as carried rather than clean.
+        assertThat(detail.job().appliedCount()).isEqualTo(2);
+        assertThat(detail.job().skippedCount()).isEqualTo(1);
+        assertThat(detail.job().conflictedCount()).isEqualTo(1);
+        assertThat(detail.job().prNumber()).isNotNull();
+        assertThat(detail.commits()).extracting(
+                UpstreamSyncViews.SyncCommit::state)
+                .containsExactly("applied", "conflicted", "skipped");
+        // Attribution: the one fixup names the pick it repaired, and says it
+        // was made while picking rather than by a CI round.
+        assertThat(detail.fixups()).singleElement().satisfies(fixup -> {
+            assertThat(fixup.pickIndex()).isEqualTo(1);
+            assertThat(fixup.upstreamSha()).isEqualTo(conflictingCommit);
+            assertThat(fixup.origin()).isEqualTo("CONFLICT_REPAIR");
+        });
+        // The CI round the pull request opened after publication, counted for
+        // the list's ROUNDS column and named in the run's own rail.
+        assertThat(detail.job().roundCount()).isEqualTo(1);
+        assertThat(detail.rounds()).singleElement().satisfies(round -> {
+            assertThat(round.ordinal()).isEqualTo(1);
+            assertThat(round.state()).isEqualTo("QUEUED");
+        });
+        assertThat(views.list("octocat/bytequay", 25))
+                .extracting(UpstreamSyncViews.SyncJob::jobId)
+                .containsExactly(runId);
     }
 
     private void assertPickedSeries(UpstreamSync upstreamSync, String runId)
@@ -398,7 +447,7 @@ final class TestUpstreamSyncEndToEnd
                 // The one semantic part of the range: Git's own three-way
                 // resolution is already committed, markers and all.
                 String context = call(
-                        tools, "read_initial_task_context", "{}");
+                        tools, "read_pick_conflict_context", "{}");
                 assertThat(context).contains("conflictedPaths=contested.txt");
                 assertThat(call(tools, "read_file",
                         "{\"path\":\"contested.txt\"}"))
@@ -406,7 +455,7 @@ final class TestUpstreamSyncEndToEnd
                 call(tools, "write_file",
                         "{\"path\":\"contested.txt\","
                                 + "\"content\":\"merged rewrite\\n\"}");
-                call(tools, "commit_initial_change", "{}");
+                call(tools, "commit_pick_repair", "{}");
                 return result(TurnResult.End.INTERRUPTED);
             }
             case 2 -> {
@@ -453,6 +502,14 @@ final class TestUpstreamSyncEndToEnd
                 CredentialType.AI, "openai", "default api"))
                 .thenReturn(Optional.of("ai-secret"));
         return credentials;
+    }
+
+    /** The picker confirms shas; the subjects beside them are display only. */
+    private static List<SelectedCommit> selection(String... shas)
+    {
+        return Arrays.stream(shas)
+                .map(sha -> new SelectedCommit(sha, "upstream " + sha))
+                .toList();
     }
 
     private static DisplayedGate displayed(JdbcTemplate jdbc, UserGate gate)

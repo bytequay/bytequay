@@ -8,6 +8,10 @@ CREATE TABLE flow_upstream_sync_request (
     source_to_ref TEXT NOT NULL,
     target_ref TEXT NOT NULL,
     selected_upstream_shas_json TEXT NOT NULL,
+    -- Display only, aligned by position with the shas above: the run surface
+    -- names the range by its endpoint subjects, and a waiting pick has no
+    -- commit of its own to read one from. The shas stay the contract.
+    selected_subjects_json TEXT NOT NULL DEFAULT '[]',
     state TEXT NOT NULL CHECK (
         state IN ('REQUESTED', 'STARTED', 'CANCELED', 'NEEDS_ATTENTION')
     ),

@@ -15,6 +15,7 @@ package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.upstream.UpstreamSync;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRun;
 
 import java.util.List;
@@ -79,12 +80,12 @@ public final class UpstreamSyncCommands
             String sourceFromRef,
             String sourceToRef,
             String targetRef,
-            List<String> selectedUpstreamShas,
+            List<SelectedCommit> selectedCommits,
             String requestedByUserId)
     {
         return startConfirmed(
                 requestKey, repositoryId, goalText, sourceRemote,
-                sourceFromRef, sourceToRef, targetRef, selectedUpstreamShas,
+                sourceFromRef, sourceToRef, targetRef, selectedCommits,
                 requestedByUserId, DEFAULT_REPAIR_TURN_BUDGET);
     }
 
@@ -96,7 +97,7 @@ public final class UpstreamSyncCommands
             String sourceFromRef,
             String sourceToRef,
             String targetRef,
-            List<String> selectedUpstreamShas,
+            List<SelectedCommit> selectedCommits,
             String requestedByUserId,
             int repairTurnBudget)
     {
@@ -104,7 +105,7 @@ public final class UpstreamSyncCommands
                 requestKey, repositoryId, goalText);
         UpstreamSyncRun run = upstreamSync.startRun(
                 requestKey, repositoryId, goalText, sourceRemote,
-                sourceFromRef, sourceToRef, targetRef, selectedUpstreamShas,
+                sourceFromRef, sourceToRef, targetRef, selectedCommits,
                 requestedByUserId, task.taskId(), repairTurnBudget);
         dispatcher.wake();
         initialTasks.wake();

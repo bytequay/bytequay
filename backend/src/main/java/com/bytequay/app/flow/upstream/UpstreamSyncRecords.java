@@ -72,6 +72,25 @@ public final class UpstreamSyncRecords
         STANDALONE
     }
 
+    /**
+     * One confirmed commit of the range.
+     *
+     * @param subject what the picker showed for it, kept so the run surface can
+     *         name a commit that has not been applied yet. Blank when the
+     *         caller recorded none, which reads as unknown rather than empty.
+     */
+    public record SelectedCommit(String sha, String subject)
+    {
+        public SelectedCommit
+        {
+            requireNonNull(sha, "sha is null");
+            subject = subject == null ? "" : subject;
+            if (sha.isBlank()) {
+                throw new IllegalArgumentException("a selected sha is blank");
+            }
+        }
+    }
+
     public record UpstreamSyncRequest(
             String requestId,
             String requestKey,
@@ -81,7 +100,7 @@ public final class UpstreamSyncRecords
             String sourceFromRef,
             String sourceToRef,
             String targetRef,
-            List<String> selectedUpstreamShas,
+            List<SelectedCommit> selectedCommits,
             RequestState state,
             String requestedByUserId,
             long createdAt)
@@ -93,12 +112,18 @@ public final class UpstreamSyncRecords
             requireNonNull(repositoryId, "repositoryId is null");
             requireNonNull(goalText, "goalText is null");
             requireNonNull(state, "state is null");
-            selectedUpstreamShas = List.copyOf(requireNonNull(
-                    selectedUpstreamShas, "selectedUpstreamShas is null"));
-            if (selectedUpstreamShas.isEmpty()) {
+            selectedCommits = List.copyOf(requireNonNull(
+                    selectedCommits, "selectedCommits is null"));
+            if (selectedCommits.isEmpty()) {
                 throw new IllegalArgumentException(
                         "an upstream sync request selects no commit");
             }
+        }
+
+        /** The range itself; the subjects beside it are display only. */
+        public List<String> selectedUpstreamShas()
+        {
+            return selectedCommits.stream().map(SelectedCommit::sha).toList();
         }
     }
 

@@ -313,6 +313,25 @@ class TestFlowRuntime
     }
 
     @Test
+    void synchronousPreLaunchFailureRedrivesWithoutWaitingForClaimExpiry()
+    {
+        startAndProvision("pre-launch-failure");
+        Operation turn = selectFromReconciliation();
+        ActiveWriter writer = startWriter(
+                OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
+        assertThat(count("flow_runtime_agent_process_attempt")).isZero();
+
+        assertThat(runtime.recoverClaimedBeforeProcessLaunch(writer.claim()))
+                .isTrue();
+        assertThat(runtime.operation(turn.operationId()).orElseThrow().state())
+                .isEqualTo(OperationState.RETRYABLE);
+
+        runtime.redriveRetryable(turn.operationId());
+        assertThat(claim(OperationKind.RUN_TASK_TURN).generation())
+                .isEqualTo(writer.claim().generation() + 1);
+    }
+
+    @Test
     void expiredReservedClaimQuarantinesBecauseDormantProcessMayExist()
     {
         Task task = startAndProvision("reserved-recovery");

@@ -807,6 +807,50 @@ final class DispatchRuntime
         });
     }
 
+    /** Releases this dispatcher's exact claim after a synchronous pre-launch
+     *  failure proves that no provider process attempt was reserved. */
+    boolean recoverClaimedBeforeProcessLaunch(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        return runtime.inTransaction(() -> {
+            Operation operation = runtime.requireOperation(
+                    claim.operationId());
+            if (operation.state() == OperationState.RETRYABLE
+                    && ticketMatches(
+                            claim.operationId(), claim.generation(),
+                            "AVAILABLE")) {
+                return true;
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Integer attempts = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_agent_run r
+                    JOIN flow_runtime_agent_process_attempt p
+                      ON p.run_id = r.run_id
+                     AND p.claim_generation = ?
+                    WHERE r.operation_id = ?
+                    """,
+                    Integer.class,
+                    claim.generation(), claim.operationId());
+            if (requireNonNull(attempts, "attempt count is null") != 0) {
+                return false;
+            }
+            String runId = jdbc.query(
+                    """
+                    SELECT run_id FROM flow_runtime_agent_run
+                    WHERE operation_id = ?
+                    """,
+                    (result, row) -> result.getString("run_id"),
+                    claim.operationId()).stream().findFirst().orElse(null);
+            recoverNeverLaunchedClaim(new ExpiredClaim(
+                    claim.operationId(), operation.taskId(), operation.kind(),
+                    claim.generation(), currentClaimExpiry(claim), runId,
+                    null, null));
+            return true;
+        });
+    }
+
     /** Makes one proven-dead retry generation eligible for claiming. */
     void redriveRetryable(String operationId)
     {

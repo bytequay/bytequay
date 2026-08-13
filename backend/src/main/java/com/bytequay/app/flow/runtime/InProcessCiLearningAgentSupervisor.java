@@ -138,6 +138,17 @@ public final class InProcessCiLearningAgentSupervisor
             execution.save(new LessonProposal(title, markdown));
         }
 
+        /**
+         * Records the process group a CLI learner just launched, before its
+         * prompt goes in. Not the terminal save: this is the program recording
+         * what it started, and it does not spend the one lesson proposal.
+         */
+        public void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            execution.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
+        }
+
         @Override
         public String toString()
         {
@@ -448,6 +459,24 @@ public final class InProcessCiLearningAgentSupervisor
         {
             aborted = true;
             gate.countDown();
+        }
+
+        private void recordAgentGroup(
+                long agentPid, long agentPgid, Instant agentStartedAt)
+        {
+            // Only the thread that owns the turn may say what it launched; any
+            // other caller would be naming a group it does not hold.
+            if (Thread.currentThread() != thread) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "recording an agent group requires the owned learning"
+                                + " thread");
+            }
+            runtime.recordInProcessReadOnlyAgentGroup(
+                    attempt.processAttemptId(),
+                    claim,
+                    agentPid,
+                    agentPgid,
+                    agentStartedAt);
         }
 
         private ExecutionHandle handle()

@@ -7888,9 +7888,43 @@ public final class FlowRuntime
             long agentPgid,
             Instant agentStartedAt)
     {
+        requireNonNull(fence, "fence is null");
+        recordAgentProcessGroup(
+                processAttemptId, claim, fence, agentPid, agentPgid,
+                agentStartedAt);
+    }
+
+    /**
+     * The same record for a role that holds no writer lease.
+     *
+     * <p>A reviewer or learner runs read-only and never takes the fence, so
+     * there is none to assert. What still has to hold is everything that makes
+     * the row meaningful: the claim is current, the attempt belongs to that
+     * claim generation, and it is activated. Those are what a later JVM trusts
+     * when it decides whether to bury this group.
+     */
+    synchronized void recordInProcessReadOnlyAgentGroup(
+            String processAttemptId,
+            Claim claim,
+            long agentPid,
+            long agentPgid,
+            Instant agentStartedAt)
+    {
+        recordAgentProcessGroup(
+                processAttemptId, claim, null, agentPid, agentPgid,
+                agentStartedAt);
+    }
+
+    private void recordAgentProcessGroup(
+            String processAttemptId,
+            Claim claim,
+            WriterFence fence,
+            long agentPid,
+            long agentPgid,
+            Instant agentStartedAt)
+    {
         requireText(processAttemptId, "processAttemptId");
         requireNonNull(claim, "claim is null");
-        requireNonNull(fence, "fence is null");
         if (agentPid <= 0) {
             throw new IllegalArgumentException("agentPid must be positive");
         }
@@ -7901,7 +7935,9 @@ public final class FlowRuntime
         }
         inTransaction(() -> {
             assertCurrentClaim(claim, OperationState.CLAIMED);
-            assertFenceRow(claim, fence);
+            if (fence != null) {
+                assertFenceRow(claim, fence);
+            }
             AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
             if (!attempt.operationId().equals(claim.operationId())
                     || attempt.claimGeneration() != claim.generation()) {

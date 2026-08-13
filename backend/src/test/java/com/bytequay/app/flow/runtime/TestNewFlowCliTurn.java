@@ -41,8 +41,11 @@ final class TestNewFlowCliTurn
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String RUN_ID = "run-cli-1";
-    /** Written by the fake CLI, one directory above the worktree it runs in. */
-    private static final String MARKER = "../marker.txt";
+    /** Absolute, because a read-only turn runs in a directory of its own. */
+    private static String marker(Path root)
+    {
+        return root.resolve("marker.txt").toString();
+    }
 
     @Test
     void theGroupIsPersistedBeforeTheAgentSeesItsPrompt(@TempDir Path root)
@@ -57,7 +60,7 @@ final class TestNewFlowCliTurn
                 printf 'prompt-read' > %s
                 echo '{"type":"system","subtype":"init","session_id":"s-1"}'
                 echo '{"type":"result","subtype":"success","result":"done"}'
-                """.formatted(MARKER));
+                """.formatted(marker(root)));
         AtomicBoolean promptAlreadyRead = new AtomicBoolean();
         AtomicLong recorded = new AtomicLong();
 
@@ -130,7 +133,7 @@ final class TestNewFlowCliTurn
                 git push origin HEAD:refs/heads/main >> %s 2>&1 \\
                     || echo 'push-refused' >> %s
                 echo '{"type":"result","subtype":"success","result":"ok"}'
-                """.formatted(MARKER, MARKER));
+                """.formatted(marker(root), marker(root)));
 
         fixture.run((pid, pgid, startedAt) -> {});
 
@@ -158,6 +161,39 @@ final class TestNewFlowCliTurn
         // into a successful empty turn.
         assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.ABORTED);
         assertThat(outcome.providerSessionId()).isNull();
+    }
+
+    @Test
+    void aReadOnlyTurnGetsNoRepositoryAndNoCredentials(@TempDir Path root)
+            throws Exception
+    {
+        // A reviewer reads through its tools, never the filesystem. Handing it
+        // an empty directory is stronger than containing a worktree: there is
+        // no repository to push from and no credential to push with.
+        Fixture fixture = Fixture.create(root, """
+                read line
+                printf '%%s\\n' "cwd=$PWD" > %s
+                git rev-parse --show-toplevel >> %s 2>&1 \\
+                    || echo 'no-repository' >> %s
+                git config --global --list >> %s 2>&1
+                echo '{"type":"result","subtype":"success","result":"reviewed"}'
+                """.formatted(marker(root), marker(root), marker(root), marker(root)));
+        AtomicLong pgid = new AtomicLong();
+
+        NewFlowCliTurn.Outcome outcome = fixture.runReadOnly(
+                (pid, group, startedAt) -> pgid.set(group));
+
+        String observed = Files.readString(
+                fixture.marker, StandardCharsets.UTF_8);
+        assertThat(observed).contains("no-repository");
+        assertThat(observed)
+                .as("an empty global config is the whole point of the scrub")
+                .doesNotContain("credential");
+        assertThat(observed)
+                .as("the agent must not be standing in the Task's worktree")
+                .doesNotContain("cwd=" + fixture.worktree);
+        assertThat(outcome.turn().finalText()).isEqualTo("reviewed");
+        assertThat(ProcessGroup.isAlive(pgid.get())).isFalse();
     }
 
     /** A git clone with a real remote, and a script standing in for the CLI. */
@@ -222,13 +258,26 @@ final class TestNewFlowCliTurn
 
         NewFlowCliTurn.Outcome run(NewFlowCliTurn.GroupRecorder recorder)
         {
-            return turn.run(
+            return turn.runInWorktree(
                     RUN_ID,
                     binding,
                     MAPPER.createArrayNode(),
                     "be exact",
                     call -> ToolExecutor.ToolCallResult.ok(""),
                     worktree,
+                    recorder,
+                    () -> false);
+        }
+
+        NewFlowCliTurn.Outcome runReadOnly(
+                NewFlowCliTurn.GroupRecorder recorder)
+        {
+            return turn.runReadOnly(
+                    RUN_ID,
+                    binding,
+                    MAPPER.createArrayNode(),
+                    "be exact",
+                    call -> ToolExecutor.ToolCallResult.ok(""),
                     recorder,
                     () -> false);
         }

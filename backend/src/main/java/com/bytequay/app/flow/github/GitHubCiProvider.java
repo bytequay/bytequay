@@ -421,7 +421,6 @@ final class GitHubCiProvider
                     .map(GitHubCiProvider::normalize)
                     .collect(Collectors.toUnmodifiableSet());
             Map<SelectorIdentity, RunSelection> selections = new HashMap<>();
-            boolean collecting = false;
             boolean failed = false;
             boolean needsAttention = false;
             for (SelectorIdentity selector : required.keySet()) {
@@ -436,7 +435,6 @@ final class GitHubCiProvider
                 }
                 Run selected = selection.run();
                 if (selected == null || !terminal(selected.status())) {
-                    collecting = true;
                     continue;
                 }
                 String conclusion = normalize(selected.conclusion());
@@ -449,7 +447,11 @@ final class GitHubCiProvider
                     }
                 }
             }
-            if (!collecting && !needsAttention && failed) {
+            // A configured per-commit compile failure may admit repair while
+            // sibling checks are still collecting. The provider records facts,
+            // so capture every terminal required failure now; CiAutofix alone
+            // decides whether any of them is allowed to wake a repair early.
+            if (!needsAttention && failed) {
                 for (RunSelection selection : selections.values()) {
                     Run selected = selection.run();
                     if (selected == null || !terminal(selected.status())) {

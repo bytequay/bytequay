@@ -34,4 +34,15 @@ final class TestUpstreamSyncCoordinatorCancellation
                 new IllegalStateException("ordinary failure"), false))
                 .isFalse();
     }
+
+    @Test
+    void aCompletedRangeCannotBeReportedAsAnUnresolvedConflict()
+    {
+        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true, false))
+                .isEqualTo("FINAL_REVIEW_UNRESOLVED");
+        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(false, false))
+                .isEqualTo("CONFLICT_UNRESOLVED");
+        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true, true))
+                .isEqualTo("CONFLICT_DECLINED");
+    }
 }

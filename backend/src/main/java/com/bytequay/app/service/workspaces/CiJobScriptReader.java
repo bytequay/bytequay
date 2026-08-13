@@ -25,7 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -202,6 +204,8 @@ public final class CiJobScriptReader
                 return Optional.empty();
             }
             String rootDirectory = workingDirectory(root.get("defaults"), ".");
+            Map<String, String> rootEnvironment = environment(
+                    Map.of(), root.get("env"));
             for (Map.Entry<?, ?> entry : jobs.entrySet()) {
                 if (!(entry.getKey() instanceof String jobId)
                         || !(entry.getValue() instanceof Map<?, ?> job)) {
@@ -210,6 +214,8 @@ public final class CiJobScriptReader
                 String jobName = text(job.get("name")).orElse(jobId);
                 String jobDirectory = workingDirectory(
                         job.get("defaults"), rootDirectory);
+                Map<String, String> jobEnvironment = environment(
+                        rootEnvironment, job.get("env"));
                 if (!(job.get("steps") instanceof List<?> steps)) {
                     continue;
                 }
@@ -218,7 +224,8 @@ public final class CiJobScriptReader
                         return Optional.empty();
                     }
                     Optional<String> command = plainBuildCommand(
-                            step.get("run"));
+                            step.get("run"),
+                            environment(jobEnvironment, step.get("env")));
                     if (command.isEmpty()
                             || !accepted.test(command.orElseThrow())) {
                         continue;
@@ -256,13 +263,57 @@ public final class CiJobScriptReader
         return text(run.get("working-directory")).orElse(fallback);
     }
 
-    private static Optional<String> plainBuildCommand(Object value)
+    private static Optional<String> plainBuildCommand(
+            Object value, Map<String, String> environment)
     {
         return text(value).stream()
                 .flatMap(String::lines)
                 .map(String::strip)
+                .map(command -> expandEnvironment(command, environment))
+                .flatMap(Optional::stream)
                 .filter(command -> command.matches(RUNNABLE))
                 .findFirst();
+    }
+
+    /** Expands only whole-token literal workflow variables, never shell code. */
+    private static Optional<String> expandEnvironment(
+            String command, Map<String, String> environment)
+    {
+        List<String> expanded = new ArrayList<>();
+        for (String token : command.split("\\s+")) {
+            String name = null;
+            if (token.matches("\\$[A-Za-z_][A-Za-z0-9_]*")) {
+                name = token.substring(1);
+            }
+            else if (token.matches("\\$\\{[A-Za-z_][A-Za-z0-9_]*}")) {
+                name = token.substring(2, token.length() - 1);
+            }
+            if (name == null) {
+                expanded.add(token);
+                continue;
+            }
+            String value = environment.get(name);
+            if (value == null || value.contains("${{")) {
+                return Optional.empty();
+            }
+            expanded.addAll(List.of(value.split("\\s+")));
+        }
+        return Optional.of(String.join(" ", expanded));
+    }
+
+    private static Map<String, String> environment(
+            Map<String, String> inherited, Object value)
+    {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>(inherited);
+        if (value instanceof Map<?, ?> variables) {
+            variables.forEach((name, setting) -> {
+                if (name instanceof String key && setting instanceof String text
+                        && !text.isBlank()) {
+                    result.put(key, text.strip());
+                }
+            });
+        }
+        return Map.copyOf(result);
     }
 
     private static boolean runsTests(String command)

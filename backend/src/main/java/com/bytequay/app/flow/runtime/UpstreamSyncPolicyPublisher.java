@@ -26,6 +26,7 @@ import com.bytequay.app.flow.runtime.LocalChecks.ProfileDefinition;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.github.GitHubRequiredCheckResolver;
 import com.bytequay.app.repository.github.GitHubRequiredCheckResolver.Snapshot;
+import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.CiJobScriptReader;
 
@@ -79,11 +80,18 @@ public final class UpstreamSyncPolicyPublisher
         requireText(policyHead, "policyHead");
         requireNonNull(worktree, "worktree is null");
         String[] repository = splitRepository(repositoryId);
+        // Repository-scoped credential first, then the account token the
+        // whole app runs on — the same order every other GitHub surface uses.
         String token = credentials.getSecret(
                         CredentialType.REPO, repositoryId)
                 .filter(value -> !value.isBlank())
+                .or(() -> credentials.getSecret(
+                        CredentialType.ACCOUNT,
+                        CredentialService.GITHUB_ACCOUNT_NAME))
+                .filter(value -> !value.isBlank())
                 .orElseThrow(() -> new IllegalStateException(
-                        "the target repository has no GitHub credential"));
+                        "no GitHub credential is configured for the target"
+                                + " repository or the account"));
         CiJobScriptReader.BuildInvocation build =
                 CiJobScriptReader.anyBuildInvocation(worktree)
                 .orElseThrow(() -> new IllegalStateException(

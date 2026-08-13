@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.github;
 
+import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffectRecords.ProbeOutcome;
@@ -20,6 +21,7 @@ import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeSchema;
+import com.bytequay.app.repository.CredentialStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,10 +47,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 final class TestGitHubProvider
 {
@@ -134,6 +139,33 @@ final class TestGitHubProvider
                         GitHubEffectRecords.ProviderFailureKind.INVALID);
         assertThat(credentialRepository.get()).isEqualTo("head-external-1");
         assertThat(git.networkArguments).isEmpty();
+    }
+
+    @Test
+    void repoSecretsPreferTheRepoRowAndFallBackToTheAccountToken()
+    {
+        // The repo-scoped row is an override for one repository; the account
+        // token the whole app runs on is the default. Nothing else is a
+        // credential source.
+        CredentialStore credentials = mock(CredentialStore.class);
+        when(credentials.getSecret(CredentialType.REPO, "head/repo"))
+                .thenReturn(Optional.of("repo-token"));
+        when(credentials.getSecret(CredentialType.ACCOUNT, "github"))
+                .thenReturn(Optional.of("account-token"));
+        GitHubProvider.SecretSource secrets =
+                GitHubInitialPublishDispatcher.repoSecrets(credentials);
+
+        assertThat(secrets.credential("101", "head", "repo").token())
+                .containsExactly("repo-token".toCharArray());
+
+        when(credentials.getSecret(CredentialType.REPO, "head/repo"))
+                .thenReturn(Optional.empty());
+        assertThat(secrets.credential("101", "head", "repo").token())
+                .containsExactly("account-token".toCharArray());
+
+        when(credentials.getSecret(CredentialType.ACCOUNT, "github"))
+                .thenReturn(Optional.empty());
+        assertThat(secrets.credential("101", "head", "repo")).isNull();
     }
 
     @Test

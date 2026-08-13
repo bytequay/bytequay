@@ -160,16 +160,13 @@ public class NewFlowEngineResolver
 
     /**
      * What this machine can actually run when the workspace configured
-     * nothing. CLI engines are skipped here rather than offered and then
-     * parked: the launch binding can name one, but no agent body drives a
-     * subprocess yet, so discovery choosing one would park a run the user never
-     * asked to run that way. An explicit user pick is never filtered — that one
-     * is a decision, and it resolves to a CLI launch.
+     * nothing: installed CLI agents in catalog order, then API providers
+     * holding a credential. The CLI transport is a supported writer, so a
+     * discovered CLI agent launches the same way an explicit pick does.
      */
     private WorkModel discover()
     {
         return workModels.discoverEngines().stream()
-                .filter(model -> model.kind() == WorkModelKind.API)
                 .findFirst()
                 .orElseThrow(() -> new LaunchUnavailableException(
                         "no agent engine is configured for this workspace and none "

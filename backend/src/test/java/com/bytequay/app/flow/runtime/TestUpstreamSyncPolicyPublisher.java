@@ -122,4 +122,59 @@ final class TestUpstreamSyncPolicyPublisher
                 .extracting(check -> check.key())
                 .containsExactly("GITHUB_CHECK:7:build");
     }
+
+    @Test
+    void fallsBackToTheAccountTokenWhenNoRepoCredentialExists(
+            @TempDir Path worktree)
+            throws Exception
+    {
+        // The repo-scoped row is an optional override, not a prerequisite: a
+        // user who configured one GitHub token for the whole app is already
+        // authorized, and the flow uses the same repo-first-then-account
+        // order every other surface does.
+        Path workflows = worktree.resolve(".github/workflows");
+        Files.createDirectories(workflows);
+        Files.writeString(workflows.resolve("ci.yml"), """
+                jobs:
+                  build:
+                    name: build
+                    steps:
+                      - run: ./mvnw -B verify -DskipTests
+                """, StandardCharsets.UTF_8);
+
+        LocalChecks local = mock(LocalChecks.class);
+        CiAutofix autofix = mock(CiAutofix.class);
+        GitHubRequiredCheckResolver resolver = mock(
+                GitHubRequiredCheckResolver.class);
+        CredentialStore credentials = mock(CredentialStore.class);
+        GitRunner git = mock(GitRunner.class);
+        when(credentials.getSecret(CredentialType.REPO, "acme/fork"))
+                .thenReturn(Optional.empty());
+        when(credentials.getSecret(CredentialType.ACCOUNT, "github"))
+                .thenReturn(Optional.of("account-secret"));
+        when(git.headSha(worktree)).thenReturn("a".repeat(40));
+        when(autofix.placementPolicy("task")).thenReturn(
+                RepairPlacementPolicy.tip("task", Instant.EPOCH));
+        when(resolver.resolve("account-secret", "acme", "fork", "main"))
+                .thenReturn(new Snapshot(
+                        "github:rules/branches/main", "sha256:rules",
+                        List.of("GITHUB_CHECK:7:build")));
+        when(autofix.recordPolicy(
+                any(), any(), any(), any(), any(), any(), isNull(),
+                anyList(), anyList()))
+                .thenReturn(new RequiredCiPolicyRevision(
+                        "policy", "acme/fork", "refs/heads/main",
+                        "refs/heads/main", 1, PolicyResolution.RESOLVED,
+                        "github:rules/branches/main", "sha256:rules", null,
+                        List.of("GITHUB_CHECK:7:build"),
+                        List.of("NEUTRAL", "SKIPPED", "SUCCESS"),
+                        Instant.EPOCH));
+
+        new UpstreamSyncPolicyPublisher(
+                local, autofix, resolver, credentials, git)
+                .publish("task", "acme/fork", "refs/heads/main", "main",
+                        worktree, "a".repeat(40));
+
+        verify(resolver).resolve("account-secret", "acme", "fork", "main");
+    }
 }

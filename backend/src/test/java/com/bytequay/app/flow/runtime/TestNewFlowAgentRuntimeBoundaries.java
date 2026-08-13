@@ -209,6 +209,32 @@ final class TestNewFlowAgentRuntimeBoundaries
     }
 
     @Test
+    void aTurnCannotRunAProgramItsBindingWasNotSealedAs()
+    {
+        DataSource dataSource = dataSource();
+        FlowRuntime runtime = mock(FlowRuntime.class);
+        CredentialStore credentials = mock(CredentialStore.class);
+        AgentRun run = ciRun();
+        when(runtime.run(run.runId())).thenReturn(Optional.of(run));
+        when(credentials.find(CredentialType.AI, "anthropic", "ci"))
+                .thenReturn(Optional.of(credential(NOW)));
+        NewFlowAgentLaunches launches = launches(
+                dataSource, runtime, credentials, "model");
+        NewFlowAgentLaunches.Binding sealed = launches.bind(run, CI_REPAIR);
+
+        // bind() ties a run to one program, but nothing used to tie the two
+        // together again at run time: a body could pass binding A and program B
+        // and get B's prompt while the durable binding attested to A. That is
+        // how a conflicted cherry-pick came to run on the initial-task prompt.
+        assertThatThrownBy(() ->
+                launches.requireSealedAs(sealed, TASK_INITIAL))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("was sealed as")
+                .hasMessageContaining("ci-repair-turn:v1");
+        launches.requireSealedAs(sealed, CI_REPAIR);
+    }
+
+    @Test
     void rejectsCaseInsensitiveGitMetadataPaths()
             throws Exception
     {

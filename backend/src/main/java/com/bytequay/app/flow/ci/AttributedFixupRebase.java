@@ -20,15 +20,19 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * The program's own mechanical rebases over one attributed commit series.
@@ -83,6 +87,49 @@ public final class AttributedFixupRebase
         public String targetSubject()
         {
             return fixup() ? subject.substring(FIXUP_PREFIX.length()) : null;
+        }
+    }
+
+    /**
+     * Where a boundary build proves the series compiles.
+     *
+     * <p>{@code TARGET_WITH_FIXUP} is the boundary after a fixup that sits
+     * directly behind the target it names: it, and only it, is what lets a
+     * per-commit compile check's red on the bare target be excused. A bare
+     * target followed by its fixup is deliberately not a boundary, which is what
+     * makes that exception provable instead of assumed.
+     */
+    public enum BoundaryKind
+    {
+        TARGET_WITH_FIXUP,
+        FIXUP,
+        PLAIN
+    }
+
+    public record Boundary(String commitSha, BoundaryKind kind)
+    {
+        public Boundary
+        {
+            requireNonNull(commitSha, "commitSha is null");
+            requireNonNull(kind, "kind is null");
+        }
+    }
+
+    /** One boundary build's objective outcome. */
+    public record BoundaryOutcome(
+            String commitSha, BoundaryKind kind, int exitCode,
+            String evidenceRef)
+    {
+        public BoundaryOutcome
+        {
+            requireNonNull(commitSha, "commitSha is null");
+            requireNonNull(kind, "kind is null");
+            requireNonNull(evidenceRef, "evidenceRef is null");
+        }
+
+        public boolean passed()
+        {
+            return exitCode == 0;
         }
     }
 
@@ -167,6 +214,85 @@ public final class AttributedFixupRebase
                 outputHead,
                 readSeries(worktree, baseSha, outputHead, deadline),
                 plan.unattributedFixupShas());
+    }
+
+    /**
+     * Runs one build at every boundary of an already-positioned series.
+     *
+     * <p>The builds are {@code exec} lines in a todo this program generates, so
+     * the evidence is the program's own rather than a reading of some remote
+     * check's log. Every pick is an identity pick, so the commits are
+     * fast-forwarded and the head this proves is the head that gets published.
+     * A build that fails does not stop the rebase: an incomplete board would
+     * hide which other boundaries are also broken, and every boundary must be
+     * accounted for before the proof may be stored at all.
+     */
+    public List<BoundaryOutcome> proveBoundaries(
+            Path worktree, String baseSha, String expectedHead,
+            List<String> command, Duration timeout)
+    {
+        requireNonNull(command, "command is null");
+        if (command.isEmpty()) {
+            throw new IllegalArgumentException("boundary command is empty");
+        }
+        Deadline deadline = new Deadline(timeout);
+        requireCleanHead(worktree, baseSha, expectedHead, deadline);
+        List<SeriesCommit> series = readSeries(
+                worktree, baseSha, expectedHead, deadline);
+        List<Boundary> boundaries = boundaries(series);
+        if (boundaries.isEmpty()) {
+            return List.of();
+        }
+        Path evidenceDirectory = temporaryDirectory("bytequay-boundary-");
+        try {
+            Path proof = evidenceDirectory.resolve("proof");
+            List<String> todo = boundaryTodo(
+                    series, boundaries, command, proof, evidenceDirectory);
+            runTodo(worktree, baseSha, expectedHead, todo, deadline);
+            if (!head(worktree, deadline).equals(expectedHead)) {
+                throw new RebaseFailure(
+                        FailureCode.HEAD_MOVED,
+                        "boundary proof rewrote the head it was proving");
+            }
+            return readProof(boundaries, proof, evidenceDirectory);
+        }
+        finally {
+            deleteRecursively(evidenceDirectory);
+        }
+    }
+
+    /** Boundaries: after a fixup, and after a target that has no fixup. */
+    public static List<Boundary> boundaries(List<SeriesCommit> series)
+    {
+        List<Boundary> boundaries = new ArrayList<>();
+        for (int index = 0; index < series.size(); index++) {
+            SeriesCommit commit = series.get(index);
+            SeriesCommit previous = index > 0 ? series.get(index - 1) : null;
+            SeriesCommit next = index + 1 < series.size()
+                    ? series.get(index + 1)
+                    : null;
+            if (commit.fixup()) {
+                boundaries.add(new Boundary(
+                        commit.sha(),
+                        attaches(commit, previous)
+                                ? BoundaryKind.TARGET_WITH_FIXUP
+                                : BoundaryKind.FIXUP));
+            }
+            else if (!attaches(next, commit)) {
+                boundaries.add(new Boundary(
+                        commit.sha(), BoundaryKind.PLAIN));
+            }
+        }
+        return List.copyOf(boundaries);
+    }
+
+    private static boolean attaches(SeriesCommit fixup, SeriesCommit target)
+    {
+        return fixup != null
+                && target != null
+                && fixup.fixup()
+                && !target.fixup()
+                && fixup.targetSubject().equals(target.subject());
     }
 
     /**
@@ -344,6 +470,105 @@ public final class AttributedFixupRebase
         if (!head(worktree, restoreDeadline).equals(expectedHead)) {
             git(worktree, restoreDeadline,
                     List.of("reset", "--hard", expectedHead));
+        }
+    }
+
+    private List<String> boundaryTodo(
+            List<SeriesCommit> series,
+            List<Boundary> boundaries,
+            List<String> command,
+            Path proof,
+            Path evidenceDirectory)
+    {
+        Map<String, Integer> ordinals = new LinkedHashMap<>();
+        for (int index = 0; index < boundaries.size(); index++) {
+            ordinals.put(boundaries.get(index).commitSha(), index);
+        }
+        List<String> todo = new ArrayList<>();
+        for (SeriesCommit commit : series) {
+            todo.add("pick " + commit.sha());
+            Integer ordinal = ordinals.get(commit.sha());
+            if (ordinal == null) {
+                continue;
+            }
+            String output = shellQuote(
+                    evidenceDirectory.resolve(ordinal + ".out").toString());
+            // The build's own status is captured and reported rather than
+            // allowed to stop the rebase, so one red boundary cannot hide the
+            // state of the boundaries behind it.
+            todo.add("exec { "
+                    + command.stream()
+                            .map(AttributedFixupRebase::shellQuote)
+                            .collect(joining(" "))
+                    + " ; } > " + output + " 2>&1; __bq=$?; echo \"$("
+                    + shellQuote(GIT.toString()) + " rev-parse HEAD) $__bq\" >> "
+                    + shellQuote(proof.toString()));
+        }
+        return todo;
+    }
+
+    private List<BoundaryOutcome> readProof(
+            List<Boundary> boundaries, Path proof, Path evidenceDirectory)
+    {
+        Map<String, Integer> reported = new LinkedHashMap<>();
+        try {
+            if (Files.exists(proof)) {
+                for (String line : Files.readAllLines(
+                        proof, StandardCharsets.UTF_8)) {
+                    String[] parts = line.trim().split(" ");
+                    if (parts.length == 2 && reported.put(
+                            parts[0], Integer.parseInt(parts[1])) != null) {
+                        throw new RebaseFailure(
+                                FailureCode.PROOF_INCOMPLETE,
+                                "a boundary reported twice");
+                    }
+                }
+            }
+        }
+        catch (IOException | NumberFormatException e) {
+            throw new RebaseFailure(
+                    FailureCode.PROOF_INCOMPLETE,
+                    "boundary evidence could not be read");
+        }
+        List<BoundaryOutcome> outcomes = new ArrayList<>();
+        for (int index = 0; index < boundaries.size(); index++) {
+            Boundary boundary = boundaries.get(index);
+            Integer exitCode = reported.get(boundary.commitSha());
+            if (exitCode == null) {
+                throw new RebaseFailure(
+                        FailureCode.PROOF_INCOMPLETE,
+                        "a boundary produced no build result");
+            }
+            outcomes.add(new BoundaryOutcome(
+                    boundary.commitSha(),
+                    boundary.kind(),
+                    exitCode,
+                    // ponytail: the bytes are digested, not retained. Store them
+                    // as log evidence if a parked run ever needs to be read
+                    // back without rerunning the build.
+                    evidenceRef(evidenceDirectory.resolve(index + ".out"))));
+        }
+        if (reported.size() != outcomes.size()) {
+            throw new RebaseFailure(
+                    FailureCode.PROOF_INCOMPLETE,
+                    "a build ran at a commit that is not a boundary");
+        }
+        return List.copyOf(outcomes);
+    }
+
+    private static String evidenceRef(Path output)
+    {
+        try {
+            return "sha256:" + HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256")
+                            .digest(Files.exists(output)
+                                    ? Files.readAllBytes(output)
+                                    : new byte[0]));
+        }
+        catch (IOException | NoSuchAlgorithmException e) {
+            throw new RebaseFailure(
+                    FailureCode.PROOF_INCOMPLETE,
+                    "boundary output could not be digested");
         }
     }
 

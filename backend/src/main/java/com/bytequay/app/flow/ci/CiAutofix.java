@@ -13,8 +13,13 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryKind;
+import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AcceptedCiSnapshot;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
+import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryCompileProof;
+import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryExitState;
+import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryResult;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCheckObservation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupCompletion;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
@@ -442,6 +447,131 @@ public final class CiAutofix
         requireText(taskId, "taskId");
         return storedPlacementPolicy(taskId).orElseGet(
                 () -> RepairPlacementPolicy.tip(taskId, clock.instant()));
+    }
+
+    /**
+     * Stores one immutable boundary compile proof for an exact head.
+     *
+     * <p>Recording the identical proof again is idempotent, so a retried
+     * finalization replays rather than reruns the builds. A conflicting proof
+     * for the same attempt and head is rejected: the head is what makes the
+     * proof mean anything, and two answers about one head is not evidence.
+     */
+    public BoundaryCompileProof storeBoundaryCompileProof(
+            String taskId,
+            String attemptId,
+            String headSha,
+            String profileRevisionId,
+            List<BoundaryOutcome> outcomes)
+    {
+        requireText(taskId, "taskId");
+        requireText(attemptId, "attemptId");
+        requireText(headSha, "headSha");
+        requireText(profileRevisionId, "profileRevisionId");
+        requireNonNull(outcomes, "outcomes is null");
+        BoundaryCompileProof requested = new BoundaryCompileProof(
+                stableId("ci-boundary-proof", attemptId, headSha),
+                taskId,
+                attemptId,
+                headSha,
+                profileRevisionId,
+                outcomes.stream()
+                        .map(outcome -> new BoundaryResult(
+                                outcome.commitSha(),
+                                outcome.kind(),
+                                outcome.passed()
+                                        ? BoundaryExitState.PASSED
+                                        : BoundaryExitState.FAILED,
+                                outcome.evidenceRef()))
+                        .toList(),
+                clock.instant());
+        return requireNonNull(transactions.execute(ignored -> {
+            Optional<BoundaryCompileProof> stored = boundaryCompileProof(
+                    attemptId, headSha);
+            if (stored.isPresent()) {
+                BoundaryCompileProof current = stored.orElseThrow();
+                if (!current.taskId().equals(requested.taskId())
+                        || !current.profileRevisionId().equals(
+                                requested.profileRevisionId())
+                        || !current.boundaries().equals(
+                                requested.boundaries())) {
+                    throw new IllegalStateException(
+                            "boundary compile proof is immutable per head");
+                }
+                return current;
+            }
+            jdbc.update(
+                    """
+                    INSERT INTO flow_ci_boundary_compile_proof (
+                        proof_id, task_id, attempt_id, head_sha,
+                        profile_revision_id, proved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    requested.proofId(),
+                    taskId,
+                    attemptId,
+                    headSha,
+                    profileRevisionId,
+                    requested.provedAt().toEpochMilli());
+            List<BoundaryResult> boundaries = requested.boundaries();
+            for (int ordinal = 0; ordinal < boundaries.size(); ordinal++) {
+                BoundaryResult boundary = boundaries.get(ordinal);
+                jdbc.update(
+                        """
+                        INSERT INTO flow_ci_boundary_compile_result (
+                            proof_id, ordinal, commit_sha, kind, exit_state,
+                            evidence_ref
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        requested.proofId(),
+                        ordinal,
+                        boundary.commitSha(),
+                        boundary.kind().name(),
+                        boundary.exitState().name(),
+                        boundary.evidenceRef());
+            }
+            return requested;
+        }), "boundary proof transaction returned null");
+    }
+
+    public Optional<BoundaryCompileProof> boundaryCompileProof(
+            String attemptId, String headSha)
+    {
+        requireText(attemptId, "attemptId");
+        requireText(headSha, "headSha");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_ci_boundary_compile_proof
+                WHERE attempt_id = ? AND head_sha = ?
+                """,
+                (result, row) -> new BoundaryCompileProof(
+                        result.getString("proof_id"),
+                        result.getString("task_id"),
+                        result.getString("attempt_id"),
+                        result.getString("head_sha"),
+                        result.getString("profile_revision_id"),
+                        boundaryResults(result.getString("proof_id")),
+                        instant(result.getLong("proved_at"))),
+                attemptId,
+                headSha).stream().findFirst();
+    }
+
+    private List<BoundaryResult> boundaryResults(String proofId)
+    {
+        return jdbc.query(
+                """
+                SELECT commit_sha, kind, exit_state, evidence_ref
+                FROM flow_ci_boundary_compile_result
+                WHERE proof_id = ?
+                ORDER BY ordinal
+                """,
+                (result, row) -> new BoundaryResult(
+                        result.getString("commit_sha"),
+                        BoundaryKind.valueOf(result.getString("kind")),
+                        BoundaryExitState.valueOf(
+                                result.getString("exit_state")),
+                        result.getString("evidence_ref")),
+                proofId);
     }
 
     private Optional<RepairPlacementPolicy> storedPlacementPolicy(String taskId)

@@ -517,3 +517,37 @@ CREATE TABLE flow_ci_repair_placement (
     )
 );
 
+-- The program's own evidence that a rewritten series compiles where it matters,
+-- produced by one rebase whose boundary builds it generated. A per-commit
+-- compile check reports one red for the whole series, so a target whose repair
+-- lives in the fixup after it is red in isolation by construction; this is the
+-- only thing that may excuse that red, and it is never a reading of a remote
+-- log. No proof, no exception.
+CREATE TABLE flow_ci_boundary_compile_proof (
+    proof_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    profile_revision_id TEXT NOT NULL,
+    proved_at INTEGER NOT NULL,
+    UNIQUE (attempt_id, head_sha),
+    FOREIGN KEY (attempt_id)
+        REFERENCES flow_ci_repair_attempt (attempt_id)
+);
+
+CREATE TABLE flow_ci_boundary_compile_result (
+    proof_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    commit_sha TEXT NOT NULL,
+    -- A bare target followed by its fixup is deliberately not a boundary, which
+    -- is what makes the acceptance exception provable rather than assumed.
+    kind TEXT NOT NULL CHECK (
+        kind IN ('TARGET_WITH_FIXUP', 'FIXUP', 'PLAIN')
+    ),
+    exit_state TEXT NOT NULL CHECK (exit_state IN ('PASSED', 'FAILED')),
+    evidence_ref TEXT NOT NULL,
+    PRIMARY KEY (proof_id, ordinal),
+    UNIQUE (proof_id, commit_sha),
+    FOREIGN KEY (proof_id)
+        REFERENCES flow_ci_boundary_compile_proof (proof_id)
+);

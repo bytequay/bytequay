@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.ci.AttributedFixupRebase.Boundary;
+import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryKind;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.FailureCode;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.RebaseFailure;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.SeriesCommit;
@@ -223,6 +225,68 @@ class TestAttributedFixupRebase
                 .satisfies(failure -> assertThat(
                         ((RebaseFailure) failure).code())
                         .isEqualTo(FailureCode.HEAD_MOVED));
+    }
+
+    @Test
+    void aBareTargetFollowedByItsFixupIsNotABoundary()
+    {
+        var boundaries = AttributedFixupRebase.boundaries(List.of(
+                new SeriesCommit("a".repeat(40), "pick one"),
+                new SeriesCommit("b".repeat(40), "fixup! pick one"),
+                new SeriesCommit("c".repeat(40), "pick two"),
+                new SeriesCommit("d".repeat(40), "fixup! unknown")));
+
+        assertThat(boundaries).containsExactly(
+                new Boundary("b".repeat(40), BoundaryKind.TARGET_WITH_FIXUP),
+                new Boundary("c".repeat(40), BoundaryKind.PLAIN),
+                new Boundary("d".repeat(40), BoundaryKind.FIXUP));
+    }
+
+    @Test
+    void boundaryBuildsProveTheTargetPlusFixupWithoutBuildingTheBareTarget()
+            throws Exception
+    {
+        commit("state.txt", "broken", "pick one");
+        String bareTarget = head();
+        commit("state.txt", "compiles", "fixup! pick one");
+        commit("two.txt", "two", "pick two");
+        String before = head();
+
+        var outcomes = rebase.proveBoundaries(
+                worktree, base, before, compiles(), TIMEOUT);
+
+        assertThat(head()).isEqualTo(before);
+        assertThat(outcomes).hasSize(2);
+        assertThat(outcomes).allMatch(outcome -> outcome.passed());
+        assertThat(outcomes.get(0).kind())
+                .isEqualTo(BoundaryKind.TARGET_WITH_FIXUP);
+        assertThat(outcomes).noneMatch(
+                outcome -> outcome.commitSha().equals(bareTarget));
+        assertThat(outcomes.get(0).evidenceRef()).startsWith("sha256:");
+    }
+
+    @Test
+    void aRedBoundaryDoesNotHideTheBoundariesBehindIt()
+            throws Exception
+    {
+        commit("state.txt", "broken", "pick one");
+        commit("two.txt", "two", "pick two");
+        commit("state.txt", "compiles", "pick three");
+        String before = head();
+
+        var outcomes = rebase.proveBoundaries(
+                worktree, base, before, compiles(), TIMEOUT);
+
+        assertThat(outcomes).hasSize(3);
+        assertThat(outcomes.stream().map(outcome -> outcome.passed()))
+                .containsExactly(false, false, true);
+        assertThat(head()).isEqualTo(before);
+        assertThat(worktreeIsClean()).isTrue();
+    }
+
+    private static List<String> compiles()
+    {
+        return List.of("/usr/bin/grep", "-q", "compiles", "state.txt");
     }
 
     private boolean worktreeIsClean()

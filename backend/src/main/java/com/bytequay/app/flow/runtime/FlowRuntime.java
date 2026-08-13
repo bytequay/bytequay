@@ -97,7 +97,6 @@ import static java.util.Objects.requireNonNull;
  */
 public final class FlowRuntime
 {
-    private static final int PROVISION_PRIORITY = 1_000;
     private static final int RECONCILIATION_PRIORITY = 900;
     private static final int PUBLISH_PRIORITY = 850;
     private static final int CI_FIX_PRIORITY = 800;
@@ -109,6 +108,7 @@ public final class FlowRuntime
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector = new FlowWorktreeInspector();
     private final CiObservationRuntime ciObservations;
+    private final TaskRuntime tasks;
 
     /** One live-JVM permission for exactly one provider mutation call. */
     public static final class PublishExecutionHandle
@@ -713,210 +713,20 @@ public final class FlowRuntime
                 new DataSourceTransactionManager(dataSource));
         this.clock = requireNonNull(clock, "clock is null");
         this.ciObservations = new CiObservationRuntime(this, jdbc, clock);
+        this.tasks = new TaskRuntime(this, jdbc, clock);
     }
 
-    /**
-     * Persists one Task plus its provisioning operation/ticket. It performs no
-     * Git, process, or model work.
-     */
+    /** Persists one Task plus its provisioning operation/ticket. */
     synchronized Task startTask(TaskProvisioning.FrozenLaunch launch)
     {
-        requireNonNull(launch, "launch is null");
-        return inTransaction(() -> {
-            Instant now = clock.instant();
-            String taskId = launch.taskId();
-            String lifecycleId = stableId("task-lifecycle", taskId, "1");
-            int accepted = jdbc.update(
-                    """
-                    INSERT OR IGNORE INTO flow_runtime_task (
-                        task_id, request_key, repository_id,
-                        repository_owner, repository_name, goal_text, status,
-                        repository_root, git_common_dir, remote_name,
-                        base_ref,
-                        launch_digest,
-                        epoch, branch_name, worktree_path,
-                        current_lifecycle_revision_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?,
-                        1, ?, ?, ?)
-                    """,
-                    taskId,
-                    launch.requestKey(),
-                    launch.repositoryId(),
-                    launch.repositoryOwner(),
-                    launch.repositoryName(),
-                    launch.goalText(),
-                    launch.repositoryRoot(),
-                    launch.gitCommonDir(),
-                    launch.remoteName(),
-                    launch.baseRef(),
-                    launch.launchDigest(),
-                    launch.branchName(),
-                    launch.worktreePath(),
-                    lifecycleId);
-            if (accepted == 0) {
-                Task task = taskByRequestKey(launch.requestKey())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Task launch conflicts with another subject"));
-                TaskProvisioning.assertStoredLaunch(task);
-                if (!task.repositoryId().equals(launch.repositoryId())
-                        || !task.goalText().equals(launch.goalText())) {
-                    throw new IllegalStateException(
-                            "requestKey already owns a different Task command");
-                }
-                return task;
-            }
-            if (accepted != 1) {
-                throw new IllegalStateException(
-                        "Task acceptance changed an unexpected row count");
-            }
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_task_lifecycle_revision (
-                        lifecycle_revision_id, task_id, sequence, from_status,
-                        to_status, reason_code, recorded_at
-                    ) VALUES (?, ?, 1, NULL, 'CREATED', 'TASK_STARTED', ?)
-                    """,
-                    lifecycleId,
-                    taskId,
-                    now.toEpochMilli());
-
-            String subjectDigest = TaskProvisioning.provisionSubjectDigest(
-                    taskId, launch.launchDigest());
-            String operationId = stableId(
-                    "operation", taskId, "PROVISION_TASK", subjectDigest);
-            insertOperationAndTicket(
-                    operationId,
-                    "TASK",
-                    taskId,
-                    taskId,
-                    OperationKind.PROVISION_TASK,
-                    subjectDigest,
-                    "task:" + taskId,
-                    null,
-                    PROVISION_PRIORITY,
-                    now);
-            return requireTask(taskId);
-        });
+        return tasks.startTask(launch);
     }
 
     /** Completes objective provisioning and creates the one idle Task session. */
     synchronized AgentSession provisionTask(
             Claim claim, TaskProvisioning.ProvisionedWorktree proof)
     {
-        requireNonNull(claim, "claim is null");
-        requireNonNull(proof, "proof is null");
-        return inTransaction(() -> {
-            Operation operation = requireOperation(claim.operationId());
-            if (operation.kind() != OperationKind.PROVISION_TASK) {
-                throw new IllegalArgumentException(
-                        "claim does not own Task provisioning");
-            }
-            Task task = requireTask(operation.taskId());
-            proof.assertMatches(claim, task, operation);
-            String baseSha = proof.baseSha();
-            String headSha = proof.headSha();
-            if (operation.state() == OperationState.SUCCEEDED) {
-                assertFinalizedClaim(
-                        claim, "provisioned:" + task.taskId());
-                if (!Objects.equals(task.launchBaseSha(), baseSha)
-                        || !Objects.equals(initialTaskHead(task.taskId()), headSha)) {
-                    throw new IllegalStateException(
-                            "provisioning redelivery changed the frozen subject");
-                }
-                TaskBaseRevision base = baseRevisionForSource(
-                        operation.operationId())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "provisioned Task has no initial base revision"));
-                if (!base.baseSha().equals(baseSha)
-                        || !base.sourceOperationId().equals(operation.operationId())) {
-                    throw new IllegalStateException(
-                            "provisioned base revision changed after completion");
-                }
-                return requireSession(task.taskSessionId());
-            }
-            assertCurrentClaim(claim, OperationState.CLAIMED);
-            if (task.status() != TaskStatus.CREATED) {
-                throw new IllegalStateException(
-                        "Task is not awaiting provisioning");
-            }
-
-            Instant now = clock.instant();
-            String sessionId = stableId(
-                    "agent-session", task.taskId(), AgentRole.TASK_AGENT.name());
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_agent_session (
-                        session_id, task_id, role, state, created_at, updated_at
-                    ) VALUES (?, ?, 'TASK_AGENT', 'IDLE', ?, ?)
-                    """,
-                    sessionId,
-                    task.taskId(),
-                    now.toEpochMilli(),
-                    now.toEpochMilli());
-            TaskLifecycleRevision active = appendLifecycle(
-                    task,
-                    TaskStatus.ACTIVE,
-                    "PROVISIONED",
-                    "base:" + baseSha,
-                    operation.operationId(),
-                    now);
-            String baseRevisionId = stableId(
-                    "task-base-revision", task.taskId(), "1");
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_task_base_revision (
-                        base_revision_id, task_id, sequence, previous_base_sha,
-                        base_sha, reason_code, evidence_ref,
-                        source_operation_id, recorded_at
-                    ) VALUES (?, ?, 1, NULL, ?, 'INITIAL', ?, ?, ?)
-                    """,
-                    baseRevisionId,
-                    task.taskId(),
-                    baseSha,
-                    "provision-operation:" + operation.operationId(),
-                    operation.operationId(),
-                    now.toEpochMilli());
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_task
-                    SET launch_base_sha = ?, current_base_sha = ?,
-                        current_base_revision_id = ?, current_head_sha = ?,
-                        task_session_id = ?,
-                        status = 'ACTIVE', current_lifecycle_revision_id = ?
-                    WHERE task_id = ? AND status = 'CREATED'
-                        AND current_lifecycle_revision_id = ?
-                    """,
-                    baseSha,
-                    baseSha,
-                    baseRevisionId,
-                    headSha,
-                    sessionId,
-                    active.lifecycleRevisionId(),
-                    task.taskId(),
-                    task.currentLifecycleRevisionId());
-            if (updated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "Task changed during provisioning");
-            }
-            Task activeTask = requireTask(task.taskId());
-            appendPendingWork(
-                    stableId("inbox", "TASK", task.taskId(), "INITIAL"),
-                    activeTask,
-                    null,
-                    "TASK",
-                    task.taskId(),
-                    "1",
-                    PendingKind.INITIAL_TASK,
-                    headSha,
-                    "task-goal:" + task.taskId(),
-                    null,
-                    GateIntent.INITIAL_PUBLISH,
-                    now);
-            ensureReconciliation(task.taskId());
-            settleDispatch(operation.operationId(), OperationState.SUCCEEDED,
-                    "provisioned:" + task.taskId());
-            return requireSession(sessionId);
-        });
+        return tasks.provisionTask(claim, proof);
     }
 
     /** Appends one immutable Task lifecycle revision using exact-owner CAS. */
@@ -927,86 +737,9 @@ public final class FlowRuntime
             String reasonCode,
             String evidenceRef)
     {
-        requireText(taskId, "taskId");
-        requireText(expectedLifecycleRevisionId,
-                "expectedLifecycleRevisionId");
-        requireNonNull(nextStatus, "nextStatus is null");
-        requireText(reasonCode, "reasonCode");
-        return inTransaction(() -> {
-            int taskLocked = jdbc.update(
-                    """
-                    UPDATE flow_runtime_task SET task_id = task_id
-                    WHERE task_id = ? AND current_lifecycle_revision_id = ?
-                    """,
-                    taskId,
-                    expectedLifecycleRevisionId);
-            Task task = requireTask(taskId);
-            if (taskLocked != 1
-                    || !task.currentLifecycleRevisionId()
-                    .equals(expectedLifecycleRevisionId)) {
-                throw new StaleOwnerRevisionException(
-                        "Task lifecycle revision is stale");
-            }
-            if (!allowedTransition(task.status(), nextStatus)) {
-                throw new IllegalStateException(
-                        "Invalid Task transition: " + task.status()
-                                + " -> " + nextStatus);
-            }
-            if (task.status() == TaskStatus.NEEDS_ATTENTION
-                    && nextStatus == TaskStatus.ACTIVE) {
-                throw new MutationRejectedException(
-                        "Task attention requires a typed recovery cause");
-            }
-            if (task.waitingMutationStateRef() != null) {
-                throw new MutationRejectedException(
-                        "Task has unresolved local mutation state");
-            }
-            if (task.selectedWriterOperationId() != null
-                    || writerFence(taskId).isPresent()) {
-                throw new MutationRejectedException(
-                        "Task lifecycle cannot change while a writer is live");
-            }
-            if (hasNonterminalReviewer(taskId)) {
-                throw new MutationRejectedException(
-                        "Task lifecycle cannot change while review is live");
-            }
-            if (hasNonterminalPublish(taskId)) {
-                throw new MutationRejectedException(
-                        "Task lifecycle cannot change while publication is live");
-            }
-            if (isTerminal(nextStatus) && hasClaimedOperation(taskId)) {
-                throw new MutationRejectedException(
-                        "Task cannot terminate while an operation is claimed");
-            }
-            TaskLifecycleRevision revision = appendLifecycle(
-                    task,
-                    nextStatus,
-                    reasonCode,
-                    evidenceRef,
-                    null,
-                    clock.instant());
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_task
-                    SET status = ?, current_lifecycle_revision_id = ?
-                    WHERE task_id = ? AND current_lifecycle_revision_id = ?
-                    """,
-                    nextStatus.name(),
-                    revision.lifecycleRevisionId(),
-                    taskId,
-                    expectedLifecycleRevisionId);
-            if (updated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "Task lifecycle revision is stale");
-            }
-            if (nextStatus == TaskStatus.ACTIVE) {
-                resumeWaitingReconciliation(taskId);
-            }
-            else if (isTerminal(nextStatus)) {
-                settleTaskOperationsAtTerminal(taskId, nextStatus);
-            }
-            return revision;
-        });
+        return tasks.transitionTask(
+                taskId, expectedLifecycleRevisionId, nextStatus, reasonCode,
+                evidenceRef);
     }
 
     /** Materializes the Task's one stable local PR at an exact adopted head. */
@@ -1017,81 +750,9 @@ public final class FlowRuntime
             String targetBaseRef,
             String scopeKey)
     {
-        requireText(taskId, "taskId");
-        requireText(expectedChangeSetRevisionId,
-                "expectedChangeSetRevisionId");
-        requireText(baseRef, "baseRef");
-        requireText(targetBaseRef, "targetBaseRef");
-        requireText(scopeKey, "scopeKey");
-        return inTransaction(() -> {
-            Task task = requireTask(taskId);
-            if (task.prId() != null) {
-                PullRequestSubject current = requirePullRequest(task.prId());
-                if (!current.createdFromChangeSetRevisionId().equals(
-                        expectedChangeSetRevisionId)
-                        || !current.baseRef().equals(baseRef)
-                        || !current.targetBaseRef().equals(targetBaseRef)
-                        || !current.scopeKey().equals(scopeKey)) {
-                    throw new IllegalStateException(
-                            "Task already owns a different PR subject");
-                }
-                return current;
-            }
-            ChangeSetRevision changeSet = requireChangeSetRevision(
-                    expectedChangeSetRevisionId);
-            if (task.status() != TaskStatus.ACTIVE
-                    || !expectedChangeSetRevisionId.equals(
-                            changeSet.changeSetRevisionId())
-                    || !changeSet.changeSetRevisionId().equals(
-                            task.currentChangeSetRevisionId())
-                    || !changeSet.baseRevisionId().equals(
-                            task.currentBaseRevisionId())
-                    || !changeSet.headSha().equals(task.currentHeadSha())
-                    || !changeSet.baseSha().equals(task.currentBaseSha())) {
-                throw new IllegalStateException(
-                        "PR subject is not the current active Task head");
-            }
-            if (!changeSet.differsFromBase()) {
-                throw new IllegalStateException(
-                        "An empty Task cannot materialize a PR");
-            }
-            String prId = stableId("pr", taskId);
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_pr (
-                        pr_id, task_id, repository_id, base_ref, base_sha,
-                        target_base_ref, scope_key, branch_name,
-                        created_from_change_set_revision_id,
-                        created_from_head_sha, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    prId,
-                    taskId,
-                    task.repositoryId(),
-                    baseRef,
-                    changeSet.baseSha(),
-                    targetBaseRef,
-                    scopeKey,
-                    task.branchName(),
-                    changeSet.changeSetRevisionId(),
-                    changeSet.headSha(),
-                    clock.instant().toEpochMilli());
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_task
-                    SET pr_id = ?
-                    WHERE task_id = ? AND pr_id IS NULL
-                        AND current_change_set_revision_id = ?
-                    """,
-                    prId,
-                    taskId,
-                    changeSet.changeSetRevisionId());
-            if (updated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "Task head changed while materializing its PR");
-            }
-            return requirePullRequest(prId);
-        });
+        return tasks.materializePullRequest(
+                taskId, expectedChangeSetRevisionId, baseRef, targetBaseRef,
+                scopeKey);
     }
 
     /** Appends one exact-head local draft; it never performs a remote call. */
@@ -1106,137 +767,21 @@ public final class FlowRuntime
             String title,
             String body)
     {
-        requireNonNull(claim, "claim is null");
-        requireNonNull(fence, "fence is null");
-        requireText(capabilityId, "capabilityId");
-        requireText(prId, "prId");
-        requireText(expectedChangeSetRevisionId,
-                "expectedChangeSetRevisionId");
-        requireText(expectedHeadSha, "expectedHeadSha");
-        requireText(createdByRunId, "createdByRunId");
-        requireText(title, "title");
-        requireNonNull(body, "body is null");
-        if (title.length() > 256 || body.length() > 65_536) {
-            throw new IllegalArgumentException("PR draft is too large");
-        }
-        return inTransaction(() -> {
-            assertInProcessWriterToolCapability(
-                    createdByRunId, claim, fence, capabilityId);
-            PullRequestSubject pr = requirePullRequest(prId);
-            Task task = requireTask(pr.taskId());
-            ChangeSetRevision changeSet = requireChangeSetRevision(
-                    expectedChangeSetRevisionId);
-            AgentRun run = requireRun(createdByRunId);
-            Optional<PrDraftRevision> replay = jdbc.query(
-                    "SELECT * FROM flow_runtime_pr_draft_revision "
-                            + "WHERE created_by_run_id = ?",
-                    (result, row) -> readPrDraftRevision(result),
-                    createdByRunId).stream().findFirst();
-            if (replay.isPresent()) {
-                PrDraftRevision existing = replay.orElseThrow();
-                if (!existing.prId().equals(prId)
-                        || !existing.changeSetRevisionId().equals(
-                                expectedChangeSetRevisionId)
-                        || !existing.headSha().equals(expectedHeadSha)
-                        || !existing.title().equals(title)
-                        || !existing.body().equals(body)
-                        || !Objects.equals(pr.currentDraftRevisionId(),
-                                existing.draftRevisionId())) {
-                    throw new IllegalStateException(
-                            "Task run already owns a different PR draft");
-                }
-                return existing;
-            }
-            if (pr.published()) {
-                throw new StaleOwnerRevisionException(
-                        "published PR metadata is immutable in this flow");
-            }
-            if (task.status() != TaskStatus.ACTIVE
-                    || !Objects.equals(task.currentChangeSetRevisionId(),
-                            expectedChangeSetRevisionId)
-                    || !Objects.equals(task.currentHeadSha(), expectedHeadSha)
-                    || !changeSet.taskId().equals(task.taskId())
-                    || !changeSet.headSha().equals(expectedHeadSha)
-                    || !changeSet.differsFromBase()
-                    || !run.operationId().equals(claim.operationId())
-                    || run.role() != AgentRole.TASK_AGENT
-                    || run.state() != RunState.RUNNING
-                    || !fence.taskId().equals(task.taskId())
-                    || !Objects.equals(task.selectedWriterOperationId(),
-                            claim.operationId())) {
-                throw new StaleOwnerRevisionException(
-                        "PR draft is not bound to the current authored head");
-            }
-            long sequence = jdbc.queryForObject(
-                    "SELECT COALESCE(MAX(sequence), 0) + 1 "
-                            + "FROM flow_runtime_pr_draft_revision WHERE pr_id = ?",
-                    Long.class,
-                    prId);
-            String digest = stableId(
-                    "pr-draft:v1",
-                    prId,
-                    Long.toString(sequence),
-                    expectedChangeSetRevisionId,
-                    expectedHeadSha,
-                    title,
-                    body);
-            String revisionId = stableId("pr-draft-revision:v1", digest);
-            Instant now = clock.instant();
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_pr_draft_revision (
-                        draft_revision_id, pr_id, sequence,
-                        change_set_revision_id, head_sha, title, body,
-                        draft_digest, created_by_run_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    revisionId, prId, sequence, expectedChangeSetRevisionId,
-                    expectedHeadSha, title, body, digest, createdByRunId,
-                    now.toEpochMilli());
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_pr SET current_draft_revision_id = ?
-                    WHERE pr_id = ? AND remote_identity_id IS NULL
-                      AND (current_draft_revision_id IS NULL
-                           OR current_draft_revision_id = ?)
-                    """,
-                    revisionId,
-                    prId,
-                    pr.currentDraftRevisionId());
-            if (updated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "PR draft changed concurrently");
-            }
-            return requirePrDraftRevision(revisionId);
-        });
+        return tasks.savePrDraft(
+                claim, fence, capabilityId, prId,
+                expectedChangeSetRevisionId, expectedHeadSha, createdByRunId,
+                title, body);
     }
 
     public Optional<PrDraftRevision> currentPrDraft(String prId)
     {
-        requireText(prId, "prId");
-        return jdbc.query(
-                """
-                SELECT d.* FROM flow_runtime_pr p
-                JOIN flow_runtime_pr_draft_revision d
-                  ON d.draft_revision_id = p.current_draft_revision_id
-                WHERE p.pr_id = ?
-                """,
-                (result, row) -> readPrDraftRevision(result),
-                prId).stream().findFirst();
+        return tasks.currentPrDraft(prId);
     }
 
     public PrDraftRevision requirePrDraftRevision(String revisionId)
     {
-        requireText(revisionId, "revisionId");
-        return jdbc.query(
-                "SELECT * FROM flow_runtime_pr_draft_revision "
-                        + "WHERE draft_revision_id = ?",
-                (result, row) -> readPrDraftRevision(result),
-                revisionId).stream().findFirst().orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Unknown PR draft revision: " + revisionId));
+        return tasks.requirePrDraftRevision(revisionId);
     }
-
     private synchronized PullRequestSubject bindGitHubRemoteIdentity(
             String prId,
             String expectedLocalHead,
@@ -9812,7 +9357,7 @@ public final class FlowRuntime
                 taskId).stream().findFirst();
     }
 
-    private Optional<TaskBaseRevision> baseRevisionForSource(
+    Optional<TaskBaseRevision> baseRevisionForSource(
             String sourceOperationId)
     {
         return jdbc.query(
@@ -10210,7 +9755,7 @@ public final class FlowRuntime
                                 "operation has no ReviewerRequest"));
     }
 
-    private PendingWork appendPendingWork(
+    PendingWork appendPendingWork(
             String pendingId,
             Task task,
             String prId,
@@ -10350,7 +9895,7 @@ public final class FlowRuntime
         };
     }
 
-    private Operation ensureReconciliation(String taskId)
+    Operation ensureReconciliation(String taskId)
     {
         Optional<Operation> live = jdbc.query(
                 """
@@ -10428,7 +9973,7 @@ public final class FlowRuntime
         }
     }
 
-    private void resumeWaitingReconciliation(String taskId)
+    void resumeWaitingReconciliation(String taskId)
     {
         List<String> waiting = jdbc.query(
                 """
@@ -10635,7 +10180,7 @@ public final class FlowRuntime
                 priority);
     }
 
-    private boolean hasNonterminalPublish(String taskId)
+    boolean hasNonterminalPublish(String taskId)
     {
         Integer count = jdbc.queryForObject(
                 """
@@ -10722,7 +10267,7 @@ public final class FlowRuntime
                 "publish candidate count is null") == 1;
     }
 
-    private void settleDispatch(
+    void settleDispatch(
             String operationId, OperationState state, String resultRef)
     {
         int operationUpdated = jdbc.update(
@@ -11510,7 +11055,7 @@ public final class FlowRuntime
         }
     }
 
-    private void assertFinalizedClaim(Claim claim, String resultId)
+    void assertFinalizedClaim(Claim claim, String resultId)
     {
         Integer matches = jdbc.queryForObject(
                 """
@@ -11697,7 +11242,7 @@ public final class FlowRuntime
         }
     }
 
-    private Optional<WriterFence> writerFence(String taskId)
+    Optional<WriterFence> writerFence(String taskId)
     {
         return jdbc.query(
                 """
@@ -11768,7 +11313,7 @@ public final class FlowRuntime
         return requireSession(sessionId);
     }
 
-    private TaskLifecycleRevision appendLifecycle(
+    TaskLifecycleRevision appendLifecycle(
             Task task,
             TaskStatus nextStatus,
             String reasonCode,
@@ -11868,7 +11413,7 @@ public final class FlowRuntime
         };
     }
 
-    private boolean hasNonterminalReviewer(String taskId)
+    boolean hasNonterminalReviewer(String taskId)
     {
         Integer count = jdbc.queryForObject(
                 """
@@ -11881,7 +11426,7 @@ public final class FlowRuntime
         return requireNonNull(count, "reviewer count is null") > 0;
     }
 
-    private boolean hasClaimedOperation(String taskId)
+    boolean hasClaimedOperation(String taskId)
     {
         Integer count = jdbc.queryForObject(
                 """
@@ -11894,7 +11439,7 @@ public final class FlowRuntime
         return requireNonNull(count, "claimed operation count is null") > 0;
     }
 
-    private void settleTaskOperationsAtTerminal(
+    void settleTaskOperationsAtTerminal(
             String taskId, TaskStatus terminalStatus)
     {
         String resultRef = "TASK_" + terminalStatus.name();
@@ -11938,26 +11483,6 @@ public final class FlowRuntime
     {
         return status == TaskStatus.COMPLETED
                 || status == TaskStatus.CANCELED;
-    }
-
-    private static boolean allowedTransition(TaskStatus from, TaskStatus to)
-    {
-        if (to == TaskStatus.CANCELED) {
-            return from != TaskStatus.COMPLETED
-                    && from != TaskStatus.CANCELED;
-        }
-        return switch (from) {
-            case CREATED -> to == TaskStatus.CANCELED;
-            case ACTIVE -> to == TaskStatus.WAITING_USER
-                    || to == TaskStatus.NEEDS_ATTENTION
-                    || to == TaskStatus.COMPLETED;
-            case WAITING_USER -> to == TaskStatus.ACTIVE
-                    || to == TaskStatus.NEEDS_ATTENTION
-                    || to == TaskStatus.COMPLETED;
-            case NEEDS_ATTENTION -> to == TaskStatus.ACTIVE
-                    || to == TaskStatus.COMPLETED;
-            case COMPLETED, CANCELED -> false;
-        };
     }
 
     private Optional<Task> taskByRequestKey(String requestKey)
@@ -12032,7 +11557,7 @@ public final class FlowRuntime
         }
     }
 
-    private AgentSession requireSession(String sessionId)
+    AgentSession requireSession(String sessionId)
     {
         return jdbc.query(
                 """
@@ -12044,7 +11569,7 @@ public final class FlowRuntime
                                 "Unknown agent session: " + sessionId));
     }
 
-    private AgentRun requireRun(String runId)
+    AgentRun requireRun(String runId)
     {
         return jdbc.query(
                 "SELECT * FROM flow_runtime_agent_run WHERE run_id = ?",
@@ -12293,7 +11818,7 @@ public final class FlowRuntime
                 && revision.sourceOperationId().equals(snapshot.operationId());
     }
 
-    private ChangeSetRevision requireChangeSetRevision(String revisionId)
+    ChangeSetRevision requireChangeSetRevision(String revisionId)
     {
         return jdbc.query(
                 """
@@ -12994,7 +12519,7 @@ public final class FlowRuntime
                 reviewer == null ? null : reviewer.requestId());
     }
 
-    private String initialTaskHead(String taskId)
+    String initialTaskHead(String taskId)
     {
         return jdbc.queryForObject(
                 """
@@ -13131,22 +12656,6 @@ public final class FlowRuntime
                 result.getString("head_repository_name"),
                 number,
                 result.getString("current_remote_head"));
-    }
-
-    private static PrDraftRevision readPrDraftRevision(ResultSet result)
-            throws SQLException
-    {
-        return new PrDraftRevision(
-                result.getString("draft_revision_id"),
-                result.getString("pr_id"),
-                result.getLong("sequence"),
-                result.getString("change_set_revision_id"),
-                result.getString("head_sha"),
-                result.getString("title"),
-                result.getString("body"),
-                result.getString("draft_digest"),
-                result.getString("created_by_run_id"),
-                instant(result, "created_at"));
     }
 
     private static AgentSession readSession(ResultSet result)

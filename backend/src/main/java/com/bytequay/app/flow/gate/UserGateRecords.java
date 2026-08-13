@@ -230,10 +230,6 @@ public final class UserGateRecords
             requireNonNull(proposedHead, "proposedHead is null");
             requireNonNull(actionDigest, "actionDigest is null");
             requireNonNull(createdAt, "createdAt is null");
-            if (forcePush) {
-                throw new IllegalArgumentException(
-                        "CI_UPDATE cannot force push");
-            }
         }
     }
 

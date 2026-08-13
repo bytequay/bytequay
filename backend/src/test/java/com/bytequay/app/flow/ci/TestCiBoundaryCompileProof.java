@@ -209,6 +209,23 @@ class TestCiBoundaryCompileProof
         assertThat(subject.warningCodes())
                 .doesNotContain("HISTORY_REWRITE_UNAUTHORIZED");
         assertThat(subject.manualOnly()).isFalse();
+        // The record says what the publication actually does.
+        assertThat(userGates.ciUpdateAction(revision.actionManifestRef())
+                .orElseThrow().forcePush())
+                .isTrue();
+    }
+
+    @Test
+    void anOrdinaryFixIsStillRecordedAsANonForcedPush()
+    {
+        GateRevision revision = readyGate("ordinary", null);
+
+        assertThat(userGates.ciUpdateAction(revision.actionManifestRef())
+                .orElseThrow().forcePush())
+                .isFalse();
+        assertThat(userGates.subject(revision.subjectManifestRef())
+                .orElseThrow().manualOnly())
+                .isFalse();
     }
 
     /**

@@ -6554,7 +6554,6 @@ public final class FlowRuntime
                   AND a.branch_ref = s.branch_ref
                   AND a.expected_remote_head = s.expected_remote_head
                   AND a.proposed_head = s.proposed_head
-                  AND a.force_push = 0
                   AND g.task_id = ? AND s.task_id = g.task_id
                   AND g.pr_id = ? AND s.pr_id = g.pr_id
                   AND g.kind = 'CI_UPDATE'

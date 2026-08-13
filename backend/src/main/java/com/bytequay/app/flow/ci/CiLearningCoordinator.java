@@ -474,7 +474,6 @@ public final class CiLearningCoordinator
                 && action.expectedRemoteHead().equals(
                         subject.expectedRemoteHead())
                 && action.proposedHead().equals(subject.publishedHead())
-                && !action.forcePush()
                 && task.repositoryId().equals(subject.repositoryId())
                 && Objects.equals(task.prId(), subject.prId())
                 && pr.taskId().equals(subject.taskId())

@@ -58,9 +58,9 @@ public final class InitialTaskCoordinator
     /** An upstream range's first turn constructs and finalizes the range, so it
      *  is stamped with its own sealed identity. */
     private static final String PICK_REPAIR_PROMPT =
-            "upstream-pick-repair-prompt:v3";
+            "upstream-pick-repair-prompt:v4";
     private static final String PICK_REPAIR_CAPABILITIES =
-            "upstream-pick-repair-capabilities:v3";
+            "upstream-pick-repair-capabilities:v4";
     private static final String TASK_REVIEW_PROMPT =
             "task-initial-review-prompt:v2";
     private static final String TASK_REVIEW_CAPABILITIES =

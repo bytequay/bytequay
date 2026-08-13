@@ -108,7 +108,7 @@ export function TranscriptTool({ entry }: {
         aria-expanded={expandable ? open : undefined}
         onClick={() => setOpen(current => !current)}>
         <b>{entry.name}</b>
-        <code>{entry.summary}</code>
+        {entry.summary.length > 0 && <code>{entry.summary}</code>}
         {expandable && (
           <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
             <ChevronIcon size={9} />

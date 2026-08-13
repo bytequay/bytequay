@@ -185,6 +185,52 @@ describe('agent transcript', () => {
     });
   });
 
+  it('keeps structural payloads out of the compact agent log', () => {
+    const raw = [
+      line({ type: 'assistant', message: { content: [
+        { type: 'tool_use', name: 'read_pick_conflict_context', input: {} },
+        { type: 'tool_use', name: 'Grep', input: {
+          pattern: '^(&lt;&lt;&lt;&lt;&lt;&lt;&lt;|=======|&gt;&gt;&gt;&gt;&gt;&gt;&gt;)',
+        } },
+      ] } }),
+      line({ type: 'user', message: { content: [
+        { type: 'tool_result', content: '{\n  "taskGoal": "test"\n}' },
+        { type: 'tool_result', content: '[]' },
+      ] } }),
+    ].join('\n');
+
+    expect(parseTranscript(raw)).toEqual([
+      {
+        kind: 'tool', name: 'read_pick_conflict_context',
+        summary: '', full: '',
+      },
+      {
+        kind: 'tool', name: 'Grep',
+        summary: '^(<<<<<<<|=======|>>>>>>>)',
+        full: '^(&lt;&lt;&lt;&lt;&lt;&lt;&lt;|=======|&gt;&gt;&gt;&gt;&gt;&gt;&gt;)',
+      },
+      {
+        kind: 'tool_result', failed: false,
+        summary: 'Completed', full: '{\n  "taskGoal": "test"\n}',
+      },
+      {
+        kind: 'tool_result', failed: false,
+        summary: 'No results', full: '[]',
+      },
+    ]);
+  });
+
+  it('summarizes file output while keeping exact output expandable', () => {
+    const raw = line({ type: 'user', message: { content: [
+      { type: 'tool_result', content: '<?xml version="1.0"?>\n<project />' },
+    ] } });
+
+    expect(parseTranscript(raw)).toEqual([{
+      kind: 'tool_result', failed: false, summary: 'Completed',
+      full: '<?xml version="1.0"?>\n<project />',
+    }]);
+  });
+
   it('survives the truncated tail of a capped transcript', () => {
     // The stored transcript is a 64KB tail, so the first line is usually a
     // fragment and the last one may be cut mid-object.

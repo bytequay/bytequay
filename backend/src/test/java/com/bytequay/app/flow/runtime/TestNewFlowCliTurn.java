@@ -37,6 +37,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -65,6 +67,22 @@ final class TestNewFlowCliTurn
     private static String marker(Path root)
     {
         return root.resolve("marker.txt").toString();
+    }
+
+    private static NewFlowAgentPermissions.PendingApproval awaitApproval(
+            NewFlowAgentPermissions permissions, String runId)
+            throws InterruptedException
+    {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            List<NewFlowAgentPermissions.PendingApproval> pending =
+                    permissions.pending(runId);
+            if (!pending.isEmpty()) {
+                return pending.getFirst();
+            }
+            Thread.sleep(5);
+        }
+        throw new AssertionError("the permission question never appeared");
     }
 
     @Test
@@ -627,6 +645,58 @@ final class TestNewFlowCliTurn
     }
 
     @Test
+    void aContainedRunUsesTheProductRunIdForApprovalCards(@TempDir Path root)
+            throws Exception
+    {
+        AtomicReference<NewFlowAgentToolBridge> liveBridge =
+                new AtomicReference<>();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            var request = MAPPER.readTree(exchange.getRequestBody());
+            var response = liveBridge.get().handle(RUN_ID, request)
+                    .orElseThrow();
+            byte[] body = MAPPER.writeValueAsBytes(response);
+            exchange.getResponseHeaders().add(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            Fixture fixture = Fixture.create(
+                    root,
+                    """
+                    read line
+                    request='{"id":1,"method":"tools/call","params":{"name":"request_tool_permission","arguments":{"tool_name":"Bash","input":{"command":"sed -i worktree.txt"}}}}'
+                    curl -sS -o /dev/null -X POST -H 'Content-Type: application/json' \
+                      --data "$request" "$BYTEQUAY_NEW_FLOW_MCP_URL"
+                    echo '{"type":"result","subtype":"success","result":"continued"}'
+                    """,
+                    server.getAddress().getPort(),
+                    call -> ToolExecutor.ToolCallResult.ok(""));
+            liveBridge.set(fixture.bridge);
+            String productRunId = "upstream-sync-run:4";
+            CompletableFuture<NewFlowCliTurn.Outcome> outcome =
+                    CompletableFuture.supplyAsync(() -> fixture.run(
+                            productRunId, (pid, pgid, startedAt) -> {}));
+
+            NewFlowAgentPermissions.PendingApproval pending =
+                    awaitApproval(fixture.permissions, productRunId);
+            assertThat(pending.runId()).isEqualTo(productRunId);
+            assertThat(fixture.permissions.pending(RUN_ID)).isEmpty();
+            assertThat(fixture.permissions.answer(
+                    pending.approvalId(), true)).isTrue();
+            assertThat(outcome.get(10, TimeUnit.SECONDS).turn().finalText())
+                    .isEqualTo("continued");
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void oneClaudeCliSessionRepairsTwoUpstreamConflictsInALinkedWorktree(
             @TempDir Path root)
             throws Exception
@@ -954,6 +1024,7 @@ final class TestNewFlowCliTurn
         private final Path worktree;
         private final Path marker;
         private final NewFlowAgentToolBridge bridge;
+        private final NewFlowAgentPermissions permissions;
         private final NewFlowCliTurn turn;
         private final NewFlowAgentLaunches.Binding binding;
         private final ToolExecutor executor;
@@ -971,6 +1042,7 @@ final class TestNewFlowCliTurn
             this.worktree = worktree;
             this.marker = marker;
             this.bridge = new NewFlowAgentToolBridge(MAPPER);
+            this.permissions = new NewFlowAgentPermissions(MAPPER);
             DriverManagerDataSource dataSource = new DriverManagerDataSource(
                     "jdbc:sqlite:" + database + "?foreign_keys=ON");
             FlowRuntimeSchema.install(dataSource);
@@ -978,7 +1050,7 @@ final class TestNewFlowCliTurn
             // for a resume id and correctly gets none.
             this.turn = new NewFlowCliTurn(
                     new FlowRuntime(dataSource, Clock.systemUTC()),
-                    bridge, new NewFlowAgentPermissions(MAPPER),
+                    bridge, permissions,
                     MAPPER, serverPort);
             this.executor = executor;
             this.binding = new NewFlowAgentLaunches.Binding(
@@ -1109,6 +1181,20 @@ final class TestNewFlowCliTurn
         {
             return turn.runInWorktree(
                     RUN_ID,
+                    binding,
+                    manifest(),
+                    "be exact",
+                    executor,
+                    worktree,
+                    journal(seen),
+                    () -> false);
+        }
+
+        NewFlowCliTurn.Outcome run(String permissionOwnerId, GroupSeen seen)
+        {
+            return turn.runInWorktree(
+                    RUN_ID,
+                    permissionOwnerId,
                     binding,
                     manifest(),
                     "be exact",

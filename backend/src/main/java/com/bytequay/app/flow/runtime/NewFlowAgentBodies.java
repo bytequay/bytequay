@@ -266,6 +266,7 @@ final class NewFlowAgentBodies
 
     TurnResult upstreamPickRepair(
             NewFlowAgentLaunches.Binding binding,
+            String permissionOwnerId,
             ToolExecutor executor,
             AtomicBoolean terminal,
             Path worktree,
@@ -281,7 +282,8 @@ final class NewFlowAgentBodies
                 journal(
                         capability::recordAgentGroup,
                         capability::recordAgentTurnUsage,
-                        activity));
+                        activity),
+                permissionOwnerId);
     }
 
     NewFlowAgentLaunches.Binding bindTaskFix(AgentRun run)
@@ -535,6 +537,20 @@ final class NewFlowAgentBodies
             Path worktree,
             NewFlowCliTurn.TurnJournal journal)
     {
+        return run(
+                binding, program, executor, terminalSeal, worktree, journal,
+                binding.runId());
+    }
+
+    private TurnResult run(
+            NewFlowAgentLaunches.Binding binding,
+            NewFlowAgentLaunches.Program program,
+            ToolExecutor executor,
+            AtomicBoolean terminalSeal,
+            Path worktree,
+            NewFlowCliTurn.TurnJournal journal,
+            String permissionOwnerId)
+    {
         launches.requireSealedAs(binding, program);
         if (!binding.isApi()) {
             if (cliTurn == null || journal == null) {
@@ -557,7 +573,8 @@ final class NewFlowAgentBodies
                             binding.runId(), binding, cliTools, cliSystem,
                             executor, journal, stop)
                     : cliTurn.runInWorktree(
-                            binding.runId(), binding, cliTools, cliSystem,
+                            binding.runId(), permissionOwnerId, binding,
+                            cliTools, cliSystem,
                             executor, worktree, journal, stop))
                     .turn();
         }
@@ -658,6 +675,8 @@ final class NewFlowAgentBodies
                     "delete_file" -> Set.of("path");
             case "search_repository" -> Set.of("query");
             case "write_file" -> Set.of("path", "content");
+            case "replace_file_lines" -> Set.of(
+                    "path", "start_line", "end_line", "content");
             case "run_checks" -> Set.of("command", "working_directory");
             case "read_ci_log" -> Set.of("index", "offset");
             case "read_candidate_lesson" -> Set.of("index");

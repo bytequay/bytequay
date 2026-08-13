@@ -55,19 +55,28 @@ public final class UpstreamSyncViews
     public static final int MAX_LIST_SIZE = 100;
 
     /**
-     * A run's display number, over this repository's sync runs only. It is a
-     * label and never an identity — while legacy runs are still listed, a
-     * number can legitimately appear twice.
+     * A run's display number, over this repository's sync Tasks only. Tasks
+     * are retained as the audit owner when a closed run is deleted, so using
+     * them keeps RUN #4 as #4 instead of renumbering it to #3. It is a label
+     * and never an identity — while legacy runs are still listed, a number can
+     * legitimately appear twice.
      */
     private static final String RUN_COLUMNS = """
-            WITH numbered AS (
-                SELECT r.run_id,
+            WITH sync_task_time AS (
+                SELECT t.task_id, t.repository_id,
+                       (SELECT MIN(recorded_at)
+                          FROM flow_runtime_task_lifecycle_revision l
+                         WHERE l.task_id = t.task_id) AS created_at
+                FROM flow_runtime_task t
+                WHERE t.request_key LIKE 'upstream-sync-command:%'
+            ),
+            numbered AS (
+                SELECT task_id,
                        ROW_NUMBER() OVER (
-                           PARTITION BY t.repository_id
-                           ORDER BY r.created_at, r.run_id
+                           PARTITION BY repository_id
+                           ORDER BY created_at, task_id
                        ) AS run_number
-                FROM flow_upstream_sync_run r
-                JOIN flow_runtime_task t ON t.task_id = r.task_id
+                FROM sync_task_time
             )
             SELECT r.run_id, r.task_id, r.state, r.park_reason,
                    r.verification_ref, r.repair_turn_budget,
@@ -117,7 +126,7 @@ public final class UpstreamSyncViews
             FROM flow_upstream_sync_run r
             JOIN flow_upstream_sync_request q ON q.request_id = r.request_id
             JOIN flow_runtime_task t ON t.task_id = r.task_id
-            JOIN numbered n ON n.run_id = r.run_id
+            JOIN numbered n ON n.task_id = r.task_id
             LEFT JOIN flow_runtime_pr p ON p.task_id = t.task_id
             LEFT JOIN flow_runtime_pr_draft_revision d
                 ON d.draft_revision_id = p.current_draft_revision_id

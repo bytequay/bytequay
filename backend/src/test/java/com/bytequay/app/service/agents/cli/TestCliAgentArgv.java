@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.agents.cli;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -70,7 +72,8 @@ final class TestCliAgentArgv
     }
 
     @Test
-    void anMcpFirstClaudeWriterKeepsItsOwnToolsPreapproved()
+    void anMcpFirstClaudeWriterCanWorkFreelyInsideItsSandbox()
+            throws Exception
     {
         // The owner's tools are recommended, not exclusive: the native
         // toolset stays available and pre-approved, so the agent never
@@ -90,20 +93,22 @@ final class TestCliAgentArgv
                 argv.indexOf("--allowedTools") + 1).split(","));
         assertThat(allowed).contains(
                 "mcp__bytequay__read_file", "mcp__bytequay__write_file",
-                "Read", "Glob", "Grep", "Edit", "Write",
-                "Bash(git diff:*)", "Bash(mvn:*)", "Bash(npx:*)");
-        // Auto-permission: a blanket Bash rule would approve rm, curl, and
-        // git push alike; only the expected read/build patterns pass without
-        // a card. Deleting its own scratch is the one rm that does not ask.
-        assertThat(allowed).doesNotContain("Bash");
-        assertThat(allowed).contains(
-                "Bash(rm /tmp/*)", "Bash(rm -rf /tmp/*)",
-                "Bash(rm " + WORKTREE + "/*)",
-                "Bash(rm -rf " + WORKTREE + "/*)");
-        assertThat(allowed).noneMatch(rule -> rule.equals("Bash(rm:*)")
-                || rule.startsWith("Bash(curl")
-                || rule.startsWith("Bash(git push")
-                || rule.startsWith("Bash(git commit"));
+                "Read", "Glob", "Grep", "Edit", "Write");
+        assertThat(allowed).noneMatch(rule -> rule.startsWith("Bash"));
+
+        JsonNode settings = new ObjectMapper().readTree(argv.get(
+                argv.indexOf("--settings") + 1));
+        assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+        assertThat(settings.at(
+                "/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
+        assertThat(settings.at(
+                "/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+        assertThat(settings.at(
+                "/sandbox/failIfUnavailable").asBoolean()).isTrue();
+        assertThat(settings.at("/permissions/deny/0").asText())
+                .isEqualTo("Bash(git commit *)");
+        assertThat(settings.at("/permissions/deny/1").asText())
+                .isEqualTo("Bash(git push *)");
         assertThat(argv.stream().filter("--allowedTools"::equals)).hasSize(1);
         assertThat(argv).containsSequence("--resume", "session-1");
     }

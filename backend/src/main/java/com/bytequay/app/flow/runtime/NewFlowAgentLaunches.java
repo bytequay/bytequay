@@ -103,13 +103,16 @@ public final class NewFlowAgentLaunches
         // program identity rather than a substituted prompt.
         UPSTREAM_PICK_REPAIR(
                 AgentRole.TASK_AGENT,
-                "upstream-pick-repair-prompt:v3",
-                "upstream-pick-repair-capabilities:v3",
-                "upstream-pick-repair-turn:v5",
+                "upstream-pick-repair-prompt:v4",
+                "upstream-pick-repair-capabilities:v4",
+                "upstream-pick-repair-turn:v6",
                 "Repair each conflicted cherry-pick in the current worktree. "
                         + "The cherry-pick sequencer and conflicted index remain "
                         + "open. Read the conflict context first, resolve only "
                         + "what this pick requires, then call the repair tool. "
+                        + "Use replace_file_lines for line-range conflict edits "
+                        + "or the supplied write_file tool for whole files; do "
+                        + "not invoke shell text processors for worktree edits. "
                         + "The program verifies the resolution, stages it, and "
                         + "continues the cherry-pick with provenance before "
                         + "advancing clean picks. If it reports another conflict, "
@@ -128,7 +131,7 @@ public final class NewFlowAgentLaunches
                         + "Final prose is opaque.",
                 List.of("read_pick_conflict_context", "list_repository",
                         "read_file", "search_repository", "write_file",
-                        "delete_file", "commit_pick_repair",
+                        "replace_file_lines", "delete_file", "commit_pick_repair",
                         "decline_pick_repair", "read_upstream_review_context",
                         "read_candidate_diff", "run_checks",
                         "commit_initial_change",
@@ -891,6 +894,18 @@ public final class NewFlowAgentLaunches
                 required.add("path");
                 required.add("content");
             }
+            case "replace_file_lines" -> {
+                properties.putObject("path").put("type", "string");
+                properties.putObject("start_line").put("type", "integer")
+                        .put("minimum", 1);
+                properties.putObject("end_line").put("type", "integer")
+                        .put("minimum", 1);
+                properties.putObject("content").put("type", "string");
+                required.add("path");
+                required.add("start_line");
+                required.add("end_line");
+                required.add("content");
+            }
             case "run_checks" -> {
                 ObjectNode command = properties.putObject("command");
                 command.put("type", "array")
@@ -948,6 +963,7 @@ public final class NewFlowAgentLaunches
             case "read_file" -> "Read one bounded worktree file.";
             case "search_repository" -> "Search bounded text in this worktree.";
             case "write_file" -> "Replace one bounded worktree text file.";
+            case "replace_file_lines" -> "Replace an inclusive one-based line range in one bounded worktree text file.";
             case "delete_file" -> "Delete one bounded worktree file.";
             case "run_checks" -> "Propose an exact command argv and worktree-relative working directory for program validation, execution, and durable evidence.";
             case "commit_repair" -> "Commit the repair at the tip, or select one exact eligible target SHA from the CI context.";

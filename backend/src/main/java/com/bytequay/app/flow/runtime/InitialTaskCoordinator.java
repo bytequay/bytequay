@@ -66,9 +66,9 @@ public final class InitialTaskCoordinator
     private static final String TASK_REVIEW_CAPABILITIES =
             "task-initial-review-capabilities:v2";
     private static final String REVIEWER_PROMPT =
-            "adversarial-reviewer-prompt:v3";
+            NewFlowAgentLaunches.currentReviewerPromptManifestRef();
     private static final String REVIEWER_CAPABILITIES =
-            "immutable-git-object-reader:v1";
+            NewFlowAgentLaunches.currentReviewerCapabilitySetRef();
 
     public record TaskBinding(
             PendingWork input,

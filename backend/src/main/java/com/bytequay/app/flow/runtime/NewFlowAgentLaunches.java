@@ -52,6 +52,16 @@ public final class NewFlowAgentLaunches
      *  launch of the same model must not digest alike. */
     private static final String LAUNCH_DIGEST = "new-flow-agent-launch:v2";
 
+    public static String currentReviewerPromptManifestRef()
+    {
+        return Program.REVIEWER.promptManifestRef();
+    }
+
+    public static String currentReviewerCapabilitySetRef()
+    {
+        return Program.REVIEWER.capabilitySetRef();
+    }
+
     enum Program
     {
         TASK_INITIAL(
@@ -211,6 +221,18 @@ public final class NewFlowAgentLaunches
                         "write_file", "delete_file", "run_checks",
                         "commit_task_change",
                         "spawn_adversarial_reviewer", "ready_for_review")),
+        REVIEWER_V2(
+                AgentRole.ADVERSARIAL_REVIEWER,
+                "adversarial-reviewer-prompt:v2",
+                "immutable-git-object-reader:v1",
+                "ci-adversarial-review-turn:v2",
+                "Review the immutable base-to-head change adversarially using "
+                        + "read-only tools. For an upstream cherry-pick range, "
+                        + "find and review only fork-authored fixup commits; "
+                        + "do not re-review picked commits or their conflict "
+                        + "resolutions. Return findings as opaque prose.",
+                List.of("list_tree", "read_diff", "read_reviewed_blob",
+                        "read_base_blob")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
                 "adversarial-reviewer-prompt:v3",
@@ -258,6 +280,31 @@ public final class NewFlowAgentLaunches
             this.promptRevision = promptRevision;
             this.systemPrompt = systemPrompt;
             this.tools = List.copyOf(tools);
+        }
+
+        String promptManifestRef()
+        {
+            return promptManifestRef;
+        }
+
+        String capabilitySetRef()
+        {
+            return capabilitySetRef;
+        }
+
+        private static Program reviewerFor(AgentRun run)
+        {
+            requireNonNull(run, "run is null");
+            if (run.role() != AgentRole.ADVERSARIAL_REVIEWER) {
+                throw new IllegalArgumentException("run is not a reviewer");
+            }
+            return switch (run.promptManifestRef()) {
+                case "adversarial-reviewer-prompt:v2" -> REVIEWER_V2;
+                case "adversarial-reviewer-prompt:v3" -> REVIEWER;
+                default -> throw new IllegalArgumentException(
+                        "unsupported reviewer prompt manifest: "
+                                + run.promptManifestRef());
+            };
         }
     }
 
@@ -587,6 +634,23 @@ public final class NewFlowAgentLaunches
                     stored, run, program, promptDigest, manifestDigest);
             return stored;
         }), "launch binding transaction returned null");
+    }
+
+    /** Replays the reviewer program frozen by the durable AgentRun. */
+    Binding bindReviewer(AgentRun run)
+    {
+        return bind(run, Program.reviewerFor(run));
+    }
+
+    /** Returns the exact reviewer program attested by a stored binding. */
+    Program reviewerProgram(Binding binding)
+    {
+        requireNonNull(binding, "binding is null");
+        AgentRun run = runtime.run(binding.runId()).orElseThrow(() ->
+                new IllegalStateException("reviewer AgentRun disappeared"));
+        Program program = Program.reviewerFor(run);
+        requireSealedAs(binding, program);
+        return program;
     }
 
     /**

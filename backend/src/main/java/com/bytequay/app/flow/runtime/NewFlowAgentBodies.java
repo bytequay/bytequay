@@ -52,7 +52,6 @@ import java.util.function.Supplier;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_CLEANUP;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_LEARNER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_REPAIR;
-import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.REVIEWER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_FIX;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_REVIEW_RESULT;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
@@ -314,7 +313,7 @@ final class NewFlowAgentBodies
 
     NewFlowAgentLaunches.Binding bindReviewer(AgentRun run)
     {
-        return launches.bind(run, REVIEWER);
+        return launches.bindReviewer(run);
     }
 
     NewFlowAgentLaunches.Binding bindLearner(AgentRun run)
@@ -498,7 +497,7 @@ final class NewFlowAgentBodies
             default -> ToolCallResult.error("tool is not available");
         });
         TurnResult result = run(
-                binding, REVIEWER, executor, stop, null,
+                binding, launches.reviewerProgram(binding), executor, stop, null,
                 journal(
                         capability::recordAgentGroup,
                         capability::recordAgentTurnUsage,

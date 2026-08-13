@@ -342,6 +342,67 @@ final class NewFlowCliTurn
             TurnJournal journal,
             BooleanSupplier interrupted)
     {
+        // Continue this role's own conversation where the last turn left it.
+        // Read from the session row rather than held in memory, because the
+        // case that matters is a restart — an id that only exists in this JVM
+        // resumes nothing.
+        String resume = runtime.resumableProviderSession(runId).orElse(null);
+        Outcome outcome = attempt(
+                binding, systemPrompt, vendor, directory, pgidFile,
+                mcpConfig, mcpUrl, scrubbed, readOnly, allowedTools, resume,
+                registration, journal, interrupted);
+        if (resume != null && resumeFailedBeforeWork(outcome)) {
+            // The CLI refused the stored session — a wiped vendor state or an
+            // engine switch — and exited before opening a conversation, so
+            // nothing ran and nothing was spent. Forget the dead handle and
+            // run the turn once as a fresh conversation; keeping the id would
+            // fail every later turn of this role the same way.
+            log.warn("run {} could not resume provider session {};"
+                    + " starting a fresh session", runId, resume);
+            runtime.retireProviderSession(runId, resume);
+            outcome = attempt(
+                    binding, systemPrompt, vendor, directory, pgidFile,
+                    mcpConfig, mcpUrl, scrubbed, readOnly, allowedTools, null,
+                    registration, journal, interrupted);
+        }
+        // After burial, so a turn that could not be proven dead never adds to a
+        // budget it may still be spending against. A cancelled or failed turn
+        // still spent what it spent, so this is not conditional on the outcome.
+        journal.usage(
+                outcome.providerSessionId(),
+                outcome.turn().tokensIn(),
+                outcome.turn().tokensOut(),
+                outcome.turn().costMilliUsd());
+        return outcome;
+    }
+
+    /**
+     * A resumed launch that died without opening a conversation or producing
+     * a single assistant round did no work; only that shape is safe to rerun.
+     */
+    private static boolean resumeFailedBeforeWork(Outcome outcome)
+    {
+        return outcome.turn().end() == TurnResult.End.ABORTED
+                && outcome.providerSessionId() == null
+                && outcome.turn().rounds() == 0;
+    }
+
+    private Outcome attempt(
+            NewFlowAgentLaunches.Binding binding,
+            String systemPrompt,
+            CliAgentArgv.Vendor vendor,
+            Path directory,
+            Path pgidFile,
+            Path mcpConfig,
+            String mcpUrl,
+            Map<String, String> scrubbed,
+            boolean readOnly,
+            List<String> allowedTools,
+            String resumeSessionId,
+            NewFlowAgentToolBridge.Registration registration,
+            TurnJournal journal,
+            BooleanSupplier interrupted)
+    {
         List<String> argv = CliAgentArgv.of(new CliAgentArgv.Launch(
                 vendor,
                 binding.cliBinary(),
@@ -354,11 +415,7 @@ final class NewFlowCliTurn
                 mcpUrl,
                 null,
                 null,
-                // Continue this role's own conversation where the last turn
-                // left it. Read from the session row rather than held in
-                // memory, because the case that matters is a restart — an id
-                // that only exists in this JVM resumes nothing.
-                runtime.resumableProviderSession(runId).orElse(null),
+                resumeSessionId,
                 allowedTools,
                 List.of(),
                 true));
@@ -417,16 +474,7 @@ final class NewFlowCliTurn
             buryOrFail(spawned.pgid());
         }
         join(reader);
-        Outcome outcome = transcript.outcome(exit, stopped);
-        // After burial, so a turn that could not be proven dead never adds to a
-        // budget it may still be spending against. A cancelled or failed turn
-        // still spent what it spent, so this is not conditional on the outcome.
-        journal.usage(
-                outcome.providerSessionId(),
-                outcome.turn().tokensIn(),
-                outcome.turn().tokensOut(),
-                outcome.turn().costMilliUsd());
-        return outcome;
+        return transcript.outcome(exit, stopped);
     }
 
     /** Waits for the direct child, giving up when the turn is cancelled. */

@@ -70,6 +70,7 @@ public final class UpstreamSyncCommands
     private final TaskProvisioning provisioning;
     private final RepositoryCatalog repositories;
     private final UpstreamSync upstreamSync;
+    private final FlowRuntime runtime;
     private final TransactionTemplate transactions;
     private final NewFlowDispatcher dispatcher;
     private final InitialTaskDispatcher initialTasks;
@@ -78,6 +79,7 @@ public final class UpstreamSyncCommands
             TaskProvisioning provisioning,
             RepositoryCatalog repositories,
             UpstreamSync upstreamSync,
+            FlowRuntime runtime,
             DataSource dataSource,
             NewFlowDispatcher dispatcher,
             InitialTaskDispatcher initialTasks)
@@ -88,12 +90,38 @@ public final class UpstreamSyncCommands
                 repositories, "repositories is null");
         this.upstreamSync = requireNonNull(
                 upstreamSync, "upstreamSync is null");
+        this.runtime = requireNonNull(runtime, "runtime is null");
         this.transactions = new TransactionTemplate(
                 new DataSourceTransactionManager(requireNonNull(
                         dataSource, "dataSource is null")));
         this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
         this.initialTasks = requireNonNull(
                 initialTasks, "initialTasks is null");
+    }
+
+    /**
+     * Reopens a parked run and re-arms its Task's INITIAL work.
+     *
+     * <p>The park consumed the pending INITIAL fact when its turn failed, so
+     * resuming is two owner updates in one transaction: the run leaves
+     * {@code WAITING_USER} with its budget topped up, and the Task returns to
+     * {@code ACTIVE} with the next revision of the same self-contained fact
+     * registered — which is what makes the dispatcher produce another turn.
+     * The turn re-enters at the recorded conflict and re-picks it.
+     */
+    public UpstreamSyncRun resume(String runId, int additionalRepairTurns)
+    {
+        UpstreamSyncRun resumed = requireNonNull(
+                transactions.execute(ignored -> {
+                    UpstreamSyncRun run = upstreamSync.resume(
+                            runId, additionalRepairTurns);
+                    runtime.rearmInitialTask(
+                            run.taskId(), "UPSTREAM_SYNC_RESUMED");
+                    return run;
+                }), "upstream resume transaction returned null");
+        dispatcher.wake();
+        initialTasks.wake();
+        return resumed;
     }
 
     public StartReceipt startConfirmed(

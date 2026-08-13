@@ -87,12 +87,13 @@ public class UpstreamSyncConfiguration
             TaskProvisioning provisioning,
             TaskProvisioning.RepositoryCatalog repositories,
             UpstreamSync upstreamSync,
+            FlowRuntime runtime,
             @Qualifier("newFlowDataSource") DataSource dataSource,
             NewFlowDispatcher dispatcher,
             InitialTaskDispatcher initialTasks)
     {
         return new UpstreamSyncCommands(
-                provisioning, repositories, upstreamSync, dataSource,
+                provisioning, repositories, upstreamSync, runtime, dataSource,
                 dispatcher,
                 initialTasks);
     }

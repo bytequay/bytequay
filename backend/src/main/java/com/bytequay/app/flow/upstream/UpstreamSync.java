@@ -557,6 +557,39 @@ public final class UpstreamSync
                 clock.instant().toEpochMilli(), runId);
     }
 
+    /**
+     * Reopens a parked run, optionally granting more repair turns.
+     *
+     * <p>Only a parked run can resume — a run that failed some other way has
+     * no recorded safe boundary to re-enter at. The grant is additive so a
+     * budget park can be resumed with room to continue, and zero is valid for
+     * a park the user resolved by other means.
+     */
+    public UpstreamSyncRun resume(String runId, int additionalRepairTurns)
+    {
+        requireText(runId, "runId");
+        if (additionalRepairTurns < 0) {
+            throw new IllegalArgumentException(
+                    "additionalRepairTurns is negative");
+        }
+        int updated = jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET state = ?, park_reason = NULL,
+                    remaining_repair_turns = remaining_repair_turns + ?,
+                    updated_at = ?
+                WHERE run_id = ? AND state = ?
+                """,
+                RunState.PICKING.name(), additionalRepairTurns,
+                clock.instant().toEpochMilli(), runId,
+                RunState.WAITING_USER.name());
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "only a parked upstream sync run can be resumed");
+        }
+        return run(runId).orElseThrow();
+    }
+
     public void recordVerification(
             String runId,
             RunState state,

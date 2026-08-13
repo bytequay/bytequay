@@ -145,6 +145,41 @@ public final class WorkspaceUpstreamSyncController
     }
 
     /**
+     * Reopens a parked run, optionally with more repair turns.
+     *
+     * <p>A park is a checkpoint, not a wall: the user resumes the same run and
+     * the same selection rather than starting a second one over it. The grant
+     * is additive, so a budget park resumes with room to continue.
+     */
+    @PostMapping("/{runId}/resume")
+    public ResponseEntity<SyncRunDetail> resume(
+            @PathVariable String workspaceId,
+            @PathVariable String runId,
+            @RequestBody(required = false) ResumeSyncBody body)
+    {
+        inWorkspace(workspaceId, views.detail(runId)
+                .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+        int additionalTurns = body == null
+                || body.additionalRepairTurns() == null
+                ? 0 : body.additionalRepairTurns();
+        if (additionalTurns < 0 || additionalTurns > MAX_REPAIR_TURNS) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "additional repair turns are out of range");
+        }
+        try {
+            commands.resume(runId, additionalTurns);
+        }
+        catch (IllegalStateException rejected) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, rejected.getMessage(), rejected);
+        }
+        return ResponseEntity.accepted().body(
+                views.detail(runId)
+                        .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+    }
+
+    /**
      * The user's own authorization of the first push, against the exact gate
      * revision the surface displayed. A digest that no longer matches means
      * the run moved under the reader, and the gate refuses rather than
@@ -304,4 +339,11 @@ public final class WorkspaceUpstreamSyncController
 
     public record AuthorizePublishBody(
             long revision, String subjectDigest, String actionDigest) {}
+
+    /**
+     * A parked run's resume request.
+     *
+     * @param additionalRepairTurns added to the run's budget; null adds none
+     */
+    public record ResumeSyncBody(Integer additionalRepairTurns) {}
 }

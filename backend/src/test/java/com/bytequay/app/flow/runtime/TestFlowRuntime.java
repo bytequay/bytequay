@@ -658,6 +658,49 @@ class TestFlowRuntime
     }
 
     @Test
+    void aFailedInitialTurnCanBeRearmedForAnotherAttempt()
+    {
+        // A parked upstream run fails its turn, which consumes the pending
+        // INITIAL fact and moves the Task to attention. Re-arming registers
+        // the next revision of the same fact and returns the Task to ACTIVE,
+        // so the lane produces another turn — the whole cycle must repeat.
+        Task task = startAndProvision("rearm");
+        selectFromReconciliation();
+        ActiveWriter first = startWriter(
+                OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
+        runToCompletion(
+                first, TerminalOutcome.FAILED, "parked", "agent-stop:rearm");
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+
+        FlowRuntimeRecords.PendingWork pending = runtime.rearmInitialTask(
+                task.taskId(), "UPSTREAM_SYNC_RESUMED");
+
+        assertThat(pending.kind()).isEqualTo(PendingKind.INITIAL_TASK);
+        assertThat(jdbc.queryForObject(
+                "SELECT revision FROM flow_runtime_inbox WHERE inbox_id = ?",
+                String.class,
+                pending.pendingId()))
+                .isEqualTo("2");
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.ACTIVE);
+        assertThatThrownBy(() -> runtime.rearmInitialTask(
+                task.taskId(), "AGAIN"))
+                .as("only a Task at attention can be re-armed")
+                .isInstanceOf(IllegalStateException.class);
+
+        selectFromReconciliation();
+        ActiveWriter second = startWriter(
+                OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
+        assertThat(second.run().runId()).isNotEqualTo(first.run().runId());
+        runToCompletion(
+                second, TerminalOutcome.FAILED, "parked again",
+                "agent-stop:rearm-2");
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+    }
+
+    @Test
     void simultaneousCiCausesSelectOneWriterAndGenericFinishIsRejected()
     {
         Task task = publishedTask("simultaneous", 44);

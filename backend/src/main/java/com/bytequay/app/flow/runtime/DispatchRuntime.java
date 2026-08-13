@@ -982,6 +982,11 @@ final class DispatchRuntime
                         Long.toString(task.epoch()),
                         item.kind().name(),
                         item.externalKey(),
+                        // The exact fact, not just its owner: a re-armed
+                        // INITIAL fact reuses the Task's own external key and
+                        // head, and only its revision — carried by the pending
+                        // id — separates the resume from the first attempt.
+                        item.pendingId(),
                         item.subjectHead());
                 String operationId = FlowRuntime.stableId(
                         "operation",

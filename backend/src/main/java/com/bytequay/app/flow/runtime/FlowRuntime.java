@@ -5766,6 +5766,46 @@ public final class FlowRuntime
         return sessions.stream().findFirst();
     }
 
+    /** The cumulative provider usage already recorded for the exact durable
+     * conversation a Codex resume continues. */
+    record ProviderUsageBaseline(long tokensIn, long tokensOut)
+    {
+        static final ProviderUsageBaseline ZERO =
+                new ProviderUsageBaseline(0, 0);
+    }
+
+    synchronized ProviderUsageBaseline providerUsageBaseline(
+            String runId, String providerSessionId)
+    {
+        requireText(runId, "runId");
+        requireText(providerSessionId, "providerSessionId");
+        return jdbc.queryForObject(
+                """
+                SELECT COALESCE(SUM(attempt.attempt_tokens_in), 0) AS tokens_in,
+                       COALESCE(SUM(attempt.attempt_tokens_out), 0) AS tokens_out
+                FROM flow_runtime_agent_run current_run
+                JOIN flow_runtime_agent_session owner
+                  ON owner.session_id = current_run.session_id
+                JOIN flow_runtime_agent_session candidate
+                  ON (current_run.role IN ('TASK_AGENT', 'CI_FIXER')
+                        AND candidate.task_id = owner.task_id
+                        AND candidate.role IN ('TASK_AGENT', 'CI_FIXER'))
+                    OR (current_run.role NOT IN ('TASK_AGENT', 'CI_FIXER')
+                        AND candidate.session_id = owner.session_id)
+                JOIN flow_runtime_agent_run candidate_run
+                  ON candidate_run.session_id = candidate.session_id
+                JOIN flow_runtime_agent_process_attempt attempt
+                  ON attempt.run_id = candidate_run.run_id
+                WHERE current_run.run_id = ?
+                  AND attempt.attempt_provider_session_id = ?
+                """,
+                (result, row) -> new ProviderUsageBaseline(
+                        result.getLong("tokens_in"),
+                        result.getLong("tokens_out")),
+                runId,
+                providerSessionId);
+    }
+
     /**
      * Forgets a provider session that the vendor CLI refused to resume.
      *

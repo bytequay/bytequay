@@ -207,6 +207,198 @@ final class TestNewFlowCliTurn
     }
 
     @Test
+    void codexReceivesTheSealedProgramAndPermissiveToolGuidanceOnStdin(
+            @TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat > %s
+                echo '{"type":"thread.started","thread_id":"codex-1"}'
+                echo '{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"done"}}'
+                echo '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}'
+                """.formatted(marker(root)));
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(Files.readString(fixture.marker, StandardCharsets.UTF_8))
+                .contains("be exact")
+                .contains("built-in tools are available")
+                .contains("bytequay tools are the recommended way")
+                .contains("inside the supplied worktree")
+                .contains("if a native operation is unavailable")
+                .doesNotContain("raises an approval card")
+                .contains("Work only on the exact program-selected subject");
+        assertThat(outcome.turn().finalText()).isEqualTo("done");
+        assertThat(fixture.usage).containsExactly("codex-1/12/3/0");
+    }
+
+    @Test
+    void aReadOnlyCodexTurnGetsHonestToolGuidance(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat > %s
+                echo '{"type":"thread.started","thread_id":"codex-review"}'
+                echo '{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"reviewed"}}'
+                echo '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":2}}'
+                """.formatted(marker(root)));
+
+        fixture.runReadOnly((pid, pgid, startedAt) -> {});
+
+        assertThat(Files.readString(fixture.marker, StandardCharsets.UTF_8))
+                .contains("This is a read-only role")
+                .contains("if a native operation is unavailable")
+                .doesNotContain("raises an approval card")
+                .doesNotContain("You may read, search, edit");
+    }
+
+    @Test
+    void aCodexFailureKeepsTheProviderMessage(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat >/dev/null
+                echo '{"type":"thread.started","thread_id":"codex-failed"}'
+                echo '{"type":"turn.failed","error":{"message":"sandbox could not start"}}'
+                exit 1
+                """);
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.ABORTED);
+        assertThat(outcome.turn().finalText())
+                .isEqualTo("sandbox could not start");
+    }
+
+    @Test
+    void aStderrOnlyFailureIsDrainedAndReported(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat >/dev/null
+                echo 'Reading additional input from stdin...'
+                echo 'authentication expired' >&2
+                exit 1
+                """);
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.ABORTED);
+        assertThat(outcome.turn().finalText())
+                .contains("authentication expired");
+    }
+
+    @Test
+    void aResumedCodexTurnRecordsOnlyUsageAfterTheDurableBaseline(
+            @TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat >/dev/null
+                echo '{"type":"thread.started","thread_id":"codex-resume"}'
+                echo '{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"continued"}}'
+                echo '{"type":"turn.completed","usage":{"input_tokens":130,"output_tokens":27}}'
+                """);
+        JdbcTemplate seed = new JdbcTemplate(new DriverManagerDataSource(
+                "jdbc:sqlite:" + root.resolve("runtime.db")));
+        seed.update("""
+                INSERT INTO flow_runtime_agent_session (
+                    session_id, task_id, role, state, provider_session_id,
+                    total_tokens_in, total_tokens_out, created_at, updated_at
+                ) VALUES ('s1', 't1', 'TASK_AGENT', 'RUNNING', 'codex-resume',
+                          110, 25, 0, 0)
+                """);
+        seed.update("""
+                INSERT INTO flow_runtime_agent_run (
+                    run_id, operation_id, session_id, role, head_sha,
+                    prompt_manifest_ref, capability_set_ref, input_ref,
+                    wake_kind, intended_gate_kind, state, created_at
+                ) VALUES (?, 'op-1', 's1', 'TASK_AGENT', 'h', 'p', 'c', 'i',
+                          'INITIAL_TASK', 'INITIAL_PUBLISH', 'RUNNING', 0)
+                """, RUN_ID);
+        seed.update("""
+                INSERT INTO flow_runtime_agent_process_attempt (
+                    process_attempt_id, run_id, operation_id,
+                    claim_generation, claim_token_digest, execution_id,
+                    capability_id, state, jvm_pid, jvm_started_at, thread_id,
+                    thread_name, activated_at, capability_revoked_at,
+                    stop_type, stop_proof_ref, stopped_at,
+                    completion_outcome, completion_digest,
+                    attempt_provider_session_id, attempt_tokens_in,
+                    attempt_tokens_out, reserved_at
+                ) VALUES ('old-provider-attempt', ?, 'op-1', 1, 'claim', 'old-execution',
+                          'old-capability', 'STOPPED', 7, 0, 8, 'test', 0, 0,
+                          'NORMAL_RETURN', 'gone', 0,
+                          'COMPLETED', 'done', 'codex-old', 100, 20, 0)
+                """, RUN_ID);
+        seed.update("""
+                INSERT INTO flow_runtime_agent_process_attempt (
+                    process_attempt_id, run_id, operation_id,
+                    claim_generation, claim_token_digest, execution_id,
+                    capability_id, state, jvm_pid, jvm_started_at, thread_id,
+                    thread_name, activated_at, capability_revoked_at,
+                    stop_type, stop_proof_ref, stopped_at,
+                    completion_outcome, completion_digest,
+                    attempt_provider_session_id, attempt_tokens_in,
+                    attempt_tokens_out, reserved_at
+                ) VALUES ('new-provider-attempt', ?, 'op-1', 2, 'claim', 'new-execution',
+                          'new-capability', 'STOPPED', 7, 0, 8, 'test', 0, 0,
+                          'NORMAL_RETURN', 'gone', 0,
+                          'COMPLETED', 'done', 'codex-resume', 10, 5, 0)
+                """, RUN_ID);
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.COMPLETED);
+        assertThat(fixture.usage).containsExactly("codex-resume/120/22/0");
+    }
+
+    @Test
+    void codexResumeDoesNotReplayAfterProviderWorkStarted(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createCodex(root, """
+                cat >/dev/null
+                echo launched >> %s
+                echo '{"type":"item.started","item":{"id":"c1","type":"command_execution","command":"printf changed"}}'
+                echo '{"type":"turn.failed","error":{"message":"failed after command"}}'
+                exit 1
+                """.formatted(marker(root)));
+        seedProviderSession(root, "codex-old");
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.ABORTED);
+        assertThat(Files.readString(fixture.marker, StandardCharsets.UTF_8))
+                .isEqualTo("launched\n");
+    }
+
+    private static void seedProviderSession(Path root, String providerSession)
+    {
+        JdbcTemplate seed = new JdbcTemplate(new DriverManagerDataSource(
+                "jdbc:sqlite:" + root.resolve("runtime.db")));
+        seed.update("""
+                INSERT INTO flow_runtime_agent_session (
+                    session_id, task_id, role, state, provider_session_id,
+                    created_at, updated_at
+                ) VALUES ('s1', 't1', 'TASK_AGENT', 'RUNNING', ?, 0, 0)
+                """, providerSession);
+        seed.update("""
+                INSERT INTO flow_runtime_agent_run (
+                    run_id, operation_id, session_id, role, head_sha,
+                    prompt_manifest_ref, capability_set_ref, input_ref,
+                    wake_kind, intended_gate_kind, state, created_at
+                ) VALUES (?, 'op-1', 's1', 'TASK_AGENT', 'h', 'p', 'c', 'i',
+                          'INITIAL_TASK', 'INITIAL_PUBLISH', 'RUNNING', 0)
+                """, RUN_ID);
+    }
+
+    @Test
     void aStaleProviderSessionFallsBackToAFreshConversation(@TempDir Path root)
             throws Exception
     {
@@ -361,6 +553,54 @@ final class TestNewFlowCliTurn
 
             assertThat(outcome.turn().finalText()).isEqualTo("called");
             assertThat(toolThread).hasValue(owner.get());
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void codexSeesOnlyTheSealedSemanticToolManifest(@TempDir Path root)
+            throws Exception
+    {
+        AtomicReference<NewFlowAgentToolBridge> liveBridge =
+                new AtomicReference<>();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            var request = MAPPER.readTree(exchange.getRequestBody());
+            var response = liveBridge.get().handle(RUN_ID, request)
+                    .orElseThrow();
+            byte[] body = MAPPER.writeValueAsBytes(response);
+            exchange.getResponseHeaders().add(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            Fixture fixture = Fixture.createCodex(
+                    root,
+                    """
+                    cat >/dev/null
+                    request='{"id":1,"method":"tools/list"}'
+                    curl -sS -X POST -H 'Content-Type: application/json' \
+                      --data "$request" "$BYTEQUAY_NEW_FLOW_MCP_URL" > %s
+                    echo '{"type":"thread.started","thread_id":"codex-tools"}'
+                    echo '{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"listed"}}'
+                    echo '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":2}}'
+                    """.formatted(marker(root)),
+                    server.getAddress().getPort(),
+                    call -> ToolExecutor.ToolCallResult.ok(""));
+            liveBridge.set(fixture.bridge);
+
+            fixture.run((pid, pgid, startedAt) -> {});
+
+            String listed = Files.readString(
+                    fixture.marker, StandardCharsets.UTF_8);
+            assertThat(listed).contains("test_tool")
+                    .doesNotContain(NewFlowAgentPermissions.TOOL_NAME);
         }
         finally {
             server.stop(0);
@@ -686,7 +926,9 @@ final class TestNewFlowCliTurn
                 Path executable,
                 Path database,
                 int serverPort,
-                ToolExecutor executor)
+                ToolExecutor executor,
+                String provider,
+                String model)
         {
             this.worktree = worktree;
             this.marker = marker;
@@ -703,11 +945,11 @@ final class TestNewFlowCliTurn
             this.executor = executor;
             this.binding = new NewFlowAgentLaunches.Binding(
                     RUN_ID,
-                    "claude-code",
+                    provider,
                     AgentExecution.CLI,
                     null,
                     null,
-                    "sonnet",
+                    model,
                     null,
                     null,
                     null,
@@ -782,7 +1024,44 @@ final class TestNewFlowCliTurn
                     PosixFilePermissions.fromString("rwxr-xr-x"));
             return new Fixture(
                     worktree, root.resolve("marker.txt"), executable,
-                    root.resolve("runtime.db"), serverPort, executor);
+                    root.resolve("runtime.db"), serverPort, executor,
+                    "claude-code", "sonnet");
+        }
+
+        static Fixture createCodex(Path root, String script)
+                throws IOException, InterruptedException
+        {
+            return createCodex(
+                    root, script, 1,
+                    call -> ToolExecutor.ToolCallResult.ok(""));
+        }
+
+        static Fixture createCodex(
+                Path root,
+                String script,
+                int serverPort,
+                ToolExecutor executor)
+                throws IOException, InterruptedException
+        {
+            Path remote = root.resolve("remote.git");
+            Path clone = root.resolve("clone");
+            run(root, "git", "init", "--bare", "-b", "main", remote.toString());
+            run(root, "git", "clone", remote.toString(), clone.toString());
+            run(clone, "git", "config", "user.email", "t@example.com");
+            run(clone, "git", "config", "user.name", "Test");
+            Files.writeString(clone.resolve("a.txt"), "one\n",
+                    StandardCharsets.UTF_8);
+            run(clone, "git", "add", "a.txt");
+            run(clone, "git", "commit", "-m", "first");
+            Path executable = root.resolve("fake-codex");
+            Files.writeString(executable, "#!/bin/sh\n" + script,
+                    StandardCharsets.UTF_8);
+            Files.setPosixFilePermissions(executable,
+                    PosixFilePermissions.fromString("rwxr-xr-x"));
+            return new Fixture(
+                    clone, root.resolve("marker.txt"), executable,
+                    root.resolve("runtime.db"), serverPort, executor,
+                    "codex", "gpt-5");
         }
 
         /** Captures what the turn reported, in place of the runtime writes. */

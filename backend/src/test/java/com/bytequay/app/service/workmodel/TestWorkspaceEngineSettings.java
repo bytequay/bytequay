@@ -137,6 +137,25 @@ class TestWorkspaceEngineSettings
     }
 
     @Test
+    void everyCherryPickAudienceInheritsTheDefaultCodexCli()
+    {
+        stubSettings("""
+                {"providers": {"default": "cli:codex", "dev": "", "review": "", "ci-fix": ""}}
+                """);
+
+        assertThat(List.of("dev", "review", "ci-fix"))
+                .allSatisfy(audience -> assertThat(
+                        settings.forAudience("ws-1", audience))
+                        .hasValueSatisfying(engine -> {
+                            assertThat(engine.model().kind())
+                                    .isEqualTo(WorkModelKind.CLI);
+                            assertThat(engine.model().agentOrProvider())
+                                    .isEqualTo("codex");
+                            assertThat(engine.fromRole()).isFalse();
+                        }));
+    }
+
+    @Test
     void noSettingsRowOrNoProvidersResolvesToNothing()
     {
         when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class)))

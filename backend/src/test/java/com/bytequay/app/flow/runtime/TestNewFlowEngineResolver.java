@@ -188,6 +188,30 @@ class TestNewFlowEngineResolver
         assertThat(config.reasoningEffort()).isEqualTo("high");
     }
 
+    @Test
+    void everyFlowRoleInheritsTheWorkspaceDefaultCodexEngine()
+    {
+        workspace("ws-1");
+        WorkModel picked = new WorkModel(
+                WorkModelKind.CLI, "codex", null, null, "high");
+        when(settings.forAudience(eq("ws-1"), anyString()))
+                .thenReturn(Optional.of(
+                        new WorkspaceEngineSettings.Engine(picked, false)));
+        when(workModels.freeze(picked)).thenReturn(new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5", null, "high"));
+        when(workModels.resolveEffort(
+                any(), eq("codex"), eq("gpt-5"), eq("high")))
+                .thenReturn("high");
+
+        assertThat(List.of(AgentRole.values()))
+                .allSatisfy(role -> {
+                    Config config = resolver.resolve(task(), role);
+                    assertThat(config.providerName()).isEqualTo("codex");
+                    assertThat(config.execution()).isEqualTo(AgentExecution.CLI);
+                    assertThat(config.cliBinary()).isEqualTo("codex");
+                });
+    }
+
     private void workspace(String workspaceId)
     {
         when(jdbc.queryForList(contains("workspace_repos"), eq(String.class), eq(REPO)))

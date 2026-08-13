@@ -741,6 +741,10 @@ public final class LocalChecks
         boolean sensitiveEnvironment = false;
         environment.put("LANG", "C");
         environment.put("LC_ALL", "C");
+        String home = System.getenv("HOME");
+        if (home != null && !home.isBlank()) {
+            environment.put("HOME", home);
+        }
         for (String name : profile.environmentAllowlist()) {
             String value = System.getenv(name);
             if (value == null) {

@@ -176,6 +176,23 @@ final class TestLocalChecks
     }
 
     @Test
+    void buildWrappersReceiveTheUserHomeWithoutAProfileAllowlist()
+    {
+        assertThat(System.getenv("HOME")).isNotBlank();
+        advancePolicy(
+                "policy:v2",
+                "/bin/sh",
+                List.of("-c", "printf %s \"${HOME:+set}\""),
+                Duration.ofSeconds(5));
+
+        LocalCheckRun run = inWriter(capability -> capability.runChecks(
+                localChecks, repository, null).getFirst());
+
+        assertThat(run.conclusion()).isEqualTo(LocalCheckConclusion.PASSED);
+        assertThat(run.outputText()).isEqualTo("set");
+    }
+
+    @Test
     void agentSelectedCommandCannotChangeTheFrozenExecutable()
     {
         inWriter(capability -> {

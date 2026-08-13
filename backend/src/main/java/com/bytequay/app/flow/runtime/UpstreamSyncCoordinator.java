@@ -62,8 +62,11 @@ import static java.util.Objects.requireNonNull;
  * on its own branch, so a hundred clean commits cost no model turns. Only a
  * conflict is semantic, and only a conflict resumes the Task Agent.
  *
- * <p>This body deliberately ends where every ordinary Task ends — at
- * {@code request_initial_review} and then the {@code INITIAL_PUBLISH} gate.
+ * <p>This body deliberately ends where every ordinary Task ends — at the exact
+ * review request and then the {@code INITIAL_PUBLISH} gate. The program makes
+ * that request itself once the range is complete; the repair agent has no tool
+ * for it, because asking for review mid-range is not something it should be
+ * able to do.
  * The run's park-before-push already is that gate, so nothing about the user's
  * authorization step is invented here; it is reached. Publication through the
  * flow's own effect is also what lets generic CI Autofix adopt the pull
@@ -302,7 +305,7 @@ public final class UpstreamSyncCoordinator
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         ToolExecutor executor = bounded(resolved, declined, call ->
                 switch (call.name()) {
-                    case "read_initial_task_context" -> safe(() ->
+                    case "read_pick_conflict_context" -> safe(() ->
                             conflictContext(capability, pick, targetSubject));
                     case "list_repository" -> guarded(capability,
                             () -> json(workspace.listRepository()));
@@ -319,11 +322,8 @@ public final class UpstreamSyncCoordinator
                         workspace.deleteFile(text(call, "path"));
                         return "deleted";
                     });
-                    // The terminal repair tool. The role's wire tool list is
-                    // fixed by its sealed program identity, so this reuses the
-                    // Task's commit tool rather than inventing a name the
-                    // sealed launch could not carry.
-                    case "commit_initial_change" -> safe(() -> {
+                    // The terminal repair tool.
+                    case "commit_pick_repair" -> safe(() -> {
                         String head = capability.callTool(() -> {
                             String committed = picker.commitFixup(
                                     targetSubject, hadFixup);
@@ -338,13 +338,15 @@ public final class UpstreamSyncCoordinator
                         resolved.set(true);
                         return "conflict repair attributed to its pick";
                     });
-                    // Asking for review mid-range is the agent declining the
-                    // conflict, not finishing the run.
-                    case "request_initial_review" -> {
+                    // An explicit decline, which parks the run for the user.
+                    // This used to be spelled `request_initial_review`, whose
+                    // own program prompt instructs the agent to call it — so a
+                    // declined conflict was one prompt-following away.
+                    case "decline_pick_repair" -> {
                         declined.set(true);
                         yield ToolCallResult.error(
-                                "the range is not complete; resolve the "
-                                        + "conflict or stop");
+                                "the conflict was declined; the run parks for "
+                                        + "the user");
                     }
                     default -> ToolCallResult.error("tool is not available");
                 });
@@ -452,7 +454,7 @@ public final class UpstreamSyncCoordinator
         }
         ArrayNode messages = mapper.createArrayNode();
         String system = launches.systemPrompt(
-                NewFlowAgentLaunches.Program.TASK_INITIAL);
+                NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
         if (binding.transport() == TurnSpec.Transport.OPENAI_COMPAT) {
             messages.addObject().put("role", "system").put("content", system);
             system = null;
@@ -469,7 +471,7 @@ public final class UpstreamSyncCoordinator
                         system,
                         messages,
                         launches.tools(
-                                NewFlowAgentLaunches.Program.TASK_INITIAL,
+                                NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR,
                                 binding.transport()),
                         binding.maxOutputTokens(),
                         binding.maxToolIterations()),

@@ -81,6 +81,30 @@ public final class NewFlowAgentLaunches
                         "write_file", "delete_file", "commit_initial_change",
                         "request_initial_review",
                         "ready_for_initial_publish")),
+        // A conflicted pick is not the initial-task job wearing a different hat.
+        // Reusing TASK_INITIAL for it told the agent to implement a Task goal
+        // that does not exist here, and to finish by requesting review — which
+        // this turn reads as declining the conflict. The sealed launch pins the
+        // prompt the agent was actually given, so the honest fix is its own
+        // program identity rather than a substituted prompt.
+        UPSTREAM_PICK_REPAIR(
+                AgentRole.TASK_AGENT,
+                "upstream-pick-repair-prompt:v1",
+                "upstream-pick-repair-capabilities:v1",
+                "upstream-pick-repair-turn:v1",
+                "Repair one conflicted cherry-pick in the current worktree. "
+                        + "Git's own three-way resolution is already committed, "
+                        + "so you are correcting that commit rather than "
+                        + "performing the merge. Read the conflict context "
+                        + "first. Change only what this pick's conflict "
+                        + "requires, then commit with the repair tool, which "
+                        + "attributes the fixup to its target for you. Decline "
+                        + "if the conflict needs a decision you cannot make. "
+                        + "Final prose is opaque.",
+                List.of("read_pick_conflict_context", "list_repository",
+                        "read_file", "search_repository", "write_file",
+                        "delete_file", "commit_pick_repair",
+                        "decline_pick_repair")),
         CI_REPAIR(
                 AgentRole.CI_FIXER,
                 "ci-fix-prompt:v1",
@@ -800,6 +824,9 @@ public final class NewFlowAgentLaunches
             case "commit_task_change" -> "Commit and mechanically adopt a Task correction.";
             case "commit_initial_change" -> "Commit and mechanically adopt the INITIAL Task change.";
             case "read_initial_task_context" -> "Read the exact Task goal and immutable initial base.";
+            case "read_pick_conflict_context" -> "Read the conflicted pick, its target subject, and its conflicted paths.";
+            case "commit_pick_repair" -> "Commit the repair as the one fixup attributed to this pick.";
+            case "decline_pick_repair" -> "Decline this conflict and park the run for the user.";
             case "read_initial_review_context" -> "Read the exact Task goal and completed initial review.";
             case "request_initial_review" -> "Save the local PR draft, run checks, and request exact review.";
             case "ready_for_initial_publish" -> "Accept the exact initial review for manual publication.";

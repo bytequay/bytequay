@@ -219,14 +219,20 @@ public final class InitialTaskDispatcher
 
     private void dispatchTask(Claim claim)
     {
-        InitialTaskCoordinator.TaskBinding binding =
-                coordinator.beginTask(claim, config.claimTtl());
-        var launch = binding.reviewContinuation()
-                ? bodies.bindInitialReviewResult(binding.run())
-                : bodies.bindInitialTask(binding.run());
         UpstreamSyncCoordinator upstreamSync = upstream;
         boolean upstreamRange = upstreamSync != null
                 && upstreamSync.owns(claim.taskId());
+        InitialTaskCoordinator.TaskBinding binding =
+                coordinator.beginTask(
+                        claim, config.claimTtl(), upstreamRange);
+        // The sealed launch must name the program whose prompt and tools this
+        // body actually uses, so the range is decided before the bind, not
+        // after it.
+        var launch = binding.reviewContinuation()
+                ? bodies.bindInitialReviewResult(binding.run())
+                : upstreamRange
+                        ? bodies.bindUpstreamPickRepair(binding.run())
+                        : bodies.bindInitialTask(binding.run());
         InProcessWriterAgentSupervisor.ExecutionHandle handle;
         synchronized (lifecycle) {
             if (!running.get()) {

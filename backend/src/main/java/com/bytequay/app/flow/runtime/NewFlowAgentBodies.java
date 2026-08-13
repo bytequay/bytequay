@@ -53,6 +53,7 @@ import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_REVIEW_RESULT;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL_REVIEW_RESULT;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR;
 import static java.util.Objects.requireNonNull;
 
 /** Neutral TurnRunner bodies behind role-specific, zero-owner-id tools. */
@@ -141,6 +142,12 @@ final class NewFlowAgentBodies
     NewFlowAgentLaunches.Binding bindInitialReviewResult(AgentRun run)
     {
         return launches.bind(run, TASK_INITIAL_REVIEW_RESULT);
+    }
+
+    /** The first turn of an upstream range, which repairs conflicted picks. */
+    NewFlowAgentLaunches.Binding bindUpstreamPickRepair(AgentRun run)
+    {
+        return launches.bind(run, UPSTREAM_PICK_REPAIR);
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion initialTask(

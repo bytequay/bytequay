@@ -112,15 +112,20 @@ export default function WorkspaceSyncRunPage({
   // itself is parked, and the pull request appears without it moving.
   const publishing = run?.publishGate != null
     && run.publishGate.state !== 'CONSUMED';
+  // The coordinator records WAITING_INITIAL_PUBLISH before the gate rows are
+  // committed. Keep polling across that short gap or the page can freeze on
+  // "Range complete" with no way to authorize the first push.
+  const awaitingPublishGate = flow
+    && run?.job.runState === 'WAITING_INITIAL_PUBLISH';
   useEffect(() => {
-    if (!live && !publishing) return undefined;
+    if (!live && !publishing && !awaitingPublishGate) return undefined;
     const timer = window.setInterval(() => {
       // A dropped poll keeps the last complete run on screen rather than
       // blanking a view someone may have walked away from.
       void load().catch(() => {});
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [live, publishing, load]);
+  }, [live, publishing, awaitingPublishGate, load]);
 
   // A live agent turn may be waiting on a tool approval; the question only
   // exists while the turn is open, so it is polled with the run and cleared

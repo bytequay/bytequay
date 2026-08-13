@@ -215,6 +215,43 @@ describe('a greenfield sync run', () => {
     });
   });
 
+  it('keeps polling while the publish gate is being materialized', async () => {
+    vi.useFakeTimers();
+    try {
+      const reviewing = flowRun();
+      reviewing.job.status = 'RUNNING';
+      reviewing.job.runState = 'FINAL_REVIEW';
+      reviewing.publishGate = null;
+      const waiting = {
+        ...reviewing,
+        job: {
+          ...reviewing.job,
+          status: 'COMPLETED' as const,
+          runState: 'WAITING_INITIAL_PUBLISH',
+        },
+      };
+      const ready = { ...waiting, publishGate: flowRun().publishGate };
+      const responses = [reviewing, waiting, ready];
+      const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> =>
+        input.path.endsWith('/permissions') ? [] : responses.shift() ?? ready);
+      (window as unknown as { bridge: unknown }).bridge = {
+        workspaceApi: request,
+        subscribeFlowSyncRunStream: () => () => {},
+      };
+      render(<WorkspaceSyncRunPage workspaceId="fork" jobId={RUN_ID} />);
+      await flush();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+      expect(screen.getByRole('button', { name: 'Authorize the first push' }))
+        .toBeTruthy();
+      expect(request.mock.calls.filter(([input]) =>
+        input.path.includes('/upstream/syncs/'))).toHaveLength(3);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not offer a push the gate has not opened', async () => {
     const run = flowRun();
     mount({

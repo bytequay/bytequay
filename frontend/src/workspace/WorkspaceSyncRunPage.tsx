@@ -121,10 +121,12 @@ export default function WorkspaceSyncRunPage({
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
   useEffect(() => {
-    // The live turn stream belongs to the retired runner. A greenfield run's
-    // turns are the flow runtime's, and nothing streams them here yet.
-    if (!live || flow) return undefined;
-    return window.bridge.subscribeSyncRunStream(jobId, event => {
+    if (!live) return undefined;
+    // Each path streams its own turns; a run is watched where it runs.
+    const subscribe = flow
+      ? window.bridge.subscribeFlowSyncRunStream
+      : window.bridge.subscribeSyncRunStream;
+    return subscribe(jobId, event => {
       const entries = transcriptEntries(event.data);
       if (entries.length === 0) return;
       // A result line ends the turn; the durable transcript takes over from

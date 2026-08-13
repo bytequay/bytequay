@@ -77,7 +77,9 @@ export function syncPhase(job: UpstreamCherryPickJobDto): string {
 export type SyncPhase = 1 | 2 | 3;
 
 export function syncPhaseNumber(job: UpstreamCherryPickJobDto): SyncPhase {
-  if (job.prResult !== null) return 3;
+  // Absent and null both mean the pull request has not ended: a run whose
+  // source does not report the field has not reached phase 3 either.
+  if (job.prResult !== null && job.prResult !== undefined) return 3;
   if (job.prNumber !== null) return 2;
   return 1;
 }
@@ -307,6 +309,18 @@ export type SyncDecision = {
 
 /** @return null while the run is still working — there is nothing to decide. */
 export function syncDecision(job: UpstreamCherryPickJobDto): SyncDecision | null {
+  if (job.prResult === 'merged' || job.prResult === 'closed') {
+    return {
+      title: job.prResult === 'merged'
+        ? `Pull request #${job.prNumber} merged`
+        : `Pull request #${job.prNumber} closed without merging`,
+      body: job.prResult === 'merged'
+        ? 'The range is upstream of your fork now. Nothing is left to review.'
+        : 'The pushed commits are the only copy of this range; the remote'
+          + ' branch is left alone.',
+      tone: job.prResult === 'merged' ? 'done' : 'closed',
+    };
+  }
   if (job.closedAt !== null) {
     return {
       title: 'Run closed',
@@ -382,6 +396,14 @@ export function syncNowLine(
   job: UpstreamCherryPickJobDto,
   queue: SyncQueue,
 ): string {
+  // How the pull request ended is what the run's own state cannot say, so it
+  // wins over "closed" — and it claims nothing about what was released.
+  if (job.prResult === 'merged') {
+    return `Pull request #${job.prNumber} was merged — the run is done`;
+  }
+  if (job.prResult === 'closed') {
+    return `Pull request #${job.prNumber} was closed without merging`;
+  }
   if (job.closedAt !== null) {
     return 'Run closed — the worktree was removed; the branch and this log are kept';
   }

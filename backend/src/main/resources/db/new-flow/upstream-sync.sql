@@ -49,8 +49,16 @@ CREATE TABLE flow_upstream_sync_run (
     current_head TEXT,
     park_reason TEXT,
     verification_ref TEXT,
+    -- How the pull request ended, once it did. Merging is the user's act, not
+    -- the run's, so this is only ever written from an observation of the
+    -- provider — never inferred from the run reaching its own last state.
+    pr_result TEXT CHECK (
+        pr_result IS NULL OR pr_result IN ('MERGED', 'CLOSED')
+    ),
+    pr_result_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    CHECK ((pr_result IS NULL) = (pr_result_at IS NULL)),
     FOREIGN KEY (request_id)
         REFERENCES flow_upstream_sync_request (request_id),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)

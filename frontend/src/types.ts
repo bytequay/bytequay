@@ -3172,6 +3172,12 @@ export type Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
+  /** The live turn of a sync run on the flow runtime. */
+  subscribeFlowSyncRunStream: (
+    runId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => () => void;
   // ── Brain agent (per-task read-only conversational surface) ──────
   /** Full brain-view payload for a task: aggregate strip, stages,
    *  brain feed, right rail, scrubbers. Polled by the brain view. */

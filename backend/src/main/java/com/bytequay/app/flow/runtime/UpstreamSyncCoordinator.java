@@ -18,6 +18,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InitialTaskCoordinator.InitialToolCapability;
+import com.bytequay.app.flow.upstream.RunLinePublisher;
 import com.bytequay.app.flow.upstream.UpstreamPicker;
 import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
 import com.bytequay.app.flow.upstream.UpstreamPicker.UnresolvedRepairException;
@@ -39,6 +40,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,13 +88,15 @@ public final class UpstreamSyncCoordinator
     private final NewFlowAgentLaunches launches;
     private final TurnRunner runner;
     private final ObjectMapper mapper;
+    private final RunLinePublisher live;
 
     public UpstreamSyncCoordinator(
             FlowRuntime runtime,
             UpstreamSync upstreamSync,
             NewFlowAgentLaunches launches,
             TurnRunner runner,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            RunLinePublisher live)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.upstreamSync = requireNonNull(
@@ -100,6 +104,7 @@ public final class UpstreamSyncCoordinator
         this.launches = requireNonNull(launches, "launches is null");
         this.runner = requireNonNull(runner, "runner is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.live = requireNonNull(live, "live is null");
     }
 
     /** True when this Task's branch is one this component builds. */
@@ -358,7 +363,9 @@ public final class UpstreamSyncCoordinator
                     default -> ToolCallResult.error("tool is not available");
                 });
         TurnResult turn = runTurn(
-                binding, executor, () -> resolved.get() || declined.get());
+                binding, watched(runId, executor),
+                () -> resolved.get() || declined.get());
+        publishTurnEnd(runId, turn);
         if (resolved.get()) {
             return null;
         }
@@ -549,6 +556,55 @@ public final class UpstreamSyncCoordinator
                     .append(" more\n");
         }
         return body.toString();
+    }
+
+    /**
+     * Reports each tool call as the turn makes it.
+     *
+     * <p>The run's log only gains a line when a turn ends, so without this a
+     * repair that compiles for minutes reads as a stalled run. Emitted in the
+     * shape the run view already parses, and never allowed to fail the turn:
+     * this is a view of the work, not part of it.
+     */
+    private ToolExecutor watched(String runId, ToolExecutor delegate)
+    {
+        return call -> {
+            try {
+                live.publish(runId, toolLine(call));
+            }
+            catch (RuntimeException ignored) {
+                // A watcher that broke is not the agent's problem.
+            }
+            return delegate.execute(call);
+        };
+    }
+
+    private String toolLine(ToolCall call)
+    {
+        ObjectNode line = mapper.createObjectNode();
+        line.put("type", "assistant");
+        ObjectNode block = line.putObject("message").putArray("content")
+                .addObject();
+        block.put("type", "tool_use");
+        block.put("name", call.name());
+        block.set("input", call.input() == null
+                ? mapper.createObjectNode() : call.input());
+        return line.toString();
+    }
+
+    private void publishTurnEnd(String runId, TurnResult turn)
+    {
+        try {
+            ObjectNode line = mapper.createObjectNode();
+            line.put("type", "result");
+            line.put("is_error", turn.end() != TurnResult.End.COMPLETED);
+            line.put("num_turns", turn.rounds());
+            line.put("total_cost_usd", turn.costMilliUsd() / 1000.0);
+            live.publish(runId, line.toString());
+        }
+        catch (RuntimeException ignored) {
+            // As above: the durable record of the turn is elsewhere.
+        }
     }
 
     private ToolExecutor bounded(

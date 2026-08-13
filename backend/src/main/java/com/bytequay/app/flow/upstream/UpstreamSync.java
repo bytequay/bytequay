@@ -15,6 +15,7 @@ package com.bytequay.app.flow.upstream;
 
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.FixupKind;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PrResult;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RequestState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
@@ -377,6 +378,42 @@ public final class UpstreamSync
         });
     }
 
+    /**
+     * Records how the run's pull request ended, once.
+     *
+     * <p>Written only from an observation of the provider. The first one wins:
+     * a pull request that was merged does not become closed afterwards, and a
+     * later probe seeing a different state is a probe of a different thing.
+     */
+    public void recordPullRequestEnd(String runId, PrResult result)
+    {
+        requireText(runId, "runId");
+        requireNonNull(result, "result is null");
+        long now = clock.instant().toEpochMilli();
+        jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET pr_result = ?, pr_result_at = ?, updated_at = ?
+                WHERE run_id = ? AND pr_result IS NULL
+                """,
+                result.name(), now, now, runId);
+    }
+
+    /**
+     * The runs worth asking the provider about: published, and not yet known
+     * to have ended.
+     */
+    public List<UpstreamSyncRun> runsAwaitingPullRequestEnd()
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_upstream_sync_run
+                WHERE pr_result IS NULL
+                ORDER BY created_at
+                """,
+                (result, row) -> readRun(result));
+    }
+
     public void spendRepairTurn(String runId)
     {
         requireText(runId, "runId");
@@ -467,6 +504,9 @@ public final class UpstreamSync
                 result.getString("current_head"),
                 result.getString("park_reason"),
                 result.getString("verification_ref"),
+                result.getString("pr_result") == null
+                        ? null : PrResult.valueOf(result.getString("pr_result")),
+                result.getLong("pr_result_at"),
                 result.getLong("created_at"),
                 result.getLong("updated_at"));
     }

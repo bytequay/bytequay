@@ -36,8 +36,12 @@ import com.bytequay.app.flow.runtime.NewFlowConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowEngineResolver;
 import com.bytequay.app.flow.runtime.UpstreamSyncCommands;
 import com.bytequay.app.flow.runtime.UpstreamSyncConfiguration;
+import com.bytequay.app.flow.timeline.TaskViews;
+import com.bytequay.app.flow.upstream.RunLinePublisher;
 import com.bytequay.app.flow.upstream.UpstreamSync;
+import com.bytequay.app.flow.upstream.UpstreamSyncClosureObserver;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PrResult;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
@@ -72,6 +76,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -146,6 +151,8 @@ final class TestUpstreamSyncEndToEnd
                         turns.incrementAndGet(), invocation.getArgument(1),
                         reviewerEntered, policyReady));
 
+        // What a watcher would see while the repair turn is still going.
+        List<String> liveLines = new CopyOnWriteArrayList<>();
         AtomicReference<FlowRuntime> runtimeRef = new AtomicReference<>();
         GitHubInitialRepositoryObserver initialObserver = mock(
                 GitHubInitialRepositoryObserver.class);
@@ -163,6 +170,8 @@ final class TestUpstreamSyncEndToEnd
                 .withBean(WatchedRepoStore.class, () -> watched)
                 .withBean(CredentialStore.class, TestUpstreamSyncEndToEnd::credentials)
                 .withBean(TurnRunner.class, () -> runner)
+                .withBean(RunLinePublisher.class,
+                        () -> (runId, line) -> liveLines.add(line))
                 .withBean(JdbcTemplate.class, () -> new JdbcTemplate(primary))
                 .withBean(WorkspaceEngineSettings.class,
                         () -> mock(WorkspaceEngineSettings.class))
@@ -360,13 +369,55 @@ final class TestUpstreamSyncEndToEnd
                     assertThat(upstreamSync.repairPlacement("task:ordinary"))
                             .isEqualTo(RepairPlacementPolicy.TIP);
 
-                    assertProjectedRun(
-                            context.getBean(UpstreamSyncViews.class),
-                            started.run().runId());
+                    UpstreamSyncViews views =
+                            context.getBean(UpstreamSyncViews.class);
+                    assertProjectedRun(views, started.run().runId());
+                    assertWatchedTheRepairTurn(liveLines);
+                    assertObservesTheEndOfThePullRequest(
+                            upstreamSync, context.getBean(TaskViews.class),
+                            views, started.run().runId());
                 });
 
         assertThat(Files.readAllBytes(primaryDatabase))
                 .containsExactly(primaryBefore);
+    }
+
+    /**
+     * The live view of a turn that has not ended yet: the tool calls as the
+     * agent makes them, and the turn's own end.
+     */
+    private static void assertWatchedTheRepairTurn(List<String> lines)
+    {
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("\"type\":\"tool_use\"")
+                .contains("commit_pick_repair"));
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("\"type\":\"result\""));
+    }
+
+    /**
+     * Phase 3's trigger: merging is the user's act, so the run only learns of
+     * it by being told, and the surfaces read the result from that.
+     */
+    private static void assertObservesTheEndOfThePullRequest(
+            UpstreamSync upstreamSync,
+            TaskViews taskViews,
+            UpstreamSyncViews views,
+            String runId)
+    {
+        assertThat(views.job(runId).orElseThrow().prResult()).isNull();
+        new UpstreamSyncClosureObserver(
+                upstreamSync, taskViews,
+                (repositoryId, prNumber) -> Optional.of(PrResult.MERGED))
+                .observeEndedPullRequests();
+
+        UpstreamSyncViews.SyncJob ended = views.job(runId).orElseThrow();
+        assertThat(ended.prResult()).isEqualTo("merged");
+        assertThat(ended.closedAt()).isNotNull();
+
+        // Written once: a merged pull request does not become closed.
+        upstreamSync.recordPullRequestEnd(runId, PrResult.CLOSED);
+        assertThat(views.job(runId).orElseThrow().prResult()).isEqualTo("merged");
     }
 
     /**

@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.upstream.RunLinePublisher;
 import com.bytequay.app.flow.upstream.UpstreamSync;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -50,10 +52,14 @@ public class UpstreamSyncConfiguration
             UpstreamSync upstreamSync,
             NewFlowAgentLaunches launches,
             TurnRunner turnRunner,
-            ObjectMapper objectMapper)
+            ObjectMapper objectMapper,
+            ObjectProvider<RunLinePublisher> live)
     {
+        // A deployment with no watcher wired is complete without one: the
+        // live view is a view, and the run's durable record is elsewhere.
         return new UpstreamSyncCoordinator(
-                runtime, upstreamSync, launches, turnRunner, objectMapper);
+                runtime, upstreamSync, launches, turnRunner, objectMapper,
+                live.getIfAvailable(() -> RunLinePublisher.NONE));
     }
 
     @Bean

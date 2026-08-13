@@ -55,6 +55,9 @@ export default function WorkspaceSyncTimeline({
   // A run that reports no rounds is not the same as one that has none, and the
   // rail says which.
   const reportsRounds = job.roundCount !== undefined;
+  // Only the teardown's own record may claim a release. A run whose pull
+  // request ended but whose worktree nothing has removed still holds it.
+  const released = events.some(event => event.kind === 'cleanup');
   const [picksOpen, setPicksOpen] = useState(false);
   const queue = syncQueue(commits);
   const progress = syncProgress(job);
@@ -183,16 +186,16 @@ export default function WorkspaceSyncTimeline({
             : <span className="st-node is-idle" />}
           title={phase === 3 ? 'Cleanup' : 'Review & merge'}
           quiet={phase !== 3}
-          note={phaseThreeNote(job, phase)}>
+          note={phaseThreeNote(job, phase, released)}>
           {phase === 3 && <CleanupReceipt job={job} events={events} />}
         </Phase>
       </div>
 
-      <StatusCard job={job} onRetryCi={onRetryCi} />
+      <StatusCard job={job} released={released} onRetryCi={onRetryCi} />
 
       <div className="st-foot">
         <span className="st-foot__glyph" aria-hidden><ShieldIcon size={13} /></span>
-        <span>{job.closedAt === null ? 'Isolated worktree' : 'Worktree released'}</span>
+        <span>{released ? 'Worktree released' : 'Isolated worktree'}</span>
         <code title={`branched from ${job.baseRef}`}>
           {job.baseRef.slice(0, 7)} +{job.appliedCount}
         </code>
@@ -296,8 +299,9 @@ function CleanupReceipt({ job, events }: {
   );
 }
 
-function StatusCard({ job, onRetryCi }: {
+function StatusCard({ job, released, onRetryCi }: {
   job: UpstreamCherryPickJobDto;
+  released: boolean;
   onRetryCi?: () => void;
 }) {
   const parked = job.closedAt === null
@@ -312,7 +316,7 @@ function StatusCard({ job, onRetryCi }: {
           {elapsedLabel(job.updatedAt)} ago
         </span>
       </div>
-      <p>{statusBody(job)}</p>
+      <p>{statusBody(job, released)}</p>
       {parked && onRetryCi !== undefined && (
         <button type="button" className="st-status__action" onClick={onRetryCi}>
           <PlayIcon />Retry failing checks
@@ -323,6 +327,8 @@ function StatusCard({ job, onRetryCi }: {
 }
 
 function statusTitle(job: UpstreamCherryPickJobDto): string {
+  if (job.prResult === 'merged') return 'Pull request merged';
+  if (job.prResult === 'closed') return 'Pull request closed';
   if (job.closedAt !== null) return 'Run closed';
   if (job.status === 'FAILED') return 'Stopped';
   if (job.status === 'PAUSED_CONFLICT') return 'Parked for your review';
@@ -332,7 +338,13 @@ function statusTitle(job: UpstreamCherryPickJobDto): string {
   return job.pauseRequested ? 'Pausing' : 'Picking';
 }
 
-function statusBody(job: UpstreamCherryPickJobDto): string {
+function statusBody(job: UpstreamCherryPickJobDto, released: boolean): string {
+  if (job.prResult !== null && job.prResult !== undefined) {
+    return released
+      ? 'The worktree is gone; the branch and this log are kept.'
+      : 'The run has nothing left to do. It still holds its worktree —'
+        + ' nothing has reported releasing it.';
+  }
   if (job.closedAt !== null) {
     return 'The worktree is gone; the branch and this log are kept.';
   }
@@ -367,7 +379,10 @@ function phaseTwoNote(
     : `parked · round ${rounds}`;
 }
 
-function phaseThreeNote(job: UpstreamCherryPickJobDto, phase: number): string {
+function phaseThreeNote(
+  job: UpstreamCherryPickJobDto, phase: number, released: boolean,
+): string {
   if (phase < 3) return 'waiting on you';
-  return job.prResult === 'merged' ? 'merged · released' : 'closed · released';
+  const ended = job.prResult === 'merged' ? 'merged' : 'closed';
+  return released ? `${ended} · released` : `${ended} · holding`;
 }

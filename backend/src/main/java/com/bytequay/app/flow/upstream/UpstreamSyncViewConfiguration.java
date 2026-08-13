@@ -26,7 +26,8 @@ import javax.sql.DataSource;
  *
  * <p>Separate from the synchronization composition root because its consumer
  * is an HTTP controller rather than the runtime: nothing in the run's own
- * execution path reads this projection.
+ * execution path reads this projection, and nothing here reaches outside the
+ * flow's own tables.
  */
 @Configuration(proxyBeanMethods = false)
 public class UpstreamSyncViewConfiguration

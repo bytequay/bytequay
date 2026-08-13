@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -70,6 +71,7 @@ public final class UpstreamSyncViews
             )
             SELECT r.run_id, r.task_id, r.state, r.park_reason,
                    r.verification_ref, r.remaining_repair_turns,
+                   r.pr_result, r.pr_result_at,
                    r.created_at, r.updated_at,
                    (SELECT k.conflicted_paths_json FROM flow_upstream_pick k
                      WHERE k.run_id = r.run_id AND k.state = 'CONFLICTED'
@@ -484,7 +486,11 @@ public final class UpstreamSyncViews
         String taskStatus = rows.getString("task_status");
         long prNumber = rows.getLong("pr_number");
         boolean noPrNumber = rows.wasNull();
-        boolean closed = "CANCELED".equals(state)
+        // A pull request that ended is the end of the run: there is nothing
+        // left for it to do, whatever it still holds on disk.
+        String prResult = rows.getString("pr_result");
+        boolean closed = prResult != null
+                || "CANCELED".equals(state)
                 || "CANCELED".equals(taskStatus);
         return new SyncJob(
                 rows.getString("run_id"),
@@ -520,7 +526,12 @@ public final class UpstreamSyncViews
                         || "WAITING_INITIAL_PUBLISH".equals(state)
                         || "HANDED_OFF".equals(state),
                 rows.getString("verification_ref"),
-                closed ? iso(rows.getLong("updated_at")) : null,
+                prResult == null ? null : prResult.toLowerCase(Locale.ROOT),
+                closed
+                        ? iso(prResult == null
+                                ? rows.getLong("updated_at")
+                                : rows.getLong("pr_result_at"))
+                        : null,
                 iso(rows.getLong("created_at")),
                 iso(rows.getLong("updated_at")));
     }
@@ -630,6 +641,8 @@ public final class UpstreamSyncViews
             String errorMessage,
             boolean verified,
             String verificationRef,
+            /** {@code merged | closed} once the pull request ended. */
+            String prResult,
             String closedAt,
             String createdAt,
             String updatedAt)

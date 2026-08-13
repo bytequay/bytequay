@@ -57,6 +57,16 @@ public final class UpstreamSyncRecords
         NEEDS_ATTENTION
     }
 
+    /**
+     * How a run's pull request ended. Observed from the provider; the run
+     * never decides this about itself.
+     */
+    public enum PrResult
+    {
+        MERGED,
+        CLOSED
+    }
+
     public enum PickState
     {
         CLEAN,
@@ -138,6 +148,9 @@ public final class UpstreamSyncRecords
             String currentHead,
             String parkReason,
             String verificationRef,
+            /** Null while the pull request is open, or before there is one. */
+            PrResult prResult,
+            long prResultAt,
             long createdAt,
             long updatedAt)
     {

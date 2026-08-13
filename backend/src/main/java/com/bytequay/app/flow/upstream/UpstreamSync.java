@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.flow.upstream;
 
+import com.bytequay.app.flow.gate.InitialPublishVerificationProvider;
+import com.bytequay.app.flow.gate.InitialPublishVerificationProvider.Verification;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.FixupKind;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PrResult;
@@ -40,6 +42,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -54,6 +57,7 @@ import static java.util.Objects.requireNonNull;
  * its flow Task and nowhere else.
  */
 public final class UpstreamSync
+        implements InitialPublishVerificationProvider
 {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -143,14 +147,15 @@ public final class UpstreamSync
                     """
                     INSERT INTO flow_upstream_sync_run (
                         run_id, request_id, task_id, repair_placement, state,
-                        remaining_repair_turns, current_index, current_head,
+                        repair_turn_budget, remaining_repair_turns,
+                        current_index, current_head,
                         park_reason, verification_ref, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 'READY', ?, 0, NULL, NULL, NULL,
+                    ) VALUES (?, ?, ?, ?, 'READY', ?, ?, 0, NULL, NULL, NULL,
                               ?, ?)
                     """,
                     runId, requestId, taskId,
                     RepairPlacementPolicy.ATTRIBUTED_FIXUP.name(),
-                    repairTurnBudget, now, now);
+                    repairTurnBudget, repairTurnBudget, now, now);
             return run(runId).orElseThrow();
         });
     }
@@ -185,6 +190,29 @@ public final class UpstreamSync
                 "SELECT * FROM flow_upstream_sync_run WHERE task_id = ?",
                 (result, row) -> readRun(result), taskId)
                 .stream().findFirst();
+    }
+
+    @Override
+    public boolean owns(String taskId)
+    {
+        return runForTask(taskId).isPresent();
+    }
+
+    @Override
+    public Optional<Verification> current(String taskId)
+    {
+        return runForTask(taskId).flatMap(run -> {
+            if ((run.state() != RunState.FINAL_REVIEW
+                    && run.state() != RunState.WAITING_INITIAL_PUBLISH)
+                    || run.verificationRef() == null
+                    || run.currentHead() == null) {
+                return Optional.empty();
+            }
+            UpstreamSyncRequest request = request(run.requestId()).orElseThrow();
+            return Optional.of(new Verification(
+                    taskId, run.runId(), request.targetRef(),
+                    run.currentHead(), run.verificationRef()));
+        });
     }
 
     public Optional<UpstreamSyncRun> runForRequest(String requestId)
@@ -270,6 +298,26 @@ public final class UpstreamSync
         return transactions.execute(status -> {
             long now = clock.instant().toEpochMilli();
             String pickId = stableId("upstream-pick", runId, upstreamSha);
+            Optional<UpstreamPick> replay = pick(pickId);
+            if (replay.isPresent()) {
+                UpstreamPick existing = replay.orElseThrow();
+                if (existing.ordinal() != ordinal
+                        || !existing.runId().equals(runId)
+                        || !existing.upstreamSha().equals(upstreamSha)
+                        || !existing.preHead().equals(preHead)
+                        || !Objects.equals(existing.resultHead(), resultHead)
+                        || !Objects.equals(
+                                existing.resultCommitSha(), resultCommitSha)
+                        || existing.state() != state
+                        || !existing.conflictedPaths().equals(paths)
+                        || existing.provenanceVerified() != provenanceVerified
+                        || !Objects.equals(existing.changeSetRevisionId(),
+                                changeSetRevisionId)) {
+                    throw new IllegalStateException(
+                            "pick redelivery changed its durable outcome");
+                }
+                return existing;
+            }
             jdbc.update(
                     """
                     INSERT INTO flow_upstream_pick (
@@ -305,6 +353,75 @@ public final class UpstreamSync
                 "SELECT * FROM flow_upstream_pick WHERE pick_id = ?",
                 (result, row) -> readPick(result), pickId)
                 .stream().findFirst();
+    }
+
+    public Optional<UpstreamPick> pick(String runId, int ordinal)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                "SELECT * FROM flow_upstream_pick "
+                        + "WHERE run_id = ? AND ordinal = ?",
+                (result, row) -> readPick(result), runId, ordinal)
+                .stream().findFirst();
+    }
+
+    /** Records the commit created only after a conflicted index was resolved. */
+    public UpstreamPick resolvePick(
+            String pickId,
+            String resultHead,
+            String resultCommitSha,
+            boolean provenanceVerified,
+            String changeSetRevisionId)
+    {
+        requireText(pickId, "pickId");
+        requireText(resultHead, "resultHead");
+        requireText(resultCommitSha, "resultCommitSha");
+        requireText(changeSetRevisionId, "changeSetRevisionId");
+        if (!provenanceVerified) {
+            throw new IllegalArgumentException(
+                    "a resolved pick must carry -x provenance");
+        }
+        return transactions.execute(status -> {
+            UpstreamPick existing = pick(pickId).orElseThrow(() ->
+                    new IllegalStateException("conflicted pick is missing"));
+            if (existing.state() == PickState.RESOLVED) {
+                if (!Objects.equals(existing.resultHead(), resultHead)
+                        || !Objects.equals(
+                                existing.resultCommitSha(), resultCommitSha)
+                        || !existing.provenanceVerified()
+                        || !Objects.equals(existing.changeSetRevisionId(),
+                                changeSetRevisionId)) {
+                    throw new IllegalStateException(
+                            "resolved pick redelivery changed its outcome");
+                }
+                return existing;
+            }
+            if (existing.state() != PickState.CONFLICTED
+                    || existing.resultCommitSha() != null) {
+                throw new IllegalStateException(
+                        "only an uncommitted conflict can be resolved");
+            }
+            long now = clock.instant().toEpochMilli();
+            jdbc.update(
+                    """
+                    UPDATE flow_upstream_pick
+                    SET result_head = ?, result_commit_sha = ?, state = ?,
+                        provenance_verified = 1,
+                        change_set_revision_id = ?, recorded_at = ?
+                    WHERE pick_id = ? AND state = ?
+                    """,
+                    resultHead, resultCommitSha, PickState.RESOLVED.name(),
+                    changeSetRevisionId, now, pickId,
+                    PickState.CONFLICTED.name());
+            jdbc.update(
+                    """
+                    UPDATE flow_upstream_sync_run
+                    SET current_head = ?, state = ?, updated_at = ?
+                    WHERE run_id = ?
+                    """,
+                    resultHead, RunState.PICKING.name(), now, existing.runId());
+            return pick(pickId).orElseThrow();
+        });
     }
 
     /**
@@ -369,8 +486,7 @@ public final class UpstreamSync
             jdbc.update(
                     """
                     UPDATE flow_upstream_sync_run
-                    SET current_head = ?, state = ?, remaining_repair_turns =
-                            MAX(remaining_repair_turns - 1, 0), updated_at = ?
+                    SET current_head = ?, state = ?, updated_at = ?
                     WHERE run_id = ?
                     """,
                     currentCommitSha, RunState.PICKING.name(), now, runId);
@@ -442,18 +558,23 @@ public final class UpstreamSync
     }
 
     public void recordVerification(
-            String runId, RunState state, String verificationRef)
+            String runId,
+            RunState state,
+            String currentHead,
+            String verificationRef)
     {
         requireText(runId, "runId");
         requireNonNull(state, "state is null");
+        requireText(currentHead, "currentHead");
         requireText(verificationRef, "verificationRef");
         jdbc.update(
                 """
                 UPDATE flow_upstream_sync_run
-                SET state = ?, verification_ref = ?, updated_at = ?
+                SET state = ?, current_head = ?, verification_ref = ?,
+                    updated_at = ?
                 WHERE run_id = ?
                 """,
-                state.name(), verificationRef,
+                state.name(), currentHead, verificationRef,
                 clock.instant().toEpochMilli(), runId);
     }
 
@@ -499,6 +620,7 @@ public final class UpstreamSync
                 RepairPlacementPolicy.valueOf(
                         result.getString("repair_placement")),
                 RunState.valueOf(result.getString("state")),
+                result.getInt("repair_turn_budget"),
                 result.getInt("remaining_repair_turns"),
                 result.getInt("current_index"),
                 result.getString("current_head"),

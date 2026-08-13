@@ -13,12 +13,16 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.upstream.RunLinePublisher;
 import com.bytequay.app.flow.upstream.UpstreamSync;
-import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.repository.CredentialStore;
+import com.bytequay.app.repository.github.GitHubRequiredCheckResolver;
+import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -51,25 +55,45 @@ public class UpstreamSyncConfiguration
             FlowRuntime runtime,
             UpstreamSync upstreamSync,
             NewFlowAgentLaunches launches,
-            TurnRunner turnRunner,
+            NewFlowAgentBodies bodies,
             ObjectMapper objectMapper,
+            TaskProvisioning provisioning,
+            UpstreamSyncPolicyPublisher policies,
             ObjectProvider<RunLinePublisher> live)
     {
         // A deployment with no watcher wired is complete without one: the
         // live view is a view, and the run's durable record is elsewhere.
         return new UpstreamSyncCoordinator(
-                runtime, upstreamSync, launches, turnRunner, objectMapper,
+                runtime, upstreamSync, launches, bodies, objectMapper,
+                provisioning, policies,
                 live.getIfAvailable(() -> RunLinePublisher.NONE));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(UpstreamSyncPolicyPublisher.class)
+    public UpstreamSyncPolicyPublisher newFlowUpstreamSyncPolicyPublisher(
+            LocalChecks localChecks,
+            CiAutofix autofix,
+            GitHubRequiredCheckResolver requiredChecks,
+            CredentialStore credentials,
+            GitRunner git)
+    {
+        return new UpstreamSyncPolicyPublisher(
+                localChecks, autofix, requiredChecks, credentials, git);
     }
 
     @Bean
     public UpstreamSyncCommands newFlowUpstreamSyncCommands(
             TaskProvisioning provisioning,
+            TaskProvisioning.RepositoryCatalog repositories,
             UpstreamSync upstreamSync,
+            @Qualifier("newFlowDataSource") DataSource dataSource,
             NewFlowDispatcher dispatcher,
             InitialTaskDispatcher initialTasks)
     {
         return new UpstreamSyncCommands(
-                provisioning, upstreamSync, dispatcher, initialTasks);
+                provisioning, repositories, upstreamSync, dataSource,
+                dispatcher,
+                initialTasks);
     }
 }

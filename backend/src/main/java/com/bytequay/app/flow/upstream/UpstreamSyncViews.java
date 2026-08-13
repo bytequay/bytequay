@@ -211,13 +211,7 @@ public final class UpstreamSyncViews
                 .toList();
     }
 
-    /**
-     * Which fixup repaired which pick, and where the fixup came from.
-     *
-     * <p>A repair made while picking has no agent run behind it; one made by a
-     * CI round does. That is the difference the surface names rather than
-     * calling both "a fixup".
-     */
+    /** Which post-pick adaptation belongs to which semantic owner. */
     private List<SyncFixup> fixups(
             String runId,
             UpstreamSyncRequest request,
@@ -471,8 +465,7 @@ public final class UpstreamSyncViews
             case CLEAN -> "applied clean at " + shortSha(
                     pick.resultCommitSha());
             case SKIPPED_EMPTY -> "the fork already carries this change";
-            case RESOLVED -> "conflict carried, repaired in an attributed"
-                    + " fixup";
+            case RESOLVED -> "conflict resolved before the pick continued";
             case CONFLICTED -> "conflict in " + String.join(
                     ", ", pick.conflictedPaths());
             case NEEDS_ATTENTION -> "needs attention";

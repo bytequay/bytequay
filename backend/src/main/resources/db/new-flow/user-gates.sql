@@ -230,6 +230,8 @@ CREATE TABLE flow_user_gate_initial_publish_subject (
     target_base_ref TEXT NOT NULL,
     target_snapshot_id TEXT NOT NULL,
     target_snapshot_digest TEXT NOT NULL,
+    owner_verification_run_id TEXT,
+    owner_verification_ref TEXT,
     created_by_run_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,
     FOREIGN KEY (subject_id, subject_digest)
@@ -271,6 +273,10 @@ CREATE TABLE flow_user_gate_initial_publish_subject (
     ),
     FOREIGN KEY (created_by_run_id)
         REFERENCES flow_runtime_agent_run (run_id),
+    CHECK (
+        (owner_verification_run_id IS NULL)
+        = (owner_verification_ref IS NULL)
+    ),
     FOREIGN KEY (
         target_snapshot_id, pr_id, launch_digest, proposed_head,
         required_ci_policy_revision_id, target_snapshot_digest

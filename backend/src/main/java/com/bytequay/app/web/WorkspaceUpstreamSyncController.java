@@ -19,6 +19,8 @@ import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncViews;
 import com.bytequay.app.flow.upstream.UpstreamSyncViews.SyncJob;
 import com.bytequay.app.flow.upstream.UpstreamSyncViews.SyncRunDetail;
+import com.bytequay.app.service.workspaces.WorkspaceRelationService;
+import com.bytequay.app.service.workspaces.WorkspaceRelationService.ResolvedRelation;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -58,17 +60,20 @@ public final class WorkspaceUpstreamSyncController
     private static final int MAX_REPAIR_TURNS = 500;
 
     private final WorkspaceRepositoryResolver resolver;
+    private final WorkspaceRelationService relations;
     private final UpstreamSyncViews views;
     private final UpstreamSyncCommands commands;
     private final UserGates gates;
 
     public WorkspaceUpstreamSyncController(
             WorkspaceRepositoryResolver resolver,
+            WorkspaceRelationService relations,
             UpstreamSyncViews views,
             UpstreamSyncCommands commands,
             UserGates gates)
     {
         this.resolver = requireNonNull(resolver, "resolver is null");
+        this.relations = requireNonNull(relations, "relations is null");
         this.views = requireNonNull(views, "views is null");
         this.commands = requireNonNull(commands, "commands is null");
         this.gates = requireNonNull(gates, "gates is null");
@@ -105,21 +110,35 @@ public final class WorkspaceUpstreamSyncController
             @RequestBody StartSyncBody body)
     {
         requireNonNull(body, "body is null");
-        String repositoryId = resolver.resolve(workspaceId).fullName();
+        ResolvedRelation relation = relations.requireResolved(workspaceId);
+        String repositoryId = relation.target().fullName();
         List<SelectedCommit> selected = selection(body);
+        String goalText = body.goalText() == null || body.goalText().isBlank()
+                ? "Sync " + selected.size() + " upstream commits"
+                : body.goalText();
+        String sourceRemote = relation.upstream().fullName();
+        String sourceFromRef = text(
+                body.sourceFromRef(), selected.getFirst().sha());
+        String sourceToRef = text(
+                body.sourceToRef(), selected.getLast().sha());
+        String targetRef = text(body.targetRef(), "HEAD");
+        int repairTurnBudget = repairTurns(body.repairTurnBudget());
         UpstreamSyncCommands.StartReceipt receipt = commands.startConfirmed(
-                requestKey(repositoryId, selected, body.goalText()),
+                requestKey(
+                        repositoryId, selected, goalText, sourceRemote,
+                        sourceFromRef, sourceToRef, targetRef,
+                        repairTurnBudget),
                 repositoryId,
-                body.goalText() == null || body.goalText().isBlank()
-                        ? "Sync " + selected.size() + " upstream commits"
-                        : body.goalText(),
-                text(body.sourceRemote(), "origin"),
-                text(body.sourceFromRef(), selected.getFirst().sha()),
-                text(body.sourceToRef(), selected.getLast().sha()),
-                text(body.targetRef(), "HEAD"),
+                goalText,
+                sourceRemote,
+                sourceFromRef,
+                sourceToRef,
+                targetRef,
                 selected,
                 null,
-                repairTurns(body.repairTurnBudget()));
+                repairTurnBudget,
+                relation.upstreamClone(),
+                relation.targetClone());
         return ResponseEntity.accepted().body(
                 views.job(receipt.run().runId())
                         .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
@@ -212,7 +231,14 @@ public final class WorkspaceUpstreamSyncController
      * the run it already started rather than a second one over the same range.
      */
     private static String requestKey(
-            String repositoryId, List<SelectedCommit> selected, String goalText)
+            String repositoryId,
+            List<SelectedCommit> selected,
+            String goalText,
+            String sourceRemote,
+            String sourceFromRef,
+            String sourceToRef,
+            String targetRef,
+            int repairTurnBudget)
     {
         MessageDigest digest;
         try {
@@ -222,11 +248,16 @@ public final class WorkspaceUpstreamSyncController
             throw new AssertionError(impossible);
         }
         update(digest, repositoryId);
-        update(digest, goalText == null ? "" : goalText);
+        update(digest, goalText);
+        update(digest, sourceRemote);
+        update(digest, sourceFromRef);
+        update(digest, sourceToRef);
+        update(digest, targetRef);
+        update(digest, Integer.toString(repairTurnBudget));
         for (SelectedCommit commit : selected) {
             update(digest, commit.sha());
         }
-        return "upstream-sync-command:v1:"
+        return "upstream-sync-command:v2:"
                 + HexFormat.of().formatHex(digest.digest());
     }
 

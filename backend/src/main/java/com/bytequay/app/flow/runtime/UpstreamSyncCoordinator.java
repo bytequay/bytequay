@@ -14,6 +14,8 @@
 package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentCompletion;
@@ -23,7 +25,6 @@ import com.bytequay.app.flow.upstream.UpstreamPicker;
 import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
 import com.bytequay.app.flow.upstream.UpstreamPicker.UnresolvedRepairException;
 import com.bytequay.app.flow.upstream.UpstreamSync;
-import com.bytequay.app.flow.upstream.UpstreamSyncRecords.FixupKind;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamPick;
@@ -32,14 +33,10 @@ import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRun;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.ToolExecutor.ToolCallResult;
-import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
-import com.bytequay.app.service.agents.TurnRunner;
-import com.bytequay.app.service.agents.TurnSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +50,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -75,35 +74,45 @@ import static java.util.Objects.requireNonNull;
  * flow's own effect is also what lets generic CI Autofix adopt the pull
  * request afterwards, because its only entry is a gate-authorized receipt.
  */
+@SuppressWarnings("StringConcatToTextBlock")
 public final class UpstreamSyncCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(
             UpstreamSyncCoordinator.class);
     private static final int MAX_REPAIR_TOOL_CALLS = 24;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
+    private static final int MAX_UPSTREAM_DIFF_CHARS = 128 * 1024;
+    private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
     private static final int MAX_DRAFT_BODY_COMMITS = 50;
 
     private final FlowRuntime runtime;
     private final UpstreamSync upstreamSync;
     private final NewFlowAgentLaunches launches;
-    private final TurnRunner runner;
+    private final NewFlowAgentBodies bodies;
     private final ObjectMapper mapper;
+    private final TaskProvisioning provisioning;
+    private final UpstreamSyncPolicyPublisher policies;
     private final RunLinePublisher live;
 
     public UpstreamSyncCoordinator(
             FlowRuntime runtime,
             UpstreamSync upstreamSync,
             NewFlowAgentLaunches launches,
-            TurnRunner runner,
+            NewFlowAgentBodies bodies,
             ObjectMapper mapper,
+            TaskProvisioning provisioning,
+            UpstreamSyncPolicyPublisher policies,
             RunLinePublisher live)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.upstreamSync = requireNonNull(
                 upstreamSync, "upstreamSync is null");
         this.launches = requireNonNull(launches, "launches is null");
-        this.runner = requireNonNull(runner, "runner is null");
+        this.bodies = requireNonNull(bodies, "bodies is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.provisioning = requireNonNull(
+                provisioning, "provisioning is null");
+        this.policies = requireNonNull(policies, "policies is null");
         this.live = requireNonNull(live, "live is null");
     }
 
@@ -117,9 +126,9 @@ public final class UpstreamSyncCoordinator
      * Runs one INITIAL Task turn for an upstream sync Task.
      *
      * <p>The first turn picks the confirmed range and requests review; the
-     * continuation turn accepts the adversarial review and asks for the exact
-     * initial-publish gate. Both are the ordinary INITIAL contract — this
-     * component only replaces what happens between them.
+     * continuation turn resumes the ordinary review-result program. Both are
+     * the ordinary INITIAL contract — this component only replaces range
+     * construction and refreshes its mechanical proof after a correction.
      */
     public AgentCompletion runTurn(
             NewFlowAgentLaunches.Binding binding,
@@ -132,8 +141,6 @@ public final class UpstreamSyncCoordinator
         requireNonNull(worktree, "worktree is null");
         requireNonNull(capability, "capability is null");
         if (!reviewContinuation) {
-            // The continuation runs no agent, so only the picking turn has a
-            // program to be checked against its sealed binding.
             launches.requireSealedAs(
                     binding, NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
         }
@@ -142,13 +149,35 @@ public final class UpstreamSyncCoordinator
                         "Task is not owned by upstream synchronization"));
         try {
             if (reviewContinuation) {
-                capability.readyForInitialPublish();
-                upstreamSync.advanceState(
-                        run.runId(), RunState.WAITING_INITIAL_PUBLISH);
-                return new AgentCompletion(
-                        TerminalOutcome.COMPLETED,
-                        "upstream range accepted for initial publication",
-                        null);
+                AgentCompletion completion = bodies.initialTask(
+                        binding, worktree, capability, true);
+                if (completion.terminalOutcome() == TerminalOutcome.COMPLETED) {
+                    if (runtime.readyForReviewRequestForRun(binding.runId())
+                            .isPresent()) {
+                        upstreamSync.advanceState(
+                                run.runId(), RunState.WAITING_INITIAL_PUBLISH);
+                    }
+                    else {
+                        UpstreamSyncRequest request = upstreamSync
+                                .request(run.requestId()).orElseThrow();
+                        UpstreamPicker picker = new UpstreamPicker(worktree);
+                        String verification = verifyHistory(
+                                picker, run.runId(), taskId,
+                                request.targetRef(),
+                                request.selectedUpstreamShas());
+                        upstreamSync.recordVerification(
+                                run.runId(), RunState.FINAL_REVIEW,
+                                picker.head(), verification);
+                        Task task = runtime.task(taskId).orElseThrow();
+                        String targetBaseRef = provisioning.targetBaseRef(taskId);
+                        policies.publish(
+                                taskId, task.repositoryId(), targetBaseRef,
+                                targetBaseRef.substring(
+                                        "refs/heads/".length()),
+                                worktree, picker.head());
+                    }
+                }
+                return completion;
             }
             return pickRange(binding, worktree, capability, taskId, run);
         }
@@ -188,42 +217,65 @@ public final class UpstreamSyncCoordinator
         UpstreamSyncRequest request = upstreamSync
                 .request(startRun.requestId()).orElseThrow();
         UpstreamPicker picker = new UpstreamPicker(worktree);
+        Task task = runtime.task(taskId).orElseThrow();
+        String expectedHead = startRun.currentHead() == null
+                ? request.targetRef() : startRun.currentHead();
+        if (!request.targetRef().equals(task.currentBaseSha())
+                || !expectedHead.equals(picker.head())) {
+            return park(startRun.runId(), "TARGET_BASE_MISMATCH");
+        }
+        picker.requireObjects(request.selectedUpstreamShas());
+        String targetBaseRef = provisioning.targetBaseRef(taskId);
+        if (!targetBaseRef.startsWith("refs/heads/")
+                || targetBaseRef.length() == "refs/heads/".length()) {
+            throw new IllegalStateException(
+                    "Task provisioning did not freeze a branch target");
+        }
         upstreamSync.advanceState(startRun.runId(), RunState.PICKING);
         List<String> selected = request.selectedUpstreamShas();
+        boolean agentFinalized = false;
         for (int ordinal = 0; ordinal < selected.size(); ordinal++) {
-            String upstreamSha = selected.get(ordinal);
-            String parkReason = applyOne(
-                    binding, worktree, capability, picker,
-                    taskId, startRun.runId(), ordinal, upstreamSha);
-            if (parkReason != null) {
-                return park(picker, startRun.runId(), parkReason);
+            PickStep step = applyOne(
+                    capability, picker, taskId, startRun.runId(), ordinal,
+                    selected.get(ordinal));
+            if (step.parkReason() != null) {
+                return park(startRun.runId(), step.parkReason());
+            }
+            if (step.conflict() != null) {
+                String parkReason = repairRange(
+                        binding, worktree, capability, picker, taskId,
+                        startRun.runId(), request, task, targetBaseRef,
+                        selected, step.conflict());
+                if (parkReason != null) {
+                    return park(startRun.runId(), parkReason);
+                }
+                agentFinalized = true;
+                break;
             }
         }
-        String verification;
-        try {
-            verification = verifyHistory(
-                    picker, startRun.runId(), selected);
+        if (!agentFinalized) {
+            String blocker = finalReview(
+                    binding, worktree, capability, picker, task, request,
+                    startRun.runId(), targetBaseRef, selected);
+            if (blocker != null) {
+                return park(startRun.runId(), blocker);
+            }
         }
-        catch (UnresolvedRepairException unproven) {
-            log.warn("upstream history verification refused the candidate",
-                    unproven);
-            return park(picker, startRun.runId(), "HISTORY_UNVERIFIED");
-        }
-        upstreamSync.recordVerification(
-                startRun.runId(), RunState.FINAL_REVIEW, verification);
-        Task task = runtime.task(taskId).orElseThrow();
-        capability.requestReview(
-                draftTitle(request, selected.size()),
-                draftBody(picker, request, startRun.runId(), task));
         return new AgentCompletion(
                 TerminalOutcome.COMPLETED,
                 "upstream range constructed and submitted for review", null);
     }
 
-    /** Applies one commit; returns a park reason, or null to keep going. */
-    private String applyOne(
-            NewFlowAgentLaunches.Binding binding,
-            Path worktree,
+    private record PickStep(String parkReason, UpstreamPick conflict)
+    {
+        private static PickStep advanced()
+        {
+            return new PickStep(null, null);
+        }
+    }
+
+    /** Applies one deterministic commit and stops at semantic work. */
+    private PickStep applyOne(
             InitialToolCapability capability,
             UpstreamPicker picker,
             String taskId,
@@ -234,15 +286,15 @@ public final class UpstreamSyncCoordinator
         // A recorded pick is already in history. Re-applying it would either
         // record a second commit or collide with its own row, so a resumed
         // range re-enters at the repair rather than at the pick.
-        Optional<UpstreamPick> recorded = upstreamSync.picks(runId).stream()
-                .filter(pick -> pick.upstreamSha().equals(upstreamSha))
-                .findFirst();
+        Optional<UpstreamPick> recorded = upstreamSync.pick(runId, ordinal);
         if (recorded.isPresent()) {
             UpstreamPick pick = recorded.orElseThrow();
+            if (!pick.upstreamSha().equals(upstreamSha)) {
+                throw new IllegalStateException(
+                        "durable pick does not match the confirmed range");
+            }
             return pick.state() == PickState.CONFLICTED
-                    ? repair(binding, worktree, capability, picker, taskId,
-                            runId, pick)
-                    : null;
+                    ? new PickStep(null, pick) : PickStep.advanced();
         }
         String preHead = capability.callTool(picker::head);
         PickResult result;
@@ -251,7 +303,7 @@ public final class UpstreamSyncCoordinator
         }
         catch (UnresolvedRepairException refused) {
             log.warn("upstream pick refused to advance", refused);
-            return "PICK_REFUSED";
+            return new PickStep("PICK_REFUSED", null);
         }
         switch (result.outcome()) {
             case EMPTY -> {
@@ -261,7 +313,7 @@ public final class UpstreamSyncCoordinator
                 upstreamSync.recordPick(
                         runId, ordinal, upstreamSha, preHead, null, null,
                         PickState.SKIPPED_EMPTY, List.of(), false, null);
-                return null;
+                return PickStep.advanced();
             }
             case CLEAN -> {
                 upstreamSync.recordPick(
@@ -269,18 +321,15 @@ public final class UpstreamSyncCoordinator
                         result.commitSha(), PickState.CLEAN, List.of(),
                         result.provenanceVerified(),
                         adopt(capability, taskId, result.head()));
-                return null;
+                return PickStep.advanced();
             }
             case CONFLICTED -> {
                 UpstreamPick pick = upstreamSync.recordPick(
                         runId, ordinal, upstreamSha, preHead, result.head(),
                         result.commitSha(), PickState.CONFLICTED,
                         result.conflictedPaths(),
-                        result.provenanceVerified(),
-                        adopt(capability, taskId, result.head()));
-                return repair(
-                        binding, worktree, capability, picker, taskId, runId,
-                        pick);
+                        result.provenanceVerified(), null);
+                return new PickStep(null, pick);
             }
             default -> throw new IllegalStateException(
                     "unreachable pick outcome");
@@ -290,35 +339,58 @@ public final class UpstreamSyncCoordinator
     /**
      * Resumes the Task Agent for the one semantic part of a pick.
      *
-     * <p>Git's own three-way resolution is already committed by the time this
-     * runs, which is what keeps the sequencer closed — and also why the repair
-     * is verified rather than believed: a file the agent reports resolved but
-     * never opened would otherwise reach the pull request carrying markers.
+     * <p>The conflicted index and sequencer remain intact while the agent
+     * edits. The program verifies the edit before it continues the pick.
      */
-    private String repair(
+    private String repairRange(
             NewFlowAgentLaunches.Binding binding,
             Path worktree,
             InitialToolCapability capability,
             UpstreamPicker picker,
             String taskId,
             String runId,
-            UpstreamPick pick)
+            UpstreamSyncRequest request,
+            Task task,
+            String targetBaseRef,
+            List<String> selected,
+            UpstreamPick firstConflict)
     {
-        UpstreamSyncRun current = upstreamSync.run(runId).orElseThrow();
-        if (current.remainingRepairTurns() <= 0) {
+        if (upstreamSync.run(runId).orElseThrow().remainingRepairTurns() <= 0) {
             return "BUDGET_SPENT";
         }
         upstreamSync.spendRepairTurn(runId);
-        String targetSubject = capability.callTool(
-                () -> picker.subject(pick.resultCommitSha()));
-        boolean hadFixup = upstreamSync.fixup(pick.pickId()).isPresent();
-        AtomicBoolean resolved = new AtomicBoolean();
+        AtomicReference<UpstreamPick> active = new AtomicReference<>(
+                firstConflict);
+        AtomicReference<String> targetSubject = new AtomicReference<>(
+                capability.callTool(() -> picker.subject(
+                        firstConflict.upstreamSha())));
+        AtomicReference<String> stopReason = new AtomicReference<>();
         AtomicBoolean declined = new AtomicBoolean();
+        AtomicBoolean finalReady = new AtomicBoolean();
+        AtomicBoolean terminal = new AtomicBoolean();
+        AtomicInteger repairCalls = new AtomicInteger();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
-        ToolExecutor executor = bounded(resolved, declined, call ->
+        ToolExecutor executor = bounded(terminal, repairCalls, call ->
                 switch (call.name()) {
                     case "read_pick_conflict_context" -> safe(() ->
-                            conflictContext(capability, pick, targetSubject));
+                            conflictContext(
+                                    capability, picker, request.goalText(), active.get(),
+                                    targetSubject.get()));
+                    case "read_upstream_review_context" -> finalReady.get()
+                            ? safe(() -> finalReviewContext(
+                                    request, runId, picker))
+                            : ToolCallResult.error(
+                                    "the confirmed range is not complete");
+                    case "read_candidate_diff" -> finalReady.get()
+                            ? safe(() -> candidateDiff(
+                                    capability, worktree, request.targetRef(),
+                                    picker.head()))
+                            : ToolCallResult.error(
+                                    "the confirmed range is not complete");
+                    case "run_checks" -> finalReady.get()
+                            ? safe(() -> checkSummary(capability.runChecks()))
+                            : ToolCallResult.error(
+                                    "the confirmed range is not complete");
                     case "list_repository" -> guarded(capability,
                             () -> json(workspace.listRepository()));
                     case "read_file" -> guarded(capability,
@@ -334,21 +406,79 @@ public final class UpstreamSyncCoordinator
                         workspace.deleteFile(text(call, "path"));
                         return "deleted";
                     });
-                    // The terminal repair tool.
+                    case "commit_initial_change" -> finalReady.get()
+                            ? safe(() -> {
+                                String head = capability.callTool(
+                                        workspace::commitTaskChange);
+                                capability.adoptCommittedHead(head);
+                                return "upstream correction committed";
+                            })
+                            : ToolCallResult.error(
+                                    "the confirmed range is not complete");
+                    case "request_initial_review" -> finalReady.get()
+                            ? safe(() -> {
+                                requestFinalReview(
+                                        capability, picker, task, request,
+                                        runId, targetBaseRef, selected,
+                                        text(call, "title"),
+                                        text(call, "body"));
+                                terminal.set(true);
+                                return "upstream review requested";
+                            })
+                            : ToolCallResult.error(
+                                    "the confirmed range is not complete");
+                    // Terminal only when deterministic advancement reaches
+                    // the end; otherwise it installs the next conflict.
                     case "commit_pick_repair" -> safe(() -> {
-                        String head = capability.callTool(() -> {
-                            String committed = picker.commitFixup(
-                                    targetSubject, hadFixup);
-                            picker.verifyRepair(pick.conflictedPaths());
-                            return committed;
-                        });
-                        upstreamSync.recordFixup(
-                                runId, pick, FixupKind.ADJACENT_FIXUP, head,
-                                capability.callTool(() -> picker.changedPaths(
-                                        pick.resultCommitSha(), head)),
-                                null, adopt(capability, taskId, head));
-                        resolved.set(true);
-                        return "conflict repair attributed to its pick";
+                        UpstreamPick repaired = active.get();
+                        PickResult continued = capability.callTool(() ->
+                                picker.continuePick(
+                                        repaired.preHead(),
+                                        repaired.upstreamSha(),
+                                        repaired.conflictedPaths()));
+                        if (!continued.provenanceVerified()) {
+                            throw new UnresolvedRepairException(
+                                    "continued pick carries no -x provenance");
+                        }
+                        String revision = adopt(
+                                capability, taskId, continued.head());
+                        upstreamSync.resolvePick(
+                                repaired.pickId(), continued.head(),
+                                continued.commitSha(),
+                                continued.provenanceVerified(), revision);
+                        for (int ordinal = repaired.ordinal() + 1;
+                                ordinal < selected.size(); ordinal++) {
+                            PickStep step = applyOne(
+                                    capability, picker, taskId, runId, ordinal,
+                                    selected.get(ordinal));
+                            if (step.parkReason() != null) {
+                                stopReason.set(step.parkReason());
+                                terminal.set(true);
+                                return "repair recorded; the next pick was "
+                                        + "refused and the range will park";
+                            }
+                            if (step.conflict() != null) {
+                                if (upstreamSync.run(runId).orElseThrow()
+                                        .remainingRepairTurns() <= 0) {
+                                    stopReason.set("BUDGET_SPENT");
+                                    terminal.set(true);
+                                    return "repair recorded; the next conflict "
+                                            + "exhausted the repair budget";
+                                }
+                                upstreamSync.spendRepairTurn(runId);
+                                active.set(step.conflict());
+                                targetSubject.set(capability.callTool(() ->
+                                        picker.subject(step.conflict()
+                                                .upstreamSha())));
+                                repairCalls.set(0);
+                                return "conflicted pick continued; another conflict is "
+                                        + "ready, so read its context and "
+                                        + "repair it next";
+                            }
+                        }
+                        finalReady.set(true);
+                        return "conflicted pick continued; the confirmed range "
+                                + "is complete, so inspect it and request review";
                     });
                     // An explicit decline, which parks the run for the user.
                     // This used to be spelled `request_initial_review`, whose
@@ -356,22 +486,151 @@ public final class UpstreamSyncCoordinator
                     // declined conflict was one prompt-following away.
                     case "decline_pick_repair" -> {
                         declined.set(true);
+                        terminal.set(true);
                         yield ToolCallResult.error(
                                 "the conflict was declined; the run parks for "
                                         + "the user");
                     }
                     default -> ToolCallResult.error("tool is not available");
                 });
-        TurnResult turn = runTurn(
-                binding, watched(runId, executor),
-                () -> resolved.get() || declined.get());
+        TurnResult turn = bodies.upstreamPickRepair(
+                binding, watched(runId, executor), terminal, worktree,
+                capability);
         publishTurnEnd(runId, turn);
-        if (resolved.get()) {
+        if (stopReason.get() != null) {
+            return stopReason.get();
+        }
+        if (terminal.get() && !declined.get()) {
             return null;
         }
         log.info("upstream conflict repair did not resolve pick {} ({})",
-                pick.pickId(), turn.end());
+                active.get().pickId(), turn.end());
         return declined.get() ? "CONFLICT_DECLINED" : "CONFLICT_UNRESOLVED";
+    }
+
+    private String finalReview(
+            NewFlowAgentLaunches.Binding binding,
+            Path worktree,
+            InitialToolCapability capability,
+            UpstreamPicker picker,
+            Task task,
+            UpstreamSyncRequest request,
+            String runId,
+            String targetBaseRef,
+            List<String> selected)
+    {
+        AtomicBoolean terminal = new AtomicBoolean();
+        AtomicInteger calls = new AtomicInteger();
+        NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
+        ToolExecutor executor = bounded(terminal, calls, call ->
+                switch (call.name()) {
+                    case "read_upstream_review_context" -> safe(() ->
+                            finalReviewContext(request, runId, picker));
+                    case "read_candidate_diff" -> safe(() ->
+                            candidateDiff(capability, worktree,
+                                    request.targetRef(), picker.head()));
+                    case "run_checks" -> safe(() ->
+                            checkSummary(capability.runChecks()));
+                    case "list_repository" -> guarded(capability,
+                            () -> json(workspace.listRepository()));
+                    case "read_file" -> guarded(capability,
+                            () -> workspace.readFile(text(call, "path")));
+                    case "search_repository" -> guarded(capability,
+                            () -> json(workspace.search(text(call, "query"))));
+                    case "write_file" -> guarded(capability, () -> {
+                        workspace.writeFile(
+                                text(call, "path"), text(call, "content"));
+                        return "written";
+                    });
+                    case "delete_file" -> guarded(capability, () -> {
+                        workspace.deleteFile(text(call, "path"));
+                        return "deleted";
+                    });
+                    case "commit_initial_change" -> safe(() -> {
+                        String head = capability.callTool(
+                                workspace::commitTaskChange);
+                        capability.adoptCommittedHead(head);
+                        return "upstream correction committed";
+                    });
+                    case "request_initial_review" -> safe(() -> {
+                        requestFinalReview(
+                                capability, picker, task, request, runId,
+                                targetBaseRef, selected, text(call, "title"),
+                                text(call, "body"));
+                        terminal.set(true);
+                        return "upstream review requested";
+                    });
+                    default -> ToolCallResult.error("tool is not available");
+                });
+        TurnResult turn = bodies.upstreamPickRepair(
+                binding, watched(runId, executor), terminal, worktree,
+                capability);
+        publishTurnEnd(runId, turn);
+        return terminal.get() ? null : "FINAL_REVIEW_UNRESOLVED";
+    }
+
+    private String finalReviewContext(
+            UpstreamSyncRequest request, String runId, UpstreamPicker picker)
+    {
+        return "goal=" + request.goalText()
+                + "\nrunId=" + runId
+                + "\nexpectedBase=" + request.targetRef()
+                + "\ncurrentHead=" + picker.head()
+                + "\nselectedUpstreamShas="
+                + String.join(",", request.selectedUpstreamShas());
+    }
+
+    private static String candidateDiff(
+            InitialToolCapability capability,
+            Path worktree,
+            String base,
+            String head)
+    {
+        return capability.callTool(() -> new String(
+                new ImmutableGitObjectReader(
+                        worktree, base, head).readDiff(),
+                StandardCharsets.UTF_8));
+    }
+
+    private static String checkSummary(List<LocalCheckRun> checks)
+    {
+        return checks.stream()
+                .map(check -> {
+                    String summary = check.profileId() + ":"
+                            + check.conclusion().name();
+                    if (check.conclusion() == LocalCheckConclusion.PASSED
+                            || check.outputText() == null
+                            || check.outputText().isBlank()) {
+                        return summary;
+                    }
+                    String output = check.outputText();
+                    return summary + "\n" + output.substring(
+                            0, Math.min(output.length(),
+                                    MAX_CHECK_OUTPUT_CHARS));
+                })
+                .collect(Collectors.joining("\n"));
+    }
+
+    private void requestFinalReview(
+            InitialToolCapability capability,
+            UpstreamPicker picker,
+            Task task,
+            UpstreamSyncRequest request,
+            String runId,
+            String targetBaseRef,
+            List<String> selected,
+            String title,
+            String body)
+    {
+        String verification = verifyHistory(
+                picker, runId, task.taskId(), request.targetRef(), selected);
+        upstreamSync.recordVerification(
+                runId, RunState.FINAL_REVIEW, picker.head(), verification);
+        policies.publish(
+                task.taskId(), task.repositoryId(), targetBaseRef,
+                targetBaseRef.substring("refs/heads/".length()),
+                Path.of(task.worktreePath()), picker.head());
+        capability.requestReview(title, body);
     }
 
     /**
@@ -381,7 +640,11 @@ public final class UpstreamSyncCoordinator
      * mechanical, so none of them is taken from agent prose.
      */
     private String verifyHistory(
-            UpstreamPicker picker, String runId, List<String> selected)
+            UpstreamPicker picker,
+            String runId,
+            String taskId,
+            String expectedBaseSha,
+            List<String> selected)
     {
         List<UpstreamPick> picks = upstreamSync.picks(runId);
         if (picks.size() != selected.size()) {
@@ -389,7 +652,10 @@ public final class UpstreamSyncCoordinator
                     "the range has an unrecorded commit");
         }
         MessageDigest digest = sha256();
-        frame(digest, "upstream-verification:v1");
+        frame(digest, "upstream-verification:v2");
+        frame(digest, runId);
+        frame(digest, taskId);
+        frame(digest, expectedBaseSha);
         for (int ordinal = 0; ordinal < picks.size(); ordinal++) {
             UpstreamPick pick = picks.get(ordinal);
             if (pick.ordinal() != ordinal
@@ -422,16 +688,11 @@ public final class UpstreamSyncCoordinator
                 .formatHex(digest.digest()).substring(0, 32);
     }
 
-    private AgentCompletion park(
-            UpstreamPicker picker, String runId, String reason)
+    private AgentCompletion park(String runId, String reason)
     {
-        try {
-            picker.abortSequencer();
-        }
-        catch (RuntimeException failure) {
-            log.warn("upstream sequencer could not be closed while parking",
-                    failure);
-        }
+        // A semantic conflict parks with Git's index and sequencer evidence
+        // intact. Deterministic pick failures clean themselves up before they
+        // return, so parking must not erase the evidence an agent still needs.
         upstreamSync.park(runId, reason);
         return new AgentCompletion(
                 TerminalOutcome.FAILED,
@@ -452,70 +713,31 @@ public final class UpstreamSyncCoordinator
         return current.orElseThrow().changeSetRevisionId();
     }
 
-    private TurnResult runTurn(
-            NewFlowAgentLaunches.Binding binding,
-            ToolExecutor executor,
-            Supplier<Boolean> sealed)
-    {
-        if (!binding.isApi()) {
-            // ponytail: an out-of-process conflict repair needs the CLI body's
-            // death receipt and its loopback tool bridge. Refused rather than
-            // downgraded to an API engine, which would overrule the user's
-            // billing and privacy choice.
-            throw new NewFlowAgentLaunches.LaunchUnavailableException(
-                    "upstream conflict repair has no CLI transport yet; run "
-                            + binding.runId() + " cannot repair");
-        }
-        ArrayNode messages = mapper.createArrayNode();
-        String system = launches.systemPrompt(
-                NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
-        if (binding.transport() == TurnSpec.Transport.OPENAI_COMPAT) {
-            messages.addObject().put("role", "system").put("content", system);
-            system = null;
-        }
-        messages.addObject().put("role", "user").put(
-                "content", "Resolve only the exact program-selected conflict.");
-        return runner.runTurn(
-                new TurnSpec(
-                        binding.transport(),
-                        binding.endpoint(),
-                        launches.resolveSecret(binding),
-                        binding.model(),
-                        binding.reasoningEffort(),
-                        system,
-                        messages,
-                        launches.tools(
-                                NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR,
-                                binding.transport()),
-                        binding.maxOutputTokens(),
-                        binding.maxToolIterations()),
-                executor,
-                new TurnHooks()
-                {
-                    @Override
-                    public boolean interrupted()
-                    {
-                        return sealed.get()
-                                || Thread.currentThread().isInterrupted();
-                    }
-                });
-    }
-
     private String conflictContext(
             InitialToolCapability capability,
+            UpstreamPicker picker,
+            String taskGoal,
             UpstreamPick pick,
             String targetSubject)
     {
-        return capability.callTool(() -> "upstreamSha=" + pick.upstreamSha()
+        return capability.callTool(() -> "taskGoal=" + taskGoal
+                + "\nupstreamSha=" + pick.upstreamSha()
                 + "\nordinal=" + pick.ordinal()
-                + "\npickedCommit=" + pick.resultCommitSha()
-                + "\npickedSubject=" + targetSubject
+                + "\nupstreamSubject=" + targetSubject
+                + "\npreHead=" + pick.preHead()
+                + "\nmeasuredCurrentHead=" + picker.head()
+                + "\nsequencerActive=" + picker.sequencerActive()
+                + "\nunmergedPaths="
+                + String.join(", ", picker.unmergedPaths())
                 + "\nconflictedPaths="
                 + String.join(", ", pick.conflictedPaths())
-                + "\nThe three-way resolution is already committed and may"
-                + " still carry conflict markers. Edit those paths, then"
-                + " commit; the repair is attributed to this pick and"
-                + " rejected if any marker survives.");
+                + "\nupstreamDiff:\n"
+                + picker.upstreamDiff(
+                        pick.upstreamSha(), MAX_UPSTREAM_DIFF_CHARS)
+                + "\nThe conflicted index and cherry-pick sequencer are still"
+                + " open. Edit the conflicted paths, then call the repair"
+                + " tool; the program rejects markers or unmerged entries"
+                + " before running cherry-pick --continue.");
     }
 
     private String draftTitle(UpstreamSyncRequest request, int count)
@@ -608,12 +830,12 @@ public final class UpstreamSyncCoordinator
     }
 
     private ToolExecutor bounded(
-            AtomicBoolean resolved, AtomicBoolean declined,
+            AtomicBoolean terminal,
+            AtomicInteger calls,
             ToolExecutor delegate)
     {
-        AtomicInteger calls = new AtomicInteger();
         return call -> {
-            if (resolved.get() || declined.get()) {
+            if (terminal.get()) {
                 return ToolCallResult.error("terminal tool already accepted");
             }
             if (calls.incrementAndGet() > MAX_REPAIR_TOOL_CALLS) {

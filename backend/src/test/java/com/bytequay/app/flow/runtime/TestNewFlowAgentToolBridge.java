@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -134,6 +137,34 @@ final class TestNewFlowAgentToolBridge
             assertThat(bridge.handle(RUN, request("resources/list", null))
                     .orElseThrow().path("error").path("code").asInt())
                     .isEqualTo(-32601);
+        }
+    }
+
+    @Test
+    void aLoopbackCallExecutesOnTheTurnOwnerThread()
+            throws Exception
+    {
+        Thread owner = Thread.currentThread();
+        AtomicReference<Thread> executionThread = new AtomicReference<>();
+        try (NewFlowAgentToolBridge.Registration registration = bridge.open(
+                RUN, manifest(), call -> {
+                    executionThread.set(Thread.currentThread());
+                    return ToolExecutor.ToolCallResult.ok("owned");
+                })) {
+            ObjectNode params = MAPPER.createObjectNode()
+                    .put("name", "read_file");
+            CompletableFuture<Optional<JsonNode>> response =
+                    CompletableFuture.supplyAsync(() -> bridge.handle(
+                            RUN, request("tools/call", params)));
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (!response.isDone() && System.nanoTime() < deadline) {
+                registration.executePendingCalls();
+                Thread.onSpinWait();
+            }
+
+            assertThat(response.get(1, TimeUnit.SECONDS)).isPresent();
+            assertThat(executionThread).hasValue(owner);
         }
     }
 

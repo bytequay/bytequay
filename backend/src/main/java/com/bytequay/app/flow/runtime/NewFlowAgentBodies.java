@@ -225,6 +225,24 @@ final class NewFlowAgentBodies
         return launches.bind(run, CI_CLEANUP);
     }
 
+    TurnResult upstreamPickRepair(
+            NewFlowAgentLaunches.Binding binding,
+            ToolExecutor executor,
+            AtomicBoolean terminal,
+            Path worktree,
+            InitialToolCapability capability)
+    {
+        return run(
+                binding,
+                UPSTREAM_PICK_REPAIR,
+                executor,
+                terminal,
+                worktree,
+                journal(
+                        capability::recordAgentGroup,
+                        capability::recordAgentTurnUsage));
+    }
+
     NewFlowAgentLaunches.Binding bindTaskFix(AgentRun run)
     {
         return launches.bind(run, TASK_CI_FIX);
@@ -284,7 +302,8 @@ final class NewFlowAgentBodies
             case "run_checks" -> checks(
                     checksUsed, capability, repositoryRoot, call);
             case "commit_repair" -> guarded(capability, () -> {
-                workspace.commitRepair();
+                workspace.commitRepair(context.repairCommitMessage(
+                        optionalText(call, "target_commit")));
                 return "committed";
             });
             default -> ToolCallResult.error("tool is not available");
@@ -577,6 +596,7 @@ final class NewFlowAgentBodies
             case "run_checks" -> Set.of("profile");
             case "read_ci_log" -> Set.of("index", "offset");
             case "read_candidate_lesson" -> Set.of("index");
+            case "commit_repair" -> Set.of("target_commit");
             case "save_ci_lesson" -> Set.of("title", "markdown");
             case "request_initial_review" -> Set.of("title", "body");
             default -> Set.of();

@@ -44,7 +44,11 @@ CREATE TABLE flow_upstream_sync_run (
     ),
     -- The whole of phase 1's bound. There is deliberately no round or pick
     -- ceiling: a large range legitimately needs many repairs.
-    remaining_repair_turns INTEGER NOT NULL CHECK (remaining_repair_turns >= 0),
+    repair_turn_budget INTEGER NOT NULL CHECK (repair_turn_budget >= 0),
+    remaining_repair_turns INTEGER NOT NULL CHECK (
+        remaining_repair_turns >= 0
+        AND remaining_repair_turns <= repair_turn_budget
+    ),
     current_index INTEGER NOT NULL DEFAULT 0 CHECK (current_index >= 0),
     current_head TEXT,
     park_reason TEXT,
@@ -86,11 +90,14 @@ CREATE TABLE flow_upstream_pick (
         CHECK (provenance_verified IN (0, 1)),
     change_set_revision_id TEXT,
     recorded_at INTEGER NOT NULL,
-    -- An empty pick records no commit; every other outcome must.
+    -- Empty and conflicted picks record no commit. A conflict keeps the
+    -- sequencer/index evidence open until semantic repair is verified.
     CHECK (
         (state = 'SKIPPED_EMPTY'
             AND result_commit_sha IS NULL AND result_head IS NULL)
-        OR (state <> 'SKIPPED_EMPTY'
+        OR (state = 'CONFLICTED'
+            AND result_commit_sha IS NULL AND result_head IS NOT NULL)
+        OR (state NOT IN ('SKIPPED_EMPTY', 'CONFLICTED')
             AND result_commit_sha IS NOT NULL AND result_head IS NOT NULL)
     ),
     UNIQUE (run_id, ordinal),

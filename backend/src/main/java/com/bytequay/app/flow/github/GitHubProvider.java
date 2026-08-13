@@ -208,6 +208,7 @@ final class GitHubProvider
             return activation.expectedRemoteHead();
         }
         String proposedHead() { return activation.proposedHead(); }
+        boolean forcePush() { return activation.forcePush(); }
         boolean matchesClaim(Claim candidate) { return claim.equals(candidate); }
     }
 
@@ -1576,7 +1577,8 @@ final class GitHubProvider
                     ProviderFailureKind.UNAVAILABLE);
         }
         if (expected.exitCode() != 0 || proposed.exitCode() != 0
-                || ancestor.exitCode() != 0) {
+                || (!activation.forcePush() && ancestor.exitCode() != 0)
+                || (activation.forcePush() && ancestor.exitCode() > 1)) {
             return failedPreparation(
                     claim, activation,
                     ProviderFailureKind.INVALID);
@@ -1770,7 +1772,7 @@ final class GitHubProvider
         }
     }
 
-    void pushExactFastForward(
+    void pushExactLease(
             Claim claim,
             CiUpdateEffectActivation activation,
             ActivatedAttempt activated,
@@ -1812,7 +1814,8 @@ final class GitHubProvider
                     || !prepared.expectedRemoteHead().equals(
                             attempt.expectedRemoteHead())
                     || !prepared.proposedHead().equals(
-                            attempt.proposedHead())) {
+                            attempt.proposedHead())
+                    || prepared.forcePush() != activation.forcePush()) {
                 throw new IllegalStateException(
                         "prepared push does not match its durable attempt");
             }

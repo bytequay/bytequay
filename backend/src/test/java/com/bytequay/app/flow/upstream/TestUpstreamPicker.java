@@ -109,35 +109,44 @@ final class TestUpstreamPicker
     }
 
     @Test
-    void closesTheSequencerOnAConflictAndAttributesTheRepairToItsPick()
+    void keepsConflictEvidenceOpenUntilAResolvedPickCanBeContinued()
             throws Exception
     {
         UpstreamPicker picker = new UpstreamPicker(repository);
+        String preHead = picker.head();
 
         PickResult result = picker.pick(conflictingCommit);
 
         assertThat(result.outcome()).isEqualTo(Outcome.CONFLICTED);
+        assertThat(result.head()).isEqualTo(preHead);
+        assertThat(result.commitSha()).isNull();
         assertThat(result.conflictedPaths()).containsExactly("contested.txt");
-        assertThat(result.provenanceVerified()).isTrue();
-        assertThat(picker.sequencerActive()).isFalse();
-        assertThat(picker.clean()).isTrue();
+        assertThat(result.provenanceVerified()).isFalse();
+        assertThat(picker.sequencerActive()).isTrue();
+        assertThat(picker.clean()).isFalse();
 
-        // Git's own resolution is already history, so an unedited file is a
-        // marker heading for the pull request rather than a pending edit.
         assertThatThrownBy(() ->
-                picker.verifyRepair(result.conflictedPaths()))
+                picker.continuePick(
+                        preHead, conflictingCommit, result.conflictedPaths()))
                 .isInstanceOf(UnresolvedRepairException.class)
                 .hasMessageContaining("conflict marker");
+        assertThat(revision("HEAD")).isEqualTo(preHead);
+        assertThat(git("log", "--all", "-p"))
+                .doesNotContain("<<<<<<<", ">>>>>>>");
 
-        String targetSubject = picker.subject(result.commitSha());
         write("contested.txt", "merged rewrite\n");
-        String fixup = picker.commitFixup(targetSubject, false);
-        picker.verifyRepair(result.conflictedPaths());
+        PickResult continued = picker.continuePick(
+                preHead, conflictingCommit, result.conflictedPaths());
 
-        assertThat(picker.subject(fixup))
-                .isEqualTo("fixup! " + targetSubject);
-        assertThat(picker.changedPaths(result.commitSha(), fixup))
-                .containsExactly("contested.txt");
+        assertThat(continued.commitSha()).isEqualTo(continued.head());
+        assertThat(continued.provenanceVerified()).isTrue();
+        assertThat(picker.message(continued.commitSha()))
+                .contains("(cherry picked from commit "
+                        + conflictingCommit + ")");
+        assertThat(picker.sequencerActive()).isFalse();
+        assertThat(picker.clean()).isTrue();
+        assertThat(git("log", "--all", "-p"))
+                .doesNotContain("<<<<<<<", ">>>>>>>");
     }
 
     @Test
@@ -146,7 +155,10 @@ final class TestUpstreamPicker
     {
         UpstreamPicker picker = new UpstreamPicker(repository);
         PickResult result = picker.pick(conflictingCommit);
-        String targetSubject = picker.subject(result.commitSha());
+        write("contested.txt", "merged rewrite\n");
+        PickResult continued = picker.continuePick(
+                result.head(), conflictingCommit, result.conflictedPaths());
+        String targetSubject = picker.subject(continued.commitSha());
         write("contested.txt", "first attempt\n");
         String first = picker.commitFixup(targetSubject, false);
 
@@ -156,43 +168,98 @@ final class TestUpstreamPicker
         assertThat(second).isNotEqualTo(first);
         assertThat(picker.subject(second))
                 .isEqualTo("fixup! " + targetSubject);
-        assertThat(revision("HEAD~1")).isEqualTo(result.commitSha());
+        assertThat(revision("HEAD~1")).isEqualTo(continued.commitSha());
         assertThat(Files.readString(repository.resolve("contested.txt")))
                 .isEqualTo("second attempt\n");
     }
 
     @Test
     void refusesToAttributeARepairThatChangedNothing()
+            throws IOException
     {
         UpstreamPicker picker = new UpstreamPicker(repository);
         PickResult result = picker.pick(conflictingCommit);
+        write("contested.txt", "merged rewrite\n");
+        PickResult continued = picker.continuePick(
+                result.head(), conflictingCommit, result.conflictedPaths());
 
         assertThatThrownBy(() -> picker.commitFixup(
-                picker.subject(result.commitSha()), false))
+                picker.subject(continued.commitSha()), false))
                 .isInstanceOf(UnresolvedRepairException.class)
                 .hasMessageContaining("nothing to attribute");
+    }
+
+    @Test
+    void transfersConfirmedObjectsBetweenSeparateRepositories()
+            throws Exception
+    {
+        Path source = temporaryDirectory.resolve("source");
+        Path target = temporaryDirectory.resolve("target");
+        initialize(source);
+        write(source, "source.txt", "only upstream\n");
+        git(source, "add", "-A");
+        git(source, "commit", "-m", "Source-only commit");
+        String sourceCommit = revision(source, "HEAD");
+        initialize(target);
+
+        assertThat(UpstreamPicker.hasCommit(target, sourceCommit)).isFalse();
+
+        assertThat(UpstreamPicker.transferObjects(
+                source, target, List.of(sourceCommit)))
+                .containsExactly(sourceCommit);
+
+        assertThat(UpstreamPicker.hasCommit(target, sourceCommit)).isTrue();
+        assertThat(Files.exists(target.resolve(".git/FETCH_HEAD"))).isFalse();
     }
 
     private void write(String path, String content)
             throws IOException
     {
+        write(repository, path, content);
+    }
+
+    private static void write(Path root, String path, String content)
+            throws IOException
+    {
         Files.writeString(
-                repository.resolve(path), content, StandardCharsets.UTF_8);
+                root.resolve(path), content, StandardCharsets.UTF_8);
     }
 
     private String revision(String reference)
             throws Exception
     {
-        return git("rev-parse", "--verify", reference).strip();
+        return revision(repository, reference);
     }
 
     private String git(String... arguments)
             throws IOException, InterruptedException
     {
+        return git(repository, arguments);
+    }
+
+    private void initialize(Path root)
+            throws IOException, InterruptedException
+    {
+        Files.createDirectories(root);
+        git(root, "init", "-b", "main");
+        write(root, "base.txt", root.getFileName() + "\n");
+        git(root, "add", "-A");
+        git(root, "commit", "-m", "base");
+    }
+
+    private static String revision(Path root, String reference)
+            throws IOException, InterruptedException
+    {
+        return git(root, "rev-parse", "--verify", reference).strip();
+    }
+
+    private static String git(Path root, String... arguments)
+            throws IOException, InterruptedException
+    {
         String[] command = new String[arguments.length + 7];
         command[0] = "/usr/bin/git";
         command[1] = "-C";
-        command[2] = repository.toString();
+        command[2] = root.toString();
         command[3] = "-c";
         command[4] = "user.name=ByteQuay Test";
         command[5] = "-c";

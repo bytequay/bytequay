@@ -73,10 +73,10 @@ final class TestCliWriterContainment
         // actually stops it — this is the assertion that the design does not
         // rest on the poisoned URL alone.
         Fixture fixture = Fixture.create(root);
+        Path scratch = root.resolve("scratch");
         CliWriterContainment.Applied applied = CliWriterContainment.apply(
-                fixture.worktree, root.resolve("scratch"), "origin");
-        Files.deleteIfExists(fixture.worktree
-                .resolve(".git").resolve("hooks").resolve("pre-push"));
+                fixture.worktree, scratch, "origin");
+        Files.deleteIfExists(scratch.resolve("hooks").resolve("pre-push"));
 
         Result result = fixture.pushTo(
                 applied.environment(), "https://github.com/denied/denied.git");
@@ -173,6 +173,27 @@ final class TestCliWriterContainment
         // with a credential helper in it is the whole hole.
         assertThat(Files.readString(
                 Path.of(environment.get("GIT_CONFIG_GLOBAL")))).isEmpty();
+    }
+
+    @Test
+    void containmentWorksFromALinkedWorktree(@TempDir Path root)
+            throws IOException, InterruptedException
+    {
+        Fixture fixture = Fixture.create(root);
+        Path linked = root.resolve("linked");
+        run(fixture.worktree, Map.of(), "git", "worktree", "add", "-b",
+                "linked", linked.toString());
+        assertThat(Files.isRegularFile(linked.resolve(".git"))).isTrue();
+
+        CliWriterContainment.Applied applied = CliWriterContainment.apply(
+                linked, root.resolve("linked-scratch"), "origin");
+
+        assertThat(attempt(linked, applied.environment(), "git", "push",
+                "origin", "HEAD:refs/heads/linked").exitCode()).isNotZero();
+        assertThat(CliWriterContainment.gitDirectory(linked)).isDirectory();
+        CliWriterContainment.lift(linked, "origin", applied);
+        assertThat(attempt(linked, Map.of(), "git", "push", "origin",
+                "HEAD:refs/heads/linked").exitCode()).isZero();
     }
 
     private record Result(int exitCode, String output) {}

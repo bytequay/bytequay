@@ -202,6 +202,18 @@ final class NewFlowWorkspaceTools
         return commit("Apply CI repair");
     }
 
+    /** Message was resolved from the CI owner's exact eligible target. */
+    String commitRepair(String programOwnedMessage)
+    {
+        requireNonNull(programOwnedMessage, "programOwnedMessage is null");
+        if (!programOwnedMessage.equals("Apply CI repair")
+                && !programOwnedMessage.startsWith("fixup! ")) {
+            throw new IllegalArgumentException(
+                    "CI repair commit message is not program-owned");
+        }
+        return commit(programOwnedMessage);
+    }
+
     String commitTaskChange()
     {
         return commit("Implement Task change");

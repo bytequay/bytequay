@@ -183,7 +183,7 @@ final class TestNewFlowAgentRuntimeBoundaries
     }
 
     @Test
-    void theUpstreamPickRepairProgramCannotAskForReviewMidRange()
+    void theUpstreamProgramCarriesConflictAndFinalReviewTools()
     {
         NewFlowAgentLaunches launches = launches(
                 dataSource(), mock(FlowRuntime.class),
@@ -193,19 +193,18 @@ final class TestNewFlowAgentRuntimeBoundaries
                 launches.tools(UPSTREAM_PICK_REPAIR, ANTHROPIC));
         String prompt = launches.systemPrompt(UPSTREAM_PICK_REPAIR);
 
-        // A conflicted pick used to run on TASK_INITIAL, whose prompt tells the
-        // agent to implement a Task goal that does not exist here and to finish
-        // by requesting review — which the repair turn reads as declining the
-        // conflict. Neither may come back.
+        // The coordinator rejects final-review tools until the selected range
+        // is complete. One manifest then lets the same persistent Task Agent
+        // move from conflict repair into exact final review without acquiring
+        // ordinary initial-task authority.
         assertThat(tools)
                 .contains("read_pick_conflict_context", "commit_pick_repair",
-                        "decline_pick_repair")
-                .doesNotContain("request_initial_review",
-                        "read_initial_task_context", "commit_initial_change");
-        assertThat(prompt).doesNotContain("review");
-        // The contrast is the point: an ordinary initial Task must ask for
-        // review, so the absence above is a property of this program alone.
-        assertThat(launches.systemPrompt(TASK_INITIAL)).contains("review");
+                        "decline_pick_repair", "read_upstream_review_context",
+                        "read_candidate_diff", "run_checks",
+                        "commit_initial_change",
+                        "request_initial_review")
+                .doesNotContain("read_initial_task_context");
+        assertThat(prompt).contains("range is complete", "request exact review");
     }
 
     @Test

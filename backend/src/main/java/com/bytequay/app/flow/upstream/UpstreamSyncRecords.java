@@ -143,6 +143,7 @@ public final class UpstreamSyncRecords
             String taskId,
             RepairPlacementPolicy repairPlacement,
             RunState state,
+            int repairTurnBudget,
             int remainingRepairTurns,
             int currentIndex,
             String currentHead,
@@ -161,7 +162,9 @@ public final class UpstreamSyncRecords
             requireNonNull(taskId, "taskId is null");
             requireNonNull(repairPlacement, "repairPlacement is null");
             requireNonNull(state, "state is null");
-            if (remainingRepairTurns < 0 || currentIndex < 0) {
+            if (repairTurnBudget < 0 || remainingRepairTurns < 0
+                    || remainingRepairTurns > repairTurnBudget
+                    || currentIndex < 0) {
                 throw new IllegalArgumentException(
                         "upstream sync run counters are negative");
             }
@@ -195,7 +198,7 @@ public final class UpstreamSyncRecords
 
         public boolean landedCommit()
         {
-            return state != PickState.SKIPPED_EMPTY;
+            return resultCommitSha != null;
         }
     }
 

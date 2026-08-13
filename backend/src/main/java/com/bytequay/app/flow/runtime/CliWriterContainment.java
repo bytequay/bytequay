@@ -96,8 +96,7 @@ final class CliWriterContainment
         requireNonNull(remote, "remote is null");
         String original = pushUrl(worktree, remote);
         git(worktree, "remote", "set-url", "--push", remote, REFUSING_PUSH_URL);
-        installHook(worktree);
-        return new Applied(environment(scratch), original);
+        return new Applied(writerEnvironment(scratch), original);
     }
 
     /**
@@ -112,14 +111,31 @@ final class CliWriterContainment
         requireNonNull(applied, "applied is null");
         if (applied.originalPushUrl() == null) {
             // No separate push URL before, so the fetch URL governs again.
-            git(worktree, "remote", "set-url", "--delete", "--push", remote,
-                    REFUSING_PUSH_URL);
+            unset(worktree, "remote." + remote + ".pushurl");
         }
         else {
             git(worktree, "remote", "set-url", "--push", remote,
                     applied.originalPushUrl());
         }
-        Files.deleteIfExists(hookPath(worktree));
+    }
+
+    /** Resolves both ordinary checkouts and linked worktrees correctly. */
+    static Path gitDirectory(Path worktree)
+            throws IOException, InterruptedException
+    {
+        Process process = new ProcessBuilder(
+                "git", "rev-parse", "--path-format=absolute", "--git-dir")
+                .directory(worktree.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(
+                process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .strip();
+        if (process.waitFor() != 0 || output.isBlank()) {
+            throw new IOException(
+                    "could not resolve the worktree git directory: " + output);
+        }
+        return Path.of(output).toAbsolutePath().normalize();
     }
 
     /**
@@ -146,6 +162,20 @@ final class CliWriterContainment
         environment.put("GIT_ASKPASS", "/bin/false");
         environment.put("SSH_ASKPASS", "/bin/false");
         environment.put("GIT_TERMINAL_PROMPT", "0");
+        return Map.copyOf(environment);
+    }
+
+    private static Map<String, String> writerEnvironment(Path scratch)
+            throws IOException
+    {
+        Map<String, String> environment = new LinkedHashMap<>(
+                environment(scratch));
+        Path hook = installHook(scratch);
+        // Command-scoped config works for normal and linked worktrees without
+        // replacing a user's repository hook or enabling shared worktreeConfig.
+        environment.put("GIT_CONFIG_COUNT", "1");
+        environment.put("GIT_CONFIG_KEY_0", "core.hooksPath");
+        environment.put("GIT_CONFIG_VALUE_0", hook.getParent().toString());
         return Map.copyOf(environment);
     }
 
@@ -192,22 +222,21 @@ final class CliWriterContainment
             throws IOException, InterruptedException
     {
         Process process = new ProcessBuilder(
-                "git", "remote", "get-url", "--push", remote)
+                "git", "config", "--get", "remote." + remote + ".pushurl")
                 .directory(worktree.toFile())
                 .redirectErrorStream(true)
                 .start();
         String output = new String(
                 process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
                 .strip();
-        // git reports the fetch URL when no push URL is set, so the two being
-        // equal means there was no override to restore.
+        // Exit 1 means the fetch URL governs because no push override exists.
         return process.waitFor() == 0 && !output.isBlank() ? output : null;
     }
 
-    private static void installHook(Path worktree)
+    private static Path installHook(Path scratch)
             throws IOException
     {
-        Path hook = hookPath(worktree);
+        Path hook = scratch.resolve("hooks").resolve("pre-push");
         Files.createDirectories(hook.getParent());
         Files.writeString(hook, HOOK, StandardCharsets.UTF_8);
         try {
@@ -220,11 +249,7 @@ final class CliWriterContainment
             // A non-POSIX filesystem cannot mark it executable, so git will skip
             // it. The other two layers do not depend on this one.
         }
-    }
-
-    private static Path hookPath(Path worktree)
-    {
-        return worktree.resolve(".git").resolve("hooks").resolve("pre-push");
+        return hook;
     }
 
     private static void git(Path worktree, String... args)
@@ -242,6 +267,25 @@ final class CliWriterContainment
         if (process.waitFor() != 0) {
             throw new IOException(
                     "git " + String.join(" ", args) + " failed: " + output);
+        }
+    }
+
+    private static void unset(Path worktree, String key)
+            throws IOException, InterruptedException
+    {
+        Process process = new ProcessBuilder(
+                "git", "config", "--unset-all", key)
+                .directory(worktree.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(
+                process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exit = process.waitFor();
+        // Git returns 5 when the key is already absent. Lift is deliberately
+        // idempotent, so that is the same successful end state.
+        if (exit != 0 && exit != 1 && exit != 5) {
+            throw new IOException("git config --unset-all " + key
+                    + " failed: " + output);
         }
     }
 }

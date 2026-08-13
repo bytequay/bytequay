@@ -15,14 +15,22 @@ package com.bytequay.app.service.workspaces;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -34,7 +42,7 @@ import java.util.stream.Stream;
  * whose script is a shell pipeline is reported as not-found and the caller falls
  * back rather than running something it cannot vet.
  */
-final class CiJobScriptReader
+public final class CiJobScriptReader
 {
     private static final Logger log = LoggerFactory.getLogger(CiJobScriptReader.class);
     private static final String WORKFLOWS = ".github/workflows";
@@ -42,12 +50,39 @@ final class CiJobScriptReader
 
     private CiJobScriptReader() {}
 
+    /** One command together with the exact workflow location that owns it. */
+    public record BuildInvocation(
+            String command,
+            String workingDirectory,
+            String jobName,
+            String sourceRef,
+            String sourceDigest)
+    {
+        public BuildInvocation
+        {
+            if (command == null || command.isBlank()
+                    || workingDirectory == null
+                    || workingDirectory.isBlank()
+                    || jobName == null || jobName.isBlank()
+                    || sourceRef == null || sourceRef.isBlank()
+                    || sourceDigest == null || sourceDigest.isBlank()) {
+                throw new IllegalArgumentException(
+                        "build invocation fields are blank");
+            }
+        }
+
+        public List<String> arguments()
+        {
+            return List.of(command.strip().split("\\s+"));
+        }
+    }
+
     /**
      * Locates the build command for one job.
      *
      * @param jobName the job's id or its {@code name:}, matched case-insensitively
      */
-    static Optional<String> buildScript(Path repoRoot, String jobName)
+    public static Optional<String> buildScript(Path repoRoot, String jobName)
     {
         if (jobName == null || jobName.isBlank()) {
             return Optional.empty();
@@ -83,7 +118,7 @@ final class CiJobScriptReader
      * generated. A pipeline, a wrapper script or anything with shell syntax is
      * skipped, and the caller falls back to a plain compile.
      */
-    static Optional<String> anyBuildScript(Path repoRoot)
+    public static Optional<String> anyBuildScript(Path repoRoot)
     {
         Path dir = repoRoot.resolve(WORKFLOWS);
         if (!Files.isDirectory(dir)) {
@@ -103,6 +138,167 @@ final class CiJobScriptReader
         catch (IOException e) {
             log.warn("unable to read CI workflows under {}", dir, e);
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns the first safe build invocation and its workflow-owned working
+     * directory. The older string-only API remains for the legacy worker.
+     */
+    public static Optional<BuildInvocation> anyBuildInvocation(Path repoRoot)
+    {
+        return anyInvocation(repoRoot, ignored -> true);
+    }
+
+    /** First safe Maven invocation that actually executes tests. */
+    public static Optional<BuildInvocation> anyTestInvocation(Path repoRoot)
+    {
+        return anyInvocation(repoRoot, CiJobScriptReader::runsTests);
+    }
+
+    private static Optional<BuildInvocation> anyInvocation(
+            Path repoRoot, Predicate<String> accepted)
+    {
+        Path dir = repoRoot.resolve(WORKFLOWS);
+        if (!Files.isDirectory(dir)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            return files
+                    .filter(CiJobScriptReader::workflowFile)
+                    .sorted()
+                    .map(file -> invocationIn(repoRoot, file, accepted))
+                    .flatMap(Optional::stream)
+                    .findFirst();
+        }
+        catch (IOException e) {
+            log.warn("unable to read CI workflows under {}", dir, e);
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<BuildInvocation> invocationIn(
+            Path repoRoot,
+            Path workflow,
+            Predicate<String> accepted)
+    {
+        byte[] source;
+        try {
+            source = Files.readAllBytes(workflow);
+        }
+        catch (IOException failure) {
+            return Optional.empty();
+        }
+        try {
+            LoaderOptions options = new LoaderOptions();
+            options.setAllowDuplicateKeys(false);
+            options.setMaxAliasesForCollections(0);
+            options.setNestingDepthLimit(40);
+            options.setCodePointLimit(1_000_000);
+            Object loaded = new Yaml(new SafeConstructor(options)).load(
+                    new String(source, StandardCharsets.UTF_8));
+            if (!(loaded instanceof Map<?, ?> root)
+                    || !(root.get("jobs") instanceof Map<?, ?> jobs)) {
+                return Optional.empty();
+            }
+            String rootDirectory = workingDirectory(root.get("defaults"), ".");
+            for (Map.Entry<?, ?> entry : jobs.entrySet()) {
+                if (!(entry.getKey() instanceof String jobId)
+                        || !(entry.getValue() instanceof Map<?, ?> job)) {
+                    return Optional.empty();
+                }
+                String jobName = text(job.get("name")).orElse(jobId);
+                String jobDirectory = workingDirectory(
+                        job.get("defaults"), rootDirectory);
+                if (!(job.get("steps") instanceof List<?> steps)) {
+                    continue;
+                }
+                for (Object value : steps) {
+                    if (!(value instanceof Map<?, ?> step)) {
+                        return Optional.empty();
+                    }
+                    Optional<String> command = plainBuildCommand(
+                            step.get("run"));
+                    if (command.isEmpty()
+                            || !accepted.test(command.orElseThrow())) {
+                        continue;
+                    }
+                    String directory = text(step.get("working-directory"))
+                            .orElse(jobDirectory);
+                    Path normalized = Path.of(directory).normalize();
+                    if (normalized.isAbsolute()
+                            || normalized.startsWith("..")
+                            || directory.contains("${{")) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new BuildInvocation(
+                            command.orElseThrow(),
+                            normalized.toString().isEmpty()
+                                    ? "." : normalized.toString(),
+                            jobName,
+                            repoRoot.relativize(workflow).toString(),
+                            "sha256:" + sha256(source)));
+                }
+            }
+            return Optional.empty();
+        }
+        catch (RuntimeException invalid) {
+            return Optional.empty();
+        }
+    }
+
+    private static String workingDirectory(Object defaults, String fallback)
+    {
+        if (!(defaults instanceof Map<?, ?> defaultMap)
+                || !(defaultMap.get("run") instanceof Map<?, ?> run)) {
+            return fallback;
+        }
+        return text(run.get("working-directory")).orElse(fallback);
+    }
+
+    private static Optional<String> plainBuildCommand(Object value)
+    {
+        return text(value).stream()
+                .flatMap(String::lines)
+                .map(String::strip)
+                .filter(command -> command.matches(RUNNABLE))
+                .findFirst();
+    }
+
+    private static boolean runsTests(String command)
+    {
+        List<String> arguments = List.of(command.strip().split("\\s+"));
+        boolean skips = arguments.stream().map(value -> value.toLowerCase(
+                        Locale.ROOT))
+                .anyMatch(value -> value.equals("-dskiptests")
+                        || value.equals("-dskiptests=true")
+                        || value.equals("-dmaven.test.skip=true"));
+        return !skips && arguments.stream().anyMatch(value ->
+                value.equals("test") || value.equals("verify")
+                        || value.equals("integration-test"));
+    }
+
+    private static Optional<String> text(Object value)
+    {
+        return value instanceof String text && !text.isBlank()
+                ? Optional.of(text.strip()) : Optional.empty();
+    }
+
+    private static boolean workflowFile(Path file)
+    {
+        String name = file.getFileName().toString()
+                .toLowerCase(Locale.ROOT);
+        return name.endsWith(".yml") || name.endsWith(".yaml");
+    }
+
+    private static String sha256(byte[] value)
+    {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value));
+        }
+        catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 

@@ -89,22 +89,30 @@ public final class NewFlowAgentLaunches
         // program identity rather than a substituted prompt.
         UPSTREAM_PICK_REPAIR(
                 AgentRole.TASK_AGENT,
-                "upstream-pick-repair-prompt:v1",
-                "upstream-pick-repair-capabilities:v1",
-                "upstream-pick-repair-turn:v1",
-                "Repair one conflicted cherry-pick in the current worktree. "
-                        + "Git's own three-way resolution is already committed, "
-                        + "so you are correcting that commit rather than "
-                        + "performing the merge. Read the conflict context "
-                        + "first. Change only what this pick's conflict "
-                        + "requires, then commit with the repair tool, which "
-                        + "attributes the fixup to its target for you. Decline "
-                        + "if the conflict needs a decision you cannot make. "
+                "upstream-pick-repair-prompt:v2",
+                "upstream-pick-repair-capabilities:v2",
+                "upstream-pick-repair-turn:v4",
+                "Repair each conflicted cherry-pick in the current worktree. "
+                        + "The cherry-pick sequencer and conflicted index remain "
+                        + "open. Read the conflict context first, resolve only "
+                        + "what this pick requires, then call the repair tool. "
+                        + "The program verifies the resolution, stages it, and "
+                        + "continues the cherry-pick with provenance before "
+                        + "advancing clean picks. If it reports another conflict, "
+                        + "read the updated context and repeat in this same turn "
+                        + "until the range is complete. Then inspect the exact "
+                        + "candidate, correct it as needed, and request exact "
+                        + "review; that terminal tool runs the required local "
+                        + "checks, so repair and retry if it rejects the range. "
+                        + "Decline if a conflict needs a decision you cannot make. "
                         + "Final prose is opaque.",
                 List.of("read_pick_conflict_context", "list_repository",
                         "read_file", "search_repository", "write_file",
                         "delete_file", "commit_pick_repair",
-                        "decline_pick_repair")),
+                        "decline_pick_repair", "read_upstream_review_context",
+                        "read_candidate_diff", "run_checks",
+                        "commit_initial_change",
+                        "request_initial_review")),
         CI_REPAIR(
                 AgentRole.CI_FIXER,
                 "ci-fix-prompt:v1",
@@ -424,7 +432,8 @@ public final class NewFlowAgentLaunches
         // is already bound is never re-resolved — its frozen engine is the
         // answer, even if the workspace has since been repointed.
         Config resolved = binding(run.runId()).isPresent()
-                ? null : engines.resolve(run);
+                ? null
+                : writerCliConfig(run).orElseGet(() -> engines.resolve(run));
         return requireNonNull(transactions.execute(ignored -> {
             AgentRun current = runtime.run(run.runId()).orElseThrow(() ->
                     new IllegalStateException("AgentRun disappeared before binding"));
@@ -591,6 +600,42 @@ public final class NewFlowAgentLaunches
                         result.getString("binding_digest"),
                         Instant.ofEpochMilli(result.getLong("bound_at"))),
                 runId).stream().findFirst();
+    }
+
+    /** Keeps every Task writer turn on the CLI that owns its conversation. */
+    private Optional<Config> writerCliConfig(AgentRun run)
+    {
+        if (run.role() != AgentRole.TASK_AGENT
+                && run.role() != AgentRole.CI_FIXER) {
+            return Optional.empty();
+        }
+        return jdbc.query(
+                """
+                SELECT b.provider_name, b.model, b.reasoning_effort,
+                       b.cli_binary, b.cli_version
+                FROM flow_runtime_agent_run current_run
+                JOIN flow_runtime_agent_session current_session
+                  ON current_session.session_id = current_run.session_id
+                JOIN flow_runtime_agent_session writer_session
+                  ON writer_session.task_id = current_session.task_id
+                 AND writer_session.role IN ('TASK_AGENT', 'CI_FIXER')
+                JOIN flow_runtime_agent_run writer_run
+                  ON writer_run.session_id = writer_session.session_id
+                JOIN flow_runtime_agent_launch_binding b
+                  ON b.run_id = writer_run.run_id
+                WHERE current_run.run_id = ?
+                  AND writer_run.run_id <> current_run.run_id
+                  AND b.execution = 'CLI'
+                ORDER BY b.bound_at, b.run_id
+                LIMIT 1
+                """,
+                (result, row) -> Config.cli(
+                        result.getString("provider_name"),
+                        result.getString("model"),
+                        result.getString("reasoning_effort"),
+                        result.getString("cli_binary"),
+                        result.getString("cli_version")),
+                run.runId()).stream().findFirst();
     }
 
     private static Transport transport(String value)
@@ -815,6 +860,8 @@ public final class NewFlowAgentLaunches
                         .put("minimum", 0);
                 required.add("index");
             }
+            case "commit_repair" -> properties.putObject("target_commit")
+                    .putArray("type").add("string").add("null");
             case "save_ci_lesson" -> {
                 properties.putObject("title").put("type", "string");
                 properties.putObject("markdown").put("type", "string");
@@ -843,14 +890,15 @@ public final class NewFlowAgentLaunches
             case "write_file" -> "Replace one bounded worktree text file.";
             case "delete_file" -> "Delete one bounded worktree file.";
             case "run_checks" -> "Run the program-owned local check policy.";
-            case "commit_repair" -> "Commit the current CI repair with a fixed message.";
+            case "commit_repair" -> "Commit the repair at the tip, or select one exact eligible target SHA from the CI context.";
             case "commit_task_change" -> "Commit and mechanically adopt a Task correction.";
             case "commit_initial_change" -> "Commit and mechanically adopt the INITIAL Task change.";
             case "read_initial_task_context" -> "Read the exact Task goal and immutable initial base.";
             case "read_pick_conflict_context" -> "Read the conflicted pick, its target subject, and its conflicted paths.";
-            case "commit_pick_repair" -> "Commit the repair as the one fixup attributed to this pick.";
+            case "commit_pick_repair" -> "Verify and continue the currently resolved cherry-pick.";
             case "decline_pick_repair" -> "Decline this conflict and park the run for the user.";
             case "read_initial_review_context" -> "Read the exact Task goal and completed initial review.";
+            case "read_upstream_review_context" -> "Read the confirmed upstream range and its current mechanical verification.";
             case "request_initial_review" -> "Save the local PR draft, run checks, and request exact review.";
             case "ready_for_initial_publish" -> "Accept the exact initial review for manual publication.";
             case "inspect_cleanup" -> "Read the sealed cleanup state.";

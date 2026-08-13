@@ -33,6 +33,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.repository.CredentialStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,6 +63,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestFlowRuntime
 {
@@ -161,6 +165,84 @@ class TestFlowRuntime
         assertThat(count("flow_runtime_agent_session")).isEqualTo(1);
         assertThat(count("flow_runtime_agent_run")).isEqualTo(1);
         assertThat(count("flow_runtime_agent_process_attempt")).isEqualTo(1);
+    }
+
+    @Test
+    void taskAndCiWriterRolesResumeOneProviderConversation()
+    {
+        Task task = publishedTask("writer-provider", 81);
+        String taskRunId = jdbc.queryForObject(
+                """
+                SELECT r.run_id
+                FROM flow_runtime_agent_run r
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                WHERE s.task_id = ? AND r.role = 'TASK_AGENT'
+                ORDER BY r.created_at
+                LIMIT 1
+                """,
+                String.class,
+                task.taskId());
+        jdbc.update(
+                """
+                INSERT INTO flow_runtime_agent_launch_binding (
+                    run_id, provider_name, execution, model,
+                    reasoning_effort, prompt_revision, prompt_digest,
+                    tool_manifest_digest, cli_binary, cli_version,
+                    binding_digest, bound_at
+                ) VALUES (?, 'claude-code', 'CLI', 'sonnet', 'high',
+                    'task-turn', 'prompt', 'tools', 'claude', '2.1.0',
+                    'binding', ?)
+                """,
+                taskRunId,
+                NOW.toEpochMilli());
+        jdbc.update(
+                """
+                UPDATE flow_runtime_agent_session
+                SET provider_session_id = 'claude-task-session'
+                WHERE task_id = ? AND role = 'TASK_AGENT'
+                """,
+                task.taskId());
+        runtime.registerFinalRed(
+                "round-writer-provider", task.taskId(), task.prId(),
+                task.currentHeadSha(), "ci:writer-provider");
+        selectFromReconciliation();
+
+        ActiveWriter ci = startWriter(
+                OperationKind.RUN_CI_FIXER,
+                AgentRole.CI_FIXER,
+                "ci-fix-prompt:v1",
+                "ci-fix-capabilities:v1");
+        NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
+        when(engines.resolve(ci.run())).thenReturn(
+                NewFlowAgentLaunches.Config.cli(
+                        "codex", "gpt-5", "medium", "codex", "9.0"));
+        NewFlowAgentLaunches launches = new NewFlowAgentLaunches(
+                dataSource,
+                runtime,
+                mock(CredentialStore.class),
+                engines,
+                clock,
+                new ObjectMapper());
+        NewFlowAgentLaunches.Binding ciBinding = launches.bind(
+                ci.run(), NewFlowAgentLaunches.Program.CI_REPAIR);
+
+        assertThat(runtime.resumableProviderSession(ci.run().runId()))
+                .contains("claude-task-session");
+        assertThat(ciBinding.providerName()).isEqualTo("claude-code");
+        assertThat(ciBinding.model()).isEqualTo("sonnet");
+        assertThat(ciBinding.cliBinary()).isEqualTo("claude");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(DISTINCT r.session_id)
+                FROM flow_runtime_agent_run r
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                WHERE s.task_id = ?
+                  AND r.role IN ('TASK_AGENT', 'CI_FIXER')
+                """,
+                Integer.class,
+                task.taskId())).isEqualTo(2);
     }
 
     @Test
@@ -678,6 +760,21 @@ class TestFlowRuntime
 
     private ActiveWriter startWriter(OperationKind kind, AgentRole role)
     {
+        return startWriter(
+                kind,
+                role,
+                role == AgentRole.TASK_AGENT
+                        ? "prompt:task" : "prompt:ci",
+                role == AgentRole.TASK_AGENT
+                        ? "capabilities:task" : "capabilities:ci");
+    }
+
+    private ActiveWriter startWriter(
+            OperationKind kind,
+            AgentRole role,
+            String promptManifestRef,
+            String capabilitySetRef)
+    {
         Claim claim = claim(kind);
         Task task = runtime.task(claim.taskId()).orElseThrow();
         WriterFence fence = kind == OperationKind.RUN_TASK_TURN
@@ -689,10 +786,8 @@ class TestFlowRuntime
         AgentRun run = runtime.startWriterAgent(
                 claim,
                 fence,
-                role == AgentRole.TASK_AGENT ? "prompt:task" : "prompt:ci",
-                role == AgentRole.TASK_AGENT
-                        ? "capabilities:task"
-                        : "capabilities:ci");
+                promptManifestRef,
+                capabilitySetRef);
         return new ActiveWriter(claim, fence, run);
     }
 

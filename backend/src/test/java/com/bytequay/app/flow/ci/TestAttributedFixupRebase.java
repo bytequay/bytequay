@@ -97,6 +97,20 @@ class TestAttributedFixupRebase
     }
 
     @Test
+    void eligibleTargetsAreExactUniqueNonFixupCommits()
+            throws Exception
+    {
+        commit("one.txt", "one", "pick one");
+        String eligible = head();
+        commit("same-a.txt", "a", "same");
+        commit("same-b.txt", "b", "same");
+        commit("fix.txt", "fix", "fixup! pick one");
+
+        assertThat(rebase.eligibleTargets(worktree, base, head(), TIMEOUT))
+                .containsExactly(new SeriesCommit(eligible, "pick one"));
+    }
+
+    @Test
     void aFixupIsMovedBehindItsTargetWhichIsNotRewritten()
             throws Exception
     {

@@ -14,11 +14,26 @@
 package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
+import com.bytequay.app.flow.runtime.TaskProvisioning.RepositoryCatalog;
+import com.bytequay.app.flow.runtime.TaskProvisioning.RepositoryConfig;
+import com.bytequay.app.flow.upstream.UpstreamPicker;
 import com.bytequay.app.flow.upstream.UpstreamSync;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRequest;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRun;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.sql.DataSource;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -53,20 +68,29 @@ public final class UpstreamSyncCommands
     }
 
     private final TaskProvisioning provisioning;
+    private final RepositoryCatalog repositories;
     private final UpstreamSync upstreamSync;
+    private final TransactionTemplate transactions;
     private final NewFlowDispatcher dispatcher;
     private final InitialTaskDispatcher initialTasks;
 
     public UpstreamSyncCommands(
             TaskProvisioning provisioning,
+            RepositoryCatalog repositories,
             UpstreamSync upstreamSync,
+            DataSource dataSource,
             NewFlowDispatcher dispatcher,
             InitialTaskDispatcher initialTasks)
     {
         this.provisioning = requireNonNull(
                 provisioning, "provisioning is null");
+        this.repositories = requireNonNull(
+                repositories, "repositories is null");
         this.upstreamSync = requireNonNull(
                 upstreamSync, "upstreamSync is null");
+        this.transactions = new TransactionTemplate(
+                new DataSourceTransactionManager(requireNonNull(
+                        dataSource, "dataSource is null")));
         this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
         this.initialTasks = requireNonNull(
                 initialTasks, "initialTasks is null");
@@ -81,12 +105,15 @@ public final class UpstreamSyncCommands
             String sourceToRef,
             String targetRef,
             List<SelectedCommit> selectedCommits,
-            String requestedByUserId)
+            String requestedByUserId,
+            Path sourceRepository,
+            Path targetRepository)
     {
         return startConfirmed(
                 requestKey, repositoryId, goalText, sourceRemote,
                 sourceFromRef, sourceToRef, targetRef, selectedCommits,
-                requestedByUserId, DEFAULT_REPAIR_TURN_BUDGET);
+                requestedByUserId, DEFAULT_REPAIR_TURN_BUDGET,
+                sourceRepository, targetRepository);
     }
 
     public StartReceipt startConfirmed(
@@ -99,16 +126,128 @@ public final class UpstreamSyncCommands
             String targetRef,
             List<SelectedCommit> selectedCommits,
             String requestedByUserId,
-            int repairTurnBudget)
+            int repairTurnBudget,
+            Path sourceRepository,
+            Path targetRepository)
     {
-        Task task = provisioning.startTask(
-                requestKey, repositoryId, goalText);
-        UpstreamSyncRun run = upstreamSync.startRun(
-                requestKey, repositoryId, goalText, sourceRemote,
-                sourceFromRef, sourceToRef, targetRef, selectedCommits,
-                requestedByUserId, task.taskId(), repairTurnBudget);
+        String effectiveGoal = requireNonNull(goalText, "goalText is null");
+        Path source = requireNonNull(
+                sourceRepository, "sourceRepository is null");
+        Path target = requireNonNull(
+                targetRepository, "targetRepository is null");
+        RepositoryConfig configured = requireNonNull(
+                repositories.repository(repositoryId),
+                "repository catalog returned null");
+        if (!configured.repositoryId().equals(repositoryId)
+                || !configured.repositoryRoot().equals(realPath(target))) {
+            throw new IllegalArgumentException(
+                    "target repository is not the configured Task repository");
+        }
+
+        List<SelectedCommit> confirmed = confirmRange(
+                source, target, sourceFromRef, sourceToRef, selectedCommits);
+        String confirmedTarget = UpstreamPicker.resolveCommit(target, targetRef);
+        String configuredTarget = UpstreamPicker.resolveCommit(
+                target, configured.baseRef());
+        if (!confirmedTarget.equals(configuredTarget)) {
+            throw new IllegalArgumentException(
+                    "confirmed target ref is not the Task launch base");
+        }
+
+        String confirmedFrom = UpstreamPicker.resolveCommit(
+                source, sourceFromRef);
+        String confirmedTo = UpstreamPicker.resolveCommit(source, sourceToRef);
+        Optional<UpstreamSyncRequest> replayRequest =
+                upstreamSync.requestForKey(requestKey);
+        if (replayRequest.isPresent()) {
+            UpstreamSyncRequest existing = replayRequest.orElseThrow();
+            UpstreamSyncRun run = upstreamSync.runForRequest(
+                    existing.requestId()).orElseThrow();
+            if (!existing.repositoryId().equals(repositoryId)
+                    || !existing.goalText().equals(effectiveGoal)
+                    || !existing.sourceRemote().equals(sourceRemote)
+                    || !existing.sourceFromRef().equals(confirmedFrom)
+                    || !existing.sourceToRef().equals(confirmedTo)
+                    || !existing.targetRef().equals(confirmedTarget)
+                    || !existing.selectedUpstreamShas().equals(
+                            confirmed.stream().map(SelectedCommit::sha).toList())
+                    || !Objects.equals(existing.requestedByUserId(),
+                            requestedByUserId)
+                    || run.repairTurnBudget() != repairTurnBudget) {
+                throw new IllegalStateException(
+                        "requestKey already owns a different upstream sync");
+            }
+            Task task = provisioning.startTask(
+                    requestKey, repositoryId, effectiveGoal);
+            if (!run.taskId().equals(task.taskId())) {
+                throw new IllegalStateException(
+                        "upstream sync replay owns a different Task");
+            }
+            return new StartReceipt(task, run);
+        }
+
+        StartReceipt receipt = requireNonNull(transactions.execute(ignored -> {
+            Task task = provisioning.startTask(
+                    requestKey, repositoryId, effectiveGoal);
+            UpstreamSyncRun run = upstreamSync.startRun(
+                    requestKey, repositoryId, effectiveGoal, sourceRemote,
+                    confirmedFrom, confirmedTo, confirmedTarget, confirmed,
+                    requestedByUserId, task.taskId(), repairTurnBudget);
+            return new StartReceipt(task, run);
+        }), "upstream start transaction returned null");
         dispatcher.wake();
         initialTasks.wake();
-        return new StartReceipt(task, run);
+        return receipt;
+    }
+
+    private static List<SelectedCommit> confirmRange(
+            Path source,
+            Path target,
+            String sourceFromRef,
+            String sourceToRef,
+            List<SelectedCommit> selectedCommits)
+    {
+        List<SelectedCommit> selected = List.copyOf(requireNonNull(
+                selectedCommits, "selectedCommits is null"));
+        if (new HashSet<>(selected.stream().map(SelectedCommit::sha).toList())
+                .size() != selected.size()) {
+            throw new IllegalArgumentException(
+                    "an upstream commit was selected more than once");
+        }
+        List<String> requested = selected.stream()
+                .map(SelectedCommit::sha)
+                .toList();
+        List<String> resolved = requested.stream()
+                .map(sha -> UpstreamPicker.resolveCommit(source, sha))
+                .toList();
+        String from = UpstreamPicker.resolveCommit(source, sourceFromRef);
+        String to = UpstreamPicker.resolveCommit(source, sourceToRef);
+        String previous = from;
+        for (String sha : resolved) {
+            if (!UpstreamPicker.isAncestor(source, previous, sha)
+                    || !UpstreamPicker.isAncestor(source, sha, to)) {
+                throw new IllegalArgumentException(
+                        "selected commits are outside the confirmed range");
+            }
+            previous = sha;
+        }
+        UpstreamPicker.transferObjects(source, target, resolved);
+        List<SelectedCommit> confirmed = new ArrayList<>(selected.size());
+        for (int index = 0; index < selected.size(); index++) {
+            confirmed.add(new SelectedCommit(
+                    resolved.get(index), selected.get(index).subject()));
+        }
+        return List.copyOf(confirmed);
+    }
+
+    private static Path realPath(Path path)
+    {
+        try {
+            return path.toAbsolutePath().normalize().toRealPath();
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(
+                    "repository path is unavailable", failure);
+        }
     }
 }

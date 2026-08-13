@@ -19,6 +19,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryExitState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateSubject;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import org.junit.jupiter.api.Test;
@@ -226,6 +227,37 @@ class TestCiBoundaryCompileProof
         assertThat(userGates.subject(revision.subjectManifestRef())
                 .orElseThrow().manualOnly())
                 .isFalse();
+    }
+
+    @Test
+    void parkingAnIdleTaskSurfacesItWithoutInterruptingAWriter()
+    {
+        assertThat(runtime.parkIdleTask(
+                task.taskId(), "park-op", "CI_REPAIR_NOT_CONVERGING",
+                "ci-round:example"))
+                .isTrue();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        // Already parked, so there is nothing left to say.
+        assertThat(runtime.parkIdleTask(
+                task.taskId(), "park-op", "CI_REPAIR_NOT_CONVERGING",
+                "ci-round:example"))
+                .isFalse();
+    }
+
+    @Test
+    void aRunningWriterIsNeverParkedOutFromUnderItself()
+    {
+        var started = startRepair();
+
+        assertThat(runtime.parkIdleTask(
+                task.taskId(),
+                started.claim().operationId(),
+                "CI_REPAIR_NOT_CONVERGING",
+                "ci-round:" + started.binding().attempt().roundId()))
+                .isFalse();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.ACTIVE);
     }
 
     /**

@@ -9318,6 +9318,53 @@ public final class FlowRuntime
                 now);
     }
 
+    /**
+     * Parks an idle Task for the user with a typed reason.
+     *
+     * <p>Used by an owner that has decided its work needs a human rather than
+     * another agent turn. It only moves a Task that is holding no writer, so it
+     * can never interrupt a running turn, and it is idempotent for a Task
+     * already parked.
+     */
+    public boolean parkIdleTask(
+            String taskId,
+            String operationId,
+            String reasonCode,
+            String evidenceRef)
+    {
+        requireText(taskId, "taskId");
+        requireText(operationId, "operationId");
+        requireText(reasonCode, "reasonCode");
+        requireText(evidenceRef, "evidenceRef");
+        return inTransaction(() -> {
+            Task task = requireTask(taskId);
+            if (task.status() != TaskStatus.ACTIVE
+                    || task.selectedWriterOperationId() != null
+                    || writerFence(taskId).isPresent()) {
+                return false;
+            }
+            TaskLifecycleRevision attention = appendLifecycle(
+                    task,
+                    TaskStatus.NEEDS_ATTENTION,
+                    reasonCode,
+                    evidenceRef,
+                    operationId,
+                    clock.instant());
+            return jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'NEEDS_ATTENTION',
+                        current_lifecycle_revision_id = ?
+                    WHERE task_id = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id IS NULL
+                      AND current_lifecycle_revision_id = ?
+                    """,
+                    attention.lifecycleRevisionId(),
+                    taskId,
+                    task.currentLifecycleRevisionId()) == 1;
+        });
+    }
+
     private void moveTaskToAttentionAfterAgentStop(
             String taskId,
             String operationId,

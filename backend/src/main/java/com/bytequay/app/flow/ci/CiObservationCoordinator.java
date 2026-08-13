@@ -283,6 +283,16 @@ public final class CiObservationCoordinator
             else if (round.state() == RoundState.GREEN) {
                 learning.reserveCiLearningIfEligible(round);
             }
+            else if (autofix.parkedForRepeatedFailure(round.roundId())) {
+                // The head moved and the identical failures came back. That is
+                // a judgment for the user, so the Task says so instead of
+                // waiting silently for a board that is not converging.
+                runtime.parkIdleTask(
+                        round.taskId(),
+                        claim.operationId(),
+                        "CI_REPAIR_NOT_CONVERGING",
+                        "ci-round:" + round.roundId());
+            }
             String resultRef = replayPrefix + round.roundId();
             // A compile-priority round is still collecting the rest of its
             // board, so it keeps the short poll while its repair runs.

@@ -601,7 +601,8 @@ public final class UpstreamSync
                 UPDATE flow_upstream_sync_run
                 SET park_reason = ?, updated_at = ?
                 WHERE run_id = ?
-                  AND state IN ('READY', 'PICKING', 'WAITING_CONFLICT_REPAIR')
+                  AND state IN ('READY', 'PICKING',
+                                'WAITING_CONFLICT_REPAIR', 'FINAL_REVIEW')
                 """,
                 CLOSE_REQUESTED, clock.instant().toEpochMilli(), runId);
         if (updated != 1) {

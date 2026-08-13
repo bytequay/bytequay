@@ -2483,7 +2483,7 @@ public final class GitHubEffects
                     step.branchRef(),
                     step.expectedRemoteHead(),
                     step.proposedHead(),
-                    "force:false");
+                    "force:" + step.forcePush());
             String attemptId = stableId(
                     "github-effect-attempt:v1",
                     plan.planId(), Integer.toString(number));
@@ -2557,7 +2557,7 @@ public final class GitHubEffects
                 step.branchRef(),
                 step.expectedRemoteHead(),
                 step.proposedHead(),
-                "force:false");
+                "force:" + step.forcePush());
         if (!attempt.attemptId().equals(stableId(
                     "github-effect-attempt:v1",
                     plan.planId(), Integer.toString(attempt.attemptNumber())))
@@ -2600,7 +2600,7 @@ public final class GitHubEffects
                 step.branchRef(),
                 step.expectedRemoteHead(),
                 step.proposedHead(),
-                "force:false");
+                "force:" + step.forcePush());
         if (!attempt.attemptId().equals(stableId(
                     "github-effect-attempt:v1",
                     plan.planId(), Integer.toString(attempt.attemptNumber())))
@@ -2782,7 +2782,7 @@ public final class GitHubEffects
                 step.branchRef(),
                 step.expectedRemoteHead(),
                 step.proposedHead(),
-                "force:false");
+                "force:" + step.forcePush());
         String planDigest = stableId(
                 "github-effect-plan-digest:v1",
                 plan.planId(),

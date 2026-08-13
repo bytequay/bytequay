@@ -1049,7 +1049,10 @@ recovery owner must first prove and clear that state.
 - Expired non-agent ticket claim: requeue the same ticket after its adapter's
   effect/recovery rule. Expired agent claim: do not requeue to a new generation.
   The current in-process transport has no cross-JVM death proof, so an activated
-  attempt discovered after restart remains quarantined.
+  attempt discovered after restart remains quarantined. An explicit destructive
+  close may release that Task only after both the recorded JVM identity and the
+  recorded agent process group are objectively gone; the attempt remains as a
+  quarantined audit record rather than receiving a manufactured stop proof.
 - Expired writer lease: immediately quarantine admission. Lease time alone does
   not prove a shell/model/Git process stopped. The live-JVM
   `InProcessWriterAgentSupervisor` must revoke and join a Task/CI writer, or

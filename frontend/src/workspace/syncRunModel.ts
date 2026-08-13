@@ -70,7 +70,9 @@ export function syncPhase(job: UpstreamCherryPickJobDto): string {
   // somewhere different — a run asked to close must not report that it is
   // pausing.
   if (job.closeRequested === true) return 'CLOSING';
-  return job.pauseRequested ? 'PAUSING' : 'PICKING';
+  if (job.pauseRequested) return 'PAUSING';
+  return job.appliedCount + job.skippedCount >= job.requestedCount
+    ? 'REVIEWING' : 'PICKING';
 }
 
 /**
@@ -115,7 +117,11 @@ export function syncChip(job: UpstreamCherryPickJobDto): SyncChip {
       : { label: 'PARKED FOR YOUR REVIEW', tone: 'parked', live: false };
   }
   return {
-    label: job.pauseRequested ? 'PHASE 1 · PAUSING' : 'PHASE 1 · PICKING',
+    label: job.pauseRequested
+      ? 'PHASE 1 · PAUSING'
+      : job.appliedCount + job.skippedCount >= job.requestedCount
+        ? 'PHASE 1 · REVIEWING'
+        : 'PHASE 1 · PICKING',
     tone: 'picking',
     live: !job.pauseRequested,
   };
@@ -267,17 +273,23 @@ const ACTIVITY_KINDS = new Set(['note', 'watch', 'command', 'skip']);
 
 export function syncFeed(events: UpstreamCherryPickEventDto[]): SyncFeedItem[] {
   const picks = events.filter(event => event.pickIndex !== null);
-  const runLevel = events.filter(event => event.pickIndex === null);
   const items: SyncFeedItem[] = [];
-  if (picks.length > 0) {
-    items.push({ key: 'picks', kind: 'picks', events: picks });
-  }
-  for (let index = 0; index < runLevel.length; index++) {
-    const event = runLevel[index];
+  let addedPicks = false;
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index];
+    // Keep the compact pick group where the first pick occurred. Hoisting it
+    // above the run's start event made a completed range read backwards.
+    if (event.pickIndex !== null) {
+      if (!addedPicks) {
+        items.push({ key: 'picks', kind: 'picks', events: picks });
+        addedPicks = true;
+      }
+      continue;
+    }
     // A transcript belongs to the agent turn above it, not to the stream.
     if (event.kind === 'agent_log') continue;
     if (event.kind === 'agent') {
-      const next = runLevel[index + 1];
+      const next = events.slice(index + 1).find(candidate => candidate.pickIndex === null);
       items.push({
         key: event.id,
         kind: 'agent',
@@ -427,7 +439,9 @@ export function syncNowLine(
     return 'Closing — stopping after the pick in flight; close again to stop now';
   }
   if (job.pauseRequested) return 'Pausing — stopping after the pick in flight';
-  if (queue.current === null) return 'Opening the pull request and finishing the run';
+  if (queue.current === null) {
+    return 'Reviewing the completed range — nothing is pushed without your approval';
+  }
   return `Picking ${queue.current.subject} — pick ${queue.current.index + 1} of ${
     job.requestedCount}`;
 }
@@ -476,6 +490,7 @@ export type TranscriptEntry =
   | { kind: 'say'; text: string }
   /** `summary` is the readable one-liner; `full` is everything, for the expand. */
   | { kind: 'tool'; name: string; summary: string; full: string }
+  | { kind: 'tool_result'; failed: boolean; summary: string; full: string }
   | { kind: 'result'; failed: boolean; costUsdMilli: number; turns: number };
 
 /** Tool arguments are unbounded; a command's first line is the readable part. */
@@ -525,6 +540,21 @@ export function transcriptEntries(value: unknown): TranscriptEntry[] {
         }
       }
     }
+    if (event.type === 'user') {
+      const message = event.message as { content?: unknown[] } | undefined;
+      for (const part of message?.content ?? []) {
+        const block = part as { type?: string; content?: unknown; is_error?: boolean };
+        if (block.type === 'tool_result') {
+          const full = resultFull(block.content);
+          entries.push({
+            kind: 'tool_result',
+            failed: block.is_error === true,
+            summary: toolSummary(full),
+            full,
+          });
+        }
+      }
+    }
     if (event.type === 'result') {
       entries.push({
         kind: 'result',
@@ -543,6 +573,12 @@ function toolFull(input: unknown): string {
   // A command, a path, or whatever single field reads as the subject.
   const subject = fields.command ?? fields.file_path ?? fields.pattern ?? fields.path;
   return typeof subject === 'string' ? subject : JSON.stringify(fields, null, 2);
+}
+
+function resultFull(output: unknown): string {
+  if (typeof output === 'string') return output;
+  if (output === undefined) return '';
+  return JSON.stringify(output, null, 2);
 }
 
 /**
@@ -571,6 +607,6 @@ export function sessionTranscriptPath(
   sessionId: string | null,
 ): string | null {
   if (worktreePath === null || sessionId === null) return null;
-  const escaped = worktreePath.replace(/[/.]/g, '-');
+  const escaped = worktreePath.replace(/[^a-zA-Z0-9_-]/g, '-');
   return `~/.claude/projects/${escaped}/${sessionId}.jsonl`;
 }

@@ -19,14 +19,12 @@ import { ConfirmDialog } from './ConfirmDialog';
 import {
   ParkIcon, PauseIcon, PlayIcon, SendIcon, SkipIcon,
 } from './WorkspaceSyncIcons';
-import WorkspaceSyncFeed from './WorkspaceSyncFeed';
+import WorkspaceSyncFeed, { type LiveAgentTurn } from './WorkspaceSyncFeed';
 import WorkspaceSyncPublishCard from './WorkspaceSyncPublishCard';
-import { TranscriptTool } from './WorkspaceSyncRunLog';
 import WorkspaceSyncTimeline from './WorkspaceSyncTimeline';
 import {
   elapsedLabel, isClosedSync, isFlowRun, isLiveSync, money, syncNowLine,
   syncPhase, syncQueue, sessionTranscriptPath, transcriptEntries,
-  type TranscriptEntry,
 } from './syncRunModel';
 import {
   workspaceApi,
@@ -72,8 +70,9 @@ export default function WorkspaceSyncRunPage({
   const [approvals, setApprovals] = useState<AgentToolApprovalDto[]>([]);
   const streamRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
-  /** What the current agent turn has said and run, as it arrives. */
-  const [agentLive, setAgentLive] = useState<TranscriptEntry[]>([]);
+  /** Best-effort live turns. Completed turns stay in the conversation folded. */
+  const [agentTurns, setAgentTurns] = useState<LiveAgentTurn[]>([]);
+  const nextAgentTurnId = useRef(1);
   const [prOpen, setPrOpen] = useState(true);
   const { sidebarWidth: queueWidth, shellRef, onResize: onQueueResize } =
     useSidebarWidth(QUEUE_WIDTH_KEY, 292);
@@ -145,8 +144,13 @@ export default function WorkspaceSyncRunPage({
     void workspaceApi.answerSyncPermission(approvalId, allow).catch(() => {});
   };
 
-  // The turn in flight. The run log only gains a line when a turn ends, so
-  // without this a pick that compiles for minutes looks like a stalled run.
+  useEffect(() => {
+    setAgentTurns([]);
+    nextAgentTurnId.current = 1;
+  }, [jobId]);
+
+  // The turn in flight. Keep it in the conversation after completion so its
+  // final tool output does not disappear while the durable run view catches up.
   useEffect(() => {
     if (!live) return undefined;
     // Each path streams its own turns; a run is watched where it runs.
@@ -156,19 +160,27 @@ export default function WorkspaceSyncRunPage({
     return subscribe(jobId, event => {
       const entries = transcriptEntries(event.data);
       if (entries.length === 0) return;
-      // A result line ends the turn; the durable transcript takes over from
-      // there, so the live panel clears rather than showing it twice.
-      if (entries.some(entry => entry.kind === 'result')) {
-        setAgentLive([]);
-        return;
-      }
-      setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
+      const finished = entries.some(entry => entry.kind === 'result');
+      setAgentTurns(current => {
+        const open = current.at(-1);
+        if (open !== undefined && open.running) {
+          return [
+            ...current.slice(0, -1),
+            {
+              ...open,
+              entries: [...open.entries, ...entries].slice(-MAX_LIVE_ENTRIES),
+              running: !finished,
+            },
+          ];
+        }
+        return [...current, {
+          id: nextAgentTurnId.current++,
+          entries: entries.slice(-MAX_LIVE_ENTRIES),
+          running: !finished,
+        }];
+      });
     });
   }, [flow, live, jobId]);
-
-  useEffect(() => {
-    if (!live) setAgentLive([]);
-  }, [live]);
 
   // Follow the log only while the reader is already at the end, so scrolling
   // back through a three-hour run is not yanked forward by the next command.
@@ -176,7 +188,7 @@ export default function WorkspaceSyncRunPage({
     const stream = streamRef.current;
     if (stream === null || !atBottomRef.current) return;
     stream.scrollTop = stream.scrollHeight;
-  }, [run, agentLive]);
+  }, [run, agentTurns]);
 
   const act = (call: () => Promise<unknown>) => {
     setBusy(true);
@@ -385,6 +397,7 @@ export default function WorkspaceSyncRunPage({
               <WorkspaceSyncFeed job={job} commits={run.commits} events={run.events}
                 rounds={run.rounds} fixups={run.fixups}
                 compileProof={run.compileProof}
+                liveAgentTurns={agentTurns}
                 onOpenPr={canOpenPr ? () => setPrOpen(true) : undefined} />
               {gate !== null && (
                 <WorkspaceSyncPublishCard gate={gate} branch={job.resultBranch} busy={busy}
@@ -395,31 +408,6 @@ export default function WorkspaceSyncRunPage({
                         subjectDigest: gate.subjectDigest,
                         actionDigest: gate.actionDigest,
                       }))} />
-              )}
-              {agentLive.length > 0 && (
-                // The turn in flight. Without this a pick that compiles for
-                // minutes reads as a stalled run — the log's next line only
-                // arrives when the turn is already over.
-                <section className="sr-live" aria-live="polite">
-                  <header>
-                    <span className="sr-live__dot" aria-hidden />
-                    Agent working
-                  </header>
-                  {agentLive.map((entry, index) => {
-                    if (entry.kind === 'say') {
-                      return <p key={index} className="sr-transcript__say">{entry.text}</p>;
-                    }
-                    if (entry.kind === 'tool') {
-                      return <TranscriptTool key={index} entry={entry} />;
-                    }
-                    return (
-                      <p key={index}
-                        className={`sr-transcript__result${entry.failed ? ' is-failed' : ''}`}>
-                        {entry.failed ? 'Turn failed' : 'Turn complete'} · {entry.turns} turns
-                      </p>
-                    );
-                  })}
-                </section>
               )}
             </div>
 

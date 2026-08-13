@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
 import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
@@ -44,6 +45,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_CLEANUP;
@@ -90,12 +92,19 @@ final class NewFlowAgentBodies
     }
 
     /**
-     * Pairs a capability's two journal writes into the one seam a CLI turn
-     * takes. Each role has its own capability type but the same two writes, so
-     * this is the whole of the adaptation.
+     * Pairs a capability's journal writes with its optional live view. Each
+     * role has its own capability type, so this is the whole adaptation.
      */
     private static NewFlowCliTurn.TurnJournal journal(
             GroupWrite group, UsageWrite usage)
+    {
+        return journal(group, usage, ignored -> {});
+    }
+
+    private static NewFlowCliTurn.TurnJournal journal(
+            GroupWrite group,
+            UsageWrite usage,
+            Consumer<StreamEvent> activity)
     {
         return new NewFlowCliTurn.TurnJournal()
         {
@@ -114,6 +123,12 @@ final class NewFlowAgentBodies
             {
                 usage.record(
                         providerSessionId, tokensIn, tokensOut, costMilliUsd);
+            }
+
+            @Override
+            public void activity(StreamEvent event)
+            {
+                activity.accept(event);
             }
         };
     }
@@ -160,6 +175,18 @@ final class NewFlowAgentBodies
             Path worktree,
             InitialToolCapability capability,
             boolean reviewContinuation)
+    {
+        return initialTask(
+                binding, worktree, capability, reviewContinuation,
+                ignored -> {});
+    }
+
+    InProcessWriterAgentSupervisor.AgentCompletion initialTask(
+            NewFlowAgentLaunches.Binding binding,
+            Path worktree,
+            InitialToolCapability capability,
+            boolean reviewContinuation,
+            Consumer<StreamEvent> activity)
     {
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         AtomicBoolean terminal = new AtomicBoolean();
@@ -225,7 +252,10 @@ final class NewFlowAgentBodies
         });
         return sealedWriterCompletion(
                 run(binding, program, executor, terminal, worktree,
-                        journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)),
+                        journal(
+                                capability::recordAgentGroup,
+                                capability::recordAgentTurnUsage,
+                                activity)),
                 terminal.get());
     }
 
@@ -239,7 +269,8 @@ final class NewFlowAgentBodies
             ToolExecutor executor,
             AtomicBoolean terminal,
             Path worktree,
-            InitialToolCapability capability)
+            InitialToolCapability capability,
+            Consumer<StreamEvent> activity)
     {
         return run(
                 binding,
@@ -249,7 +280,8 @@ final class NewFlowAgentBodies
                 worktree,
                 journal(
                         capability::recordAgentGroup,
-                        capability::recordAgentTurnUsage));
+                        capability::recordAgentTurnUsage,
+                        activity));
     }
 
     NewFlowAgentLaunches.Binding bindTaskFix(AgentRun run)
@@ -553,6 +585,22 @@ final class NewFlowAgentBodies
                 executor,
                 new TurnHooks()
                 {
+                    @Override
+                    public void onToolCallStarted(
+                            String callId, String toolName, String inputJson)
+                    {
+                        journal.activity(new StreamEvent.ToolCallStarted(
+                                Instant.now(), callId, toolName, inputJson));
+                    }
+
+                    @Override
+                    public void onToolCallDone(
+                            String callId, String resultText, boolean isError)
+                    {
+                        journal.activity(new StreamEvent.ToolCallDone(
+                                Instant.now(), callId, resultText, isError));
+                    }
+
                     @Override
                     public boolean interrupted()
                     {

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.flow.upstream.UpstreamPicker;
 import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
 import com.bytequay.app.service.agents.ToolCall;
@@ -492,6 +493,24 @@ final class TestNewFlowCliTurn
     }
 
     @Test
+    void claudeMcpCallsCanOutliveTheTwoHourValidationCeiling(
+            @TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.create(root, """
+                read line
+                printf '%%s' "$MCP_TOOL_TIMEOUT" > %s
+                echo '{"type":"result","subtype":"success","result":"done"}'
+                """.formatted(marker(root)));
+
+        fixture.run((pid, pgid, startedAt) -> {});
+
+        long timeout = Long.parseLong(Files.readString(
+                fixture.marker, StandardCharsets.UTF_8));
+        assertThat(timeout).isGreaterThan(7_200_000L);
+    }
+
+    @Test
     void aWriterLaunchesFromALinkedWorktree(@TempDir Path root)
             throws Exception
     {
@@ -702,6 +721,7 @@ final class TestNewFlowCliTurn
                     MAPPER, server.getAddress().getPort());
             NewFlowAgentLaunches.Binding binding = binding(executable);
             List<String> usage = new ArrayList<>();
+            List<StreamEvent> activity = new ArrayList<>();
 
             NewFlowCliTurn.Outcome outcome = turn.runInWorktree(
                     RUN_ID, binding, conflictManifest(),
@@ -721,6 +741,12 @@ final class TestNewFlowCliTurn
                         {
                             usage.add(providerSessionId);
                         }
+
+                        @Override
+                        public void activity(StreamEvent event)
+                        {
+                            activity.add(event);
+                        }
                     }, () -> false);
 
             assertThat(Files.isRegularFile(range.worktree().resolve(".git")))
@@ -729,6 +755,16 @@ final class TestNewFlowCliTurn
             assertThat(outcome.providerSessionId())
                     .isEqualTo("claude-upstream-session");
             assertThat(usage).containsExactly("claude-upstream-session");
+            assertThat(activity).anySatisfy(event -> assertThat(event)
+                    .isInstanceOfSatisfying(
+                            StreamEvent.ToolCallStarted.class,
+                            call -> assertThat(call.toolName())
+                                    .isEqualTo("Read")));
+            assertThat(activity).anySatisfy(event -> assertThat(event)
+                    .isInstanceOfSatisfying(
+                            StreamEvent.ToolCallDone.class,
+                            done -> assertThat(done.outputJson())
+                                    .contains("native contents")));
             assertThat(repaired).hasValue(2);
             assertThat(picker.clean()).isTrue();
             String history = ConflictRange.git(
@@ -792,6 +828,8 @@ final class TestNewFlowCliTurn
                 #!/bin/sh
                 read line
                 echo '{"type":"system","subtype":"init","session_id":"claude-upstream-session"}'
+                echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"native-read","name":"Read","input":{"file_path":"one.txt"}}]}}'
+                echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"native-read","content":"native contents","is_error":false}]}}'
                 rpc() {
                   response=$(curl -sS -X POST -H 'Content-Type: application/json' --data "$1" "$BYTEQUAY_NEW_FLOW_MCP_URL") || exit 40
                   case "$response" in *'"isError":true'*) exit 41;; esac

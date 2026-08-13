@@ -145,6 +145,34 @@ public final class InitialTaskDispatcher
         }
     }
 
+    /** Cancels and finalizes this lane's exact active operation for a Task. */
+    boolean cancelActiveTask(String taskId)
+    {
+        requireText(taskId, "taskId");
+        String operationId = activeOperationId.get();
+        if (operationId == null
+                || runtime.operation(operationId)
+                        .filter(operation -> taskId.equals(operation.taskId()))
+                        .isEmpty()) {
+            return false;
+        }
+        Runnable cancellation;
+        synchronized (lifecycle) {
+            if (!operationId.equals(activeOperationId.get())) {
+                return false;
+            }
+            cancellation = activeCancellation.get();
+        }
+        if (cancellation == null) {
+            return false;
+        }
+        cancellation.run();
+        activeCancellation.compareAndSet(cancellation, null);
+        activeOperationId.compareAndSet(operationId, null);
+        wake();
+        return true;
+    }
+
     @Override
     public void close()
     {
@@ -265,6 +293,9 @@ public final class InitialTaskDispatcher
         }
         awaitRegistered(() -> coordinator.awaitTask(
                 writers, binding, handle, config.bodyTimeout()));
+        if (upstreamRange) {
+            upstreamSync.finishCanceledTask(claim.taskId());
+        }
     }
 
     private void dispatchReviewer(Claim claim)

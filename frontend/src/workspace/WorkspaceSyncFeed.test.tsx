@@ -124,6 +124,32 @@ describe('WorkspaceSyncFeed', () => {
     expect(screen.getByText('checked')).toBeTruthy();
   });
 
+  it('shows a live agent log inline and folds it when the turn finishes', () => {
+    const run = syncRun();
+    const turn = {
+      id: 1,
+      running: true,
+      entries: [{
+        kind: 'tool' as const,
+        name: 'Read',
+        summary: 'core/trino-spi/pom.xml',
+        full: 'core/trino-spi/pom.xml',
+      }],
+    };
+    const view = render(<WorkspaceSyncFeed job={run.job} commits={run.commits}
+      events={run.events} liveAgentTurns={[turn]} />);
+
+    expect(screen.getByText('Agent working')).toBeTruthy();
+    expect(screen.getByText('core/trino-spi/pom.xml')).toBeTruthy();
+
+    view.rerender(<WorkspaceSyncFeed job={run.job} commits={run.commits}
+      events={run.events} liveAgentTurns={[{ ...turn, running: false }]} />);
+    expect(screen.getByText('Agent turn')).toBeTruthy();
+    expect(screen.queryByText('core/trino-spi/pom.xml')).toBeNull();
+    fireEvent.click(screen.getByText('Agent log'));
+    expect(screen.getByText('core/trino-spi/pom.xml')).toBeTruthy();
+  });
+
   it('shows the user’s steering as theirs, not as the agent’s', () => {
     render(<WorkspaceSyncFeed job={pushedJob()} commits={[]} events={[
       event('guidance', 'prefer our config names'),

@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   durationLabel, syncLogGroups, syncNowLine, syncPhase, syncProgress, syncQueue,
-  parseTranscript,
+  parseTranscript, syncFeed,
   sessionTranscriptPath,
 } from './syncRunModel';
 import type {
@@ -115,6 +115,22 @@ describe('sync run model', () => {
     )).toContain('#214');
     expect(syncNowLine({ ...job, closeRequested: true }, syncQueue(commits)))
       .toContain('close again to stop now');
+    const settled = commits.map(commit => ({ ...commit, state: 'applied' as const }));
+    expect(syncNowLine(
+      { ...job, appliedCount: 5, skippedCount: 0 }, syncQueue(settled),
+    )).toContain('Reviewing the completed range');
+    expect(syncPhase({ ...job, appliedCount: 5, skippedCount: 0 })).toBe('REVIEWING');
+  });
+
+  it('keeps the run start before its compact pick group', () => {
+    const items = syncFeed([
+      event('1', null, 'start'),
+      event('2', 0, 'command'),
+      event('3', 1, 'command'),
+      event('4', null, 'done'),
+    ]);
+
+    expect(items.map(item => item.kind)).toEqual(['moment', 'picks', 'moment']);
   });
 
   it('formats command durations the way a terminal reads', () => {
@@ -134,6 +150,9 @@ describe('agent transcript', () => {
         { type: 'text', text: 'Now validate the pom parses and resolves.' },
         { type: 'tool_use', name: 'Bash', input: { command: 'cd /w && ./mvnw -pl core install' } },
       ] } }),
+      line({ type: 'user', message: { content: [
+        { type: 'tool_result', tool_use_id: 'call-1', content: 'BUILD SUCCESS', is_error: false },
+      ] } }),
       line({ type: 'result', is_error: false, total_cost_usd: 0.5669, num_turns: 15 }),
     ].join('\n');
 
@@ -144,6 +163,10 @@ describe('agent transcript', () => {
       {
         kind: 'tool', name: 'Bash', summary: './mvnw -pl core install',
         full: 'cd /w && ./mvnw -pl core install',
+      },
+      {
+        kind: 'tool_result', failed: false,
+        summary: 'BUILD SUCCESS', full: 'BUILD SUCCESS',
       },
       { kind: 'result', failed: false, costUsdMilli: 567, turns: 15 },
     ]);
@@ -184,7 +207,7 @@ describe('session transcript path', () => {
     // `--resume` continues a conversation rather than attaching to a running
     // one, so tailing this file is the only way to watch from a terminal.
     expect(sessionTranscriptPath('/Users/j/Library/App Support/w.bytequay-worktrees/x', 'abc-123'))
-      .toBe('~/.claude/projects/-Users-j-Library-App Support-w-bytequay-worktrees-x/abc-123.jsonl');
+      .toBe('~/.claude/projects/-Users-j-Library-App-Support-w-bytequay-worktrees-x/abc-123.jsonl');
   });
 
   it('has nothing to offer before the first turn opens a session', () => {

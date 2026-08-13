@@ -339,7 +339,9 @@ function statusTitle(job: UpstreamCherryPickJobDto): string {
   if (job.status === 'COMPLETED') {
     return job.prNumber === null ? 'Range complete' : 'Parked for your review';
   }
-  return job.pauseRequested ? 'Pausing' : 'Picking';
+  if (job.pauseRequested) return 'Pausing';
+  if (job.appliedCount + job.skippedCount >= job.requestedCount) return 'Reviewing';
+  return 'Picking';
 }
 
 function statusBody(job: UpstreamCherryPickJobDto, released: boolean): string {
@@ -363,6 +365,9 @@ function statusBody(job: UpstreamCherryPickJobDto, released: boolean): string {
     return job.prNumber === null
       ? `${job.appliedCount} picks are on ${job.resultBranch}. Nothing was pushed.`
       : `Draft PR #${job.prNumber} is open and waiting for your review.`;
+  }
+  if (job.appliedCount + job.skippedCount >= job.requestedCount) {
+    return `${job.requestedCount} of ${job.requestedCount} picks settled. Validating before publish approval.`;
   }
   return `Picking ${job.appliedCount + job.skippedCount + 1} of ${job.requestedCount}.`;
 }

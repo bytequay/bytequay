@@ -120,6 +120,31 @@ export function TranscriptTool({ entry }: {
   );
 }
 
+/** One tool response: readable immediately, exact output behind a click. */
+export function TranscriptToolResult({ entry }: {
+  entry: Extract<TranscriptEntry, { kind: 'tool_result' }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const summary = entry.summary.length === 0 ? '(no output)' : entry.summary;
+  const expandable = entry.full.trim() !== summary.trim();
+  return (
+    <div className={`sr-transcript__tool-wrap is-result${entry.failed ? ' is-failed' : ''}`}>
+      <button type="button" className="sr-transcript__tool" disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        onClick={() => setOpen(current => !current)}>
+        <b>{entry.failed ? 'Error' : 'Result'}</b>
+        <code>{summary}</code>
+        {expandable && (
+          <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+            <ChevronIcon size={9} />
+          </span>
+        )}
+      </button>
+      {open && <pre className="sr-transcript__full">{entry.full}</pre>}
+    </div>
+  );
+}
+
 function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
   const [open, setOpen] = useState(false);
   if (event.kind === 'command') {
@@ -174,6 +199,9 @@ function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
               }
               if (entry.kind === 'tool') {
                 return <TranscriptTool key={index} entry={entry} />;
+              }
+              if (entry.kind === 'tool_result') {
+                return <TranscriptToolResult key={index} entry={entry} />;
               }
               return (
                 <p key={index}

@@ -347,6 +347,28 @@ public final class TaskProvisioning
                 launchDigest));
     }
 
+    /**
+     * Removes the Task's worktree, keeping its branch.
+     *
+     * <p>The counterpart of the {@code worktree add} this class does when a
+     * Task is provisioned, and deliberately no more than that: the branch can
+     * be the only copy of what the Task built, so the checkout goes and the
+     * commits stay.
+     *
+     * <p>Best-effort by design — a worktree someone already removed by hand,
+     * or a repository that has moved, must not be able to keep a run from
+     * closing. The caller is told whether Git actually removed it.
+     */
+    public boolean releaseWorktree(Task task)
+    {
+        requireNonNull(task, "task is null");
+        ProcessResult removed = command(
+                Path.of(task.repositoryRoot()),
+                "-c", "core.hooksPath=/dev/null",
+                "worktree", "remove", "--force", task.worktreePath());
+        return removed.complete() && removed.exitCode() == 0;
+    }
+
     @Override
     public OperationKind kind()
     {

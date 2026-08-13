@@ -187,6 +187,12 @@ export default function WorkspaceSyncRunPage({
       .finally(() => setBusy(false));
   };
 
+  // Each path parks its own runs, and neither stops where it stands: the
+  // request is honoured at the next commit boundary.
+  const park = () => act(() => (flow
+    ? workspaceApi.parkUpstreamSync(workspaceId, jobId)
+    : workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId)));
+
   if (loading) return <div className="sr-loading" role="status">Loading sync run…</div>;
   if (run === null) {
     return (
@@ -244,9 +250,9 @@ export default function WorkspaceSyncRunPage({
           </span>
           <span className="sr-topbar__grow" />
           <span className={`sr-phase is-${phaseTone(job.status)}`}>{syncPhase(job)}</span>
-          {running && !flow && (
+          {running && (
             <button type="button" className="sr-topbar__action" disabled={busy || job.pauseRequested}
-              onClick={() => act(() => workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId))}>
+              onClick={park}>
               <PauseIcon />
               {job.pauseRequested ? 'Pausing…' : 'Pause after this pick'}
             </button>
@@ -274,20 +280,18 @@ export default function WorkspaceSyncRunPage({
               <PlayIcon />Retry
             </button>
           )}
-          {!closed && !flow && (
+          {!closed && (
             <button type="button" className="sr-topbar__action" disabled={busy}
               title="Stop the run and release everything it holds"
               onClick={() => setClosing(true)}>
               <CloseIcon />Close run
             </button>
           )}
-          {!flow && (
-            <button type="button" className="sr-topbar__icon" disabled={busy}
-              title="Close the run and remove it from the list" aria-label="Delete run"
-              onClick={() => setDeleting(true)}>
-              <TrashIcon />
-            </button>
-          )}
+          <button type="button" className="sr-topbar__icon" disabled={busy}
+            title="Close the run and remove it from the list" aria-label="Delete run"
+            onClick={() => setDeleting(true)}>
+            <TrashIcon />
+          </button>
           {canOpenPr && (
             <button type="button"
               className={`sr-topbar__icon${prOpen ? ' is-on' : ''}`}
@@ -442,10 +446,9 @@ export default function WorkspaceSyncRunPage({
                     <SkipIcon />Skip this commit
                   </button>
                 )}
-                {running && !flow && (
+                {running && (
                   <button type="button" className="sr-pill is-warn" disabled={busy || job.pauseRequested}
-                    onClick={() => act(
-                      () => workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId))}>
+                    onClick={park}>
                     <ParkIcon />Park now
                   </button>
                 )}
@@ -482,9 +485,14 @@ export default function WorkspaceSyncRunPage({
       {closing && (
         <ConfirmDialog
           title="Close this sync run?"
-          body={'The picker stops at the next commit boundary, and everything it holds'
-            + ' locally is released: its isolated worktree and the agent\u2019s session'
-            + ' and stored transcripts.'
+          body={(flow
+            ? 'The picker stops at the next commit boundary \u2014 it is not'
+              + ' interrupted mid-pick \u2014 and its isolated worktree is then'
+              + ' removed. The agent\u2019s session transcript lives in that'
+              + ' worktree and goes with it.'
+            : 'The picker stops at the next commit boundary, and everything it holds'
+              + ' locally is released: its isolated worktree and the agent\u2019s session'
+              + ' and stored transcripts.')
             + '\n\n'
             + closeKeeps(job)
             + ' A conflict you were resolving by hand in the worktree does not survive.'}
@@ -494,7 +502,9 @@ export default function WorkspaceSyncRunPage({
           onCancel={() => setClosing(false)}
           onConfirm={() => {
             setClosing(false);
-            act(() => workspaceApi.closeUpstreamCherryPick(workspaceId, jobId));
+            act(() => (flow
+              ? workspaceApi.closeUpstreamSync(workspaceId, jobId)
+              : workspaceApi.closeUpstreamCherryPick(workspaceId, jobId)));
           }}
         />
       )}
@@ -514,7 +524,9 @@ export default function WorkspaceSyncRunPage({
             setDeleting(false);
             setBusy(true);
             setError(null);
-            void workspaceApi.deleteUpstreamCherryPick(workspaceId, jobId)
+            void (flow
+              ? workspaceApi.deleteUpstreamSync(workspaceId, jobId)
+              : workspaceApi.deleteUpstreamCherryPick(workspaceId, jobId))
               .then(() => onBack?.())
               .catch(reason => setError(errorMessage(reason)))
               .finally(() => setBusy(false));
@@ -552,10 +564,14 @@ function ClockIcon() {
 }
 
 /**
- * What the run is, in the words the top bar has room for. The range's own shas
- * are the left column's title, so this says the shape of the work instead.
+ * What the run is, in the words the top bar has room for. The pull request's
+ * own title when anything has named it — the one the user typed at the range,
+ * or the draft's — because that is what this work is called everywhere else.
+ * The shape of the work is the fallback, not the headline.
  */
 function runTitle(job: UpstreamCherryPickJobDto, commits: number): string {
+  const pr = job.prTitle?.trim();
+  if (pr !== undefined && pr !== '') return pr;
   if (commits === 0) return `Sync run on ${job.resultBranch}`;
   return `Cherry-pick ${job.requestedCount} commit${
     job.requestedCount === 1 ? '' : 's'} from ${job.sourceBranch}`;

@@ -86,6 +86,10 @@ public final class UpstreamSyncViews
                        AS range_from_sha,
                    json_extract(q.selected_upstream_shas_json, '$[#-1]')
                        AS range_to_sha,
+                   -- What the pull request is called: the draft's own title
+                   -- once one exists, and until then the title the user typed
+                   -- when they confirmed the range.
+                   COALESCE(d.title, q.pr_title) AS pr_title,
                    t.repository_id, t.status AS task_status,
                    t.branch_name, t.worktree_path,
                    t.base_ref, t.launch_base_sha, t.current_base_sha,
@@ -115,6 +119,8 @@ public final class UpstreamSyncViews
             JOIN flow_runtime_task t ON t.task_id = r.task_id
             JOIN numbered n ON n.run_id = r.run_id
             LEFT JOIN flow_runtime_pr p ON p.task_id = t.task_id
+            LEFT JOIN flow_runtime_pr_draft_revision d
+                ON d.draft_revision_id = p.current_draft_revision_id
             LEFT JOIN flow_runtime_remote_identity ri
                 ON ri.remote_identity_id = p.remote_identity_id
             LEFT JOIN flow_runtime_agent_session s
@@ -486,6 +492,13 @@ public final class UpstreamSyncViews
         boolean closed = prResult != null
                 || "CANCELED".equals(state)
                 || "CANCELED".equals(taskStatus);
+        // A stop the user asked for and the run has not reached yet — a park or
+        // a close, which wait at the same boundary. Both share the parked run's
+        // column, so both are reported as the pending request they are rather
+        // than as the reason a parked run gives for having stopped.
+        String parkReason = rows.getString("park_reason");
+        boolean pauseRequested = UpstreamSync.PAUSE_REQUESTED.equals(parkReason)
+                || UpstreamSync.CLOSE_REQUESTED.equals(parkReason);
         return new SyncJob(
                 rows.getString("run_id"),
                 rows.getString("task_id"),
@@ -506,7 +519,7 @@ public final class UpstreamSyncViews
                 rows.getInt("applied_count"),
                 rows.getInt("skipped_count"),
                 rows.getInt("conflicted_count"),
-                false,
+                pauseRequested,
                 rows.getInt("repair_turn_budget") == 0
                         ? null : rows.getInt("remaining_repair_turns"),
                 rows.getLong("spent_milli_usd"),
@@ -515,8 +528,9 @@ public final class UpstreamSyncViews
                 rows.getString("worktree_path"),
                 noPrNumber ? null : prNumber,
                 rows.getString("html_url"),
+                rows.getString("pr_title"),
                 rows.getInt("round_count"),
-                rows.getString("park_reason"),
+                pauseRequested ? null : parkReason,
                 "FINAL_REVIEW".equals(state)
                         || "WAITING_INITIAL_PUBLISH".equals(state)
                         || "HANDED_OFF".equals(state),
@@ -633,6 +647,8 @@ public final class UpstreamSyncViews
             String worktreePath,
             Long prNumber,
             String prUrl,
+            /** What the pull request is called; null until anything named it. */
+            String prTitle,
             int roundCount,
             String errorMessage,
             boolean verified,

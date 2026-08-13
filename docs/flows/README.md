@@ -64,7 +64,8 @@ turn and its exact initial-review continuations. It owns bounded workspace
 editing, fixed commit/adoption, local PR/draft/check evidence, fresh read-only
 reviewer lineage, and the stopped-finalizer request for a manual initial gate.
 The GitHub lanes
-read only the configured `REPO` credential for the frozen canonical owner/name
+read the configured `REPO` credential for the frozen canonical owner/name when
+one exists, and otherwise the app's `ACCOUNT` GitHub token,
 and perform a fresh authenticated numeric-ID/owner/name check before provider
 use. The generic dispatcher continues to reject `PUBLISH` and `OBSERVE_CI`.
 Old execution beans remain active until a later explicit cutover proves the

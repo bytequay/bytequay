@@ -286,14 +286,16 @@ locator. For this owner, `repositoryExternalId` is the canonical decimal REST
 repository database `id`, not a GraphQL node ID or `owner/name`. An
 authenticated exact mismatch is invalid; `404`, authentication,
 transport, malformed, oversized, or timed-out reads are unavailable. Production
-selects only the existing exact `REPO` credential keyed by canonical owner/name;
-there is no account, command-line, or default-repository fallback. The
+selects the exact `REPO` credential keyed by canonical owner/name when the user
+configured one, and otherwise the app's `ACCOUNT` GitHub token — the same
+repo-first-then-account order every other GitHub surface uses. There is no
+command-line or default-repository fallback. The
 credential store does not prove provider-side token scope. The fresh
 authenticated lookup must still match the frozen numeric repository ID and
 canonical owner/name.
 
 The repository-identity read and Git ref update are sequential, not one
-provider-atomic operation. The repository-scoped credential preserves target
+provider-atomic operation. The resolved credential preserves target
 authority across that interval, the exact lease protects the ref value, and
 the post-call probe revalidates repository identity. The mutation transports the
 literal proposed SHA to the literal full ref with
@@ -312,8 +314,8 @@ durable evidence contain no credentials.
 
 Feedback/reply, ready effects, merge, webhooks, multi-provider adapters, and
 cutover remain deferred. Production composes disjoint bounded INITIAL and
-CI_UPDATE publication lanes plus the GitHub CI-observation lane using the exact
-repository-scoped credential source.
+CI_UPDATE publication lanes plus the GitHub CI-observation lane using the
+repo-first-then-account credential source.
 `cancelAttention` is intentionally absent: an `UNKNOWN`
 attempt retains the oldest-plan barrier until an exact later probe settles it.
 

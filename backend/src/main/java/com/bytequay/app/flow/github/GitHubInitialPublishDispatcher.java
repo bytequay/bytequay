@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 /** Bounded owner lane for exact greenfield INITIAL publication plans. */
@@ -106,8 +107,15 @@ public final class GitHubInitialPublishDispatcher
     {
         requireNonNull(credentials, "credentials is null");
         return (externalId, owner, repository) -> {
+            // A repository-scoped credential wins when the user configured
+            // one; otherwise the account token the whole app runs on is the
+            // authority. The fresh numeric-identity check on every mutation is
+            // what pins the target, not the credential's scope.
             String secret = credentials.getSecret(
                     CredentialType.REPO, owner + "/" + repository)
+                    .filter(value -> !value.isBlank())
+                    .or(() -> credentials.getSecret(
+                            CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
                     .orElse(null);
             return secret == null || secret.isBlank()
                     ? null : new GitHubProvider.RepositoryCredential(

@@ -120,7 +120,7 @@ class TestNewFlowEngineResolver
     }
 
     @Test
-    void discoveryPassesOverEnginesTheRuntimeCannotRun()
+    void discoveryPrefersAnInstalledCliAgent()
     {
         workspace("ws-1");
         when(settings.forAudience(anyString(), anyString())).thenReturn(Optional.empty());
@@ -129,13 +129,16 @@ class TestNewFlowEngineResolver
         WorkModel cli = new WorkModel(WorkModelKind.CLI, "claude-code", null, null, null);
         WorkModel api = new WorkModel(WorkModelKind.API, "openai", null, null, null);
         when(workModels.discoverEngines()).thenReturn(List.of(cli, api));
-        when(workModels.freeze(api)).thenReturn(new WorkModel(
-                WorkModelKind.API, "openai", "gpt-5", "default api", null));
+        when(workModels.freeze(cli)).thenReturn(new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-opus-4-8", null, null));
 
-        // An installed CLI is offered first but cannot be launched yet, so
-        // discovery keeps walking instead of parking a red build.
-        assertThat(resolver.resolve(task(), AgentRole.CI_FIXER).providerName())
-                .isEqualTo("openai");
+        // The CLI transport is a supported writer, so the machine's installed
+        // agent launches the same way an explicit pick would.
+        Config config = resolver.resolve(task(), AgentRole.CI_FIXER);
+
+        assertThat(config.providerName()).isEqualTo("claude-code");
+        assertThat(config.execution()).isEqualTo(AgentExecution.CLI);
+        assertThat(config.cliBinary()).isEqualTo("claude");
     }
 
     @Test

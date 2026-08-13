@@ -815,7 +815,8 @@ rearmed, post-attempt uncertainty remains probe-only with its barrier retained,
 and a fully receipted expired claim is redriven solely for final settlement.
 CI-observation recovery validates its immutable receipt owner and cancels a
 stale head/watch rather than reconstructing authority from mutable state. Both
-GitHub lanes select only the canonical owner/name `REPO` credential and require
+GitHub lanes select the canonical owner/name `REPO` credential when one is
+configured, falling back to the app's `ACCOUNT` GitHub token, and require
 the provider's fresh authenticated numeric repository identity check.
 
 The current production catalog supports only an app-configured primary managed

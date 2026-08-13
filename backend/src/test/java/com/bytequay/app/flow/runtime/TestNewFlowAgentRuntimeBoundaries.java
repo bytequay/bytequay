@@ -206,12 +206,14 @@ final class TestNewFlowAgentRuntimeBoundaries
         // ordinary initial-task authority.
         assertThat(tools)
                 .contains("read_pick_conflict_context", "commit_pick_repair",
-                        "decline_pick_repair", "read_upstream_review_context",
+                        "replace_file_lines", "decline_pick_repair",
+                        "read_upstream_review_context",
                         "read_candidate_diff", "run_checks",
                         "commit_initial_change",
                         "request_initial_review")
                 .doesNotContain("read_initial_task_context");
-        assertThat(prompt).contains("range is complete", "request exact review");
+        assertThat(prompt).contains(
+                "replace_file_lines", "range is complete", "request exact review");
     }
 
     @Test

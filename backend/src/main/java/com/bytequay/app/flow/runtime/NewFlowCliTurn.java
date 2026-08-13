@@ -100,7 +100,9 @@ final class NewFlowCliTurn
             + " call is the only completion signal the program reads — always"
             + " finish with the exact terminal tool the instructions name."
             + " Never run git commit or git push yourself; the program owns"
-            + " the repository history.";
+            + " the repository history. Never disable or escape the supplied"
+            + " sandbox; if it blocks an operation, use a bytequay tool or"
+            + " continue another way.";
 
     private final FlowRuntime runtime;
     private final NewFlowAgentToolBridge bridge;
@@ -170,7 +172,29 @@ final class NewFlowCliTurn
             TurnJournal journal,
             BooleanSupplier interrupted)
     {
+        return runInWorktree(
+                runId, runId, binding, tools, systemPrompt, executor,
+                worktree, journal, interrupted);
+    }
+
+    /**
+     * A writing turn whose approval card belongs to a containing product run.
+     * The agent run id still owns the bridge, resume handle, usage and fence;
+     * only the human-facing approval lookup uses {@code permissionOwnerId}.
+     */
+    Outcome runInWorktree(
+            String runId,
+            String permissionOwnerId,
+            NewFlowAgentLaunches.Binding binding,
+            ArrayNode tools,
+            String systemPrompt,
+            ToolExecutor executor,
+            Path worktree,
+            TurnJournal journal,
+            BooleanSupplier interrupted)
+    {
         requireNonNull(worktree, "worktree is null");
+        requireNonNull(permissionOwnerId, "permissionOwnerId is null");
         Path scratch;
         try {
             // A linked worktree has a .git file, not a directory. Ask Git for
@@ -192,7 +216,8 @@ final class NewFlowCliTurn
                     interruption);
         }
         return run(
-                runId, binding, tools, systemPrompt, executor, worktree,
+                runId, permissionOwnerId, binding, tools, systemPrompt,
+                executor, worktree,
                 scratch, false, journal, interrupted);
     }
 
@@ -225,7 +250,7 @@ final class NewFlowCliTurn
         }
         try {
             return run(
-                    runId, binding, tools, systemPrompt, executor, scratch,
+                    runId, runId, binding, tools, systemPrompt, executor, scratch,
                     scratch, true, journal, interrupted);
         }
         finally {
@@ -235,6 +260,7 @@ final class NewFlowCliTurn
 
     private Outcome run(
             String runId,
+            String permissionOwnerId,
             NewFlowAgentLaunches.Binding binding,
             ArrayNode tools,
             String systemPrompt,
@@ -272,7 +298,8 @@ final class NewFlowCliTurn
             bridgedExecutor = call ->
                     NewFlowAgentPermissions.TOOL_NAME.equals(call.name())
                             ? ToolExecutor.ToolCallResult.ok(
-                                    permissions.ask(runId, call.input()))
+                                    permissions.ask(
+                                            permissionOwnerId, call.input()))
                             : executor.execute(call);
         }
         String guidance = toolingGuidance(vendor, readOnly);
@@ -345,9 +372,9 @@ final class NewFlowCliTurn
                 : " You may read, search, edit, and run common builds or tests"
                         + " inside the supplied worktree.";
         String unavailable = vendor == CliAgentArgv.Vendor.CLAUDE_CODE
-                ? " A native operation outside the pre-approved set raises an"
-                        + " approval card for the user; a denial means continue"
-                        + " another way, not stop."
+                ? " Sandboxed shell commands inside this worktree are"
+                        + " automatically allowed. Operations outside that"
+                        + " boundary stay unavailable; continue another way."
                 : " Stay within the supplied sandbox; if a native operation is"
                         + " unavailable, continue another way.";
         return TOOLING_GUIDANCE + scope + unavailable;

@@ -19,6 +19,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InitialTaskCoordinator.InitialToolCapability;
 import com.bytequay.app.flow.upstream.RunLinePublisher;
@@ -203,6 +205,11 @@ public final class UpstreamSyncCoordinator
             return pickRange(binding, worktree, capability, taskId, run);
         }
         catch (RuntimeException failure) {
+            if (isCancellation(failure, Thread.currentThread().isInterrupted())) {
+                log.info("upstream synchronization turn was canceled");
+                return new AgentCompletion(
+                        TerminalOutcome.CANCELED, null, "CANCELED");
+            }
             // The supervisor's own catch reports one opaque code for every
             // body, which cannot tell a refused pick from a stale fence.
             log.warn("upstream synchronization turn failed", failure);
@@ -210,6 +217,22 @@ public final class UpstreamSyncCoordinator
                     TerminalOutcome.FAILED, null,
                     "UPSTREAM_SYNC_FAILED:" + describe(failure));
         }
+    }
+
+    static boolean isCancellation(Throwable failure, boolean interrupted)
+    {
+        if (interrupted) {
+            return true;
+        }
+        for (Throwable cursor = failure;
+                cursor != null; cursor = cursor.getCause()) {
+            if (cursor instanceof InterruptedException
+                    || cursor instanceof InspectionFailure inspection
+                    && inspection.code() == FailureCode.INTERRUPTED) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String describe(Throwable failure)
@@ -452,6 +475,14 @@ public final class UpstreamSyncCoordinator
                                 text(call, "path"), text(call, "content"));
                         return "written";
                     });
+                    case "replace_file_lines" -> guarded(capability, () -> {
+                        workspace.replaceFileLines(
+                                text(call, "path"),
+                                integer(call, "start_line"),
+                                integer(call, "end_line"),
+                                string(call, "content"));
+                        return "line range replaced";
+                    });
                     case "delete_file" -> guarded(capability, () -> {
                         workspace.deleteFile(text(call, "path"));
                         return "deleted";
@@ -545,6 +576,7 @@ public final class UpstreamSyncCoordinator
                 });
         TurnResult turn = bodies.upstreamPickRepair(
                 binding,
+                runId,
                 binding.isApi() ? executor : watched(runId, executor),
                 terminal, worktree, capability,
                 agentActivity(runId, !binding.isApi()));
@@ -595,6 +627,14 @@ public final class UpstreamSyncCoordinator
                                 text(call, "path"), text(call, "content"));
                         return "written";
                     });
+                    case "replace_file_lines" -> guarded(capability, () -> {
+                        workspace.replaceFileLines(
+                                text(call, "path"),
+                                integer(call, "start_line"),
+                                integer(call, "end_line"),
+                                string(call, "content"));
+                        return "line range replaced";
+                    });
                     case "delete_file" -> guarded(capability, () -> {
                         workspace.deleteFile(text(call, "path"));
                         return "deleted";
@@ -617,6 +657,7 @@ public final class UpstreamSyncCoordinator
                 });
         TurnResult turn = bodies.upstreamPickRepair(
                 binding,
+                runId,
                 binding.isApi() ? executor : watched(runId, executor),
                 terminal, worktree, capability,
                 agentActivity(runId, !binding.isApi()));
@@ -1168,6 +1209,27 @@ public final class UpstreamSyncCoordinator
             throw new IllegalArgumentException("tool argument is invalid");
         }
         return value.textValue();
+    }
+
+    private static String string(ToolCall call, String name)
+    {
+        JsonNode value = call.input() == null
+                ? null : call.input().get(name);
+        if (value == null || !value.isTextual()) {
+            throw new IllegalArgumentException("tool argument is invalid");
+        }
+        return value.textValue();
+    }
+
+    private static int integer(ToolCall call, String name)
+    {
+        JsonNode value = call.input() == null
+                ? null : call.input().get(name);
+        if (value == null || !value.canConvertToInt()
+                || value.intValue() < 1) {
+            throw new IllegalArgumentException("tool argument is invalid");
+        }
+        return value.intValue();
     }
 
     private static MessageDigest sha256()

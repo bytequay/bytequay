@@ -549,7 +549,7 @@ export function transcriptEntries(value: unknown): TranscriptEntry[] {
           entries.push({
             kind: 'tool_result',
             failed: block.is_error === true,
-            summary: toolSummary(full),
+            summary: resultSummary(full, block.is_error === true),
             full,
           });
         }
@@ -570,6 +570,7 @@ export function transcriptEntries(value: unknown): TranscriptEntry[] {
 function toolFull(input: unknown): string {
   if (input === null || typeof input !== 'object') return '';
   const fields = input as Record<string, unknown>;
+  if (Object.keys(fields).length === 0) return '';
   // A command, a path, or whatever single field reads as the subject.
   const subject = fields.command ?? fields.file_path ?? fields.pattern ?? fields.path;
   return typeof subject === 'string' ? subject : JSON.stringify(fields, null, 2);
@@ -590,10 +591,44 @@ const WORKTREE_CD = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*/;
 
 function toolSummary(full: string): string {
   const firstLine = full.split('\n').find(part => part.trim().length > 0) ?? '';
-  const withoutCd = firstLine.replace(WORKTREE_CD, '');
+  const withoutCd = displayEntities(firstLine.replace(WORKTREE_CD, ''));
   return withoutCd.length <= MAX_TOOL_SUMMARY
     ? withoutCd
     : `${withoutCd.slice(0, MAX_TOOL_SUMMARY)}…`;
+}
+
+/**
+ * Tool responses often contain an entire source file or a pretty-printed JSON
+ * object. Its first character (`{`, `[`, or `<?xml`) is not a useful status
+ * line. Keep the exact response behind the existing disclosure and make the
+ * collapsed row say what happened.
+ */
+function resultSummary(full: string, failed: boolean): string {
+  const trimmed = full.trim();
+  if (trimmed.length === 0) return failed ? 'Failed' : 'No output';
+  if (trimmed === '[]') return 'No results';
+  if (!failed && (trimmed.includes('\n')
+      || trimmed.startsWith('{')
+      || trimmed.startsWith('[')
+      || trimmed.startsWith('<?xml'))) {
+    return 'Completed';
+  }
+  return toolSummary(full);
+}
+
+/** Decode only the compact display line. `full` remains byte-for-byte exact. */
+function displayEntities(value: string): string {
+  const entities: Record<string, string> = {
+    '&lt;': '<',
+    '&gt;': '>',
+    '&amp;': '&',
+    '&quot;': '"',
+    '&#39;': "'",
+  };
+  return value.replace(
+    /&(lt|gt|amp|quot|#39);/g,
+    entity => entities[entity] ?? entity,
+  );
 }
 
 /**

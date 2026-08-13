@@ -185,6 +185,51 @@ final class NewFlowWorkspaceTools
         }
     }
 
+    /**
+     * Replaces an inclusive one-based line range without exposing a shell.
+     * This is the convenient path for large conflict regions: it has the same
+     * real-path and size bounds as {@link #writeFile}, while avoiding a native
+     * {@code sed} or {@code perl} permission prompt.
+     */
+    void replaceFileLines(
+            String relativePath,
+            int startLine,
+            int endLine,
+            String replacement)
+    {
+        requireNonNull(replacement, "replacement is null");
+        if (startLine < 1 || endLine < startLine) {
+            throw new IllegalArgumentException("invalid line range");
+        }
+        String original = readFile(relativePath);
+        List<Integer> starts = new ArrayList<>();
+        starts.add(0);
+        for (int index = 0; index < original.length(); index++) {
+            if (original.charAt(index) == '\n') {
+                starts.add(index + 1);
+            }
+        }
+        int lineCount = original.isEmpty()
+                ? 0
+                : starts.size() - (original.endsWith("\n") ? 1 : 0);
+        if (endLine > lineCount) {
+            throw new IllegalArgumentException("line range exceeds file");
+        }
+        int startOffset = starts.get(startLine - 1);
+        int endOffset = endLine < starts.size()
+                ? starts.get(endLine) : original.length();
+        String inserted = replacement;
+        if (!inserted.isEmpty() && endOffset < original.length()
+                && !inserted.endsWith("\n")) {
+            inserted += original.contains("\r\n") ? "\r\n" : "\n";
+        }
+        writeFile(
+                relativePath,
+                original.substring(0, startOffset)
+                        + inserted
+                        + original.substring(endOffset));
+    }
+
     void deleteFile(String relativePath)
     {
         Path file = existingFile(relativePath);

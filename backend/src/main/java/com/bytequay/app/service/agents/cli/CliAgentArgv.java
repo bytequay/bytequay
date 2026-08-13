@@ -39,12 +39,20 @@ import static java.util.Objects.requireNonNull;
 public final class CliAgentArgv
 {
     /**
-     * Turns off memory and commit attribution. A background agent writing to
-     * someone's memory file, or stamping its own name on their commits, is a
-     * surprise the user never asked for.
+     * Turns off memory and commit attribution, and makes the worktree the hard
+     * boundary for shell writes. Sandboxed commands are auto-approved; a
+     * command Claude cannot sandbox fails instead of silently retrying against
+     * the host. History remains program-owned even inside the worktree.
      */
     private static final String CLAUDE_ISOLATED_SETTINGS =
-            "{\"autoMemoryEnabled\":false,\"attribution\":{\"commit\":\"\"}}";
+            "{\"autoMemoryEnabled\":false,"
+                    + "\"attribution\":{\"commit\":\"\"},"
+                    + "\"permissions\":{\"deny\":["
+                    + "\"Bash(git commit *)\",\"Bash(git push *)\"]},"
+                    + "\"sandbox\":{\"enabled\":true,"
+                    + "\"autoAllowBashIfSandboxed\":true,"
+                    + "\"allowUnsandboxedCommands\":false,"
+                    + "\"failIfUnavailable\":true}}";
     /** The built-in tools a read-only turn keeps; everything else is denied. */
     private static final String CLAUDE_READ_ONLY_TOOLS =
             "Read,Glob,Grep,WebFetch,WebSearch";
@@ -52,31 +60,10 @@ public final class CliAgentArgv
      *  owner's MCP tools are the recommended path, not the only one. */
     private static final List<String> CLAUDE_NATIVE_READ_ALLOWS =
             List.of("Read", "Glob", "Grep", "WebFetch", "WebSearch");
-    /**
-     * Auto-permission: the expected work of a repair — reading, searching,
-     * editing, building, testing — runs without asking, while a shell command
-     * outside these patterns routes to the owner's permission tool and
-     * becomes an approval card. Notably absent on purpose: {@code rm},
-     * {@code curl}, {@code git commit}, {@code git push} — the program owns
-     * history and publication, so those asking first is the feature.
-     */
+    /** Native file tools are pre-approved; Bash is approved by the OS sandbox. */
     private static final List<String> CLAUDE_NATIVE_WRITER_ALLOWS =
             List.of("Read", "Glob", "Grep", "Edit", "Write",
-                    "WebFetch", "WebSearch",
-                    "Bash(git status:*)", "Bash(git diff:*)",
-                    "Bash(git log:*)", "Bash(git show:*)",
-                    "Bash(git grep:*)", "Bash(git blame:*)",
-                    "Bash(git branch:*)", "Bash(git rev-parse:*)",
-                    "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)",
-                    "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)",
-                    "Bash(rg:*)", "Bash(find:*)", "Bash(diff:*)",
-                    "Bash(mvn:*)", "Bash(./mvnw:*)", "Bash(make:*)",
-                    "Bash(gradle:*)", "Bash(./gradlew:*)",
-                    "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)",
-                    "Bash(yarn:*)", "Bash(pnpm:*)",
-                    "Bash(python3:*)", "Bash(pytest:*)",
-                    "Bash(java:*)", "Bash(javac:*)",
-                    "Bash(go:*)", "Bash(cargo:*)");
+                    "WebFetch", "WebSearch");
 
     private CliAgentArgv() {}
 
@@ -214,22 +201,11 @@ public final class CliAgentArgv
         }
         else if (launch.mcpFirst()) {
             // No --tools flag: the full native toolset stays available and is
-            // pre-approved. The owner's MCP tools are recommended in the
-            // prompt, and their terminal calls remain the only completion
-            // signal the program reads — that is protocol, not a restriction.
+            // pre-approved. Bash needs no brittle command allowlist: Claude's
+            // OS sandbox auto-approves anything contained by the worktree.
+            // The owner's MCP terminal call remains the only completion signal
+            // the program reads — that is protocol, not a restriction.
             allowedTools.addAll(CLAUDE_NATIVE_WRITER_ALLOWS);
-            // Deleting its own scratch is the agent cleaning up, not a risk:
-            // rm scoped to /tmp and this turn's own worktree runs without a
-            // card, the same way the agent's sandbox behaves interactively.
-            // An rm outside those roots still asks.
-            for (String root : List.of(
-                    "/tmp/", "/private/tmp/",
-                    launch.workingDirectory() + "/")) {
-                for (String flags : List.of(
-                        "", "-f ", "-r ", "-rf ", "-fr ")) {
-                    allowedTools.add("Bash(rm " + flags + root + "*)");
-                }
-            }
         }
         if (launch.systemPrompt() != null) {
             argv.add("--append-system-prompt", launch.systemPrompt());

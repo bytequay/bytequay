@@ -75,10 +75,28 @@ const snapshot: UpstreamCommitsDto = {
 };
 
 describe('UpstreamCherryPicker dry run', () => {
-  it('starts a pick-only run with a draft PR and independent repair budget', async () => {
+  it('starts the run on the confirmed range the dry run resolved', async () => {
     const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
-      if (input.path === '/api/workspaces/fork/upstream/cherry-picks'
-          && input.method === 'POST') return running;
+      if (input.path === '/api/workspaces/fork/upstream/syncs'
+          && input.method === 'POST') return { ...running, source: 'flow' };
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return {
+          pickCount: 1,
+          skipCount: 1,
+          commits: [
+            {
+              sha: commit.sha, shortSha: commit.shortSha,
+              subject: commit.subject, authorName: 'A',
+              pick: true, skipReason: null,
+            },
+            {
+              sha: 'b'.repeat(40), shortSha: 'bbbbbbb', subject: 'Bump guava',
+              authorName: 'B', pick: false, skipReason: 'already in the fork',
+            },
+          ],
+        };
+      }
+      if (input.path === '/api/workspaces/fork/upstream/syncs') return [];
       if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
       throw new Error(`Unexpected request: ${input.path}`);
     });
@@ -87,24 +105,25 @@ describe('UpstreamCherryPicker dry run', () => {
     render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
       commits={[commit]} onClose={() => {}} />);
     await flush();
-    fireEvent.change(screen.getByLabelText('Conflict repair budget in dollars'), {
-      target: { value: '7.50' },
+    fireEvent.change(screen.getByLabelText('Conflict repair turns'), {
+      target: { value: '12' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Start cherry-pick' }));
     await flush();
 
+    // A run owns a range, so it is confirmed commit by commit — the filtered
+    // commit never reaches the run rather than being skipped inside it.
     expect(request).toHaveBeenCalledWith({
-      path: '/api/workspaces/fork/upstream/cherry-picks',
+      path: '/api/workspaces/fork/upstream/syncs',
       method: 'POST',
       body: {
-        sourceBranch: 'master',
-        targetBranch: 'bump-widget-aaaaaaa',
-        shas: [commit.sha],
-        skipStartsWith: [],
-        skipContains: [],
-        prDescription: null,
-        openDraftPr: true,
-        budgetMilliUsd: 7_500,
+        commits: [{ sha: commit.sha, subject: commit.subject }],
+        goalText: 'Cherry-pick 1 commit from Upstream/master',
+        sourceRemote: 'upstream/widget',
+        sourceFromRef: commit.sha,
+        sourceToRef: commit.sha,
+        targetRef: 'main',
+        repairTurnBudget: 12,
       },
     });
   });
@@ -253,9 +272,9 @@ describe('UpstreamCherryPicker durable polling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start another' }));
 
     expect(screen.getByRole('button', { name: 'Start cherry-pick' })).toBeTruthy();
-    // Named after the range it carries, so a second run cannot collide
-    // with the branch the first one took.
-    expect(screen.getByDisplayValue('bump-widget-aaaaaaa')).toBeTruthy();
+    // The run names its own branch and worktree, so there is nothing here for a
+    // second range to collide with.
+    expect(screen.getByLabelText('Conflict repair turns')).toBeTruthy();
   });
 
   it('a parked run reports itself instead of holding the picker shut', async () => {

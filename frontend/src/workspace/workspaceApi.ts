@@ -397,6 +397,13 @@ export type UpstreamCherryPickStatus =
 
 export type UpstreamCherryPickJobDto = {
   jobId: string;
+  /**
+   * Which engine owns the run. Absent means the retired path, which is still
+   * the owner of every run started before the cutover and must finish there.
+   */
+  source?: 'flow';
+  /** The flow Task the run picks into; greenfield runs only. */
+  taskId?: string;
   /** The run's "RUN #12" label — creation order in the workspace, not an id. */
   runNumber: number;
   status: UpstreamCherryPickStatus;
@@ -413,19 +420,30 @@ export type UpstreamCherryPickJobDto = {
   conflictedCount: number;
   /** A stop was asked for and takes effect at the next commit boundary. */
   pauseRequested: boolean;
-  budgetMilliUsd: number;
+  /**
+   * Null on a greenfield run: phase 1 is bounded by conflict-repair turns, so
+   * a dollar ceiling is a number that model cannot keep.
+   */
+  budgetMilliUsd?: number;
   spentMilliUsd: number;
+  /** Conflict-repair turns the run may still spend; greenfield runs only. */
+  remainingRepairTurns?: number;
+  /**
+   * CI fix rounds on the pull request. Absent on the retired path, which never
+   * reported them — the list says so rather than showing a zero.
+   */
+  roundCount?: number;
   /** The local compile could not run, so CI carries the verdict from here on. */
-  localGateUnavailable: boolean;
+  localGateUnavailable?: boolean;
   /** The CLI session the whole run shares, null until the first turn. */
   agentSessionId: string | null;
   conflictPaths: string[];
   worktreePath: string | null;
   prNumber: number | null;
   prUrl: string | null;
-  harnessWatchId: string | null;
+  harnessWatchId?: string | null;
   /** How the pull request ended, once it did; null while it is open. */
-  prResult: 'merged' | 'closed' | null;
+  prResult?: 'merged' | 'closed' | null;
   errorMessage: string | null;
   /** Set once the user closed the run; every action but reading is refused after. */
   closedAt: string | null;
@@ -466,7 +484,76 @@ export type UpstreamCherryPickRunDto = {
   baseBranch: string;
   commits: UpstreamCherryPickCommitDto[];
   events: UpstreamCherryPickEventDto[];
+  /** Phase 2's data; absent on the retired path, which never reported it. */
+  rounds?: SyncRoundDto[];
+  fixups?: SyncFixupDto[];
+  compileProof?: SyncCompileProofDto | null;
+  publishGate?: SyncPublishGateDto | null;
 };
+
+/** One CI round on the pull request, oldest first. */
+export type SyncRoundDto = {
+  ordinal: number;
+  roundId: string;
+  remoteHead: string;
+  state: string;
+  /** Frozen required checks in this round, not the whole provider board. */
+  observedCount: number;
+  failingCount: number;
+  createdAt: string;
+};
+
+/** Which fixup repaired which pick, and where the repair came from. */
+export type SyncFixupDto = {
+  pickIndex: number;
+  upstreamSha: string;
+  targetSubject: string;
+  kind: 'ADJACENT_FIXUP' | 'STANDALONE';
+  commitSha: string;
+  changedPaths: string[];
+  /** A later repair amended the same fixup rather than adding a second. */
+  amendCount: number;
+  origin: 'CONFLICT_REPAIR' | 'CI_REPAIR';
+  at: string;
+};
+
+export type SyncBoundaryDto = {
+  ordinal: number;
+  commitSha: string;
+  /** A bare target followed by its fixup is deliberately not a boundary. */
+  kind: 'TARGET_WITH_FIXUP' | 'FIXUP' | 'PLAIN';
+  exitState: 'PASSED' | 'FAILED';
+  evidenceRef: string;
+};
+
+/**
+ * The program's own evidence that the rewritten series compiles where it
+ * matters — the only thing that may excuse a red per-commit compile check.
+ */
+export type SyncCompileProofDto = {
+  proofId: string;
+  headSha: string;
+  provedAt: string;
+  boundaries: SyncBoundaryDto[];
+  compileSelectors: string[];
+  /** The repository CI configuration the selectors were read from. */
+  compileSourceRef: string | null;
+  excusedTargets: string[];
+};
+
+/** The publish gate, exactly as displayed; authorizing echoes both digests. */
+export type SyncPublishGateDto = {
+  gateId: string;
+  revision: number;
+  subjectDigest: string;
+  actionDigest: string;
+  state: string;
+  proposedHead: string | null;
+  branchRef: string | null;
+  targetBaseRef: string | null;
+};
+
+export type SyncSelectedCommit = { sha: string; subject: string };
 
 export type StartIssueResultDto = {
   trunkId: string;
@@ -831,6 +918,46 @@ export const workspaceApi = {
     path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks`,
     method: 'POST',
     body: input,
+  }),
+  /**
+   * Starts one greenfield sync run over the confirmed selection. This is the
+   * only entry point; nothing reaches GitHub until the run's publish gate is
+   * authorized by hand.
+   */
+  createUpstreamSync: (
+    workspaceId: string,
+    input: {
+      commits: SyncSelectedCommit[];
+      goalText: string;
+      sourceRemote: string;
+      sourceFromRef: string;
+      sourceToRef: string;
+      targetRef: string;
+      repairTurnBudget: number;
+    },
+  ) => window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs`,
+    method: 'POST',
+    body: input,
+  }),
+  upstreamSyncs: (workspaceId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs`,
+    }),
+  upstreamSyncRun: (workspaceId: string, runId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${enc(runId)}`,
+    }),
+  /** The user's own authorization of the first push, against what they saw. */
+  authorizeUpstreamSyncPublish: (
+    workspaceId: string,
+    runId: string,
+    gate: { revision: number; subjectDigest: string; actionDigest: string },
+  ) => window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${
+      enc(runId)}/publish`,
+    method: 'POST',
+    body: gate,
   }),
   upstreamCherryPick: (workspaceId: string, jobId: string) =>
     window.bridge.workspaceApi<UpstreamCherryPickJobDto>({

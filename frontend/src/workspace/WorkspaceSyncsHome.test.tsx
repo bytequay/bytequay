@@ -38,6 +38,18 @@ describe('WorkspaceSyncsHome', () => {
     expect(screen.getByText('Merged')).toBeTruthy();
   });
 
+  it('names the round a pushed run is on, and what it has cost so far', () => {
+    render(<WorkspaceSyncsHome runs={[job({
+      source: 'flow', status: 'COMPLETED', prNumber: 4244, roundCount: 3,
+      appliedCount: 151, spentMilliUsd: 59_500,
+    })]} />);
+
+    expect(screen.getByText('CI harness · round 3')).toBeTruthy();
+    // Past the push the picks are settled history; CI is the live part.
+    expect(screen.getByText('151 picks settled · 3 fix rounds')).toBeTruthy();
+    expect(screen.getByText('$59.50')).toBeTruthy();
+  });
+
   it('shows manually closed runs as closed in the finished list', () => {
     render(<WorkspaceSyncsHome runs={[job({
       closedAt: '2026-08-09T10:00:00Z', prNumber: 4244,
@@ -128,8 +140,20 @@ describe('WorkspaceSyncsHome', () => {
 
     const row = screen.getByText('Merged').closest('button');
     expect(row).toBeTruthy();
-    // A zero would read as "no rounds were needed"; nothing reports them yet.
+    // A zero would read as "no rounds were needed"; this run reports none.
     expect(within(row as HTMLElement).getByTitle(
-      'Fix rounds are not reported to this list yet').textContent).toBe('—');
+      'This run does not report its fix rounds').textContent).toBe('—');
+  });
+
+  it('shows the rounds a run does report', () => {
+    render(<WorkspaceSyncsHome runs={[
+      job({
+        closedAt: '2026-08-09T10:00:00Z', prNumber: 4201, prResult: 'merged',
+        source: 'flow', roundCount: 3,
+      }),
+    ]} />);
+
+    const row = screen.getByText('Merged').closest('button');
+    expect(within(row as HTMLElement).getByText('3')).toBeTruthy();
   });
 });

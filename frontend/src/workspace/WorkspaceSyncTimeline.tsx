@@ -16,11 +16,13 @@ import { TrafficLights } from '../ui/shell';
 import {
   CheckIcon, ChevronIcon, PauseIcon, PlayIcon, ShieldIcon, SyncIcon,
 } from './WorkspaceSyncIcons';
+import WorkspaceSyncRounds from './WorkspaceSyncRounds';
 import {
   elapsedLabel, isLiveSync, phaseOneEndedAt, syncPhaseNumber, syncProgress,
   syncQueue,
 } from './syncRunModel';
 import type {
+  SyncRoundDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickEventDto,
   UpstreamCherryPickJobDto,
@@ -39,15 +41,20 @@ const RECENT_PICKS = 3;
  * and this column is one run's own story.
  */
 export default function WorkspaceSyncTimeline({
-  job, commits, events, onBack, onRetryCi,
+  job, commits, events, rounds = [], onBack, onRetryCi,
 }: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
   events: UpstreamCherryPickEventDto[];
+  /** The CI fix rounds, for a run that reports them. */
+  rounds?: SyncRoundDto[];
   onBack?: () => void;
   /** Absent while nothing reports phase 2's state; the button stays out. */
   onRetryCi?: () => void;
 }) {
+  // A run that reports no rounds is not the same as one that has none, and the
+  // rail says which.
+  const reportsRounds = job.roundCount !== undefined;
   const [picksOpen, setPicksOpen] = useState(false);
   const queue = syncQueue(commits);
   const progress = syncProgress(job);
@@ -151,16 +158,22 @@ export default function WorkspaceSyncTimeline({
           connectAfter
           node={phaseTwoNode(job, phase)}
           title="CI harness"
-          note={phaseTwoNote(job, phase)}
+          note={phaseTwoNote(job, phase, rounds.length)}
           noteTone={phase === 2 ? 'warn' : undefined}>
-          {/* Fix rounds belong to CI Autofix once the range is pushed, and
-              nothing reports them back to this run yet. An empty rail would
-              read as "no rounds were needed", which is a different claim. */}
-          <p className="st-pending">
-            {phase < 2
-              ? 'Starts when the range is pushed and the pull request opens.'
-              : 'Round history is not reported to this view yet.'}
-          </p>
+          {/* A run whose fix rounds nothing reports says so. An empty rail
+              would read as "no rounds were needed", which is a different
+              claim from "this run does not report them". */}
+          {rounds.length > 0
+            ? <WorkspaceSyncRounds rounds={rounds} />
+            : (
+              <p className="st-pending">
+                {phase < 2
+                  ? 'Starts when the range is pushed and the pull request opens.'
+                  : reportsRounds
+                    ? 'No fix round has been opened yet.'
+                    : 'Round history is not reported by this run.'}
+              </p>
+            )}
         </Phase>
 
         <Phase
@@ -344,10 +357,14 @@ function phaseTwoNode(job: UpstreamCherryPickJobDto, phase: number): ReactNode {
   return <span className="st-node is-warn"><PauseIcon size={8} /></span>;
 }
 
-function phaseTwoNote(job: UpstreamCherryPickJobDto, phase: number): string {
+function phaseTwoNote(
+  job: UpstreamCherryPickJobDto, phase: number, rounds: number,
+): string {
   if (phase < 2) return 'not started';
   if (phase > 2) return 'done';
-  return 'parked · waiting on you';
+  return rounds === 0
+    ? 'parked · waiting on you'
+    : `parked · round ${rounds}`;
 }
 
 function phaseThreeNote(job: UpstreamCherryPickJobDto, phase: number): string {

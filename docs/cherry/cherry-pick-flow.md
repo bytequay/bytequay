@@ -403,6 +403,14 @@ Built and green:
   diagnostics, and the launch-binding columns for both execution kinds
 - engine resolution per run from the workspace's per-audience pick, replacing
   the compiled-in provider properties
+- the entry point on the new records: the range picker resolves its selection
+  to an explicit commit list and starts a Task-backed run, and the run's park
+  before the first push is authorized from the run view against the exact gate
+  revision it displayed
+- both surfaces on the new records, beside the retired ones — the rounds rail,
+  the finished list's ROUNDS column, the fixup attribution block and the
+  excused-check card all read real rows, and a run that reports none of them
+  says so rather than showing a zero
 - the CLI launch binding itself: an explicit CLI pick now resolves and binds as
   `CLI`, recording binary and version and no credential, and the in-JVM turn
   path refuses such a binding at its single choke point rather than in each body
@@ -423,10 +431,17 @@ Remaining, in dependency order:
    rebase-todo repositioning and squash, compile selector discovery,
    `PARTIAL_RED_COMPILE` admission, the boundary acceptance exception,
    force-with-lease publishing, repeat-failure park.
-4. **Phase-2 data on the surfaces** — the rounds rail, the finished list's
-   ROUNDS column, the fixup attribution block, the excused-check card. All four
-   currently render an explicit "not reported yet" rather than an empty or zero
-   state, so they light up without UI changes.
+4. **What a run on the new records still cannot do.** Its surface reads
+   everything phases 1 and 2 record, but four of the retired path's controls
+   have no equivalent behind them and are therefore absent rather than inert:
+   pause, skip-this-commit, resume, and close/delete. Steering renders as a
+   disabled composer saying so, and the live turn stream — which makes a pick
+   that compiles for minutes look alive — belongs to the retired runner.
+5. **Phase 3 on the new records.** Nothing observes the pull request being
+   merged or closed there, so a run that has published stays in RUNNING as
+   "parked for your review" — true, but it never reaches the finished table and
+   its cleanup receipt has nothing to read. Phase 3 is built and green on the
+   retired path only.
 
 Adding tables to `db/new-flow/*.sql` changes the schema bundle digest and makes
 `NewFlowDatabase.bootstrap()` refuse to start. That is intentional — it is a
@@ -610,6 +625,10 @@ unrelated slices, and the database is empty so resets are free.
    checks, Local PR draft, fresh reviewer, history verification, `INITIAL_PUBLISH`.
 5. Attributed repair: selector policy, typed attribution, rewrite operation,
    boundary proof, force-with-lease gate.
-6. Surfaces and cleanup, including the legacy entry-point cutover.
+6. Surfaces and cleanup, including the legacy entry-point cutover. **Entry
+   point and surfaces done**; the retired path stays until no run depends on
+   it, and the home page reads both sources meanwhile. A run number is per
+   source, so while both are listed the same number can appear twice — it is a
+   display label, and the ambiguity drains with the old runs.
 
 No slice may add a test failure.

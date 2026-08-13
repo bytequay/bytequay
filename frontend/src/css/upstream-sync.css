@@ -1591,7 +1591,8 @@
 .sh-result.is-failed { color: #cf222e; }
 .sh-result.is-done { color: #1a7f37; }
 
-.sh-table__cost { color: #767068; font-size: 11.5px; }
+.sh-table__cost,
+.sh-table__rounds { color: #767068; font-size: 11.5px; }
 
 .sh-table__when {
   color: #a8a39c;
@@ -2025,6 +2026,53 @@
   margin: 4px 0 0 2px;
 }
 
+/* The fix rounds inside phase 2: one row each, newest last. */
+.st-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+}
+
+.st-round {
+  align-items: center;
+  border-radius: 7px;
+  display: flex;
+  gap: 7px;
+  padding: 5px 6px 5px 2px;
+}
+
+.st-round__mark {
+  color: #cf222e;
+  display: inline-flex;
+}
+
+.st-round__mark.is-green { color: #1a7f37; }
+
+.st-round__label {
+  color: #454c54;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.st-round code {
+  background: #ececeb;
+  border-radius: 4px;
+  color: #8a8178;
+  font-family: "SF Mono", Menlo, ui-monospace, monospace;
+  font-size: 9.5px;
+  padding: 1px 5px;
+}
+
+.st-round__count {
+  color: #8a8178;
+  font-size: 10.5px;
+  font-weight: 500;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* A phase with no data source yet. Prose rather than an empty rail, because an
    empty rail reads as "nothing was needed". */
 .st-pending {
@@ -2197,6 +2245,13 @@
 
 .sf-group.is-inline { align-self: flex-start; width: auto; }
 .sf-group:hover { background: rgba(0, 0, 0, 0.04); }
+
+.sf-group__when {
+  color: #b7b0a7;
+  font-size: 10.5px;
+  margin-left: auto;
+  white-space: nowrap;
+}
 
 .sf-pill {
   align-items: center;
@@ -2538,3 +2593,204 @@
 
 .sf-decision__actions button:hover { border-color: #8250df; color: #8250df; }
 .sf-decision__actions span { color: #a8a39c; font-size: 11px; }
+
+/* One repair, filed behind the pick it belongs to. Same row shape as a pick,
+   because it is read alongside them. */
+.sf-fixup,
+.sf-boundary {
+  align-items: center;
+  border-radius: 6px;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  padding: 5px 8px;
+}
+
+.sf-fixup:hover,
+.sf-boundary:hover { background: rgba(0, 0, 0, 0.03); }
+
+.sf-fixup code,
+.sf-boundary code {
+  background: #f4f1ec;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  color: #767068;
+  flex-shrink: 0;
+  font-family: 'SF Mono', Menlo, ui-monospace, monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+
+.sf-fixup__target {
+  color: #454c54;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-fixup__origin {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.sf-fixup__origin.is-pick { color: #b45309; }
+.sf-fixup__origin.is-ci { color: #7c3aed; }
+
+.sf-fixup__amends,
+.sf-fixup__paths {
+  color: #8a8178;
+  flex-shrink: 0;
+  font-size: 10.5px;
+}
+
+.sf-fixup time,
+.sf-boundary__evidence {
+  color: #a8a39c;
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.sf-boundary__evidence {
+  margin-left: auto;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-boundary__mark {
+  align-items: center;
+  color: #1a7f37;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-weight: 700;
+  width: 10px;
+}
+
+.sf-boundary__mark.is-failed { color: #cf222e; }
+
+.sf-boundary__kind {
+  color: #767068;
+  font-size: 11.5px;
+}
+
+/* The excused red and its evidence. Bordered like a decision, because that is
+   what it is: the program stating why a red check does not block. */
+.sf-excused,
+.sf-publish {
+  background: #fff;
+  border: 1px solid rgba(31, 136, 61, 0.3);
+  border-radius: 12px;
+  margin: 12px 8px 4px;
+  padding: 12px 16px;
+}
+
+.sf-excused.is-bad { border-color: rgba(207, 34, 46, 0.35); }
+
+.sf-excused header,
+.sf-publish header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.sf-excused header strong,
+.sf-publish header strong {
+  color: #1f2328;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sf-excused__glyph,
+.sf-publish__glyph {
+  align-items: center;
+  background: rgba(31, 136, 61, 0.12);
+  border-radius: 50%;
+  color: #1a7f37;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.sf-excused.is-bad .sf-excused__glyph {
+  background: rgba(207, 34, 46, 0.12);
+  color: #cf222e;
+}
+
+.sf-excused header time {
+  color: #a8a39c;
+  font-size: 10.5px;
+  margin-left: auto;
+}
+
+.sf-excused p,
+.sf-publish p {
+  color: #575e66;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 7px 0 0;
+}
+
+.sf-excused__source {
+  color: #8a8178;
+  display: block;
+  font-size: 11px;
+}
+
+.sf-excused__targets {
+  color: #454c54;
+  font-size: 11.5px;
+  line-height: 1.7;
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.sf-excused__none {
+  color: #a8a39c;
+  font-size: 11.5px;
+}
+
+/* The publish boundary: local and revocable on one side, public on the other. */
+.sf-publish { border-color: rgba(130, 80, 223, 0.35); }
+
+.sf-publish__glyph {
+  background: rgba(130, 80, 223, 0.12);
+  color: #8250df;
+}
+
+.sf-publish p code {
+  background: #f4f1ec;
+  border-radius: 4px;
+  font-family: 'SF Mono', Menlo, ui-monospace, monospace;
+  font-size: 10.5px;
+  padding: 1px 5px;
+}
+
+.sf-publish__actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sf-publish__actions span { color: #a8a39c; font-size: 11px; }
+
+.sf-publish__go {
+  background: #8250df;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.sf-publish__go:disabled { cursor: default; opacity: 0.6; }

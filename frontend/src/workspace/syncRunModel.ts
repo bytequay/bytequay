@@ -36,6 +36,19 @@ export type SyncQueue = {
   carriedCount: number;
 };
 
+/**
+ * Whether a run belongs to the greenfield flow, from the id alone.
+ *
+ * The id carries its own domain, so a deep link into a run resolves before any
+ * list has loaded. Runs started before the cutover keep the retired path and
+ * are read, resumed and closed there — nothing translates between the two.
+ */
+export const FLOW_RUN_PREFIX = 'upstream-sync-run:';
+
+export function isFlowRun(jobId: string): boolean {
+  return jobId.startsWith(FLOW_RUN_PREFIX);
+}
+
 export const isLiveSync = (job: UpstreamCherryPickJobDto): boolean =>
   job.closedAt === null && (job.status === 'QUEUED' || job.status === 'RUNNING');
 
@@ -106,7 +119,10 @@ export function syncChip(job: UpstreamCherryPickJobDto): SyncChip {
 export function syncPhaseLabel(job: UpstreamCherryPickJobDto): string {
   switch (syncPhaseNumber(job)) {
     case 3: return 'Cleanup';
-    case 2: return 'CI harness';
+    // A run that reports its rounds names the one it is on; one that does not
+    // says only "CI harness" rather than implying a first round.
+    case 2: return job.roundCount === undefined || job.roundCount === 0
+      ? 'CI harness' : `CI harness · round ${job.roundCount}`;
     default: return 'Local cherry-picks';
   }
 }
@@ -118,6 +134,12 @@ export function syncDetailLine(job: UpstreamCherryPickJobDto): string {
   if (job.status === 'FAILED' && job.errorMessage !== null) return job.errorMessage;
   if (job.status === 'PAUSED_CONFLICT' && job.errorMessage !== null) {
     return job.errorMessage;
+  }
+  // Once the range is pushed the picks are settled history, and what the card
+  // is really reporting is how CI is going.
+  if (job.roundCount !== undefined && job.roundCount > 0) {
+    return `${job.appliedCount} picks settled · ${job.roundCount} fix round${
+      job.roundCount === 1 ? '' : 's'}`;
   }
   return queue;
 }

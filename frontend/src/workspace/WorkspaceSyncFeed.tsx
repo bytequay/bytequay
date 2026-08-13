@@ -13,12 +13,17 @@
  */
 import { useState, type ReactNode } from 'react';
 import { CheckIcon, ChevronIcon, PauseIcon, TerminalIcon } from './WorkspaceSyncIcons';
+import { SyncExcusedCheck, SyncFixupAttribution } from './WorkspaceSyncEvidence';
+import { SyncFeedRounds } from './WorkspaceSyncRounds';
 import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
 import {
   clockLabel, durationLabel, elapsedLabel, parseTranscript, phaseOneEndedAt,
   syncDecision, syncFeed, syncPhaseNumber, syncQueue, type SyncFeedItem,
 } from './syncRunModel';
 import type {
+  SyncCompileProofDto,
+  SyncFixupDto,
+  SyncRoundDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickEventDto,
   UpstreamCherryPickJobDto,
@@ -36,10 +41,18 @@ const PICK_ROWS = 3;
  * reads as a conversation instead — the picking folded to a line, program steps
  * behind chips, the agent's reasoning as prose.
  */
-export default function WorkspaceSyncFeed({ job, commits, events, onOpenPr }: {
+export default function WorkspaceSyncFeed({
+  job, commits, events, rounds = [], fixups = [], compileProof, onOpenPr,
+}: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
   events: UpstreamCherryPickEventDto[];
+  /** The CI fix rounds, oldest first. */
+  rounds?: SyncRoundDto[];
+  /** The repairs, each attributed to the pick it belongs behind. */
+  fixups?: SyncFixupDto[];
+  /** The only thing that may excuse a red per-commit compile check. */
+  compileProof?: SyncCompileProofDto | null;
   onOpenPr?: () => void;
 }) {
   const items = syncFeed(events);
@@ -59,6 +72,11 @@ export default function WorkspaceSyncFeed({ job, commits, events, onOpenPr }: {
         <FeedItem key={item.key} item={item} job={job} commits={commits}
           events={events} foldPicks={foldPicks} />
       ))}
+      <SyncFeedRounds rounds={rounds} />
+      <SyncFixupAttribution fixups={fixups} />
+      {compileProof !== undefined && compileProof !== null && (
+        <SyncExcusedCheck proof={compileProof} />
+      )}
       {decision !== null && (
         <div className={`sf-decision is-${decision.tone}`}>
           <div className="sf-decision__head">

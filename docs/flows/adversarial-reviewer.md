@@ -6,8 +6,11 @@ Parent architecture: [Development-flow architecture](./README.md)
 ## 1. Purpose
 
 The Adversarial Reviewer is a fresh, read-only child agent that challenges one exact
-committed candidate. It looks for actionable correctness, security, reliability,
-regression, and test-coverage problems before the candidate reaches a user gate.
+committed candidate. For Upstream Sync, its instruction narrows its attention to
+conflict resolutions and fork fixups and tells it not to re-review mechanically clean
+cherry-picks; the program does not preselect commits. It looks for actionable
+correctness, security, reliability, regression, and test-coverage problems before the
+candidate reaches a user gate.
 
 It is independent by construction:
 

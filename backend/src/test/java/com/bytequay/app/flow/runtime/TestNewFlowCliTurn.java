@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -223,6 +224,53 @@ final class TestNewFlowCliTurn
                         + " double-counts")
                 .hasSize(1);
         assertThat(fixture.usage.getFirst()).startsWith("s-7/");
+    }
+
+    @Test
+    void claudeActivityStreamsBeforeTheProcessEnds(@TempDir Path root)
+            throws Exception
+    {
+        Path release = root.resolve("release");
+        Fixture fixture = Fixture.create(root, """
+                case " $* " in
+                  *" --input-format stream-json "*) ;;
+                  *) exit 7 ;;
+                esac
+                IFS= read -r input
+                printf '%%s' "$input" > %s
+                echo '{"type":"system","subtype":"init","session_id":"live-1"}'
+                echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"read-1","name":"Read","input":{"file_path":"one.txt"}}]}}'
+                while [ ! -f %s ]; do sleep 0.01; done
+                echo '{"type":"result","subtype":"success","result":"done"}'
+                """.formatted(marker(root), release));
+
+        CompletableFuture<NewFlowCliTurn.Outcome> outcome =
+                CompletableFuture.supplyAsync(() -> fixture.run(
+                        (pid, pgid, startedAt) -> {}));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (fixture.activity.stream().noneMatch(
+                StreamEvent.ToolCallStarted.class::isInstance)
+                && !outcome.isDone() && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+        }
+        boolean streamedBeforeExit = !outcome.isDone();
+        Files.writeString(release, "go", StandardCharsets.UTF_8);
+        NewFlowCliTurn.Outcome completed = outcome.get(5, TimeUnit.SECONDS);
+
+        assertThat(streamedBeforeExit).isTrue();
+        assertThat(fixture.activity).anySatisfy(event -> assertThat(event)
+                .isInstanceOfSatisfying(
+                        StreamEvent.ToolCallStarted.class,
+                        call -> assertThat(call.toolName()).isEqualTo("Read")));
+        assertThat(MAPPER.readTree(Files.readString(fixture.marker)))
+                .isEqualTo(MAPPER.readTree("""
+                        {"type":"user","message":{"role":"user",
+                         "content":"Work only on the exact program-selected subject."},
+                         "parent_tool_use_id":null}
+                        """));
+
+        assertThat(completed.turn().finalText())
+                .isEqualTo("done");
     }
 
     @Test
@@ -1176,6 +1224,7 @@ final class TestNewFlowCliTurn
 
         /** Captures what the turn reported, in place of the runtime writes. */
         private final List<String> usage = new ArrayList<>();
+        private final List<StreamEvent> activity = new CopyOnWriteArrayList<>();
 
         NewFlowCliTurn.Outcome run(GroupSeen seen)
         {
@@ -1243,6 +1292,12 @@ final class TestNewFlowCliTurn
                 {
                     usage.add(providerSessionId + "/" + tokensIn + "/"
                             + tokensOut + "/" + costMilliUsd);
+                }
+
+                @Override
+                public void activity(StreamEvent event)
+                {
+                    activity.add(event);
                 }
             };
         }

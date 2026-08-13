@@ -17,6 +17,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
 import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
+import com.bytequay.app.flow.gate.UserGates.ReadyRejectedException;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
@@ -242,11 +243,7 @@ final class NewFlowAgentBodies
                 if (!reviewContinuation) {
                     yield ToolCallResult.error("tool is not available");
                 }
-                yield safe(() -> {
-                    capability.readyForInitialPublish();
-                    terminal.set(true);
-                    return "manual initial publication requested";
-                });
+                yield readyForInitialPublish(capability, terminal);
             }
             default -> ToolCallResult.error("tool is not available");
         });
@@ -257,6 +254,25 @@ final class NewFlowAgentBodies
                                 capability::recordAgentTurnUsage,
                                 activity)),
                 terminal.get());
+    }
+
+    /** A typed gate blocker is safe and necessary for the agent to repair. */
+    private static ToolCallResult readyForInitialPublish(
+            InitialToolCapability capability, AtomicBoolean terminal)
+    {
+        try {
+            capability.readyForInitialPublish();
+            terminal.set(true);
+            return ToolCallResult.ok("manual initial publication requested");
+        }
+        catch (ReadyRejectedException blocked) {
+            return ToolCallResult.error(
+                    "initial publication blocked: "
+                            + String.join(",", blocked.blockerCodes()));
+        }
+        catch (RuntimeException failure) {
+            return ToolCallResult.error("tool failed closed");
+        }
     }
 
     NewFlowAgentLaunches.Binding bindCleanup(AgentRun run)
@@ -460,6 +476,14 @@ final class NewFlowAgentBodies
             NewFlowAgentLaunches.Binding binding,
             ReviewerToolCapability capability)
     {
+        return reviewer(binding, capability, ignored -> {});
+    }
+
+    InProcessReviewerAgentSupervisor.AgentCompletion reviewer(
+            NewFlowAgentLaunches.Binding binding,
+            ReviewerToolCapability capability,
+            Consumer<StreamEvent> activity)
+    {
         AtomicBoolean stop = new AtomicBoolean();
         ToolExecutor executor = bounded(stop, call -> switch (call.name()) {
             case "list_tree" -> safe(() -> json(capability.listTree().stream()
@@ -475,7 +499,10 @@ final class NewFlowAgentBodies
         });
         TurnResult result = run(
                 binding, REVIEWER, executor, stop, null,
-                journal(capability::recordAgentGroup, capability::recordAgentTurnUsage));
+                journal(
+                        capability::recordAgentGroup,
+                        capability::recordAgentTurnUsage,
+                        activity));
         return new InProcessReviewerAgentSupervisor.AgentCompletion(
                 terminal(result), result.finalText(), error(result));
     }

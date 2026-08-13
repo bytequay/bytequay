@@ -163,6 +163,7 @@ public final class CliAgentArgv
         ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                 .add(launch.executable())
                 .add("-p")
+                .add("--input-format", "stream-json")
                 .add("--output-format", "stream-json")
                 .add("--verbose")
                 .add("--setting-sources", "")

@@ -122,7 +122,16 @@ public final class UpstreamSyncViews
                      WHERE g.task_id = t.task_id) AS spent_milli_usd,
                    (SELECT COUNT(*) FROM flow_ci_round c
                      WHERE c.task_id = t.task_id
-                       AND c.state <> 'SUPERSEDED') AS round_count
+                       AND c.state <> 'SUPERSEDED') AS round_count,
+                   (SELECT a.failure_reason_code
+                       FROM flow_runtime_agent_run a
+                       JOIN flow_runtime_agent_session g
+                         ON g.session_id = a.session_id
+                      WHERE g.task_id = t.task_id
+                        AND a.role = 'TASK_AGENT'
+                        AND a.state = 'FAILED'
+                      ORDER BY a.completed_at DESC, a.created_at DESC
+                      LIMIT 1) AS agent_failure_reason
             FROM flow_upstream_sync_run r
             JOIN flow_upstream_sync_request q ON q.request_id = r.request_id
             JOIN flow_runtime_task t ON t.task_id = r.task_id
@@ -202,8 +211,34 @@ public final class UpstreamSyncViews
                     fixups,
                     rounds(job.taskId()),
                     compileProof(job.taskId(), fixups),
-                    job.prId() == null ? null : publishGate(job.prId()));
+                    job.prId() == null ? null : publishGate(job.prId()),
+                    reviewer(job.taskId()));
         });
+    }
+
+    /** The latest adversarial reviewer, if this Task has handed work to one. */
+    private SyncReviewer reviewer(String taskId)
+    {
+        return jdbc.query(
+                        """
+                        SELECT r.run_id, r.state, r.started_at, r.completed_at
+                        FROM flow_runtime_agent_run r
+                        JOIN flow_runtime_agent_session s
+                          ON s.session_id = r.session_id
+                        WHERE s.task_id = ?
+                          AND r.role = 'ADVERSARIAL_REVIEWER'
+                        ORDER BY r.created_at DESC, r.run_id DESC
+                        LIMIT 1
+                        """,
+                        (rows, row) -> new SyncReviewer(
+                                rows.getString("run_id"),
+                                rows.getString("state"),
+                                nullableIso(rows, "started_at"),
+                                nullableIso(rows, "completed_at")),
+                        taskId)
+                .stream()
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -515,7 +550,7 @@ public final class UpstreamSyncViews
                 rows.getString("repository_id"),
                 "flow",
                 rows.getInt("run_number"),
-                status(state),
+                status(state, rows.getString("task_status")),
                 state,
                 // What the run is picking from, as the surface names it. The
                 // range's own endpoints are shas and are reported as such.
@@ -540,7 +575,9 @@ public final class UpstreamSyncViews
                 rows.getString("pr_title"),
                 closeRequested,
                 rows.getInt("round_count"),
-                pauseRequested || closeRequested ? null : parkReason,
+                pauseRequested || closeRequested ? null
+                        : parkReason != null ? parkReason
+                                : rows.getString("agent_failure_reason"),
                 "FINAL_REVIEW".equals(state)
                         || "WAITING_INITIAL_PUBLISH".equals(state)
                         || "HANDED_OFF".equals(state),
@@ -572,10 +609,13 @@ public final class UpstreamSyncViews
      * is older than this model, so the mapping lives here rather than being
      * pushed into every component.
      */
-    private static String status(String state)
+    private static String status(String state, String taskStatus)
     {
         if ("CANCELED".equals(state)) {
             return "CLOSED";
+        }
+        if ("NEEDS_ATTENTION".equals(taskStatus)) {
+            return "FAILED";
         }
         return switch (state) {
             case "READY" -> "QUEUED";
@@ -600,6 +640,13 @@ public final class UpstreamSyncViews
     private static String iso(long epochMillis)
     {
         return Instant.ofEpochMilli(epochMillis).toString();
+    }
+
+    private static String nullableIso(ResultSet rows, String column)
+            throws SQLException
+    {
+        long epochMillis = rows.getLong(column);
+        return rows.wasNull() ? null : iso(epochMillis);
     }
 
     private List<String> strings(String value)
@@ -755,6 +802,13 @@ public final class UpstreamSyncViews
             String branchRef,
             String targetBaseRef) {}
 
+    /** One separately isolated read-only agent reviewing the constructed range. */
+    public record SyncReviewer(
+            String runId,
+            String state,
+            String startedAt,
+            String completedAt) {}
+
     public record SyncRunDetail(
             SyncJob job,
             String baseBranch,
@@ -763,5 +817,6 @@ public final class UpstreamSyncViews
             List<SyncFixup> fixups,
             List<SyncRound> rounds,
             SyncCompileProof compileProof,
-            SyncGate publishGate) {}
+            SyncGate publishGate,
+            SyncReviewer reviewer) {}
 }

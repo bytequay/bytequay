@@ -259,11 +259,72 @@ describe('a greenfield sync run', () => {
     expect(await screen.findByText(command)).toBeTruthy();
     expect(screen.getByText(command).tagName).toBe('PRE');
     expect(screen.getByRole('button', { name: 'Approve once' })).toBeTruthy();
-    expect(screen.getByText('Agent waiting for permission')).toBeTruthy();
+    expect(screen.getByText('Sync agent waiting for permission')).toBeTruthy();
 
     act(() => emit({ type: 'result', num_turns: 1, total_cost_usd: 0 }));
-    expect(screen.getByText('Agent log')).toBeTruthy();
+    expect(screen.getByText('Sync agent log')).toBeTruthy();
     expect(screen.queryByText('core/trino-spi/pom.xml')).toBeNull();
+  });
+
+  it('shows the reviewer handoff and keeps its live log separate', async () => {
+    const run = flowRun();
+    run.job.status = 'RUNNING';
+    const { emit } = mount(run);
+    await flush();
+
+    act(() => emit({
+      type: 'assistant',
+      message: { content: [{
+        type: 'tool_use', name: 'Read', input: { file_path: 'writer-file.ts' },
+      }] },
+    }));
+    expect(screen.getByText('Sync agent working')).toBeTruthy();
+
+    act(() => emit({
+      type: 'bytequay_agent', role: 'reviewer',
+      run_id: 'reviewer-run-1', running: true,
+    }));
+    act(() => emit({
+      type: 'assistant',
+      message: { content: [{
+        type: 'tool_use', name: 'Read', input: { file_path: 'reviewed-file.ts' },
+      }] },
+    }));
+
+    expect(screen.getByText('Sync agent log')).toBeTruthy();
+    expect(screen.getByText('Reviewer agent started · working')).toBeTruthy();
+    expect(screen.getByText('reviewed-file.ts')).toBeTruthy();
+    expect(screen.queryByText('Agent working')).toBeNull();
+  });
+
+  it('shows an already-running reviewer when the page opens', async () => {
+    const run = flowRun();
+    run.job.status = 'RUNNING';
+    run.reviewer = {
+      runId: 'reviewer-run-2', state: 'RUNNING',
+      startedAt: '2026-08-14T03:00:00Z', completedAt: null,
+    };
+    mount(run);
+    await flush();
+
+    expect(screen.getByText('Reviewer agent started · working')).toBeTruthy();
+    expect(screen.queryByText('Sync agent working')).toBeNull();
+  });
+
+  it('does not call a failed continuation reviewing', async () => {
+    const run = flowRun();
+    run.job.status = 'FAILED';
+    run.job.errorMessage = 'MISSING_TERMINAL_TOOL';
+    run.publishGate = null;
+    mount(run);
+    await flush();
+
+    expect(document.querySelector('.sr-phase')?.textContent).toBe('FAILED');
+    expect(screen.getAllByText('MISSING_TERMINAL_TOOL').length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText(/Reviewing the completed range/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Authorize the first push' }))
+      .toBeNull();
   });
 
   it('reports repair turns where a dollar ceiling does not exist', async () => {

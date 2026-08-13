@@ -130,6 +130,30 @@ public final class UpstreamSyncCoordinator
         return upstreamSync.runForTask(taskId).isPresent();
     }
 
+    /** Live read-only reviewer activity belongs in the same run conversation. */
+    public Consumer<StreamEvent> reviewerActivity(String taskId)
+    {
+        UpstreamSyncRun run = upstreamSync.runForTask(taskId).orElseThrow(
+                () -> new IllegalStateException(
+                        "Task is not owned by upstream synchronization"));
+        return agentActivity(run.runId(), false);
+    }
+
+    /** Marks the handoff so the next streamed line cannot look like Task work. */
+    public void reviewerState(
+            String taskId, String agentRunId, boolean running)
+    {
+        UpstreamSyncRun run = upstreamSync.runForTask(taskId).orElseThrow(
+                () -> new IllegalStateException(
+                        "Task is not owned by upstream synchronization"));
+        ObjectNode line = mapper.createObjectNode();
+        line.put("type", "bytequay_agent");
+        line.put("role", "reviewer");
+        line.put("run_id", agentRunId);
+        line.put("running", running);
+        publish(run.runId(), line.toString());
+    }
+
     /** Completes teardown after a boundary close's writer has finalized. */
     void finishCanceledTask(String taskId)
     {

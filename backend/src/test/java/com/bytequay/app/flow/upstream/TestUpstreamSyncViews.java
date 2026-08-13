@@ -86,6 +86,95 @@ final class TestUpstreamSyncViews
         assertThat(views.job(second.runId()).orElseThrow().runNumber()).isEqualTo(2);
     }
 
+    @Test
+    void projectsTheSeparateReviewerRunIntoTheSyncConversation()
+    {
+        insertTask("task-review", "upstream-sync-command:v3:review", AT);
+        var run = start("review", "task-review", "abc123");
+        jdbc.update("""
+                INSERT INTO flow_runtime_operation (
+                    operation_id, owner_kind, owner_id, task_id, kind,
+                    subject_digest, input_ref, state, created_at
+                ) VALUES ('review-operation', 'REVIEW_REQUEST',
+                    'review-request', 'task-review', 'RUN_REVIEWER',
+                    'review-subject', 'review-input', 'CLAIMED', ?)
+                """, AT + 1);
+        jdbc.update("""
+                INSERT INTO flow_runtime_agent_session (
+                    session_id, task_id, role, state, last_run_id,
+                    created_at, updated_at
+                ) VALUES ('review-session', 'task-review',
+                    'ADVERSARIAL_REVIEWER', 'RUNNING', 'review-run', ?, ?)
+                """, AT + 1, AT + 2);
+        jdbc.update("""
+                INSERT INTO flow_runtime_agent_run (
+                    run_id, operation_id, session_id, role, head_sha,
+                    prompt_manifest_ref, capability_set_ref, input_ref,
+                    state, created_at, started_at
+                ) VALUES ('review-run', 'review-operation', 'review-session',
+                    'ADVERSARIAL_REVIEWER', 'abc123', 'review-prompt',
+                    'read-only-tools', 'review-input', 'RUNNING', ?, ?)
+                """, AT + 1, AT + 2);
+
+        UpstreamSyncViews.SyncReviewer reviewer = views.detail(run.runId())
+                .orElseThrow()
+                .reviewer();
+
+        assertThat(reviewer.runId()).isEqualTo("review-run");
+        assertThat(reviewer.state()).isEqualTo("RUNNING");
+        assertThat(reviewer.startedAt())
+                .isEqualTo(Instant.ofEpochMilli(AT + 2).toString());
+        assertThat(reviewer.completedAt()).isNull();
+    }
+
+    @Test
+    void failedTaskDoesNotKeepACompletedRangeLookingActive()
+    {
+        insertTask("task-failed", "upstream-sync-command:v3:failed", AT);
+        var run = start("failed", "task-failed", "abc123");
+        sync.recordVerification(
+                run.runId(), RunState.FINAL_REVIEW,
+                "abc123", "verification-1");
+        jdbc.update("""
+                UPDATE flow_runtime_task
+                SET status = 'NEEDS_ATTENTION'
+                WHERE task_id = 'task-failed'
+                """);
+        jdbc.update("""
+                INSERT INTO flow_runtime_operation (
+                    operation_id, owner_kind, owner_id, task_id, kind,
+                    subject_digest, input_ref, state, created_at
+                ) VALUES ('failed-operation', 'TASK', 'task-failed',
+                    'task-failed', 'RUN_TASK_TURN', 'failed-subject',
+                    'failed-input', 'FAILED', ?)
+                """, AT + 1);
+        jdbc.update("""
+                INSERT INTO flow_runtime_agent_session (
+                    session_id, task_id, role, state, last_run_id,
+                    created_at, updated_at
+                ) VALUES ('failed-session', 'task-failed', 'TASK_AGENT',
+                    'IDLE', 'failed-run', ?, ?)
+                """, AT + 1, AT + 2);
+        jdbc.update("""
+                INSERT INTO flow_runtime_agent_run (
+                    run_id, operation_id, session_id, role, head_sha,
+                    prompt_manifest_ref, capability_set_ref, input_ref,
+                    wake_kind, intended_gate_kind, state,
+                    failure_reason_code, created_at, started_at, completed_at
+                ) VALUES ('failed-run', 'failed-operation', 'failed-session',
+                    'TASK_AGENT', 'abc123', 'prompt', 'capabilities',
+                    'failed-input', 'INITIAL_TASK', 'INITIAL_PUBLISH',
+                    'FAILED', 'MISSING_TERMINAL_TOOL', ?, ?, ?)
+                """, AT + 1, AT + 1, AT + 2);
+
+        UpstreamSyncViews.SyncJob job = views.detail(run.runId())
+                .orElseThrow()
+                .job();
+
+        assertThat(job.status()).isEqualTo("FAILED");
+        assertThat(job.errorMessage()).isEqualTo("MISSING_TERMINAL_TOOL");
+    }
+
     private UpstreamSyncRecords.UpstreamSyncRun start(
             String key, String taskId, String sha)
     {

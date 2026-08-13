@@ -288,7 +288,9 @@ the program create a Task based on the resolved target commit. That Task joins
 the upstream component's deterministic clean-pick loop first; its persistent
 Task Agent stays idle until conflict or final semantic review. It then joins the
 common checks/review/initial-gate path and uses the same GitHub, CI, feedback,
-and merge contracts.
+and merge contracts. Its fresh reviewer stays bound to the exact final head and
+is instructed to find and review only conflict resolutions and fork fixups,
+without re-reviewing mechanically clean cherry-picks.
 
 ## Cross-component contracts
 

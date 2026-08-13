@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
 import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
+import com.bytequay.app.flow.gate.UserGates.ReadyRejectedException;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
@@ -66,6 +67,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_LEARNER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_REPAIR;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.REVIEWER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_FIX;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_REVIEW_RESULT;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
@@ -214,6 +216,9 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .doesNotContain("read_initial_task_context");
         assertThat(prompt).contains(
                 "replace_file_lines", "range is complete", "request exact review");
+        assertThat(launches.systemPrompt(REVIEWER)).contains(
+                "identify and review only fork-authored conflict resolutions and fixups",
+                "do not re-review clean cherry-picks");
     }
 
     @Test
@@ -559,6 +564,12 @@ final class TestNewFlowAgentRuntimeBoundaries
         TurnRunner readyRunner = mock(TurnRunner.class);
         InitialToolCapability readyCapability = mock(
                 InitialToolCapability.class);
+        ReadyRejectedException blocked = mock(ReadyRejectedException.class);
+        when(blocked.blockerCodes()).thenReturn(
+                List.of("LOCAL_CHECK_FAILED:compile"));
+        when(readyCapability.readyForInitialPublish())
+                .thenThrow(blocked)
+                .thenReturn(null);
         when(mockedLaunches.resolveSecret(review)).thenReturn("secret");
         when(mockedLaunches.systemPrompt(TASK_INITIAL_REVIEW_RESULT))
                 .thenReturn("review-system");
@@ -571,6 +582,13 @@ final class TestNewFlowAgentRuntimeBoundaries
             assertThat(executor.execute(call(
                     "ready_for_initial_publish", "{", "{}"))
                     .isError()).isTrue();
+            assertThat(hooks.interrupted()).isFalse();
+            ToolExecutor.ToolCallResult rejected = executor.execute(call(
+                    "ready_for_initial_publish", "{}", "{}"));
+            assertThat(rejected.isError()).isTrue();
+            assertThat(rejected.text()).isEqualTo(
+                    "initial publication blocked: "
+                            + "LOCAL_CHECK_FAILED:compile");
             assertThat(hooks.interrupted()).isFalse();
             assertThat(executor.execute(call(
                     "ready_for_initial_publish", "{}", "{}"))
@@ -586,7 +604,7 @@ final class TestNewFlowAgentRuntimeBoundaries
         var readyCompletion = readyBodies.initialTask(
                 review, temporaryDirectory, readyCapability, true);
 
-        verify(readyCapability).readyForInitialPublish();
+        verify(readyCapability, times(2)).readyForInitialPublish();
         assertThat(readyCompletion.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
         assertThat(readyCompletion.errorRef()).isNull();

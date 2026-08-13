@@ -559,8 +559,7 @@ final class NewFlowCliTurn
                     spawned.process().pid(),
                     spawned.pgid(),
                     spawned.leaderStartedAt());
-            deliverPrompt(
-                    spawned.process(),
+            deliverPrompt(spawned.process(), vendor,
                     vendor == CliAgentArgv.Vendor.CODEX
                             ? systemPrompt + "\n\n" + USER_MESSAGE
                             : USER_MESSAGE);
@@ -643,10 +642,21 @@ final class NewFlowCliTurn
      * <p>Not in argv: a reconstructed context is large, and an oversized command
      * line fails at {@code exec(2)} before the agent exists to report it.
      */
-    private void deliverPrompt(Process process, String prompt)
+    private void deliverPrompt(
+            Process process, CliAgentArgv.Vendor vendor, String prompt)
     {
         try (OutputStream stdin = process.getOutputStream()) {
-            stdin.write(prompt.getBytes(StandardCharsets.UTF_8));
+            String input = prompt;
+            if (vendor == CliAgentArgv.Vendor.CLAUDE_CODE) {
+                ObjectNode line = mapper.createObjectNode();
+                line.put("type", "user");
+                ObjectNode message = line.putObject("message");
+                message.put("role", "user");
+                message.put("content", prompt);
+                line.putNull("parent_tool_use_id");
+                input = line + "\n";
+            }
+            stdin.write(input.getBytes(StandardCharsets.UTF_8));
             stdin.flush();
         }
         catch (IOException closed) {

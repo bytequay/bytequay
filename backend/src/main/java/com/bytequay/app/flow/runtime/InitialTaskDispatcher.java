@@ -300,6 +300,9 @@ public final class InitialTaskDispatcher
 
     private void dispatchReviewer(Claim claim)
     {
+        UpstreamSyncCoordinator upstreamSync = upstream;
+        boolean upstreamRange = upstreamSync != null
+                && upstreamSync.owns(claim.taskId());
         Operation operation = runtime.operation(claim.operationId())
                 .orElseThrow();
         ReviewerStart start = coordinator.beginReviewer(
@@ -311,9 +314,18 @@ public final class InitialTaskDispatcher
                 throw new IllegalStateException(
                         "INITIAL dispatcher is stopping");
             }
+            if (upstreamRange) {
+                upstreamSync.reviewerState(
+                        claim.taskId(), start.run().runId(), true);
+            }
             handle = coordinator.launchReviewer(
                     reviewers, start, claim,
-                    capability -> bodies.reviewer(launch, capability));
+                    capability -> upstreamRange
+                            ? bodies.reviewer(
+                                    launch, capability,
+                                    upstreamSync.reviewerActivity(
+                                            claim.taskId()))
+                            : bodies.reviewer(launch, capability));
             registerCancellation(
                     claim.operationId(),
                     () -> reviewers.cancel(
@@ -321,6 +333,10 @@ public final class InitialTaskDispatcher
         }
         awaitRegistered(() -> coordinator.awaitReviewer(
                 reviewers, handle, config.bodyTimeout()));
+        if (upstreamRange) {
+            upstreamSync.reviewerState(
+                    claim.taskId(), start.run().runId(), false);
+        }
     }
 
     private void registerCancellation(

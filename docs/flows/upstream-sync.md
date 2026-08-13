@@ -39,7 +39,7 @@ durable upstream preview before Task creation
   -> create Task at resolved target base
   -> construct branch locally
   -> resolve conflicts and shape history
-  -> final checks + adversarial review
+  -> final checks + repair-only adversarial review
   -> user Local PR review
   -> program opens draft GitHub PR
   -> Upstream Sync stops
@@ -64,6 +64,10 @@ fallback.
 - Source/target refs are fetched and resolved to immutable SHAs before preview.
 - The user confirms the exact ordered range and exclusions before mutation.
 - Clean picks are deterministic program operations using `git cherry-pick -x`.
+- Final adversarial review remains bound to the exact final candidate and is
+  instructed to identify and review conflict resolutions and fork fixups while
+  ignoring mechanically clean picks. The program does not preselect commits for
+  the reviewer.
 - A conflict is semantic work. The program preserves sequencer/conflict evidence
   and resumes the Task Agent; it never guesses a resolution.
 - Never commit unresolved index entries or deliberately commit conflict markers.
@@ -513,7 +517,9 @@ After the last pick:
 1. The Task Agent runs the broadest locally available repository checks.
 2. It calls the normal `save_pr_draft` flow, which materializes the Local PR
    only for a clean, non-empty, reviewable diff and saves its title/body draft.
-3. It spawns a fresh read-only adversarial reviewer for the exact final head.
+3. It spawns a fresh read-only adversarial reviewer for the exact final head,
+   with an upstream-specific instruction to find and review conflict
+   resolutions and fork fixups and ignore mechanically clean cherry-picks.
 4. It fixes actionable findings through the same terminal history-command
    boundary and repeats exact-head checks/review as needed.
 5. It calls `ready_for_review()` and receives `ACCEPTED_SEALED` or an actionable
@@ -681,7 +687,8 @@ events. See [pr-timeline.md](./pr-timeline.md).
    checkout. Confirming its current digest creates exactly one Task at the
    resolved target-base SHA, one run, and one provision operation.
 2. **All clean:** confirm 100-commit range -> deterministic `-x` picks -> one
-   final review/gate -> one draft PR -> generic CI ownership.
+   reviewer turn instructed not to re-review the clean picks -> one gate -> one
+   draft PR -> generic CI ownership.
 3. **Already present:** trailer/patch-equivalent entries are shown and excluded
    only by the confirmed preview; duplicate delivery does not enter history.
 4. **Ambiguous presence:** program refuses to infer; user selection controls the

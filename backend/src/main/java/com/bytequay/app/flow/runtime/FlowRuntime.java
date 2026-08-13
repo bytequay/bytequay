@@ -73,8 +73,6 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -97,7 +95,6 @@ import static java.util.Objects.requireNonNull;
  */
 public final class FlowRuntime
 {
-    private static final int RECONCILIATION_PRIORITY = 900;
     private static final int CI_FIX_PRIORITY = 800;
     private static final int TASK_TURN_PRIORITY = 700;
     private static final int CI_LEARNING_PRIORITY = 600;
@@ -106,6 +103,7 @@ public final class FlowRuntime
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector = new FlowWorktreeInspector();
+    private final DispatchRuntime dispatches;
     private final CiObservationRuntime ciObservations;
     private final TaskRuntime tasks;
     private final PublishRuntime publishes;
@@ -712,6 +710,7 @@ public final class FlowRuntime
         this.transactions = new TransactionTemplate(
                 new DataSourceTransactionManager(dataSource));
         this.clock = requireNonNull(clock, "clock is null");
+        this.dispatches = new DispatchRuntime(this, jdbc, clock);
         this.ciObservations = new CiObservationRuntime(this, jdbc, clock);
         this.tasks = new TaskRuntime(this, jdbc, clock);
         this.publishes = new PublishRuntime(this, jdbc, clock);
@@ -1597,7 +1596,7 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNext(
             String workerId, Duration claimTtl)
     {
-        return claimNext(workerId, claimTtl, null, Integer.MAX_VALUE);
+        return dispatches.claimNext(workerId, claimTtl);
     }
 
     /**
@@ -1610,21 +1609,8 @@ public final class FlowRuntime
             Duration claimTtl,
             int capacity)
     {
-        requireNonNull(kinds, "kinds is null");
-        if (kinds.isEmpty()) {
-            return Optional.empty();
-        }
-        Set<OperationKind> exactKinds = Set.copyOf(kinds);
-        if (exactKinds.contains(OperationKind.PUBLISH)
-                || exactKinds.contains(OperationKind.OBSERVE_CI)
-                || exactKinds.contains(OperationKind.RUN_CI_LEARNING)) {
-            throw new IllegalArgumentException(
-                    "owner-specific kinds require their own claim path");
-        }
-        if (capacity < 1) {
-            throw new IllegalArgumentException("capacity must be positive");
-        }
-        return claimNext(workerId, claimTtl, exactKinds, capacity);
+        return dispatches.claimNextForDispatch(
+                kinds, workerId, claimTtl, capacity);
     }
 
     /**
@@ -1635,554 +1621,21 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNextCiAutofix(
             String workerId, Duration claimTtl, int capacity)
     {
-        requireText(workerId, "workerId");
-        requirePositive(claimTtl, "claimTtl");
-        if (capacity < 1) {
-            throw new IllegalArgumentException("capacity must be positive");
-        }
-        return inTransaction(() -> {
-            if (activeDispatchCount() >= capacity) {
-                return Optional.empty();
-            }
-            Instant now = clock.instant();
-            List<ClaimCandidate> candidates = jdbc.query(
-                    """
-                    SELECT o.operation_id, o.task_id, o.kind,
-                           d.claim_generation
-                    FROM flow_runtime_operation o
-                    JOIN flow_runtime_dispatch_ticket d
-                      ON d.operation_id = o.operation_id
-                    JOIN flow_runtime_task t ON t.task_id = o.task_id
-                    JOIN flow_runtime_agent_session ts
-                      ON ts.session_id = t.task_session_id
-                    WHERE o.state = 'READY'
-                      AND d.delivery_state = 'AVAILABLE'
-                      AND d.not_before <= ?
-                      AND t.status = 'ACTIVE'
-                      AND t.waiting_mutation_state_ref IS NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM flow_runtime_operation po
-                          WHERE po.task_id = t.task_id
-                            AND po.kind = 'PUBLISH'
-                            AND po.state IN (
-                                'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
-                            )
-                      )
-                      AND (
-                          (o.kind = 'RECONCILE_TASK'
-                           AND t.selected_writer_operation_id IS NULL
-                           AND ts.state <> 'PARKED_CHILD'
-                           AND EXISTS (
-                               SELECT 1 FROM flow_runtime_inbox i
-                               WHERE i.task_id = t.task_id
-                                 AND i.selected_by_operation_id IS NULL
-                                 AND i.handled_by_operation_id IS NULL
-                                 AND i.terminal_reason IS NULL
-                                 AND i.kind IN (
-                                     'FINAL_RED', 'CI_FIX_READY',
-                                     'AGENT_RESULT_READY'
-                                 )
-                                 AND (i.kind <> 'AGENT_RESULT_READY'
-                                      OR EXISTS (
-                                          SELECT 1
-                                          FROM flow_runtime_agent_run rr
-                                          JOIN flow_runtime_reviewer_request q
-                                            ON q.reviewer_operation_id =
-                                                rr.operation_id
-                                          WHERE rr.run_id = i.external_key
-                                            AND q.intended_gate_kind =
-                                                'CI_UPDATE'
-                                            AND q.origin_ci_fix_pending_id
-                                                IS NOT NULL
-                                      ))
-                           ))
-                          OR (o.kind = 'RUN_CI_FIXER'
-                              AND o.owner_kind IN ('CI_ROUND', 'CI_CLEANUP')
-                              AND t.selected_writer_operation_id =
-                                  o.operation_id)
-                          OR (o.kind = 'RUN_TASK_TURN'
-                              AND t.selected_writer_operation_id =
-                                  o.operation_id
-                              AND (
-                                  o.owner_kind = 'CI_ATTEMPT'
-                                  OR (o.owner_kind = 'AGENT_RUN' AND EXISTS (
-                                      SELECT 1
-                                      FROM flow_runtime_agent_run rr
-                                      JOIN flow_runtime_reviewer_request q
-                                        ON q.reviewer_operation_id =
-                                            rr.operation_id
-                                      WHERE rr.run_id = o.owner_id
-                                        AND q.intended_gate_kind = 'CI_UPDATE'
-                                        AND q.origin_ci_fix_pending_id
-                                            IS NOT NULL
-                                  ))
-                              ))
-                          OR (o.kind = 'RUN_REVIEWER'
-                              AND o.owner_kind = 'REVIEW_REQUEST'
-                              AND t.selected_writer_operation_id IS NULL
-                              AND ts.state = 'PARKED_CHILD'
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_writer_lease l
-                                  WHERE l.task_id = t.task_id
-                              )
-                              AND EXISTS (
-                                  SELECT 1
-                                  FROM flow_runtime_reviewer_request q
-                                  JOIN flow_runtime_operation p
-                                    ON p.operation_id = q.parent_operation_id
-                                  WHERE q.reviewer_operation_id =
-                                            o.operation_id
-                                    AND q.request_id = o.owner_id
-                                    AND q.intended_gate_kind = 'CI_UPDATE'
-                                    AND q.origin_ci_fix_pending_id IS NOT NULL
-                                    AND p.state IN (
-                                        'SUCCEEDED', 'FAILED', 'CANCELED'
-                                    )
-                                    AND p.result_ref IS NOT NULL
-                              ))
-                      )
-                    ORDER BY d.priority DESC, d.not_before, o.operation_id
-                    LIMIT 32
-                    """,
-                    (result, row) -> new ClaimCandidate(
-                            result.getString("operation_id"),
-                            result.getString("task_id"),
-                            OperationKind.valueOf(result.getString("kind")),
-                            result.getLong("claim_generation")),
-                    now.toEpochMilli());
-            for (ClaimCandidate candidate : candidates) {
-                long generation = candidate.generation() + 1;
-                String token = UUID.randomUUID().toString();
-                Instant expiresAt = now.plus(claimTtl);
-                int ticketUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_dispatch_ticket
-                        SET claim_owner = ?, claim_expires_at = ?,
-                            claim_generation = ?, claim_token = ?,
-                            delivery_state = 'CLAIMED'
-                        WHERE operation_id = ?
-                          AND delivery_state = 'AVAILABLE'
-                          AND claim_generation = ?
-                        """,
-                        workerId, expiresAt.toEpochMilli(), generation, token,
-                        candidate.operationId(), candidate.generation());
-                if (ticketUpdated == 0) {
-                    continue;
-                }
-                int operationUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_operation
-                        SET state = 'CLAIMED', attempt = attempt + 1
-                        WHERE operation_id = ? AND state = 'READY'
-                        """,
-                        candidate.operationId());
-                if (operationUpdated != 1) {
-                    throw new IllegalStateException(
-                            "CI ticket claimed without its READY operation");
-                }
-                return Optional.of(new Claim(
-                        candidate.operationId(), candidate.taskId(),
-                        candidate.kind(), generation, token, workerId,
-                        expiresAt));
-            }
-            return Optional.empty();
-        });
+        return dispatches.claimNextCiAutofix(workerId, claimTtl, capacity);
     }
 
     /** Claims only ordinary INITIAL Task/reviewer/reconciliation owners. */
     public synchronized Optional<Claim> claimNextInitialTask(
             String workerId, Duration claimTtl, int capacity)
     {
-        requireText(workerId, "workerId");
-        requirePositive(claimTtl, "claimTtl");
-        if (capacity < 1) {
-            throw new IllegalArgumentException("capacity must be positive");
-        }
-        return inTransaction(() -> {
-            if (activeDispatchCount() >= capacity) {
-                return Optional.empty();
-            }
-            Instant now = clock.instant();
-            List<ClaimCandidate> candidates = jdbc.query(
-                    """
-                    SELECT o.operation_id, o.task_id, o.kind,
-                           d.claim_generation
-                    FROM flow_runtime_operation o
-                    JOIN flow_runtime_dispatch_ticket d
-                      ON d.operation_id = o.operation_id
-                    JOIN flow_runtime_task t ON t.task_id = o.task_id
-                    JOIN flow_runtime_agent_session ts
-                      ON ts.session_id = t.task_session_id
-                    WHERE o.state = 'READY'
-                      AND d.delivery_state = 'AVAILABLE'
-                      AND d.not_before <= ?
-                      AND t.status = 'ACTIVE'
-                      AND t.waiting_mutation_state_ref IS NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM flow_runtime_operation po
-                          WHERE po.task_id = t.task_id
-                            AND po.kind = 'PUBLISH'
-                            AND po.state IN (
-                                'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
-                            )
-                      )
-                      AND (
-                          (o.kind = 'RECONCILE_TASK'
-                           AND t.selected_writer_operation_id IS NULL
-                           AND ts.state <> 'PARKED_CHILD'
-                           AND EXISTS (
-                               SELECT 1 FROM flow_runtime_inbox i
-                               WHERE i.task_id = t.task_id
-                                 AND i.selected_by_operation_id IS NULL
-                                 AND i.handled_by_operation_id IS NULL
-                                 AND i.terminal_reason IS NULL
-                                 AND (
-                                     (i.kind = 'INITIAL_TASK'
-                                      AND i.intended_gate_kind =
-                                            'INITIAL_PUBLISH'
-                                      AND i.external_key = t.task_id
-                                      AND i.pr_id IS NULL
-                                      AND i.agent_result_id IS NULL
-                                      AND i.payload_ref =
-                                            'task-goal:' || t.task_id
-                                      AND i.subject_head = t.current_head_sha)
-                                     OR (i.kind = 'AGENT_RESULT_READY'
-                                         AND i.intended_gate_kind =
-                                            'INITIAL_PUBLISH'
-                                         AND EXISTS (
-                                             SELECT 1
-                                             FROM flow_runtime_agent_run rr
-                                             JOIN flow_runtime_reviewer_request q
-                                               ON q.reviewer_operation_id =
-                                                    rr.operation_id
-                                             JOIN flow_runtime_agent_result ar
-                                               ON ar.run_id = rr.run_id
-                                             WHERE rr.run_id = i.external_key
-                                               AND q.intended_gate_kind =
-                                                    'INITIAL_PUBLISH'
-                                               AND q.task_id = t.task_id
-                                               AND ar.result_id =
-                                                    i.agent_result_id
-                                               AND i.payload_ref =
-                                                    'reviewer-request:'
-                                                    || q.request_id
-                                                    || ':result:'
-                                                    || ar.result_id
-                                               AND i.subject_head =
-                                                    q.reviewed_head_sha
-                                         ))
-                                 )
-                           ))
-                          OR (o.kind = 'RUN_TASK_TURN'
-                              AND t.selected_writer_operation_id =
-                                    o.operation_id
-                              AND EXISTS (
-                                  SELECT 1 FROM flow_runtime_inbox i
-                                  WHERE i.selected_by_operation_id =
-                                            o.operation_id
-                                    AND i.handled_by_operation_id IS NULL
-                                    AND i.terminal_reason IS NULL
-                                    AND o.input_ref = 'inbox:' || i.inbox_id
-                                    AND i.task_id = t.task_id
-                                    AND i.intended_gate_kind =
-                                        'INITIAL_PUBLISH'
-                                    AND i.subject_head = t.current_head_sha
-                                    AND (
-                                        (o.owner_kind = 'TASK'
-                                         AND o.owner_id = t.task_id
-                                         AND i.kind = 'INITIAL_TASK'
-                                         AND i.external_key = t.task_id
-                                         AND i.pr_id IS NULL
-                                         AND i.agent_result_id IS NULL
-                                         AND i.payload_ref =
-                                            'task-goal:' || t.task_id)
-                                        OR (o.owner_kind = 'AGENT_RUN'
-                                            AND i.kind =
-                                                'AGENT_RESULT_READY'
-                                            AND i.external_key = o.owner_id
-                                            AND EXISTS (
-                                                SELECT 1
-                                                FROM flow_runtime_agent_run rr
-                                                JOIN flow_runtime_reviewer_request q
-                                                  ON q.reviewer_operation_id =
-                                                       rr.operation_id
-                                                JOIN flow_runtime_agent_result ar
-                                                  ON ar.run_id = rr.run_id
-                                                WHERE rr.run_id = o.owner_id
-                                                  AND q.task_id = t.task_id
-                                                  AND q.intended_gate_kind =
-                                                    'INITIAL_PUBLISH'
-                                                  AND ar.result_id =
-                                                    i.agent_result_id
-                                                  AND i.payload_ref =
-                                                    'reviewer-request:'
-                                                    || q.request_id
-                                                    || ':result:'
-                                                    || ar.result_id
-                                                  AND i.subject_head =
-                                                    q.reviewed_head_sha
-                                            ))
-                                    )
-                              ))
-                          OR (o.kind = 'RUN_REVIEWER'
-                              AND o.owner_kind = 'REVIEW_REQUEST'
-                              AND t.selected_writer_operation_id IS NULL
-                              AND ts.state = 'PARKED_CHILD'
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_writer_lease l
-                                  WHERE l.task_id = t.task_id
-                              )
-                              AND EXISTS (
-                                  SELECT 1
-                                  FROM flow_runtime_reviewer_request q
-                                  JOIN flow_runtime_operation p
-                                    ON p.operation_id = q.parent_operation_id
-                                  WHERE q.reviewer_operation_id =
-                                        o.operation_id
-                                    AND q.request_id = o.owner_id
-                                    AND q.intended_gate_kind =
-                                        'INITIAL_PUBLISH'
-                                    AND q.origin_ci_fix_pending_id IS NULL
-                                    AND q.origin_ci_fix_source_kind IS NULL
-                                    AND q.origin_ci_fix_source_id IS NULL
-                                    AND p.state IN (
-                                        'SUCCEEDED', 'FAILED', 'CANCELED'
-                                    )
-                                    AND p.result_ref IS NOT NULL
-                              ))
-                      )
-                    ORDER BY d.priority DESC, d.not_before, o.operation_id
-                    LIMIT 32
-                    """,
-                    (result, row) -> new ClaimCandidate(
-                            result.getString("operation_id"),
-                            result.getString("task_id"),
-                            OperationKind.valueOf(result.getString("kind")),
-                            result.getLong("claim_generation")),
-                    now.toEpochMilli());
-            for (ClaimCandidate candidate : candidates) {
-                long generation = candidate.generation() + 1;
-                String token = UUID.randomUUID().toString();
-                Instant expiresAt = now.plus(claimTtl);
-                int ticketUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_dispatch_ticket
-                        SET claim_owner = ?, claim_expires_at = ?,
-                            claim_generation = ?, claim_token = ?,
-                            delivery_state = 'CLAIMED'
-                        WHERE operation_id = ?
-                          AND delivery_state = 'AVAILABLE'
-                          AND claim_generation = ?
-                        """,
-                        workerId, expiresAt.toEpochMilli(), generation, token,
-                        candidate.operationId(), candidate.generation());
-                if (ticketUpdated == 0) {
-                    continue;
-                }
-                int operationUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_operation
-                        SET state = 'CLAIMED', attempt = attempt + 1
-                        WHERE operation_id = ? AND state = 'READY'
-                        """,
-                        candidate.operationId());
-                if (operationUpdated != 1) {
-                    throw new IllegalStateException(
-                            "INITIAL ticket claimed without READY operation");
-                }
-                return Optional.of(new Claim(
-                        candidate.operationId(), candidate.taskId(),
-                        candidate.kind(), generation, token, workerId,
-                        expiresAt));
-            }
-            return Optional.empty();
-        });
+        return dispatches.claimNextInitialTask(workerId, claimTtl, capacity);
     }
 
-    private Optional<Claim> claimNext(
-            String workerId,
-            Duration claimTtl,
-            Set<OperationKind> exactKinds,
-            int capacity)
-    {
-        requireText(workerId, "workerId");
-        requirePositive(claimTtl, "claimTtl");
-        return inTransaction(() -> {
-            if (activeDispatchCount() >= capacity) {
-                return Optional.empty();
-            }
-            Instant now = clock.instant();
-            List<String> kindNames = exactKinds == null
-                    ? List.of()
-                    : exactKinds.stream()
-                            .map(Enum::name)
-                            .sorted()
-                            .toList();
-            String kindFilter = kindNames.isEmpty()
-                    ? ""
-                    : "AND o.kind IN ("
-                            + String.join(", ", Collections.nCopies(
-                                    kindNames.size(), "?"))
-                            + ")";
-            String claimSql = """
-                    SELECT o.operation_id, o.task_id, o.kind,
-                           d.claim_generation
-                    FROM flow_runtime_operation o
-                    JOIN flow_runtime_dispatch_ticket d
-                      ON d.operation_id = o.operation_id
-                    LEFT JOIN flow_runtime_task t ON t.task_id = o.task_id
-                    LEFT JOIN flow_runtime_agent_session ts
-                      ON ts.session_id = t.task_session_id
-                    WHERE o.state = 'READY'
-                      AND d.delivery_state = 'AVAILABLE'
-                      AND d.not_before <= ?
-                      %s
-                      AND (
-                          o.kind = 'PROVISION_TASK'
-                          OR (o.kind = 'RECONCILE_TASK'
-                              AND t.status = 'ACTIVE'
-                              AND t.waiting_mutation_state_ref IS NULL
-                              AND t.selected_writer_operation_id IS NULL
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_operation po
-                                  WHERE po.task_id = t.task_id
-                                    AND po.kind = 'PUBLISH'
-                                    AND po.state IN (
-                                        'READY', 'CLAIMED', 'WAITING',
-                                        'RETRYABLE'
-                                    )
-                              )
-                              AND ts.state <> 'PARKED_CHILD'
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_operation ro
-                                  WHERE ro.task_id = t.task_id
-                                    AND ro.kind = 'RUN_REVIEWER'
-                                    AND ro.state IN (
-                                        'READY', 'CLAIMED', 'WAITING',
-                                        'RETRYABLE'
-                                    )
-                              ))
-                          OR (o.kind IN ('RUN_TASK_TURN', 'RUN_CI_FIXER')
-                              AND t.status = 'ACTIVE'
-                              AND t.waiting_mutation_state_ref IS NULL
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_operation po
-                                  WHERE po.task_id = t.task_id
-                                    AND po.kind = 'PUBLISH'
-                                    AND po.state IN (
-                                        'READY', 'CLAIMED', 'WAITING',
-                                        'RETRYABLE'
-                                    )
-                              )
-                              AND t.selected_writer_operation_id = o.operation_id)
-                          OR (o.kind = 'RUN_REVIEWER'
-                              AND o.owner_kind = 'REVIEW_REQUEST'
-                              AND t.status = 'ACTIVE'
-                              AND t.waiting_mutation_state_ref IS NULL
-                              AND t.selected_writer_operation_id IS NULL
-                              AND ts.state = 'PARKED_CHILD'
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM flow_runtime_writer_lease l
-                                  WHERE l.task_id = t.task_id
-                              )
-                              AND EXISTS (
-                                  SELECT 1
-                                  FROM flow_runtime_reviewer_request q
-                                  JOIN flow_runtime_operation p
-                                    ON p.operation_id = q.parent_operation_id
-                                  WHERE q.reviewer_operation_id = o.operation_id
-                                    AND q.request_id = o.owner_id
-                                    AND p.state IN (
-                                        'SUCCEEDED', 'FAILED', 'CANCELED'
-                                    )
-                                    AND p.result_ref IS NOT NULL
-                              ))
-                      )
-                    ORDER BY d.priority DESC, d.not_before, o.operation_id
-                    LIMIT 32
-                    """.formatted(kindFilter);
-            List<Object> parameters = new ArrayList<>();
-            parameters.add(now.toEpochMilli());
-            parameters.addAll(kindNames);
-            List<ClaimCandidate> candidates = jdbc.query(
-                    claimSql,
-                    (result, row) -> new ClaimCandidate(
-                            result.getString("operation_id"),
-                            result.getString("task_id"),
-                            OperationKind.valueOf(result.getString("kind")),
-                            result.getLong("claim_generation")),
-                    parameters.toArray());
-            for (ClaimCandidate candidate : candidates) {
-                long generation = candidate.generation() + 1;
-                String token = UUID.randomUUID().toString();
-                Instant expiresAt = now.plus(claimTtl);
-                int ticketUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_dispatch_ticket
-                        SET claim_owner = ?, claim_expires_at = ?,
-                            claim_generation = ?, claim_token = ?,
-                            delivery_state = 'CLAIMED'
-                        WHERE operation_id = ?
-                          AND delivery_state = 'AVAILABLE'
-                          AND claim_generation = ?
-                        """,
-                        workerId,
-                        expiresAt.toEpochMilli(),
-                        generation,
-                        token,
-                        candidate.operationId(),
-                        candidate.generation());
-                if (ticketUpdated == 0) {
-                    continue;
-                }
-                int operationUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_operation
-                        SET state = 'CLAIMED', attempt = attempt + 1
-                        WHERE operation_id = ? AND state = 'READY'
-                        """,
-                        candidate.operationId());
-                if (operationUpdated != 1) {
-                    throw new IllegalStateException(
-                            "ticket claimed without its READY operation");
-                }
-                return Optional.of(new Claim(
-                        candidate.operationId(),
-                        candidate.taskId(),
-                        candidate.kind(),
-                        generation,
-                        token,
-                        workerId,
-                        expiresAt));
-            }
-            return Optional.empty();
-        });
-    }
 
     /** Counts shared-capacity work; optional read-only learners are excluded. */
     int activeDispatchCount()
     {
-        Integer active = jdbc.queryForObject(
-                """
-                SELECT COUNT(DISTINCT operation_id)
-                FROM (
-                    SELECT o.operation_id
-                    FROM flow_runtime_operation o
-                    JOIN flow_runtime_dispatch_ticket d
-                      ON d.operation_id = o.operation_id
-                    WHERE o.state = 'CLAIMED'
-                      AND d.delivery_state = 'CLAIMED'
-                      AND o.kind <> 'RUN_CI_LEARNING'
-                    UNION ALL
-                    SELECT p.operation_id
-                    FROM flow_runtime_agent_process_attempt p
-                    JOIN flow_runtime_agent_run r ON r.run_id = p.run_id
-                    WHERE p.state = 'ACTIVATED'
-                      AND r.role <> 'CI_LEARNER'
-                ) active
-                """,
-                Integer.class);
-        return requireNonNull(active, "active dispatch count is null");
+        return dispatches.activeDispatchCount();
     }
 
     /** Claims the oldest exact authorized publication plan for one PR. */
@@ -2643,34 +2096,7 @@ public final class FlowRuntime
     /** Finds expired generations entirely from durable state after restart. */
     public List<ExpiredClaim> expiredClaims()
     {
-        return jdbc.query(
-                """
-                SELECT o.operation_id, o.task_id, o.kind,
-                       d.claim_generation, d.claim_expires_at,
-                       r.run_id, p.process_attempt_id, p.state process_state
-                FROM flow_runtime_operation o
-                JOIN flow_runtime_dispatch_ticket d
-                  ON d.operation_id = o.operation_id
-                LEFT JOIN flow_runtime_agent_run r
-                  ON r.operation_id = o.operation_id
-                LEFT JOIN flow_runtime_agent_process_attempt p
-                  ON p.run_id = r.run_id
-                 AND p.claim_generation = d.claim_generation
-                WHERE o.state = 'CLAIMED'
-                  AND d.delivery_state = 'CLAIMED'
-                  AND d.claim_expires_at <= ?
-                ORDER BY d.claim_expires_at, o.operation_id
-                """,
-                (result, row) -> new ExpiredClaim(
-                        result.getString("operation_id"),
-                        result.getString("task_id"),
-                        OperationKind.valueOf(result.getString("kind")),
-                        result.getLong("claim_generation"),
-                        instant(result, "claim_expires_at"),
-                        result.getString("run_id"),
-                        result.getString("process_attempt_id"),
-                        nullableProcessState(result.getString("process_state"))),
-                clock.instant().toEpochMilli());
+        return dispatches.expiredClaims();
     }
 
     /**
@@ -2680,45 +2106,7 @@ public final class FlowRuntime
     public synchronized boolean recoverExpiredClaim(
             String operationId, long generation)
     {
-        requireText(operationId, "operationId");
-        return inTransaction(() -> {
-            Operation operation = requireOperation(operationId);
-            if (operation.kind() == OperationKind.PUBLISH
-                    || operation.kind() == OperationKind.OBSERVE_CI
-                    || operation.kind() == OperationKind.PROVISION_TASK
-                    || operation.kind()
-                        == OperationKind.RUN_CI_LEARNING) {
-                throw new IllegalArgumentException(
-                        operation.kind() + " requires owner-specific recovery");
-            }
-            if (operation.state() == OperationState.RETRYABLE
-                    && ticketMatches(
-                            operationId, generation, "AVAILABLE")) {
-                return true;
-            }
-            if (operation.state() == OperationState.FAILED
-                    && ticketMatches(operationId, generation, "DONE")) {
-                return false;
-            }
-            ExpiredClaim expired = requireExpiredClaim(operationId, generation);
-            if (expired.processAttemptId() != null) {
-                if (expired.kind() == OperationKind.RUN_REVIEWER
-                        && expired.processAttemptState()
-                                == ProcessAttemptState.RESERVED) {
-                    recoverNeverLaunchedClaim(expired);
-                    return true;
-                }
-                if (expired.kind() == OperationKind.RUN_REVIEWER) {
-                    quarantineExpiredReviewerProcessAttempt(expired);
-                }
-                else {
-                    quarantineExpiredProcessAttempt(expired);
-                }
-                return false;
-            }
-            recoverNeverLaunchedClaim(expired);
-            return true;
-        });
+        return dispatches.recoverExpiredClaim(operationId, generation);
     }
 
     /**
@@ -2896,38 +2284,7 @@ public final class FlowRuntime
     /** Makes one proven-dead retry generation eligible for normal claiming. */
     public synchronized void redriveRetryable(String operationId)
     {
-        requireText(operationId, "operationId");
-        inTransaction(() -> {
-            Operation operation = requireOperation(operationId);
-            if (operation.state() == OperationState.READY) {
-                return Boolean.TRUE;
-            }
-            Integer available = jdbc.queryForObject(
-                    """
-                    SELECT COUNT(*) FROM flow_runtime_dispatch_ticket
-                    WHERE operation_id = ? AND delivery_state = 'AVAILABLE'
-                    """,
-                    Integer.class,
-                    operationId);
-            if (operation.state() != OperationState.RETRYABLE
-                    || requireNonNull(
-                            available, "available ticket count is null") != 1) {
-                throw new IllegalStateException(
-                        "operation is not a never-launched retry generation");
-            }
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_operation
-                    SET state = 'READY'
-                    WHERE operation_id = ? AND state = 'RETRYABLE'
-                    """,
-                    operationId);
-            if (updated != 1) {
-                throw new StaleClaimException(
-                        "retry operation changed during redrive");
-            }
-            return Boolean.TRUE;
-        });
+        dispatches.redriveRetryable(operationId);
     }
 
     private void assertCiLearningQuarantineReplay(
@@ -2985,278 +2342,21 @@ public final class FlowRuntime
      */
     public synchronized Optional<Operation> selectNext(Claim claim)
     {
-        return selectNext(claim, null);
+        return dispatches.selectNext(claim);
     }
 
     /** Selects only INITIAL_TASK and INITIAL reviewer-result continuations. */
     public synchronized Optional<Operation> selectNextInitial(Claim claim)
     {
-        return selectNext(claim, GateIntent.INITIAL_PUBLISH);
+        return dispatches.selectNextInitial(claim);
     }
 
-    private Optional<Operation> selectNext(
-            Claim claim, GateIntent exactIntent)
-    {
-        requireNonNull(claim, "claim is null");
-        return inTransaction(() -> {
-            assertCurrentClaim(claim, OperationState.CLAIMED);
-            Operation reconciliation = requireOperation(claim.operationId());
-            if (reconciliation.kind() != OperationKind.RECONCILE_TASK
-                    || reconciliation.workWatermark() == null) {
-                throw new IllegalArgumentException(
-                        "claim does not own reconciliation");
-            }
-            int taskLocked = jdbc.update(
-                    "UPDATE flow_runtime_task SET task_id = task_id "
-                            + "WHERE task_id = ?",
-                    reconciliation.taskId());
-            if (taskLocked != 1) {
-                throw new StaleOwnerRevisionException(
-                        "reconciliation Task is unavailable");
-            }
-            Task task = requireTask(reconciliation.taskId());
-            if (hasNonterminalPublish(task.taskId())) {
-                parkReconciliation(reconciliation.operationId());
-                return Optional.empty();
-            }
-            if (task.selectedWriterOperationId() != null) {
-                throw new IllegalStateException(
-                        "Task already has a selected writer");
-            }
-            if (task.status() != TaskStatus.ACTIVE) {
-                if (task.status() == TaskStatus.WAITING_USER
-                        || task.status() == TaskStatus.NEEDS_ATTENTION
-                        || task.status() == TaskStatus.CREATED) {
-                    parkReconciliation(reconciliation.operationId());
-                    return Optional.empty();
-                }
-                jdbc.update(
-                        """
-                        UPDATE flow_runtime_inbox
-                        SET handled_by_operation_id = ?
-                        WHERE task_id = ? AND handled_by_operation_id IS NULL
-                          AND work_watermark <= ?
-                        """,
-                        reconciliation.operationId(),
-                        task.taskId(),
-                        reconciliation.workWatermark());
-                settleDispatch(
-                        reconciliation.operationId(),
-                        OperationState.CANCELED,
-                        "TASK_NOT_ACTIVE");
-                jdbc.update(
-                        """
-                        UPDATE flow_runtime_task
-                        SET last_reconciled_work_watermark = MAX(
-                            last_reconciled_work_watermark, ?)
-                        WHERE task_id = ?
-                        """,
-                        reconciliation.workWatermark(),
-                        task.taskId());
-                return Optional.empty();
-            }
-            AgentSession taskSession = requireSession(task.taskSessionId());
-            Integer liveReviewer = jdbc.queryForObject(
-                    """
-                    SELECT COUNT(*) FROM flow_runtime_operation
-                    WHERE task_id = ? AND kind = 'RUN_REVIEWER'
-                      AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
-                    """,
-                    Integer.class,
-                    task.taskId());
-            if (taskSession.state() == SessionState.PARKED_CHILD
-                    || requireNonNull(
-                            liveReviewer, "live reviewer count is null") > 0) {
-                parkReconciliation(reconciliation.operationId());
-                return Optional.empty();
-            }
 
-            Optional<Operation> selected = Optional.empty();
-            List<PendingWork> pending = jdbc.query(
-                    """
-                    SELECT * FROM flow_runtime_inbox
-                    WHERE task_id = ?
-                      AND work_watermark <= ?
-                      AND handled_by_operation_id IS NULL
-                      AND selected_by_operation_id IS NULL
-                      AND terminal_reason IS NULL
-                    ORDER BY CASE kind
-                        WHEN 'AGENT_RESULT_READY' THEN 1
-                        WHEN 'CI_FIX_READY' THEN 2
-                        WHEN 'FINAL_RED' THEN 3
-                        WHEN 'INITIAL_TASK' THEN 4
-                    END, work_watermark
-                    """,
-                    (result, row) -> readInbox(result),
-                    task.taskId(),
-                    reconciliation.workWatermark());
-            for (PendingWork item : pending) {
-                if (!pendingSubjectIsCurrent(task, item)) {
-                    jdbc.update(
-                            """
-                            UPDATE flow_runtime_inbox
-                            SET handled_by_operation_id = ?
-                            WHERE inbox_id = ?
-                              AND handled_by_operation_id IS NULL
-                            """,
-                            reconciliation.operationId(),
-                            item.pendingId());
-                    continue;
-                }
-                if (exactIntent == GateIntent.INITIAL_PUBLISH
-                        && !isInitialPending(item)) {
-                    continue;
-                }
-
-                OperationKind writerKind = item.kind() == PendingKind.FINAL_RED
-                        ? OperationKind.RUN_CI_FIXER
-                        : OperationKind.RUN_TASK_TURN;
-                String ownerKind = switch (item.kind()) {
-                    case FINAL_RED -> "CI_ROUND";
-                    case CI_FIX_READY -> "CI_ATTEMPT";
-                    case AGENT_RESULT_READY -> "AGENT_RUN";
-                    case INITIAL_TASK -> "TASK";
-                };
-                String subjectDigest = stableId(
-                        "writer-subject",
-                        task.taskId(),
-                        Long.toString(task.epoch()),
-                        item.kind().name(),
-                        item.externalKey(),
-                        item.subjectHead());
-                String operationId = stableId(
-                        "operation",
-                        ownerKind,
-                        item.externalKey(),
-                        writerKind.name(),
-                        subjectDigest);
-                insertOperationAndTicket(
-                        operationId,
-                        ownerKind,
-                        item.externalKey(),
-                        task.taskId(),
-                        writerKind,
-                        subjectDigest,
-                        "inbox:" + item.pendingId(),
-                        null,
-                        writerKind == OperationKind.RUN_CI_FIXER
-                                ? CI_FIX_PRIORITY
-                                : TASK_TURN_PRIORITY,
-                        clock.instant());
-                int pointerUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_task
-                        SET selected_writer_operation_id = ?
-                        WHERE task_id = ?
-                          AND selected_writer_operation_id IS NULL
-                          AND epoch = ?
-                          AND NOT EXISTS (
-                              SELECT 1 FROM flow_runtime_operation po
-                              WHERE po.task_id = flow_runtime_task.task_id
-                                AND po.kind = 'PUBLISH'
-                                AND po.state IN (
-                                    'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
-                                )
-                          )
-                        """,
-                        operationId,
-                        task.taskId(),
-                        task.epoch());
-                if (pointerUpdated != 1) {
-                    throw new StaleOwnerRevisionException(
-                            "Task writer selection changed concurrently");
-                }
-                jdbc.update(
-                        """
-                        UPDATE flow_runtime_inbox
-                        SET selected_by_operation_id = ?
-                        WHERE inbox_id = ?
-                          AND selected_by_operation_id IS NULL
-                        """,
-                        operationId,
-                        item.pendingId());
-                selected = Optional.of(requireOperation(operationId));
-                break;
-            }
-
-            settleDispatch(
-                    reconciliation.operationId(),
-                    OperationState.SUCCEEDED,
-                    selected.map(Operation::operationId).orElse("NO_CURRENT_WORK"));
-            jdbc.update(
-                    """
-                    UPDATE flow_runtime_task
-                    SET last_reconciled_work_watermark = MAX(
-                        last_reconciled_work_watermark, ?)
-                    WHERE task_id = ?
-                    """,
-                    reconciliation.workWatermark(),
-                    task.taskId());
-            ensureReconciliationIfPending(task.taskId());
-            return selected;
-        });
-    }
-
-    private boolean isInitialPending(PendingWork item)
-    {
-        if (item.kind() == PendingKind.INITIAL_TASK) {
-            return item.intendedGateKind() == GateIntent.INITIAL_PUBLISH;
-        }
-        if (item.kind() != PendingKind.AGENT_RESULT_READY
-                || item.intendedGateKind() != GateIntent.INITIAL_PUBLISH) {
-            return false;
-        }
-        ReviewerRequest request = reviewerRequestForReviewerRun(
-                item.externalKey()).orElse(null);
-        AgentResult result = resultForRun(item.externalKey()).orElse(null);
-        return request != null && result != null
-                && request.intendedGateKind() == GateIntent.INITIAL_PUBLISH
-                && Objects.equals(item.agentResultId(), result.resultId())
-                && item.payloadRef().equals(reviewerResultPayload(
-                        request.requestId(), result.resultId()))
-                && item.subjectHead().equals(request.reviewedHeadSha());
-    }
 
     /** Exact owner discriminator used before INITIAL-specific recovery. */
     synchronized boolean ownsCurrentInitialDispatch(Operation operation)
     {
-        requireNonNull(operation, "operation is null");
-        Task task = requireTask(operation.taskId());
-        return switch (operation.kind()) {
-            case RECONCILE_TASK -> pendingWork(task.taskId()).stream()
-                    .filter(input -> input.selectedByOperationId() == null
-                            && input.handledByOperationId() == null
-                            && input.terminalReason() == null)
-                    .anyMatch(input -> pendingSubjectIsCurrent(task, input)
-                            && isInitialPending(input));
-            case RUN_TASK_TURN -> pendingWork(task.taskId()).stream()
-                    .filter(input -> Objects.equals(
-                            input.selectedByOperationId(),
-                            operation.operationId()))
-                    .filter(input -> input.handledByOperationId() == null
-                            && input.terminalReason() == null
-                            && operation.inputRef().equals(
-                                "inbox:" + input.pendingId()))
-                    .anyMatch(input -> pendingSubjectIsCurrent(task, input)
-                            && isInitialPending(input)
-                            && (operation.ownerKind().equals("TASK")
-                                && operation.ownerId().equals(task.taskId())
-                                && input.kind() == PendingKind.INITIAL_TASK
-                                || operation.ownerKind().equals("AGENT_RUN")
-                                && operation.ownerId().equals(
-                                    input.externalKey())
-                                && input.kind()
-                                    == PendingKind.AGENT_RESULT_READY));
-            case RUN_REVIEWER -> operation.ownerKind()
-                        .equals("REVIEW_REQUEST")
-                    && reviewerRequest(operation.ownerId())
-                            .filter(request -> request.reviewerOperationId()
-                                    .equals(operation.operationId()))
-                            .filter(request -> request.intendedGateKind()
-                                    == GateIntent.INITIAL_PUBLISH)
-                            .isPresent();
-            default -> false;
-        };
+        return dispatches.ownsCurrentInitialDispatch(operation);
     }
 
     /**
@@ -3955,43 +3055,7 @@ public final class FlowRuntime
     /** Renews only the live current claim generation. */
     public synchronized Claim renewClaim(Claim claim, Duration claimTtl)
     {
-        requireNonNull(claim, "claim is null");
-        requirePositive(claimTtl, "claimTtl");
-        return inTransaction(() -> {
-            assertCurrentClaim(claim, OperationState.CLAIMED);
-            Instant requestedExpiry = clock.instant().plus(claimTtl);
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_dispatch_ticket
-                    SET claim_expires_at = CASE
-                        WHEN claim_expires_at > ? THEN claim_expires_at
-                        ELSE ? END
-                    WHERE operation_id = ? AND claim_generation = ?
-                      AND claim_token = ? AND claim_owner = ?
-                      AND delivery_state = 'CLAIMED'
-                      AND claim_expires_at > ?
-                    """,
-                    requestedExpiry.toEpochMilli(),
-                    requestedExpiry.toEpochMilli(),
-                    claim.operationId(),
-                    claim.generation(),
-                    claim.claimToken(),
-                    claim.workerId(),
-                    clock.instant().toEpochMilli());
-            if (updated != 1) {
-                throw new StaleClaimException(
-                        "claim generation changed during renewal");
-            }
-            Instant expiresAt = currentClaimExpiry(claim);
-            return new Claim(
-                    claim.operationId(),
-                    claim.taskId(),
-                    claim.kind(),
-                    claim.generation(),
-                    claim.claimToken(),
-                    claim.workerId(),
-                    expiresAt);
-        });
+        return dispatches.renewClaim(claim, claimTtl);
     }
 
     /** Renews only the same live fencing token under its current claim. */
@@ -8846,11 +7910,7 @@ public final class FlowRuntime
 
     public Optional<Operation> operation(String operationId)
     {
-        requireText(operationId, "operationId");
-        return jdbc.query(
-                "SELECT * FROM flow_runtime_operation WHERE operation_id = ?",
-                (result, row) -> readOperation(result),
-                operationId).stream().findFirst();
+        return dispatches.operation(operationId);
     }
 
     public Optional<AgentSession> session(String taskId, AgentRole role)
@@ -8899,15 +7959,7 @@ public final class FlowRuntime
 
     public List<PendingWork> pendingWork(String taskId)
     {
-        requireText(taskId, "taskId");
-        return jdbc.query(
-                """
-                SELECT * FROM flow_runtime_inbox
-                WHERE task_id = ?
-                ORDER BY work_watermark
-                """,
-                (result, row) -> readInbox(result),
-                taskId);
+        return dispatches.pendingWork(taskId);
     }
 
     public Optional<ReviewerRequest> reviewerRequest(String requestId)
@@ -9221,326 +8273,40 @@ public final class FlowRuntime
             GateIntent intendedGateKind,
             Instant now)
     {
-        Optional<PendingWork> existing = inbox(pendingId);
-        if (existing.isPresent()) {
-            PendingWork pending = existing.get();
-            if (!pending.taskId().equals(task.taskId())
-                    || !Objects.equals(pending.prId(), prId)
-                    || pending.kind() != kind
-                    || !pending.externalKey().equals(externalKey)
-                    || !pending.subjectHead().equals(subjectHead)
-                    || !pending.payloadRef().equals(payloadRef)
-                    || !Objects.equals(pending.agentResultId(), agentResultId)
-                    || pending.intendedGateKind() != intendedGateKind) {
-                throw new IllegalStateException(
-                        "pending-work identity has conflicting content");
-            }
-            return pending;
-        }
-        long watermark = task.pendingWorkWatermark() + 1;
-        jdbc.update(
-                """
-                INSERT INTO flow_runtime_inbox (
-                    inbox_id, task_id, pr_id, source, external_key,
-                    revision, kind, subject_head, payload_ref,
-                    agent_result_id, intended_gate_kind,
-                    work_watermark, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                pendingId,
-                task.taskId(),
-                prId,
-                source,
-                externalKey,
-                revision,
-                kind.name(),
-                subjectHead,
-                payloadRef,
-                agentResultId,
-                intendedGateKind == null ? null : intendedGateKind.name(),
-                watermark,
-                now.toEpochMilli());
-        int advanced = jdbc.update(
-                """
-                UPDATE flow_runtime_task
-                SET pending_work_watermark = ?
-                WHERE task_id = ? AND pending_work_watermark = ?
-                """,
-                watermark,
-                task.taskId(),
-                task.pendingWorkWatermark());
-        if (advanced != 1) {
-            throw new StaleOwnerRevisionException(
-                    "Task work watermark changed concurrently");
-        }
-        return inbox(pendingId).orElseThrow();
+        return dispatches.appendPendingWork(
+                pendingId, task, prId, source, externalKey, revision, kind,
+                subjectHead, payloadRef, agentResultId, intendedGateKind, now);
     }
 
     private boolean pendingSubjectIsCurrent(Task task, PendingWork pending)
     {
-        if (!pending.taskId().equals(task.taskId())) {
-            return false;
-        }
-        return switch (pending.kind()) {
-            case INITIAL_TASK -> pending.intendedGateKind()
-                        == GateIntent.INITIAL_PUBLISH
-                    && pending.externalKey().equals(task.taskId())
-                    && pending.prId() == null
-                    && pending.agentResultId() == null
-                    && pending.payloadRef().equals(
-                            "task-goal:" + task.taskId())
-                    && pending.subjectHead().equals(task.currentHeadSha())
-                    && task.prId() == null
-                    && task.currentChangeSetRevisionId() == null;
-            case FINAL_RED -> {
-                if (pending.prId() == null) {
-                    yield false;
-                }
-                PullRequestSubject pr = requirePullRequest(pending.prId());
-                yield pr.published()
-                        && pr.taskId().equals(task.taskId())
-                        && pending.subjectHead().equals(pr.currentRemoteHead())
-                        && pending.subjectHead().equals(task.currentHeadSha());
-            }
-            case CI_FIX_READY -> {
-                Integer resultExists = jdbc.queryForObject(
-                        """
-                        SELECT COUNT(*) FROM flow_runtime_agent_result
-                        WHERE result_id = ?
-                        """,
-                        Integer.class,
-                        pending.agentResultId());
-                yield requireNonNull(resultExists, "result count is null") == 1
-                        && pending.subjectHead().equals(task.currentHeadSha());
-            }
-            case AGENT_RESULT_READY -> {
-                AgentRun reviewer = run(pending.externalKey()).orElse(null);
-                AgentResult result = resultForRun(
-                        pending.externalKey()).orElse(null);
-                ReviewerRequest request = reviewerRequestForReviewerRun(
-                        pending.externalKey()).orElse(null);
-                PullRequestSubject pr = task.prId() == null
-                        ? null : pullRequest(task.prId()).orElse(null);
-                yield reviewer != null && result != null && request != null
-                        && pr != null
-                        && reviewer.role()
-                            == AgentRole.ADVERSARIAL_REVIEWER
-                        && reviewer.operationId().equals(
-                                request.reviewerOperationId())
-                        && result.runId().equals(reviewer.runId())
-                        && Objects.equals(
-                                pending.agentResultId(), result.resultId())
-                        && pending.payloadRef().equals(reviewerResultPayload(
-                                request.requestId(), result.resultId()))
-                        && pending.intendedGateKind()
-                            == request.intendedGateKind()
-                        && pending.taskId().equals(request.taskId())
-                        && Objects.equals(pending.prId(), pr.prId())
-                        && pr.taskId().equals(task.taskId())
-                        && request.changeSetRevisionId().equals(
-                                task.currentChangeSetRevisionId())
-                        && request.reviewedHeadSha().equals(
-                                task.currentHeadSha())
-                        && pending.subjectHead().equals(
-                                request.reviewedHeadSha());
-            }
-        };
+        return dispatches.pendingSubjectIsCurrent(task, pending);
     }
 
     Operation ensureReconciliation(String taskId)
     {
-        Optional<Operation> live = jdbc.query(
-                """
-                SELECT * FROM flow_runtime_operation
-                WHERE task_id = ? AND kind = 'RECONCILE_TASK'
-                  AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
-                LIMIT 1
-                """,
-                (result, row) -> readOperation(result),
-                taskId).stream().findFirst();
-        if (live.isPresent()) {
-            return live.get();
-        }
-        Task task = requireTask(taskId);
-        long sequence = task.reconciliationSequence() + 1;
-        long throughWatermark = task.pendingWorkWatermark();
-        int advanced = jdbc.update(
-                """
-                UPDATE flow_runtime_task
-                SET reconciliation_sequence = ?
-                WHERE task_id = ? AND reconciliation_sequence = ?
-                """,
-                sequence,
-                taskId,
-                task.reconciliationSequence());
-        if (advanced != 1) {
-            throw new StaleOwnerRevisionException(
-                    "reconciliation sequence changed concurrently");
-        }
-        String subjectDigest = stableId(
-                "reconciliation-subject",
-                taskId,
-                Long.toString(task.epoch()),
-                Long.toString(sequence),
-                Long.toString(throughWatermark));
-        String operationId = stableId(
-                "operation",
-                taskId,
-                OperationKind.RECONCILE_TASK.name(),
-                subjectDigest);
-        insertOperationAndTicket(
-                operationId,
-                "TASK",
-                taskId,
-                taskId,
-                OperationKind.RECONCILE_TASK,
-                subjectDigest,
-                "work-watermark:" + throughWatermark,
-                throughWatermark,
-                RECONCILIATION_PRIORITY,
-                clock.instant());
-        return requireOperation(operationId);
+        return dispatches.ensureReconciliation(taskId);
     }
 
-    private void parkReconciliation(String operationId)
-    {
-        int operationUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_operation
-                SET state = 'WAITING', result_ref = 'TASK_PAUSED'
-                WHERE operation_id = ? AND kind = 'RECONCILE_TASK'
-                  AND state = 'CLAIMED'
-                """,
-                operationId);
-        int ticketUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_dispatch_ticket
-                SET delivery_state = 'DONE'
-                WHERE operation_id = ? AND delivery_state = 'CLAIMED'
-                """,
-                operationId);
-        if (operationUpdated != 1 || ticketUpdated != 1) {
-            throw new StaleClaimException(
-                    "reconciliation changed while parking");
-        }
-    }
 
     void resumeWaitingReconciliation(String taskId)
     {
-        List<String> waiting = jdbc.query(
-                """
-                SELECT operation_id FROM flow_runtime_operation
-                WHERE task_id = ? AND kind = 'RECONCILE_TASK'
-                  AND state = 'WAITING'
-                """,
-                (result, row) -> result.getString("operation_id"),
-                taskId);
-        for (String operationId : waiting) {
-            int operationUpdated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_operation
-                    SET state = 'READY', result_ref = NULL
-                    WHERE operation_id = ? AND state = 'WAITING'
-                    """,
-                    operationId);
-            int ticketUpdated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_dispatch_ticket
-                    SET delivery_state = 'AVAILABLE', claim_owner = NULL,
-                        claim_expires_at = NULL, claim_token = NULL
-                    WHERE operation_id = ? AND delivery_state = 'DONE'
-                    """,
-                    operationId);
-            if (operationUpdated != 1 || ticketUpdated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "waiting reconciliation changed during Task resume");
-            }
-        }
+        dispatches.resumeWaitingReconciliation(taskId);
     }
 
     private void cancelReviewerBlockedReconciliation(String taskId)
     {
-        List<BlockedReconciliation> blocked = jdbc.query(
-                """
-                SELECT o.operation_id, o.state, d.delivery_state
-                FROM flow_runtime_operation o
-                JOIN flow_runtime_dispatch_ticket d
-                  ON d.operation_id = o.operation_id
-                WHERE o.task_id = ? AND o.kind = 'RECONCILE_TASK'
-                  AND o.state IN ('READY', 'WAITING')
-                """,
-                (result, row) -> new BlockedReconciliation(
-                        result.getString("operation_id"),
-                        OperationState.valueOf(result.getString("state")),
-                        result.getString("delivery_state")),
-                taskId);
-        for (BlockedReconciliation reconciliation : blocked) {
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_operation
-                    SET state = 'CANCELED',
-                        result_ref = 'REVIEWER_RESULT_ADVANCED'
-                    WHERE operation_id = ? AND state = ?
-                    """,
-                    reconciliation.operationId(),
-                    reconciliation.state().name());
-            int ticketUpdated;
-            if (reconciliation.state() == OperationState.READY
-                    && reconciliation.deliveryState().equals("AVAILABLE")) {
-                ticketUpdated = jdbc.update(
-                        """
-                        UPDATE flow_runtime_dispatch_ticket
-                        SET delivery_state = 'DONE'
-                        WHERE operation_id = ?
-                          AND delivery_state = 'AVAILABLE'
-                        """,
-                        reconciliation.operationId());
-            }
-            else if (reconciliation.state() == OperationState.WAITING
-                    && reconciliation.deliveryState().equals("DONE")) {
-                ticketUpdated = 1;
-            }
-            else {
-                ticketUpdated = 0;
-            }
-            if (updated != 1 || ticketUpdated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "reviewer-blocked reconciliation changed concurrently");
-            }
-        }
+        dispatches.cancelReviewerBlockedReconciliation(taskId);
     }
 
     private Operation reconciliationCovering(String taskId, long watermark)
     {
-        return jdbc.query(
-                """
-                SELECT * FROM flow_runtime_operation
-                WHERE task_id = ? AND kind = 'RECONCILE_TASK'
-                  AND work_watermark >= ?
-                ORDER BY work_watermark, created_at, operation_id
-                LIMIT 1
-                """,
-                (result, row) -> readOperation(result),
-                taskId,
-                watermark).stream().findFirst().orElseThrow(() ->
-                        new IllegalStateException(
-                                "selected pending work has no reconciliation owner"));
+        return dispatches.reconciliationCovering(taskId, watermark);
     }
 
     private void ensureReconciliationIfPending(String taskId)
     {
-        Integer pending = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM flow_runtime_inbox
-                WHERE task_id = ? AND handled_by_operation_id IS NULL
-                  AND selected_by_operation_id IS NULL
-                  AND terminal_reason IS NULL
-                """,
-                Integer.class,
-                taskId);
-        if (requireNonNull(pending, "pending count is null") > 0) {
-            ensureReconciliation(taskId);
-        }
+        dispatches.ensureReconciliationIfPending(taskId);
     }
 
     /**
@@ -9550,36 +8316,7 @@ public final class FlowRuntime
      */
     private void rearmReconciliationAfterWriter(String taskId)
     {
-        Task task = requireTask(taskId);
-        List<String> stale = jdbc.query(
-                """
-                SELECT operation_id FROM flow_runtime_operation
-                WHERE task_id = ? AND kind = 'RECONCILE_TASK'
-                  AND state = 'READY' AND work_watermark < ?
-                """,
-                (result, row) -> result.getString("operation_id"),
-                taskId,
-                task.pendingWorkWatermark());
-        for (String operationId : stale) {
-            int operationUpdated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_operation
-                    SET state = 'CANCELED', result_ref = 'WRITER_ADVANCED'
-                    WHERE operation_id = ? AND state = 'READY'
-                    """,
-                    operationId);
-            int ticketUpdated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_dispatch_ticket
-                    SET delivery_state = 'DONE'
-                    WHERE operation_id = ? AND delivery_state = 'AVAILABLE'
-                    """,
-                    operationId);
-            if (operationUpdated != 1 || ticketUpdated != 1) {
-                throw new StaleOwnerRevisionException(
-                        "reconciliation changed during writer release");
-            }
-        }
+        dispatches.rearmReconciliationAfterWriter(taskId);
     }
 
     void insertOperationAndTicket(
@@ -9594,42 +8331,9 @@ public final class FlowRuntime
             int priority,
             Instant now)
     {
-        jdbc.update(
-                """
-                INSERT OR IGNORE INTO flow_runtime_operation (
-                    operation_id, owner_kind, owner_id, task_id, kind,
-                    subject_digest, input_ref, work_watermark, state, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'READY', ?)
-                """,
-                operationId,
-                ownerKind,
-                ownerId,
-                taskId,
-                kind.name(),
-                subjectDigest,
-                inputRef,
-                workWatermark,
-                now.toEpochMilli());
-        Operation stored = requireOperation(operationId);
-        if (!stored.ownerKind().equals(ownerKind)
-                || !stored.ownerId().equals(ownerId)
-                || !Objects.equals(stored.taskId(), taskId)
-                || stored.kind() != kind
-                || !stored.subjectDigest().equals(subjectDigest)
-                || !stored.inputRef().equals(inputRef)
-                || !Objects.equals(stored.workWatermark(), workWatermark)) {
-            throw new IllegalStateException(
-                    "operation identity has conflicting content");
-        }
-        jdbc.update(
-                """
-                INSERT OR IGNORE INTO flow_runtime_dispatch_ticket (
-                    operation_id, not_before, priority, delivery_state
-                ) VALUES (?, ?, ?, 'AVAILABLE')
-                """,
-                operationId,
-                now.toEpochMilli(),
-                priority);
+        dispatches.insertOperationAndTicket(
+                operationId, ownerKind, ownerId, taskId, kind, subjectDigest,
+                inputRef, workWatermark, priority, now);
     }
 
     boolean hasNonterminalPublish(String taskId)
@@ -9639,53 +8343,18 @@ public final class FlowRuntime
     void settleDispatch(
             String operationId, OperationState state, String resultRef)
     {
-        int operationUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_operation
-                SET state = ?, result_ref = ?
-                WHERE operation_id = ? AND state = 'CLAIMED'
-                """,
-                state.name(),
-                resultRef,
-                operationId);
-        int ticketUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_dispatch_ticket
-                SET delivery_state = 'DONE'
-                WHERE operation_id = ? AND delivery_state = 'CLAIMED'
-                """,
-                operationId);
-        if (operationUpdated != 1 || ticketUpdated != 1) {
-            throw new StaleClaimException(
-                    "dispatch operation is no longer claimed");
-        }
+        dispatches.settleDispatch(operationId, state, resultRef);
     }
 
     void assertCurrentClaim(
             Claim claim, OperationState expectedOperationState)
     {
-        assertClaimGeneration(claim, expectedOperationState, true);
+        dispatches.assertCurrentClaim(claim, expectedOperationState);
     }
 
     private Instant currentClaimExpiry(Claim claim)
     {
-        return jdbc.query(
-                """
-                SELECT claim_expires_at
-                FROM flow_runtime_dispatch_ticket
-                WHERE operation_id = ? AND claim_generation = ?
-                  AND claim_token = ? AND claim_owner = ?
-                  AND delivery_state = 'CLAIMED'
-                  AND claim_expires_at > ?
-                """,
-                (result, row) -> instant(result, "claim_expires_at"),
-                claim.operationId(),
-                claim.generation(),
-                claim.claimToken(),
-                claim.workerId(),
-                clock.instant().toEpochMilli()).stream().findFirst()
-                .orElseThrow(() -> new StaleClaimException(
-                        "dispatch claim generation is stale"));
+        return dispatches.currentClaimExpiry(claim);
     }
 
     private static String claimTokenDigest(Claim claim)
@@ -9702,12 +8371,7 @@ public final class FlowRuntime
     ExpiredClaim requireExpiredClaim(
             String operationId, long generation)
     {
-        return expiredClaims().stream()
-                .filter(claim -> claim.operationId().equals(operationId)
-                        && claim.generation() == generation)
-                .findFirst()
-                .orElseThrow(() -> new StaleClaimException(
-                        "claim generation is not durably expired"));
+        return dispatches.requireExpiredClaim(operationId, generation);
     }
 
     private Optional<AgentProcessAttempt> processAttempt(String attemptId)
@@ -10049,59 +8713,16 @@ public final class FlowRuntime
     boolean ticketMatches(
             String operationId, long generation, String deliveryState)
     {
-        Integer count = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM flow_runtime_dispatch_ticket
-                WHERE operation_id = ? AND claim_generation = ?
-                  AND delivery_state = ?
-                """,
-                Integer.class,
-                operationId,
-                generation,
-                deliveryState);
-        return requireNonNull(count, "ticket count is null") == 1;
+        return dispatches.ticketMatches(
+                operationId, generation, deliveryState);
     }
 
     private void recoverNeverLaunchedClaim(ExpiredClaim expired)
     {
-        AgentRun run = expired.runId() == null
-                ? null
-                : requireRun(expired.runId());
-        if (run != null && run.state() != RunState.QUEUED) {
-            throw new IllegalStateException(
-                    "missing process attempt conflicts with running AgentRun");
-        }
-        jdbc.update(
-                """
-                DELETE FROM flow_runtime_writer_lease
-                WHERE task_id = ? AND operation_id = ?
-                """,
-                expired.taskId(),
-                expired.operationId());
-        int operationUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_operation
-                SET state = 'RETRYABLE'
-                WHERE operation_id = ? AND state = 'CLAIMED'
-                """,
-                expired.operationId());
-        int ticketUpdated = jdbc.update(
-                """
-                UPDATE flow_runtime_dispatch_ticket
-                SET delivery_state = 'AVAILABLE', claim_owner = NULL,
-                    claim_expires_at = NULL, claim_token = NULL
-                WHERE operation_id = ? AND delivery_state = 'CLAIMED'
-                  AND claim_generation = ?
-                """,
-                expired.operationId(),
-                expired.generation());
-        if (operationUpdated != 1 || ticketUpdated != 1) {
-            throw new StaleClaimException(
-                    "never-launched claim changed during recovery");
-        }
+        dispatches.recoverNeverLaunchedClaim(expired);
     }
 
-    private void quarantineExpiredProcessAttempt(ExpiredClaim expired)
+    void quarantineExpiredProcessAttempt(ExpiredClaim expired)
     {
         String reason = "PROCESS_ATTEMPT_RECOVERY_REQUIRED";
         settleDispatch(expired.operationId(), OperationState.FAILED,
@@ -10140,7 +8761,7 @@ public final class FlowRuntime
         }
     }
 
-    private void quarantineExpiredReviewerProcessAttempt(ExpiredClaim expired)
+    void quarantineExpiredReviewerProcessAttempt(ExpiredClaim expired)
     {
         String reason = "REVIEWER_PROCESS_RECOVERY_REQUIRED";
         settleDispatch(
@@ -10391,38 +9012,6 @@ public final class FlowRuntime
         return "REVIEWER_PROCESS_RECOVERY_REQUIRED:" + processAttemptId;
     }
 
-    private void assertClaimGeneration(
-            Claim claim,
-            OperationState expectedOperationState,
-            boolean requireUnexpired)
-    {
-        Integer matches = jdbc.queryForObject(
-                """
-                SELECT COUNT(*)
-                FROM flow_runtime_dispatch_ticket d
-                JOIN flow_runtime_operation o
-                  ON o.operation_id = d.operation_id
-                WHERE d.operation_id = ?
-                  AND d.claim_generation = ?
-                  AND d.claim_token = ?
-                  AND d.claim_owner = ?
-                  AND d.delivery_state = 'CLAIMED'
-                  AND o.state = ?
-                  AND (? = 0 OR d.claim_expires_at > ?)
-                """,
-                Integer.class,
-                claim.operationId(),
-                claim.generation(),
-                claim.claimToken(),
-                claim.workerId(),
-                expectedOperationState.name(),
-                requireUnexpired ? 1 : 0,
-                clock.instant().toEpochMilli());
-        if (requireNonNull(matches, "claim count is null") != 1) {
-            throw new StaleClaimException(
-                    "dispatch claim generation is stale");
-        }
-    }
 
     void assertFinalizedClaim(Claim claim, String resultId)
     {
@@ -11202,34 +9791,12 @@ public final class FlowRuntime
 
     private Optional<PendingWork> inbox(String inboxId)
     {
-        return jdbc.query(
-                "SELECT * FROM flow_runtime_inbox WHERE inbox_id = ?",
-                (result, row) -> readInbox(result),
-                inboxId).stream().findFirst();
+        return dispatches.inbox(inboxId);
     }
 
     private PendingWork selectedInput(Operation operation)
     {
-        List<PendingWork> selected = jdbc.query(
-                """
-                SELECT * FROM flow_runtime_inbox
-                WHERE selected_by_operation_id = ?
-                  AND handled_by_operation_id IS NULL
-                  AND terminal_reason IS NULL
-                """,
-                (result, row) -> readInbox(result),
-                operation.operationId());
-        if (selected.size() != 1) {
-            throw new MutationRejectedException(
-                    "Task Agent operation must own one current input");
-        }
-        PendingWork pending = selected.get(0);
-        if (!operation.inputRef().equals("inbox:" + pending.pendingId())
-                || pending.kind() == PendingKind.FINAL_RED) {
-            throw new MutationRejectedException(
-                    "Task Agent input does not match its selected operation");
-        }
-        return pending;
+        return dispatches.selectedInput(operation);
     }
 
     private ReviewRequestSnapshot initialReviewRequestSnapshot(
@@ -11942,25 +10509,6 @@ public final class FlowRuntime
                 result.getLong("writer_fence_sequence"));
     }
 
-    private static Operation readOperation(ResultSet result)
-            throws SQLException
-    {
-        long rawWatermark = result.getLong("work_watermark");
-        Long watermark = result.wasNull() ? null : rawWatermark;
-        return new Operation(
-                result.getString("operation_id"),
-                result.getString("owner_kind"),
-                result.getString("owner_id"),
-                result.getString("task_id"),
-                OperationKind.valueOf(result.getString("kind")),
-                result.getString("subject_digest"),
-                result.getString("input_ref"),
-                watermark,
-                OperationState.valueOf(result.getString("state")),
-                result.getInt("attempt"),
-                result.getString("result_ref"),
-                instant(result, "created_at"));
-    }
 
     private static TaskBaseRevision readBaseRevision(ResultSet result)
             throws SQLException
@@ -12204,11 +10752,6 @@ public final class FlowRuntime
         return value == null ? null : Enum.valueOf(type, value);
     }
 
-    private static ProcessAttemptState nullableProcessState(String state)
-    {
-        return state == null ? null : ProcessAttemptState.valueOf(state);
-    }
-
     static String stableId(String namespace, String... components)
     {
         try {
@@ -12391,11 +10934,6 @@ public final class FlowRuntime
             String branchName,
             TaskBaseRevision base,
             ChangeSetRevision currentChangeSet) {}
-
-    private record BlockedReconciliation(
-            String operationId,
-            OperationState state,
-            String deliveryState) {}
 
     private record AdoptionSnapshot(
             String taskId,

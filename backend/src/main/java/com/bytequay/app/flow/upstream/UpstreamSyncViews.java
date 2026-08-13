@@ -497,8 +497,10 @@ public final class UpstreamSyncViews
         // column, so both are reported as the pending request they are rather
         // than as the reason a parked run gives for having stopped.
         String parkReason = rows.getString("park_reason");
-        boolean pauseRequested = UpstreamSync.PAUSE_REQUESTED.equals(parkReason)
-                || UpstreamSync.CLOSE_REQUESTED.equals(parkReason);
+        boolean pauseRequested =
+                UpstreamSync.PAUSE_REQUESTED.equals(parkReason);
+        boolean closeRequested =
+                UpstreamSync.CLOSE_REQUESTED.equals(parkReason);
         return new SyncJob(
                 rows.getString("run_id"),
                 rows.getString("task_id"),
@@ -529,8 +531,9 @@ public final class UpstreamSyncViews
                 noPrNumber ? null : prNumber,
                 rows.getString("html_url"),
                 rows.getString("pr_title"),
+                closeRequested,
                 rows.getInt("round_count"),
-                pauseRequested ? null : parkReason,
+                pauseRequested || closeRequested ? null : parkReason,
                 "FINAL_REVIEW".equals(state)
                         || "WAITING_INITIAL_PUBLISH".equals(state)
                         || "HANDED_OFF".equals(state),
@@ -649,6 +652,13 @@ public final class UpstreamSyncViews
             String prUrl,
             /** What the pull request is called; null until anything named it. */
             String prTitle,
+            /**
+             * A terminal stop the user asked for and the run has not reached.
+             * Distinct from {@code pauseRequested} because the two end
+             * somewhere different, and a surface that showed one as the other
+             * would tell the user their close was only a pause.
+             */
+            boolean closeRequested,
             int roundCount,
             String errorMessage,
             boolean verified,

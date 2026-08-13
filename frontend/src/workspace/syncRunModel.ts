@@ -66,6 +66,10 @@ export function syncPhase(job: UpstreamCherryPickJobDto): string {
   if (job.status === 'FAILED') return 'FAILED';
   if (job.status === 'PAUSED_CONFLICT') return 'PARKED';
   if (job.status === 'COMPLETED') return 'COMPLETE';
+  // A close and a park both wait for the same boundary, and they end
+  // somewhere different — a run asked to close must not report that it is
+  // pausing.
+  if (job.closeRequested === true) return 'CLOSING';
   return job.pauseRequested ? 'PAUSING' : 'PICKING';
 }
 
@@ -418,6 +422,9 @@ export function syncNowLine(
     return job.prNumber === null
       ? `Range complete — ${job.appliedCount} picked on ${job.resultBranch}`
       : `Range complete — draft PR #${job.prNumber} parked for your review`;
+  }
+  if (job.closeRequested === true) {
+    return 'Closing — stopping after the pick in flight; close again to stop now';
   }
   if (job.pauseRequested) return 'Pausing — stopping after the pick in flight';
   if (queue.current === null) return 'Opening the pull request and finishing the run';

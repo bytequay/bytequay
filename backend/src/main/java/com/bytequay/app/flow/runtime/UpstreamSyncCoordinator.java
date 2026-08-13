@@ -244,7 +244,7 @@ public final class UpstreamSyncCoordinator
             // tree is exactly what the last pick record describes, which is
             // the same boundary a conflict park uses.
             if (upstreamSync.closeRequested(startRun.runId())) {
-                return closeHere(capability, picker, task, startRun.runId());
+                return closeHere(capability, picker, startRun.runId());
             }
             if (upstreamSync.pauseRequested(startRun.runId())) {
                 return park(capability, picker, startRun.runId(), "USER_PAUSED");
@@ -794,22 +794,25 @@ public final class UpstreamSyncCoordinator
      * The user's terminal stop, taken at the boundary that asked for it.
      *
      * <p>The sequencer is cleaned away first for the same reason a park does
-     * it: the worktree has to be at its recorded head before anything removes
-     * it, so a half-applied pick is never what gets deleted.
+     * it: the worktree has to be at its recorded head before anything reads or
+     * removes it, so a half-applied pick is never what is left behind.
+     *
+     * <p>Only the run is closed here. This code runs inside the turn, so the
+     * turn's own writer lease is live and the Task's lifecycle cannot move —
+     * releasing the checkout from under the process still holding it is
+     * exactly what that lease exists to prevent. The lease clears when this
+     * completion ends the turn, and the release happens from there.
      */
     private AgentCompletion closeHere(
             InitialToolCapability capability,
             UpstreamPicker picker,
-            Task task,
             String runId)
     {
         capability.callTool(() -> {
             picker.abortSequencer();
             return null;
         });
-        UpstreamSyncTeardown.close(
-                runtime, provisioning, upstreamSync, task, runId,
-                "UPSTREAM_SYNC_CLOSED");
+        upstreamSync.advanceState(runId, RunState.CANCELED);
         return new AgentCompletion(
                 TerminalOutcome.FAILED,
                 "upstream synchronization closed by the user",

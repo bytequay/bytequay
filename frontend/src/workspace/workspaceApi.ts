@@ -421,6 +421,12 @@ export type UpstreamCherryPickJobDto = {
   /** A stop was asked for and takes effect at the next commit boundary. */
   pauseRequested: boolean;
   /**
+   * A terminal stop asked for and not reached yet. Separate from
+   * `pauseRequested` because it ends somewhere else: showing one as the other
+   * would tell the user their close was only a pause.
+   */
+  closeRequested?: boolean;
+  /**
    * Null on a greenfield run: phase 1 is bounded by conflict-repair turns, so
    * a dollar ceiling is a number that model cannot keep.
    */

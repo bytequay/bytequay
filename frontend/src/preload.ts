@@ -73,7 +73,7 @@ import type {
   ThreadSignalDto,
 } from './types';
 
-type AgentStreamScope = 'thread' | 'stage' | 'sync';
+type AgentStreamScope = 'thread' | 'stage' | 'sync' | 'flow-sync';
 
 function subscribeAgentStream(
   scope: AgentStreamScope,
@@ -681,6 +681,13 @@ const bridge: Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => subscribeAgentStream('sync', jobId, onEvent, onClose),
+  /** The same live output for a run on the flow runtime, which is a different
+   *  resource rather than the same one under another id. */
+  subscribeFlowSyncRunStream: (
+    runId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => subscribeAgentStream('flow-sync', runId, onEvent, onClose),
   // ── Brain agent ──────────────────────────────────────────────────
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),
   sendBrainMessage: (taskId: string, text: string, images?: string[]) =>

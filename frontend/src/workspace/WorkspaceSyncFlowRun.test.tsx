@@ -66,17 +66,24 @@ function mount(run = flowRun()) {
     }
     return run;
   });
+  const subscriptions: string[] = [];
   (window as unknown as { bridge: unknown }).bridge = {
     workspaceApi: request,
-    subscribeSyncRunStream: () => () => {},
+    subscribeSyncRunStream: () => () => {
+      throw new Error('the retired runner does not stream this run');
+    },
+    subscribeFlowSyncRunStream: (runId: string) => {
+      subscriptions.push(runId);
+      return () => {};
+    },
   };
   render(<WorkspaceSyncRunPage workspaceId="fork" jobId={RUN_ID} />);
-  return request;
+  return { request, subscriptions };
 }
 
 describe('a greenfield sync run', () => {
   it('is read from the path that owns it', async () => {
-    const request = mount();
+    const { request } = mount();
     await flush();
 
     expect(request.mock.calls[0][0].path)
@@ -98,7 +105,7 @@ describe('a greenfield sync run', () => {
   });
 
   it('publishes only on the exact revision it displayed', async () => {
-    const request = mount();
+    const { request } = mount();
     await flush();
 
     expect(screen.getByText('Ready to publish — nothing is pushed yet')).toBeTruthy();
@@ -124,6 +131,18 @@ describe('a greenfield sync run', () => {
 
     expect(screen.queryByRole('button', { name: 'Authorize the first push' }))
       .toBeNull();
+  });
+
+  it('watches its own turns rather than the retired runner\u2019s', async () => {
+    // A picking run is live, so the live panel subscribes — to the path that
+    // actually carries this run's output.
+    const { subscriptions } = mount({
+      ...flowRun(),
+      job: { ...flowRun().job, status: 'RUNNING' },
+    });
+    await flush();
+
+    expect(subscriptions).toEqual([RUN_ID]);
   });
 
   it('reports repair turns where a dollar ceiling does not exist', async () => {

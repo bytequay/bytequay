@@ -52,6 +52,18 @@ public class UpstreamSyncStreamController
         return open(jobId);
     }
 
+    /**
+     * The same live output for a run on the flow runtime. A separate path
+     * rather than a shared one, so retiring the older resource takes nothing
+     * of this with it.
+     */
+    @GetMapping(value = "/api/upstream-syncs/{runId}/stream",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter syncStream(@PathVariable String runId)
+    {
+        return open(runId);
+    }
+
     private SseEmitter open(String key)
     {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);

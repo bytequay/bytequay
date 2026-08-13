@@ -411,6 +411,11 @@ Built and green:
   the finished list's ROUNDS column, the fixup attribution block and the
   excused-check card all read real rows, and a run that reports none of them
   says so rather than showing a zero
+- the live view of a repair turn on the new records: each tool call as the
+  agent makes it, and the turn's own end, so a repair that compiles for
+  minutes does not read as a stalled run
+- the end of the pull request, observed rather than assumed — a background
+  probe records merged or closed once, and the run then reads as finished
 - the CLI launch binding itself: an explicit CLI pick now resolves and binds as
   `CLI`, recording binary and version and no credential, and the in-JVM turn
   path refuses such a binding at its single choke point rather than in each body
@@ -435,13 +440,15 @@ Remaining, in dependency order:
    everything phases 1 and 2 record, but four of the retired path's controls
    have no equivalent behind them and are therefore absent rather than inert:
    pause, skip-this-commit, resume, and close/delete. Steering renders as a
-   disabled composer saying so, and the live turn stream — which makes a pick
-   that compiles for minutes look alive — belongs to the retired runner.
-5. **Phase 3 on the new records.** Nothing observes the pull request being
-   merged or closed there, so a run that has published stays in RUNNING as
-   "parked for your review" — true, but it never reaches the finished table and
-   its cleanup receipt has nothing to read. Phase 3 is built and green on the
-   retired path only.
+   disabled composer saying so.
+5. **Phase 3's release.** The *ending* is observed; the releasing is not. The
+   flow runtime owns no teardown at all — nothing there removes a worktree,
+   deletes a branch or drops a session — so a run whose pull request merged
+   reads as finished while still holding what it held, and says exactly that:
+   the rail reads "merged · holding", the footer keeps saying "isolated
+   worktree", and the receipt reports that no teardown has run. Giving the
+   runtime a release path is its own piece of work, because a worktree it owns
+   is bound up with the writer lease and with what `recover()` may inspect.
 
 Adding tables to `db/new-flow/*.sql` changes the schema bundle digest and makes
 `NewFlowDatabase.bootstrap()` refuse to start. That is intentional — it is a

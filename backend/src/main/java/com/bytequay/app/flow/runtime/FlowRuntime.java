@@ -2371,6 +2371,13 @@ public final class FlowRuntime
         return dispatches.recoverExpiredClaim(operationId, generation);
     }
 
+    /** Immediately redrives an exact claim whose owner synchronously failed
+     *  before reserving any provider process attempt. */
+    public synchronized boolean recoverClaimedBeforeProcessLaunch(Claim claim)
+    {
+        return dispatches.recoverClaimedBeforeProcessLaunch(claim);
+    }
+
     /**
      * Renews only the same expired generation after its exact Java thread and
      * completion were durably sealed. No body or provider call is redriven.

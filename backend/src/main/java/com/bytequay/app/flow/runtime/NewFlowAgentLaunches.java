@@ -754,6 +754,29 @@ public final class NewFlowAgentLaunches
         return requireNonNull(program, "program is null").systemPrompt;
     }
 
+    /**
+     * Refuses a turn whose sealed binding names a different program.
+     *
+     * <p>{@link #bind} already ties a run to one program, but nothing between
+     * binding and running tied the two together: a body could hand this class
+     * binding A and program B, and get B's prompt and tools while the durable
+     * binding attested to A. That is not a hypothetical — a conflicted
+     * cherry-pick ran on the initial-task program's prompt that way, and the
+     * only symptom was an agent being told to do the wrong job. Cheap to check,
+     * and it makes the mismatch loud instead of semantic.
+     */
+    void requireSealedAs(Binding binding, Program program)
+    {
+        requireNonNull(binding, "binding is null");
+        requireNonNull(program, "program is null");
+        if (!binding.promptRevision().equals(program.promptRevision)) {
+            throw new IllegalStateException(
+                    "run " + binding.runId() + " was sealed as "
+                            + binding.promptRevision() + ", so it cannot run "
+                            + program.promptRevision);
+        }
+    }
+
     private ObjectNode parameters(String name)
     {
         ObjectNode schema = mapper.createObjectNode()

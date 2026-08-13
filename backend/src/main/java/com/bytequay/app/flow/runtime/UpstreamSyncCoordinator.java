@@ -67,7 +67,8 @@ import static java.util.Objects.requireNonNull;
  * that request itself once the range is complete; the repair agent has no tool
  * for it, because asking for review mid-range is not something it should be
  * able to do.
- * The run's park-before-push already is that gate, so nothing about the user's
+ *
+ * <p>The run's park-before-push already is that gate, so nothing about the user's
  * authorization step is invented here; it is reached. Publication through the
  * flow's own effect is also what lets generic CI Autofix adopt the pull
  * request afterwards, because its only entry is a gate-authorized receipt.
@@ -125,6 +126,12 @@ public final class UpstreamSyncCoordinator
         requireNonNull(binding, "binding is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(capability, "capability is null");
+        if (!reviewContinuation) {
+            // The continuation runs no agent, so only the picking turn has a
+            // program to be checked against its sealed binding.
+            launches.requireSealedAs(
+                    binding, NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
+        }
         UpstreamSyncRun run = upstreamSync.runForTask(taskId).orElseThrow(
                 () -> new IllegalStateException(
                         "Task is not owned by upstream synchronization"));

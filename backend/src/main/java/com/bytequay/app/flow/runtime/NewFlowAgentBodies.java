@@ -471,6 +471,7 @@ final class NewFlowAgentBodies
             Path worktree,
             NewFlowCliTurn.TurnJournal journal)
     {
+        launches.requireSealedAs(binding, program);
         if (!binding.isApi()) {
             if (cliTurn == null || journal == null) {
                 // Refused rather than downgraded to an API engine, which would

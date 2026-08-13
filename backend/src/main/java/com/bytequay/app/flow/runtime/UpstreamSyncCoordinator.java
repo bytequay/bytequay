@@ -557,7 +557,16 @@ public final class UpstreamSyncCoordinator
                             }
                         }
                         finalReady.set(true);
-                        publishPolicies(task, targetBaseRef, picker);
+                        try {
+                            publishPolicies(task, targetBaseRef, picker);
+                        }
+                        catch (RuntimeException failure) {
+                            stopReason.set("FINAL_REVIEW_SETUP_FAILED:"
+                                    + describe(failure));
+                            terminal.set(true);
+                            return "repair recorded; final review setup failed "
+                                    + "and the range will park";
+                        }
                         return "conflicted pick continued; the confirmed range "
                                 + "is complete, so inspect it and request review";
                     });
@@ -587,9 +596,19 @@ public final class UpstreamSyncCoordinator
         if (terminal.get() && !declined.get()) {
             return null;
         }
-        log.info("upstream conflict repair did not resolve pick {} ({})",
-                active.get().pickId(), turn.end());
-        return declined.get() ? "CONFLICT_DECLINED" : "CONFLICT_UNRESOLVED";
+        String reason = unfinishedRepairReason(
+                finalReady.get(), declined.get());
+        log.info("upstream sync turn parked after pick {} ({}, {})",
+                active.get().pickId(), turn.end(), reason);
+        return reason;
+    }
+
+    static String unfinishedRepairReason(boolean finalReady, boolean declined)
+    {
+        if (declined) {
+            return "CONFLICT_DECLINED";
+        }
+        return finalReady ? "FINAL_REVIEW_UNRESOLVED" : "CONFLICT_UNRESOLVED";
     }
 
     private String finalReview(

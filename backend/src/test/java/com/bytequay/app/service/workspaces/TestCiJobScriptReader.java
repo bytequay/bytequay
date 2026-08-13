@@ -109,6 +109,33 @@ class TestCiJobScriptReader
     }
 
     @Test
+    void expandsLiteralWorkflowEnvironmentForADirectBuild(@TempDir Path root)
+            throws IOException
+    {
+        workflow(root, "ci.yml", """
+                env:
+                  MAVEN: ./mvnw -s .github/settings.xml
+                  MAVEN_FAST: -B -DskipTests -Dair.check.skip-all
+                jobs:
+                  checks:
+                    name: Maven checks
+                    steps:
+                      - run: |
+                          export MAVEN_OPTS=-Xmx3G
+                          $MAVEN clean install ${MAVEN_FAST} -pl :trino-spi -am
+                """);
+
+        CiJobScriptReader.BuildInvocation build =
+                CiJobScriptReader.anyBuildInvocation(root).orElseThrow();
+
+        assertThat(build.arguments()).containsExactly(
+                "./mvnw", "-s", ".github/settings.xml", "clean", "install",
+                "-B", "-DskipTests", "-Dair.check.skip-all", "-pl",
+                ":trino-spi", "-am");
+        assertThat(build.jobName()).isEqualTo("Maven checks");
+    }
+
+    @Test
     void selectsARealTestCommandInsteadOfASkipTestsBuild(@TempDir Path root)
             throws IOException
     {

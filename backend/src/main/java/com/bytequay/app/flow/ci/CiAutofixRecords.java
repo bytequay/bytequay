@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryKind;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
@@ -125,6 +126,67 @@ public final class CiAutofixRecords
             return new RepairPlacementPolicy(
                     taskId, RepairPlacement.TIP, List.of(), null, null,
                     false, now);
+        }
+    }
+
+    public enum BoundaryExitState
+    {
+        PASSED,
+        FAILED
+    }
+
+    public record BoundaryResult(
+            String commitSha,
+            BoundaryKind kind,
+            BoundaryExitState exitState,
+            String evidenceRef)
+    {
+        public BoundaryResult
+        {
+            requireNonNull(commitSha, "commitSha is null");
+            requireNonNull(kind, "kind is null");
+            requireNonNull(exitState, "exitState is null");
+            requireNonNull(evidenceRef, "evidenceRef is null");
+        }
+    }
+
+    /**
+     * The program's own evidence that a rewritten series compiles.
+     *
+     * <p>Produced by one rebase whose boundary builds the program generated,
+     * placed only where they settle something: after a fixup, and after a target
+     * that has no fixup. A missing or failed boundary blocks publication; it
+     * never downgrades to a warning, and no remote log substitutes for it.
+     */
+    public record BoundaryCompileProof(
+            String proofId,
+            String taskId,
+            String attemptId,
+            String headSha,
+            String profileRevisionId,
+            List<BoundaryResult> boundaries,
+            Instant provedAt)
+    {
+        public BoundaryCompileProof
+        {
+            requireNonNull(proofId, "proofId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(attemptId, "attemptId is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(profileRevisionId, "profileRevisionId is null");
+            boundaries = List.copyOf(boundaries);
+            if (boundaries.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "a proof without a boundary proves nothing");
+            }
+            requireNonNull(provedAt, "provedAt is null");
+        }
+
+        public boolean allPassed()
+        {
+            return boundaries.stream().allMatch(
+                    boundary -> boundary.exitState()
+                            == BoundaryExitState.PASSED);
         }
     }
 

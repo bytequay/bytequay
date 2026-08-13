@@ -331,6 +331,8 @@ class TestUpstreamSyncCloseReach
                 .isTrue();
         assertThat(UpstreamSyncCommands.mayHaveATurnInFlight(
                 RunState.WAITING_CONFLICT_REPAIR)).isTrue();
+        assertThat(UpstreamSyncCommands.mayHaveATurnInFlight(
+                RunState.FINAL_REVIEW)).isTrue();
     }
 
     @Test
@@ -338,7 +340,6 @@ class TestUpstreamSyncCloseReach
     {
         for (RunState state : new RunState[] {
                 RunState.WAITING_USER,
-                RunState.FINAL_REVIEW,
                 RunState.WAITING_INITIAL_PUBLISH,
                 RunState.HANDED_OFF,
                 RunState.NEEDS_ATTENTION,

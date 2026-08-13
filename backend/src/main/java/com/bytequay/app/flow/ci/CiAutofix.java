@@ -1045,10 +1045,15 @@ public final class CiAutofix
             }
             return storeFinalizedRound(
                     subject, headSha, policy,
-                    calculateRound(
-                            exact,
-                            policy,
-                            compileJudgment(subject.taskId(), headSha)),
+                    parkedIfRepeating(
+                            subject.taskId(),
+                            prId,
+                            headSha,
+                            calculateRound(
+                                    exact,
+                                    policy,
+                                    compileJudgment(
+                                            subject.taskId(), headSha))),
                     source);
         }), "provider batch finalize transaction returned null");
     }
@@ -1304,9 +1309,13 @@ public final class CiAutofix
                     FinalizeBlocker.CI_OBSERVATION_PENDING,
                     "Current CI policy awaits its next exhaustive provider poll");
         }
-        RoundCalculation calculation = calculateRound(
-                prId, headSha, policy,
-                compileJudgment(subject.taskId(), headSha));
+        RoundCalculation calculation = parkedIfRepeating(
+                subject.taskId(),
+                prId,
+                headSha,
+                calculateRound(
+                        prId, headSha, policy,
+                        compileJudgment(subject.taskId(), headSha)));
         return storeFinalizedRound(
                 subject, headSha, policy, calculation, null);
     }
@@ -1351,6 +1360,74 @@ public final class CiAutofix
             CompileJudgment compile)
     {
         return calculateRound(observations(prId, headSha), policy, compile);
+    }
+
+    /**
+     * Parks a red round that repeats the previous head's exact failures.
+     *
+     * <p>There is no round ceiling: a large range legitimately needs many
+     * rounds, because a compile failure masks every test behind it and each
+     * round can reveal work the previous one could not see. A count is also the
+     * wrong non-convergence signal, since a good round often raises the failing
+     * count. What is a signal is the head having moved while the provider
+     * reported the identical set of failing selectors: the fixer published
+     * something and it moved nothing, which is a judgment for the user rather
+     * than another writer turn.
+     *
+     * <p>This is the stop condition for a rewriting series only. An ordinary
+     * {@code TIP} Task keeps its existing behaviour exactly, and a repeated
+     * failure there remains an ordinary red round.
+     */
+    private RoundCalculation parkedIfRepeating(
+            String taskId,
+            String prId,
+            String headSha,
+            RoundCalculation calculation)
+    {
+        if (!admitsRepair(calculation.state())
+                || placementPolicy(taskId).placement()
+                        != RepairPlacement.ATTRIBUTED_FIXUP) {
+            return calculation;
+        }
+        List<String> failing = failingSelectors(calculation.observationIds());
+        if (failing.isEmpty()
+                || !previousHeadFailures(prId, headSha)
+                        .equals(Optional.of(failing))) {
+            return calculation;
+        }
+        return new RoundCalculation(
+                calculation.observationIds(), RoundState.NEEDS_ATTENTION);
+    }
+
+    /** The failing selectors of the newest round on this PR's previous head. */
+    private Optional<List<String>> previousHeadFailures(
+            String prId, String headSha)
+    {
+        return jdbc.query(
+                """
+                SELECT check_observation_ids_json
+                FROM flow_ci_round
+                WHERE pr_id = ? AND remote_head <> ?
+                ORDER BY created_at DESC, evidence_revision DESC
+                LIMIT 1
+                """,
+                (result, row) -> failingSelectors(readStringList(
+                        result.getString("check_observation_ids_json"))),
+                prId,
+                headSha).stream().findFirst();
+    }
+
+    /** What the provider reported failing, independent of any policy. */
+    private List<String> failingSelectors(List<String> observationIds)
+    {
+        return observationIds.stream()
+                .map(id -> observation(id).orElseThrow())
+                .filter(value -> "FAILURE".equals(normalizeNullableToken(
+                        value.check().conclusion())))
+                .map(value -> value.check().selectorKey())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     /**
@@ -1429,10 +1506,19 @@ public final class CiAutofix
     {
         CompileJudgment compile = compileJudgment(
                 round.taskId(), round.remoteHead());
+        // Every recomputation of one round must agree, so the park applies
+        // wherever a calculation is produced rather than only where it is
+        // first stored.
         if (round.sourceObservationOperationId() == null) {
-            return calculateRound(
-                    round.prId(), round.remoteHead(), policy, compile);
+            return parkedIfRepeating(
+                    round.taskId(),
+                    round.prId(),
+                    round.remoteHead(),
+                    calculateRound(
+                            round.prId(), round.remoteHead(), policy,
+                            compile));
         }
+        
         List<CiCheckObservation> exact = round.checkObservationIds().stream()
                 .map(id -> observation(id).orElseThrow(() ->
                         new IllegalStateException(
@@ -1452,7 +1538,11 @@ public final class CiAutofix
                         "sourced CI round mixes observation authority");
             }
         }
-        return calculateRound(exact, policy, compile);
+        return parkedIfRepeating(
+                round.taskId(),
+                round.prId(),
+                round.remoteHead(),
+                calculateRound(exact, policy, compile));
     }
 
     private CiRound storeRound(

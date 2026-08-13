@@ -705,6 +705,80 @@ class TestCiAutofix
         assertThat(finalized.newlyFinal()).isFalse();
     }
 
+    @Test
+    void aRewritingSeriesParksWhenTheIdenticalFailuresComeBack()
+    {
+        resolvedPolicy(List.of("build"));
+        autofix.recordPlacementPolicy(
+                "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
+                null, null, true);
+        autofix.observeCi("pr-1", check(
+                "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
+        assertThat(((FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1"))
+                .round().state())
+                .isEqualTo(RoundState.FINAL_RED);
+
+        // The fixer published something and the same check came back red.
+        // There is no round ceiling; this is the stop.
+        subject.set(new PublishedPrSubject(
+                "pr-1", "task-1", "repo-1", "main", "main", "H2"));
+        autofix.observeCi("pr-1", check(
+                "H2", "build", "build-id-2", "run-2", 1, "build",
+                "COMPLETED", "FAILURE", "1", NOW, NOW, NOW, "raw:2"));
+
+        assertThat(((FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H2"))
+                .round().state())
+                .isEqualTo(RoundState.NEEDS_ATTENTION);
+    }
+
+    @Test
+    void aMovedBoardIsStillRepairedAndAnOrdinaryTaskNeverParks()
+    {
+        resolvedPolicy(List.of("build", "test"));
+        autofix.recordPlacementPolicy(
+                "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
+                null, null, true);
+        autofix.observeCi("pr-1", check(
+                "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
+        autofix.observeCi("pr-1", check(
+                "test-id", "test", "COMPLETED", "SUCCESS", "1", NOW));
+        autofix.finalizeHeadSnapshot("pr-1", "H1");
+
+        // Repairing the compile failure let the tests that never ran report:
+        // a good round often raises the failing count, which is why a count is
+        // the wrong signal and the failing set is the right one.
+        subject.set(new PublishedPrSubject(
+                "pr-1", "task-1", "repo-1", "main", "main", "H2"));
+        autofix.observeCi("pr-1", check(
+                "H2", "build", "build-2", "run-b2", 1, "build",
+                "COMPLETED", "SUCCESS", "1", NOW, NOW, NOW, "raw:b2"));
+        autofix.observeCi("pr-1", check(
+                "H2", "test", "test-2", "run-t2", 1, "test",
+                "COMPLETED", "FAILURE", "1", NOW, NOW, NOW, "raw:t2"));
+
+        assertThat(((FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H2"))
+                .round().state())
+                .isEqualTo(RoundState.FINAL_RED);
+    }
+
+    @Test
+    void anOrdinaryTaskRepairsTheSameFailureOnANewHead()
+    {
+        resolvedPolicy(List.of("build"));
+        autofix.observeCi("pr-1", check(
+                "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
+        autofix.finalizeHeadSnapshot("pr-1", "H1");
+        subject.set(new PublishedPrSubject(
+                "pr-1", "task-1", "repo-1", "main", "main", "H2"));
+        autofix.observeCi("pr-1", check(
+                "H2", "build", "build-id-2", "run-2", 1, "build",
+                "COMPLETED", "FAILURE", "1", NOW, NOW, NOW, "raw:2"));
+
+        assertThat(((FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H2"))
+                .round().state())
+                .isEqualTo(RoundState.FINAL_RED);
+    }
+
     private RequiredCiPolicyRevision resolvedPolicy(List<String> checks)
     {
         return autofix.recordPolicy(

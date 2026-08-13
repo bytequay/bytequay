@@ -831,6 +831,56 @@ final class TestFlowWorktreeInspector
     }
 
     @Test
+    void acceptsARewrittenHeadOnlyThroughTheRewriteEntryPoint(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        commit(fixture.worktree(), "one.txt", "one\n", "pick one");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        // Rebuild the same content as a different commit, exactly as a
+        // program-generated rebase does to everything after its target.
+        git(fixture.worktree(), "reset", "--hard", fixture.base());
+        commit(fixture.worktree(), "one.txt", "one\n", "pick one rewritten");
+        String rewritten = revParse(fixture.worktree(), "HEAD");
+
+        // The ordinary rule still refuses it: a head that abandoned the last
+        // adopted work is normally a lost writer turn.
+        assertFailure(
+                FailureCode.PREDECESSOR_NOT_ANCESTOR,
+                () -> inspect(fixture, fixture.base(), predecessor));
+
+        Inspection inspection = inspector.inspectRewritten(
+                fixture.repository(),
+                fixture.worktree(),
+                fixture.branch(),
+                fixture.base(),
+                predecessor);
+        assertThat(inspection.headSha()).isEqualTo(rewritten);
+
+        // Only that one rule relaxes. A predecessor that never existed, and a
+        // base that is not an ancestor, still fail closed.
+        assertFailure(
+                FailureCode.PREDECESSOR_NOT_FOUND,
+                () -> inspector.inspectRewritten(
+                        fixture.repository(),
+                        fixture.worktree(),
+                        fixture.branch(),
+                        fixture.base(),
+                        "0".repeat(40)));
+        commit(fixture.repository(), "main.txt", "main\n", "main sibling");
+        String sibling = revParse(fixture.repository(), "HEAD");
+        assertFailure(
+                FailureCode.BASE_NOT_ANCESTOR,
+                () -> inspector.inspectRewritten(
+                        fixture.repository(),
+                        fixture.worktree(),
+                        fixture.branch(),
+                        sibling,
+                        predecessor));
+    }
+
+    @Test
     void treeDigestsTrackContentRenameAndModeButNotEmptyCommit(
             @TempDir Path temporaryDirectory)
             throws Exception

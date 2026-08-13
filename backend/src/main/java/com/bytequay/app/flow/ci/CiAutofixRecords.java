@@ -101,10 +101,12 @@ public final class CiAutofixRecords
             String compileSourceRef,
             String compileSourceDigest,
             boolean allowsHistoryRewrite,
+            List<String> boundaryBuildCommand,
             Instant recordedAt)
     {
         public RepairPlacementPolicy
         {
+            boundaryBuildCommand = List.copyOf(boundaryBuildCommand);
             requireNonNull(taskId, "taskId is null");
             requireNonNull(placement, "placement is null");
             perCommitCompileSelectors = List.copyOf(perCommitCompileSelectors);
@@ -125,7 +127,7 @@ public final class CiAutofixRecords
         {
             return new RepairPlacementPolicy(
                     taskId, RepairPlacement.TIP, List.of(), null, null,
-                    false, now);
+                    false, List.of(), now);
         }
     }
 

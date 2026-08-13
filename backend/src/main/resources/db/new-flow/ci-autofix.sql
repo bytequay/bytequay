@@ -514,6 +514,10 @@ CREATE TABLE flow_ci_repair_placement (
     allows_history_rewrite INTEGER NOT NULL CHECK (
         allows_history_rewrite IN (0, 1)
     ),
+    -- The per-commit build this program runs at each boundary of a series it
+    -- rewrote. Empty means it cannot prove a rewrite, and therefore cannot
+    -- publish one.
+    boundary_build_command_json TEXT NOT NULL DEFAULT '[]',
     recorded_at INTEGER NOT NULL,
     CHECK ((compile_source_ref IS NULL) = (compile_source_digest IS NULL)),
     CHECK (

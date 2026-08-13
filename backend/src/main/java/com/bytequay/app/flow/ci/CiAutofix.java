@@ -327,7 +327,8 @@ public final class CiAutofix
             List<String> perCommitCompileSelectors,
             String compileSourceRef,
             String compileSourceDigest,
-            boolean allowsHistoryRewrite)
+            boolean allowsHistoryRewrite,
+            List<String> boundaryBuildCommand)
     {
         requireText(taskId, "taskId");
         requireNonNull(placement, "placement is null");
@@ -339,6 +340,7 @@ public final class CiAutofix
                 compileSourceRef,
                 compileSourceDigest,
                 allowsHistoryRewrite,
+                List.copyOf(boundaryBuildCommand),
                 clock.instant());
         return requireNonNull(transactions.execute(ignored -> {
             Optional<RepairPlacementPolicy> stored = storedPlacementPolicy(
@@ -355,7 +357,9 @@ public final class CiAutofix
                                 current.compileSourceDigest(),
                                 requested.compileSourceDigest())
                         || current.allowsHistoryRewrite()
-                                != requested.allowsHistoryRewrite()) {
+                                != requested.allowsHistoryRewrite()
+                        || !current.boundaryBuildCommand().equals(
+                                requested.boundaryBuildCommand())) {
                     throw new IllegalStateException(
                             "repair placement is immutable per Task");
                 }
@@ -366,8 +370,9 @@ public final class CiAutofix
                     INSERT INTO flow_ci_repair_placement (
                         task_id, placement, per_commit_compile_selectors_json,
                         compile_source_ref, compile_source_digest,
-                        allows_history_rewrite, recorded_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        allows_history_rewrite, boundary_build_command_json,
+                        recorded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     taskId,
                     placement.name(),
@@ -375,6 +380,7 @@ public final class CiAutofix
                     compileSourceRef,
                     compileSourceDigest,
                     allowsHistoryRewrite ? 1 : 0,
+                    writeJson(requested.boundaryBuildCommand()),
                     requested.recordedAt().toEpochMilli());
             return requested;
         }), "placement transaction returned null");
@@ -399,7 +405,8 @@ public final class CiAutofix
             RepairPlacement placement,
             boolean allowsHistoryRewrite,
             RepositoryCompileConfiguration configuration,
-            RequiredCiPolicyRevision policy)
+            RequiredCiPolicyRevision policy,
+            List<String> boundaryBuildCommand)
     {
         List<String> resolved = resolveCompileSelectors(configuration, policy);
         return recordPlacementPolicy(
@@ -408,7 +415,8 @@ public final class CiAutofix
                 resolved,
                 resolved.isEmpty() ? null : configuration.sourceRef(),
                 resolved.isEmpty() ? null : configuration.sourceDigest(),
-                allowsHistoryRewrite);
+                allowsHistoryRewrite,
+                boundaryBuildCommand);
     }
 
     private static List<String> resolveCompileSelectors(
@@ -639,6 +647,8 @@ public final class CiAutofix
                         result.getString("compile_source_ref"),
                         result.getString("compile_source_digest"),
                         result.getBoolean("allows_history_rewrite"),
+                        readStringList(result.getString(
+                                "boundary_build_command_json")),
                         instant(result.getLong("recorded_at"))),
                 taskId).stream().findFirst();
     }

@@ -42,6 +42,8 @@ class TestCiRepairPlacement
     private static final Instant NOW = Instant.parse("2026-08-10T10:15:30Z");
     private static final String COMPILE =
             "GITHUB_CHECK:15368:check-commits";
+    private static final List<String> BUILD =
+            List.of("/usr/bin/true");
 
     @TempDir
     private Path temporaryDirectory;
@@ -90,7 +92,8 @@ class TestCiRepairPlacement
                 List.of(COMPILE),
                 ".github/workflows/ci.yml",
                 "sha256:abc",
-                true);
+                true,
+                BUILD);
 
         assertThat(recorded.placement())
                 .isEqualTo(RepairPlacement.ATTRIBUTED_FIXUP);
@@ -105,7 +108,8 @@ class TestCiRepairPlacement
                 List.of(COMPILE),
                 ".github/workflows/ci.yml",
                 "sha256:abc",
-                true))
+                true,
+                BUILD))
                 .isEqualTo(recorded);
     }
 
@@ -114,16 +118,19 @@ class TestCiRepairPlacement
     {
         autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(COMPILE), "ci.yml", "sha256:abc", true);
+                List.of(COMPILE), "ci.yml", "sha256:abc", true,
+                BUILD);
 
         assertThatThrownBy(() -> autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.TIP,
-                List.of(), null, null, true))
+                List.of(), null, null, true,
+                BUILD))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("immutable per Task");
         assertThatThrownBy(() -> autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(COMPILE), "ci.yml", "sha256:abc", false))
+                List.of(COMPILE), "ci.yml", "sha256:abc", false,
+                BUILD))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("immutable per Task");
         assertThat(autofix.placementPolicy("task-1").allowsHistoryRewrite())
@@ -135,7 +142,8 @@ class TestCiRepairPlacement
     {
         assertThatThrownBy(() -> autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(COMPILE), null, null, true))
+                List.of(COMPILE), null, null, true,
+                BUILD))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cite its CI configuration");
         assertThat(autofix.placementPolicy("task-1").placement())
@@ -157,7 +165,8 @@ class TestCiRepairPlacement
                         List.of(
                                 selector("check-commits"),
                                 selector("not-required"))),
-                policy);
+                policy,
+                BUILD);
 
         assertThat(resolved.perCommitCompileSelectors())
                 .containsExactly(COMPILE);
@@ -175,7 +184,8 @@ class TestCiRepairPlacement
         var policy = requiredPolicy(COMPILE);
 
         var withoutConfiguration = autofix.resolvePlacementPolicy(
-                "task-1", RepairPlacement.ATTRIBUTED_FIXUP, true, null, policy);
+                "task-1", RepairPlacement.ATTRIBUTED_FIXUP, true, null, policy,
+                BUILD);
         var withoutPolicy = autofix.resolvePlacementPolicy(
                 "task-2",
                 RepairPlacement.ATTRIBUTED_FIXUP,
@@ -183,7 +193,8 @@ class TestCiRepairPlacement
                 new RepositoryCompileConfiguration(
                         "ci.yml", "sha256:abc",
                         List.of(selector("check-commits"))),
-                null);
+                null,
+                BUILD);
         var unmatched = autofix.resolvePlacementPolicy(
                 "task-3",
                 RepairPlacement.ATTRIBUTED_FIXUP,
@@ -191,7 +202,8 @@ class TestCiRepairPlacement
                 new RepositoryCompileConfiguration(
                         "ci.yml", "sha256:abc",
                         List.of(selector("build-all-commits"))),
-                policy);
+                policy,
+                BUILD);
 
         for (var degraded : List.of(
                 withoutConfiguration, withoutPolicy, unmatched)) {

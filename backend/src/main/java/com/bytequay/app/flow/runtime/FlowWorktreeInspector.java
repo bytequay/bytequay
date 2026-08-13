@@ -96,6 +96,46 @@ public final class FlowWorktreeInspector
             String baseSha,
             String predecessorSha)
     {
+        return inspect(
+                repositoryRoot, worktree, expectedBranch, baseSha,
+                predecessorSha, false);
+    }
+
+    /**
+     * Inspects a worktree whose head deliberately no longer descends from its
+     * predecessor.
+     *
+     * <p>Every ordinary adoption requires the predecessor to be an ancestor of
+     * the head, because a head that abandoned the work the program last adopted
+     * is normally a lost writer turn. A program-generated rebase is the one
+     * thing that breaks that relationship on purpose: repositioning a repair
+     * behind the commit it fixes recreates every commit after that target.
+     *
+     * <p>Only the predecessor-ancestor rule relaxes. The predecessor commit
+     * must still exist, the base must still be an ancestor, and the branch must
+     * still be attached and clean, so this cannot be used to adopt a worktree
+     * that merely wandered off.
+     */
+    public Inspection inspectRewritten(
+            Path repositoryRoot,
+            Path worktree,
+            String expectedBranch,
+            String baseSha,
+            String predecessorSha)
+    {
+        return inspect(
+                repositoryRoot, worktree, expectedBranch, baseSha,
+                predecessorSha, true);
+    }
+
+    private Inspection inspect(
+            Path repositoryRoot,
+            Path worktree,
+            String expectedBranch,
+            String baseSha,
+            String predecessorSha,
+            boolean rewritten)
+    {
         Inputs inputs = validateInputs(
                 repositoryRoot,
                 worktree,
@@ -122,7 +162,8 @@ public final class FlowWorktreeInspector
             throw failure(FailureCode.MOVED_DURING_INSPECTION);
         }
 
-        ValidatedObservation validated = validateObservation(inputs, second);
+        ValidatedObservation validated = validateObservation(
+                inputs, second, rewritten);
         String headTreeDigest = digest(HEAD_TREE_DOMAIN + validated.headTree());
         String diffDigest = digest(
                 DIFF_DOMAIN + validated.baseTree() + "\0" + validated.headTree());
@@ -1294,7 +1335,8 @@ public final class FlowWorktreeInspector
 
     private static ValidatedObservation validateObservation(
             Inputs inputs,
-            Observation observation)
+            Observation observation,
+            boolean rewritten)
     {
         validatePathIdentity(
                 inputs,
@@ -1328,8 +1370,11 @@ public final class FlowWorktreeInspector
         requireCommit(observation.baseType(), FailureCode.BASE_NOT_FOUND);
         requireCommit(observation.predecessorType(), FailureCode.PREDECESSOR_NOT_FOUND);
         requireAncestor(observation.baseAncestor(), FailureCode.BASE_NOT_ANCESTOR);
-        requireAncestor(
-                observation.predecessorAncestor(), FailureCode.PREDECESSOR_NOT_ANCESTOR);
+        if (!rewritten) {
+            requireAncestor(
+                    observation.predecessorAncestor(),
+                    FailureCode.PREDECESSOR_NOT_ANCESTOR);
+        }
 
         requireSuccess(observation.headTree(), FailureCode.COMMAND_FAILED);
         requireSuccess(observation.baseTree(), FailureCode.COMMAND_FAILED);

@@ -36,6 +36,8 @@ class TestCiBoundaryCompileProof
 {
     private static final String TARGET_FIXUP = "a".repeat(40);
     private static final String PLAIN = "b".repeat(40);
+    private static final List<String> BUILD =
+            List.of("/usr/bin/true");
 
     @Test
     void aProofIsImmutablePerHeadAndBelongsToNoOtherHead()
@@ -104,7 +106,8 @@ class TestCiBoundaryCompileProof
         autofix.recordPlacementPolicy(
                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
                 List.of("build"), ".github/workflows/ci.yml", "sha256:ci",
-                true);
+                true,
+                BUILD);
 
         // The per-commit check is red because a target is red in isolation by
         // construction. Without the program's own proof that is simply red.
@@ -130,7 +133,8 @@ class TestCiBoundaryCompileProof
         autofix.recordPlacementPolicy(
                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
                 List.of("build"), ".github/workflows/ci.yml", "sha256:ci",
-                true);
+                true,
+                BUILD);
 
         // Green, but no commit in it carries a following fixup, so there is no
         // by-construction red to excuse.
@@ -167,13 +171,14 @@ class TestCiBoundaryCompileProof
     }
 
     @Test
-    void aRewriteWithoutAProvenBoundaryCannotEvenOpenItsGate()
+    void aRewriteItCannotProveCannotEvenOpenItsGate()
     {
+        // No boundary build, so this Task can never prove a rewrite.
         autofix.recordPlacementPolicy(
                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(), null, null, true);
+                List.of(), null, null, true, List.of());
 
-        assertThatThrownBy(() -> readyGate("unproven", null))
+        assertThatThrownBy(() -> readyGate("unprovable"))
                 .hasMessageContaining("BOUNDARY_COMPILE_PROOF_MISSING");
         assertThat(count("flow_user_gate_revision", "1 = 1")).isZero();
     }
@@ -183,9 +188,9 @@ class TestCiBoundaryCompileProof
     {
         autofix.recordPlacementPolicy(
                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(), null, null, false);
+                List.of(), null, null, false, BUILD);
 
-        GateRevision revision = readyGate("unauthorized", TARGET_FIXUP);
+        GateRevision revision = readyGate("unauthorized");
 
         GateSubject subject = userGates.subject(
                 revision.subjectManifestRef()).orElseThrow();
@@ -197,16 +202,24 @@ class TestCiBoundaryCompileProof
     }
 
     @Test
-    void aRewriteWithStandingAuthorityPublishesLikeAnyOtherFix()
+    void aProvenRewriteIsAdoptedReviewedAndRecordedAsForced()
     {
         autofix.recordPlacementPolicy(
                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
-                List.of(), null, null, true);
+                List.of(), null, null, true, BUILD);
 
-        GateRevision revision = readyGate("authorized", TARGET_FIXUP);
+        GateRevision revision = readyGate("authorized");
 
+        // The proof the program built itself, for the exact head the Task
+        // adopted and the reviewer saw.
+        String reviewed = runtime.task(task.taskId())
+                .orElseThrow().currentHeadSha();
+        assertThat(autofix.boundaryCompileProofForHead(reviewed))
+                .get()
+                .matches(proof -> proof.allPassed(), "all boundaries green");
         GateSubject subject = userGates.subject(
                 revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.proposedHead()).isEqualTo(reviewed);
         assertThat(subject.warningCodes())
                 .doesNotContain("HISTORY_REWRITE_UNAUTHORIZED");
         assertThat(subject.manualOnly()).isFalse();
@@ -217,10 +230,13 @@ class TestCiBoundaryCompileProof
     }
 
     @Test
-    void anOrdinaryFixIsStillRecordedAsANonForcedPush()
+    void anOrdinaryFixIsNeitherRewrittenNorForced()
     {
-        GateRevision revision = readyGate("ordinary", null);
+        GateRevision revision = readyGate("ordinary");
 
+        assertThat(autofix.boundaryCompileProofForHead(
+                runtime.task(task.taskId()).orElseThrow().currentHeadSha()))
+                .isEmpty();
         assertThat(userGates.ciUpdateAction(revision.actionManifestRef())
                 .orElseThrow().forcePush())
                 .isFalse();
@@ -261,26 +277,12 @@ class TestCiBoundaryCompileProof
     }
 
     /**
-     * Drives one repair to its ready gate, storing a boundary proof for the
-     * exact candidate head first when {@code provenBoundary} is given.
+     * Drives one repair through to its ready gate. Under attributed placement
+     * the repair path rewrites and proves the series itself on the way.
      */
-    private GateRevision readyGate(String suffix, String provenBoundary)
+    private GateRevision readyGate(String suffix)
     {
         var ready = prepareReviewerResult(suffix);
-        String candidate = runtime.task(task.taskId())
-                .orElseThrow().currentHeadSha();
-        if (provenBoundary != null) {
-            autofix.storeBoundaryCompileProof(
-                    task.taskId(),
-                    autofix.repairAttemptForRound(
-                            ready.ready().binding().projection().roundId(), 0)
-                            .orElseThrow().attemptId(),
-                    candidate,
-                    "profile-1",
-                    List.of(new BoundaryOutcome(
-                            provenBoundary, BoundaryKind.TARGET_WITH_FIXUP,
-                            0, "sha256:one")));
-        }
         AtomicReference<RuntimeException> rejection = new AtomicReference<>();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         var handle = ready.ready().review().launchReviewerResultContinuation(

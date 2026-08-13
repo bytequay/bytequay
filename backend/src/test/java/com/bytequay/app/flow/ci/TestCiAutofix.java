@@ -52,6 +52,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestCiAutofix
 {
     private static final Instant NOW = Instant.parse("2026-08-10T10:15:30Z");
+    private static final List<String> BUILD =
+            List.of("/usr/bin/true");
 
     @TempDir
     private Path temporaryDirectory;
@@ -657,7 +659,8 @@ class TestCiAutofix
                 List.of("check-commits"),
                 ".github/workflows/ci.yml",
                 "sha256:ci",
-                true);
+                true,
+                BUILD);
         var compile = autofix.observeCi("pr-1", check(
                 "compile-id", "check-commits", "COMPLETED", "FAILURE",
                 "1", NOW));
@@ -711,7 +714,8 @@ class TestCiAutofix
         resolvedPolicy(List.of("build"));
         autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
-                null, null, true);
+                null, null, true,
+                BUILD);
         autofix.observeCi("pr-1", check(
                 "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
         assertThat(((FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1"))
@@ -737,7 +741,8 @@ class TestCiAutofix
         resolvedPolicy(List.of("build"));
         autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
-                null, null, true);
+                null, null, true,
+                BUILD);
         autofix.observeCi("pr-1", check(
                 "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
         var first = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
@@ -761,7 +766,8 @@ class TestCiAutofix
         resolvedPolicy(List.of("build", "test"));
         autofix.recordPlacementPolicy(
                 "task-1", RepairPlacement.ATTRIBUTED_FIXUP, List.of(),
-                null, null, true);
+                null, null, true,
+                BUILD);
         autofix.observeCi("pr-1", check(
                 "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
         autofix.observeCi("pr-1", check(

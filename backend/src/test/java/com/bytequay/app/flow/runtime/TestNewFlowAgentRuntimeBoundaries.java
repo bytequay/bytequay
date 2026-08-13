@@ -64,6 +64,7 @@ import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_REPA
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_FIX;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL_REVIEW_RESULT;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR;
 import static com.bytequay.app.service.agents.TurnSpec.Transport.ANTHROPIC;
 import static com.bytequay.app.service.agents.TurnSpec.Transport.OPENAI_COMPAT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -179,6 +180,32 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .isInstanceOf(
                         NewFlowAgentLaunches.LaunchUnavailableException.class)
                 .hasMessageContaining("must not take the in-JVM turn path");
+    }
+
+    @Test
+    void theUpstreamPickRepairProgramCannotAskForReviewMidRange()
+    {
+        NewFlowAgentLaunches launches = launches(
+                dataSource(), mock(FlowRuntime.class),
+                mock(CredentialStore.class), "model");
+
+        List<String> tools = toolNames(
+                launches.tools(UPSTREAM_PICK_REPAIR, ANTHROPIC));
+        String prompt = launches.systemPrompt(UPSTREAM_PICK_REPAIR);
+
+        // A conflicted pick used to run on TASK_INITIAL, whose prompt tells the
+        // agent to implement a Task goal that does not exist here and to finish
+        // by requesting review — which the repair turn reads as declining the
+        // conflict. Neither may come back.
+        assertThat(tools)
+                .contains("read_pick_conflict_context", "commit_pick_repair",
+                        "decline_pick_repair")
+                .doesNotContain("request_initial_review",
+                        "read_initial_task_context", "commit_initial_change");
+        assertThat(prompt).doesNotContain("review");
+        // The contrast is the point: an ordinary initial Task must ask for
+        // review, so the absence above is a property of this program alone.
+        assertThat(launches.systemPrompt(TASK_INITIAL)).contains("review");
     }
 
     @Test

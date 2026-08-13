@@ -53,6 +53,14 @@ public final class InitialTaskCoordinator
     private static final String TASK_PROMPT = "task-initial-prompt:v1";
     private static final String TASK_CAPABILITIES =
             "task-initial-capabilities:v1";
+    /** An upstream range's first turn repairs conflicted picks instead of
+     *  implementing a goal, so it is stamped with its own sealed identity. Its
+     *  continuation turn is deterministic and runs no agent, which is why only
+     *  the first one differs. */
+    private static final String PICK_REPAIR_PROMPT =
+            "upstream-pick-repair-prompt:v1";
+    private static final String PICK_REPAIR_CAPABILITIES =
+            "upstream-pick-repair-capabilities:v1";
     private static final String TASK_REVIEW_PROMPT =
             "task-initial-review-prompt:v1";
     private static final String TASK_REVIEW_CAPABILITIES =
@@ -286,6 +294,16 @@ public final class InitialTaskCoordinator
 
     public TaskBinding beginTask(Claim claim, Duration leaseTtl)
     {
+        return beginTask(claim, leaseTtl, false);
+    }
+
+    /**
+     * @param upstreamRange whether this Task's picks come from an upstream
+     *         range, which changes the first turn's sealed program identity
+     */
+    public TaskBinding beginTask(
+            Claim claim, Duration leaseTtl, boolean upstreamRange)
+    {
         requireNonNull(claim, "claim is null");
         Operation operation = runtime.operation(claim.operationId())
                 .orElseThrow(() -> new IllegalArgumentException(
@@ -312,9 +330,11 @@ public final class InitialTaskCoordinator
                 runtime.prepareInitialTaskAdmission(claim, repositoryRoot);
         TaskWriterStart start = runtime.startInspectedInitialTaskWriter(
                 claim, prepared, leaseTtl,
-                continuation ? TASK_REVIEW_PROMPT : TASK_PROMPT,
+                continuation ? TASK_REVIEW_PROMPT
+                        : upstreamRange ? PICK_REPAIR_PROMPT : TASK_PROMPT,
                 continuation ? TASK_REVIEW_CAPABILITIES
-                        : TASK_CAPABILITIES);
+                        : upstreamRange ? PICK_REPAIR_CAPABILITIES
+                                : TASK_CAPABILITIES);
         ReviewerRequest review = continuation
                 ? runtime.reviewerRequestForReviewerRun(input.externalKey())
                         .orElseThrow()

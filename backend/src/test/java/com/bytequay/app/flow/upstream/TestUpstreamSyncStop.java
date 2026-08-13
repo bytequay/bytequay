@@ -127,6 +127,18 @@ class TestUpstreamSyncStop
     }
 
     @Test
+    void aCloseDuringFinalReviewWaitsForTheReviewBoundary()
+    {
+        upstreamSync.advanceState(run.runId(), RunState.FINAL_REVIEW);
+
+        upstreamSync.requestClose(run.runId());
+
+        assertThat(upstreamSync.closeRequested(run.runId())).isTrue();
+        assertThat(upstreamSync.run(run.runId()).orElseThrow().state())
+                .isEqualTo(RunState.FINAL_REVIEW);
+    }
+
+    @Test
     void onlyAClosedRunIsDroppedFromTheList()
     {
         assertThatThrownBy(() -> upstreamSync.delete(run.runId()))

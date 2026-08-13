@@ -150,6 +150,38 @@ final class TestUpstreamPicker
     }
 
     @Test
+    void anAbortedConflictRegeneratesIdenticallyOnRePick()
+            throws Exception
+    {
+        // The park/resume contract rests on this: a park aborts the sequencer
+        // to leave a clean admissible tree, and a resumed run re-picks the
+        // recorded commit to get the same conflict back. Same head, same
+        // commit, same three-way merge — the regenerated evidence must be
+        // byte-identical or the record would describe a different worktree.
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        String preHead = picker.head();
+        PickResult first = picker.pick(conflictingCommit);
+        assertThat(first.outcome()).isEqualTo(Outcome.CONFLICTED);
+        String conflicted = Files.readString(
+                repository.resolve("contested.txt"), StandardCharsets.UTF_8);
+
+        picker.abortSequencer();
+
+        assertThat(picker.sequencerActive()).isFalse();
+        assertThat(picker.clean()).isTrue();
+        assertThat(picker.head()).isEqualTo(preHead);
+
+        PickResult regenerated = picker.pick(conflictingCommit);
+
+        assertThat(regenerated.outcome()).isEqualTo(Outcome.CONFLICTED);
+        assertThat(regenerated.conflictedPaths())
+                .isEqualTo(first.conflictedPaths());
+        assertThat(Files.readString(
+                repository.resolve("contested.txt"), StandardCharsets.UTF_8))
+                .isEqualTo(conflicted);
+    }
+
+    @Test
     void amendsTheOneFixupAPickCarriesRatherThanAddingASecond()
             throws Exception
     {

@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.IOException;
@@ -203,6 +204,66 @@ final class TestNewFlowCliTurn
                         + " double-counts")
                 .hasSize(1);
         assertThat(fixture.usage.getFirst()).startsWith("s-7/");
+    }
+
+    @Test
+    void aStaleProviderSessionFallsBackToAFreshConversation(@TempDir Path root)
+            throws Exception
+    {
+        // A wiped vendor state or an engine switch makes the stored session
+        // unresumable. The CLI exits before opening a conversation, so nothing
+        // ran and nothing was spent — the turn forgets the dead handle and
+        // reruns once as a fresh conversation instead of failing this role's
+        // every later turn the same way.
+        Fixture fixture = Fixture.create(root, """
+                read line
+                case "$*" in
+                *--resume*)
+                    echo run-resumed >> %s
+                    echo 'No conversation found with session ID: s-stale' >&2
+                    exit 1
+                    ;;
+                *)
+                    echo run-fresh >> %s
+                    echo '{"type":"system","subtype":"init","session_id":"s-fresh"}'
+                    echo '{"type":"result","subtype":"success","result":"ok"}'
+                    ;;
+                esac
+                """.formatted(marker(root), marker(root)));
+        JdbcTemplate seed = new JdbcTemplate(new DriverManagerDataSource(
+                "jdbc:sqlite:" + root.resolve("runtime.db")));
+        seed.update("""
+                INSERT INTO flow_runtime_agent_session (
+                    session_id, task_id, role, state, provider_session_id,
+                    created_at, updated_at
+                ) VALUES ('s1', 't1', 'TASK_AGENT', 'RUNNING', 's-stale', 0, 0)
+                """);
+        seed.update("""
+                INSERT INTO flow_runtime_agent_run (
+                    run_id, operation_id, session_id, role, head_sha,
+                    prompt_manifest_ref, capability_set_ref, input_ref,
+                    wake_kind, intended_gate_kind, state, created_at
+                ) VALUES (?, 'op-1', 's1', 'TASK_AGENT', 'h', 'p', 'c', 'i',
+                          'INITIAL_TASK', 'INITIAL_PUBLISH', 'RUNNING', 0)
+                """, RUN_ID);
+
+        NewFlowCliTurn.Outcome outcome = fixture.run((pid, pgid, started) -> {});
+
+        assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.COMPLETED);
+        assertThat(outcome.providerSessionId()).isEqualTo("s-fresh");
+        assertThat(Files.readString(fixture.marker, StandardCharsets.UTF_8))
+                .as("the resumed launch failed and exactly one fresh launch ran")
+                .isEqualTo("run-resumed\nrun-fresh\n");
+        assertThat(fixture.usage)
+                .as("one journal entry despite two launches")
+                .hasSize(1);
+        assertThat(fixture.usage.getFirst()).startsWith("s-fresh/");
+        assertThat(seed.queryForObject("""
+                SELECT provider_session_id FROM flow_runtime_agent_session
+                WHERE session_id = 's1'
+                """, String.class))
+                .as("the dead handle is forgotten so later turns start fresh")
+                .isNull();
     }
 
     @Test

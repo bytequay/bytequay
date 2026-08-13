@@ -1430,6 +1430,81 @@ public final class FlowRuntime
     }
 
     /**
+     * Re-arms a Task's INITIAL work after an explicit user resume.
+     *
+     * <p>A parked upstream run fails its INITIAL turn, which consumes the
+     * pending fact and moves the Task to attention — leaving nothing for the
+     * dispatcher to claim. This registers the next revision of the same
+     * self-contained fact and returns the Task to {@code ACTIVE}, so the
+     * ordinary INITIAL lane produces another turn. It fails closed while any
+     * writer state survives: the resume is only valid for a Task that is
+     * genuinely idle at attention.
+     */
+    public synchronized PendingWork rearmInitialTask(
+            String taskId, String reasonCode)
+    {
+        requireText(taskId, "taskId");
+        requireText(reasonCode, "reasonCode");
+        return inTransaction(() -> {
+            Task task = requireTask(taskId);
+            if (task.status() != TaskStatus.NEEDS_ATTENTION) {
+                throw new IllegalStateException(
+                        "only a Task needing attention can be re-armed");
+            }
+            if (task.waitingMutationStateRef() != null
+                    || task.selectedWriterOperationId() != null
+                    || writerFence(taskId).isPresent()) {
+                throw new IllegalStateException(
+                        "Task still owns writer state and cannot be re-armed");
+            }
+            Instant now = clock.instant();
+            TaskLifecycleRevision resumed = appendLifecycle(
+                    task, TaskStatus.ACTIVE, reasonCode, null, null, now);
+            int taskUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'ACTIVE', current_lifecycle_revision_id = ?
+                    WHERE task_id = ? AND status = 'NEEDS_ATTENTION'
+                      AND current_lifecycle_revision_id = ?
+                    """,
+                    resumed.lifecycleRevisionId(),
+                    taskId,
+                    task.currentLifecycleRevisionId());
+            if (taskUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "Task changed while being re-armed");
+            }
+            Integer priorRegistrations = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_inbox
+                    WHERE source = 'TASK' AND external_key = ?
+                      AND kind = 'INITIAL_TASK'
+                    """,
+                    Integer.class,
+                    taskId);
+            String revision = Long.toString(requireNonNull(
+                    priorRegistrations, "prior registration count is null")
+                    + 1L);
+            Task rearmed = requireTask(taskId);
+            PendingWork pending = appendPendingWork(
+                    stableId("inbox", "TASK", taskId, revision),
+                    rearmed,
+                    null,
+                    "TASK",
+                    taskId,
+                    revision,
+                    PendingKind.INITIAL_TASK,
+                    rearmed.currentHeadSha(),
+                    "task-goal:" + taskId,
+                    null,
+                    GateIntent.INITIAL_PUBLISH,
+                    now);
+            ensureReconciliation(taskId);
+            return pending;
+        });
+    }
+
+    /**
      * Persists a typed FINAL_RED owner reference and only ensures
      * reconciliation; it never starts a CI process directly.
      */
@@ -5516,27 +5591,60 @@ public final class FlowRuntime
                 throw new IllegalStateException(
                         "only an activated attempt owns an agent process group");
             }
+            Long buriedPgid = null;
             if (attempt.agentPgid() != null) {
-                if (!Long.valueOf(agentPid).equals(attempt.agentPid())
-                        || !Long.valueOf(agentPgid).equals(attempt.agentPgid())
-                        || !Objects.equals(
+                if (Long.valueOf(agentPid).equals(attempt.agentPid())
+                        && Long.valueOf(agentPgid).equals(attempt.agentPgid())
+                        && Objects.equals(
                                 agentStartedAt, attempt.agentStartedAt())) {
+                    return Boolean.TRUE;
+                }
+                // One attempt may launch a successor process — a turn whose
+                // provider session could not be resumed retries fresh — but
+                // only after the recorded group is proven absent, so the row
+                // always names the one group a later JVM would have to bury.
+                boolean priorGroupGone;
+                try {
+                    priorGroupGone = !ProcessGroup.isAlive(attempt.agentPgid());
+                }
+                catch (InterruptedException interruption) {
+                    Thread.currentThread().interrupt();
+                    priorGroupGone = false;
+                }
+                if (!priorGroupGone) {
                     throw new IllegalStateException(
                             "agent process group redelivery changed identity");
                 }
-                return Boolean.TRUE;
+                buriedPgid = attempt.agentPgid();
             }
-            int updated = jdbc.update(
-                    """
-                    UPDATE flow_runtime_agent_process_attempt
-                    SET agent_pid = ?, agent_pgid = ?, agent_started_at = ?
-                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
-                        AND agent_pgid IS NULL
-                    """,
-                    agentPid,
-                    agentPgid,
-                    agentStartedAt == null ? null : agentStartedAt.toEpochMilli(),
-                    processAttemptId);
+            int updated = buriedPgid == null
+                    ? jdbc.update(
+                            """
+                            UPDATE flow_runtime_agent_process_attempt
+                            SET agent_pid = ?, agent_pgid = ?,
+                                agent_started_at = ?
+                            WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                                AND agent_pgid IS NULL
+                            """,
+                            agentPid,
+                            agentPgid,
+                            agentStartedAt == null
+                                    ? null : agentStartedAt.toEpochMilli(),
+                            processAttemptId)
+                    : jdbc.update(
+                            """
+                            UPDATE flow_runtime_agent_process_attempt
+                            SET agent_pid = ?, agent_pgid = ?,
+                                agent_started_at = ?
+                            WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                                AND agent_pgid = ?
+                            """,
+                            agentPid,
+                            agentPgid,
+                            agentStartedAt == null
+                                    ? null : agentStartedAt.toEpochMilli(),
+                            processAttemptId,
+                            buriedPgid);
             if (updated != 1) {
                 throw new StaleOwnerRevisionException(
                         "process attempt changed while recording its group");
@@ -5656,6 +5764,44 @@ public final class FlowRuntime
                     "Task writer roles have divergent provider sessions");
         }
         return sessions.stream().findFirst();
+    }
+
+    /**
+     * Forgets a provider session that the vendor CLI refused to resume.
+     *
+     * <p>A wiped {@code ~/.claude} or an engine switch leaves the durable role
+     * holding a handle nothing can continue. Clearing it lets the next turn
+     * start a fresh conversation instead of failing on the same dead id
+     * forever. Only the exact stale id is cleared, and clearing an
+     * already-cleared row is a no-op, so redelivery is harmless.
+     */
+    synchronized void retireProviderSession(
+            String runId, String staleProviderSessionId)
+    {
+        requireText(runId, "runId");
+        requireText(staleProviderSessionId, "staleProviderSessionId");
+        inTransaction(() -> jdbc.update(
+                """
+                UPDATE flow_runtime_agent_session
+                SET provider_session_id = NULL, updated_at = ?
+                WHERE provider_session_id = ?
+                  AND session_id IN (
+                      SELECT candidate.session_id
+                      FROM flow_runtime_agent_run current_run
+                      JOIN flow_runtime_agent_session owner
+                        ON owner.session_id = current_run.session_id
+                      JOIN flow_runtime_agent_session candidate
+                        ON (current_run.role IN ('TASK_AGENT', 'CI_FIXER')
+                              AND candidate.task_id = owner.task_id
+                              AND candidate.role IN ('TASK_AGENT', 'CI_FIXER'))
+                          OR (current_run.role NOT IN ('TASK_AGENT', 'CI_FIXER')
+                              AND candidate.session_id = owner.session_id)
+                      WHERE current_run.run_id = ?
+                  )
+                """,
+                clock.instant().toEpochMilli(),
+                staleProviderSessionId,
+                runId));
     }
 
     private List<String> resumableProviderSessions(String runId)
@@ -10588,6 +10734,7 @@ public final class FlowRuntime
                 """
                 SELECT subject_head FROM flow_runtime_inbox
                 WHERE task_id = ? AND kind = 'INITIAL_TASK'
+                  AND revision = '1'
                 """,
                 String.class,
                 taskId);

@@ -45,7 +45,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -1222,11 +1224,54 @@ class TestInProcessWriterAgentSupervisor
     }
 
     @Test
-    void anAgentGroupIsRecordedOnceAndNeverSilentlyReplaced()
+    void aLiveAgentGroupIsRecordedOnceAndNeverSilentlyReplaced()
+            throws Exception
     {
         // Two agents under one attempt is not a state to overwrite quietly: the
         // group that gets forgotten is the one nothing can bury afterwards.
+        // While the recorded group is alive, a different record is refused.
         ActiveWriter writer = startWriter("set-once-agent-group");
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+        runtime.activateInProcessWriterAttempt(
+                attempt.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        Instant startedAt = Instant.ofEpochMilli(1_700_000_000_000L);
+        long livePgid = ownProcessGroup();
+        runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(), livePgid, livePgid, startedAt);
+
+        // A redelivery naming the same group is the no-op it looks like.
+        runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(), livePgid, livePgid, startedAt);
+
+        assertThatThrownBy(() -> runtime.recordInProcessWriterAgentGroup(
+                attempt.processAttemptId(),
+                writer.claim(), writer.fence(),
+                99_999_991L, 99_999_991L, startedAt))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("changed identity");
+        AgentProcessAttempt stored = attempt(writer);
+        assertThat(stored.agentPgid()).isEqualTo(livePgid);
+        assertThat(stored.agentStartedAt()).isEqualTo(startedAt);
+    }
+
+    @Test
+    void aSuccessorProcessMayReplaceAProvenAbsentGroup()
+    {
+        // A turn whose provider session could not be resumed launches a second
+        // process under the same attempt. That is legitimate exactly when the
+        // first group is provably gone — the row must always name the one
+        // group a later JVM would have to bury.
+        ActiveWriter writer = startWriter("replace-buried-agent-group");
         AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
                 writer.run().runId(), writer.claim(), writer.fence());
         runtime.activateInProcessWriterAttempt(
@@ -1241,21 +1286,34 @@ class TestInProcessWriterAgentSupervisor
         Instant startedAt = Instant.ofEpochMilli(1_700_000_000_000L);
         runtime.recordInProcessWriterAgentGroup(
                 attempt.processAttemptId(),
-                writer.claim(), writer.fence(), 4321L, 4321L, startedAt);
+                writer.claim(), writer.fence(),
+                99_999_991L, 99_999_991L, startedAt);
 
-        // A redelivery naming the same group is the no-op it looks like.
+        Instant successorStartedAt = Instant.ofEpochMilli(1_700_000_001_000L);
         runtime.recordInProcessWriterAgentGroup(
                 attempt.processAttemptId(),
-                writer.claim(), writer.fence(), 4321L, 4321L, startedAt);
+                writer.claim(), writer.fence(),
+                99_999_992L, 99_999_992L, successorStartedAt);
 
-        assertThatThrownBy(() -> runtime.recordInProcessWriterAgentGroup(
-                attempt.processAttemptId(),
-                writer.claim(), writer.fence(), 8765L, 8765L, startedAt))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("changed identity");
         AgentProcessAttempt stored = attempt(writer);
-        assertThat(stored.agentPgid()).isEqualTo(4321L);
-        assertThat(stored.agentStartedAt()).isEqualTo(startedAt);
+        assertThat(stored.agentPgid()).isEqualTo(99_999_992L);
+        assertThat(stored.agentStartedAt()).isEqualTo(successorStartedAt);
+    }
+
+    private static long ownProcessGroup()
+            throws IOException, InterruptedException
+    {
+        Process ps = new ProcessBuilder(
+                "ps", "-o", "pgid=", "-p",
+                Long.toString(ProcessHandle.current().pid())).start();
+        String output = new String(
+                ps.getInputStream().readAllBytes(),
+                StandardCharsets.UTF_8).strip();
+        if (ps.waitFor() != 0 || output.isBlank()) {
+            throw new IllegalStateException(
+                    "could not resolve this JVM's process group");
+        }
+        return Long.parseLong(output);
     }
 
     private RunningBody launchWaiting(ActiveWriter writer)

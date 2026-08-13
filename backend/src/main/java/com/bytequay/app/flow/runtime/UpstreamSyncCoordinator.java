@@ -48,6 +48,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -222,7 +223,8 @@ public final class UpstreamSyncCoordinator
                 ? request.targetRef() : startRun.currentHead();
         if (!request.targetRef().equals(task.currentBaseSha())
                 || !expectedHead.equals(picker.head())) {
-            return park(startRun.runId(), "TARGET_BASE_MISMATCH");
+            return park(capability, picker, startRun.runId(),
+                    "TARGET_BASE_MISMATCH");
         }
         picker.requireObjects(request.selectedUpstreamShas());
         String targetBaseRef = provisioning.targetBaseRef(taskId);
@@ -239,7 +241,8 @@ public final class UpstreamSyncCoordinator
                     capability, picker, taskId, startRun.runId(), ordinal,
                     selected.get(ordinal));
             if (step.parkReason() != null) {
-                return park(startRun.runId(), step.parkReason());
+                return park(capability, picker, startRun.runId(),
+                        step.parkReason());
             }
             if (step.conflict() != null) {
                 String parkReason = repairRange(
@@ -247,7 +250,8 @@ public final class UpstreamSyncCoordinator
                         startRun.runId(), request, task, targetBaseRef,
                         selected, step.conflict());
                 if (parkReason != null) {
-                    return park(startRun.runId(), parkReason);
+                    return park(capability, picker, startRun.runId(),
+                            parkReason);
                 }
                 agentFinalized = true;
                 break;
@@ -258,7 +262,7 @@ public final class UpstreamSyncCoordinator
                     binding, worktree, capability, picker, task, request,
                     startRun.runId(), targetBaseRef, selected);
             if (blocker != null) {
-                return park(startRun.runId(), blocker);
+                return park(capability, picker, startRun.runId(), blocker);
             }
         }
         return new AgentCompletion(
@@ -293,8 +297,21 @@ public final class UpstreamSyncCoordinator
                 throw new IllegalStateException(
                         "durable pick does not match the confirmed range");
             }
-            return pick.state() == PickState.CONFLICTED
-                    ? new PickStep(null, pick) : PickStep.advanced();
+            if (pick.state() != PickState.CONFLICTED) {
+                return PickStep.advanced();
+            }
+            try {
+                capability.callTool(() -> {
+                    regenerateConflict(picker, pick);
+                    return null;
+                });
+            }
+            catch (UnresolvedRepairException refused) {
+                log.warn("a resumed conflict could not be regenerated",
+                        refused);
+                return new PickStep("PICK_REFUSED", null);
+            }
+            return new PickStep(null, pick);
         }
         String preHead = capability.callTool(picker::head);
         PickResult result;
@@ -688,16 +705,53 @@ public final class UpstreamSyncCoordinator
                 .formatHex(digest.digest()).substring(0, 32);
     }
 
-    private AgentCompletion park(String runId, String reason)
+    private AgentCompletion park(
+            InitialToolCapability capability,
+            UpstreamPicker picker,
+            String runId,
+            String reason)
     {
-        // A semantic conflict parks with Git's index and sequencer evidence
-        // intact. Deterministic pick failures clean themselves up before they
-        // return, so parking must not erase the evidence an agent still needs.
+        // Return the worktree to its clean recorded head before the run
+        // waits. The conflict's evidence lives in the pick record, and a
+        // resumed run re-picks the same commit onto the same head, which
+        // regenerates the identical conflict — so nothing an agent needs is
+        // lost, while the clean tree is what lets a later resumed INITIAL
+        // turn pass writer admission.
+        capability.callTool(() -> {
+            picker.abortSequencer();
+            return null;
+        });
         upstreamSync.park(runId, reason);
         return new AgentCompletion(
                 TerminalOutcome.FAILED,
                 "upstream synchronization parked for the user",
                 "UPSTREAM_SYNC_PARKED:" + reason);
+    }
+
+    /**
+     * Reopens a recorded conflict whose sequencer a park cleaned away.
+     *
+     * <p>Re-picking the same commit onto the same head is deterministic, so
+     * the regenerated conflict must match the recorded one exactly; anything
+     * else means the worktree is not the one the record describes.
+     */
+    private static void regenerateConflict(
+            UpstreamPicker picker, UpstreamPick pick)
+    {
+        if (picker.sequencerActive()) {
+            return;
+        }
+        if (!picker.head().equals(pick.preHead())) {
+            throw new UnresolvedRepairException(
+                    "a resumed conflict is not at its recorded head");
+        }
+        PickResult regenerated = picker.pick(pick.upstreamSha());
+        if (regenerated.outcome() != UpstreamPicker.Outcome.CONFLICTED
+                || !Set.copyOf(regenerated.conflictedPaths()).equals(
+                        Set.copyOf(pick.conflictedPaths()))) {
+            throw new UnresolvedRepairException(
+                    "re-picking the recorded conflict did not reproduce it");
+        }
     }
 
     /** One change-set revision per pick, chained through the same capability. */

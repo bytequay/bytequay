@@ -56,30 +56,44 @@ public final class NewFlowAgentLaunches
     {
         TASK_INITIAL(
                 AgentRole.TASK_AGENT,
-                "task-initial-prompt:v1",
-                "task-initial-capabilities:v1",
-                "task-initial-turn:v1",
+                "task-initial-prompt:v2",
+                "task-initial-capabilities:v2",
+                "task-initial-turn:v2",
                 "Implement the exact Task goal in the current worktree. "
-                        + "Use only supplied tools, commit the change, then "
-                        + "request exact review with a bounded PR draft. "
+                        + "Use only supplied tools and commit the change. "
+                        + "Select a narrow useful validation command from "
+                        + "repository instructions, build files, or CI "
+                        + "configuration and pass its exact argv and "
+                        + "worktree-relative working directory to run_checks. "
+                        + "The program validates and executes it and records "
+                        + "the evidence. You may repair and retry FAILED checks "
+                        + "within the tool bound, but do not retry an "
+                        + "UNAVAILABLE environment result. Then request exact "
+                        + "review with a bounded PR draft. "
                         + "Final prose is opaque.",
                 List.of("read_initial_task_context", "list_repository",
                         "read_file", "search_repository", "write_file",
-                        "delete_file", "commit_initial_change",
+                        "delete_file", "commit_initial_change", "run_checks",
                         "request_initial_review")),
         TASK_INITIAL_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-initial-review-prompt:v1",
-                "task-initial-review-capabilities:v1",
-                "task-initial-review-turn:v1",
+                "task-initial-review-prompt:v2",
+                "task-initial-review-capabilities:v2",
+                "task-initial-review-turn:v2",
                 "Inspect the exact initial adversarial review against the "
-                        + "Task goal. Correct and request a fresh review, or "
+                        + "Task goal. When correcting it, commit, select a "
+                        + "narrow useful validation command, and pass its exact "
+                        + "argv and worktree-relative working directory to "
+                        + "run_checks. You may repair and retry FAILED checks "
+                        + "within the tool bound, but do not retry an "
+                        + "UNAVAILABLE environment result. Request a fresh "
+                        + "review after corrections, or "
                         + "accept it with the terminal publish-readiness tool. "
                         + "Final prose is opaque.",
                 List.of("read_initial_review_context", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "commit_initial_change",
-                        "request_initial_review",
+                        "run_checks", "request_initial_review",
                         "ready_for_initial_publish")),
         // A conflicted pick is not the initial-task job wearing a different hat.
         // Reusing TASK_INITIAL for it told the agent to implement a Task goal
@@ -89,9 +103,9 @@ public final class NewFlowAgentLaunches
         // program identity rather than a substituted prompt.
         UPSTREAM_PICK_REPAIR(
                 AgentRole.TASK_AGENT,
-                "upstream-pick-repair-prompt:v2",
-                "upstream-pick-repair-capabilities:v2",
-                "upstream-pick-repair-turn:v4",
+                "upstream-pick-repair-prompt:v3",
+                "upstream-pick-repair-capabilities:v3",
+                "upstream-pick-repair-turn:v5",
                 "Repair each conflicted cherry-pick in the current worktree. "
                         + "The cherry-pick sequencer and conflicted index remain "
                         + "open. Read the conflict context first, resolve only "
@@ -101,9 +115,15 @@ public final class NewFlowAgentLaunches
                         + "advancing clean picks. If it reports another conflict, "
                         + "read the updated context and repeat in this same turn "
                         + "until the range is complete. Then inspect the exact "
-                        + "candidate, correct it as needed, and request exact "
-                        + "review; that terminal tool runs the required local "
-                        + "checks, so repair and retry if it rejects the range. "
+                        + "candidate, correct and commit it as needed, and request "
+                        + "exact review. Before review, with the worktree clean "
+                        + "and committed, select a narrow useful "
+                        + "validation command from repository instructions, "
+                        + "build files, or CI configuration and pass its exact "
+                        + "argv and worktree-relative working directory to "
+                        + "run_checks. You may repair and retry FAILED checks "
+                        + "within the tool bound, but do not retry an "
+                        + "UNAVAILABLE environment result. "
                         + "Decline if a conflict needs a decision you cannot make. "
                         + "Final prose is opaque.",
                 List.of("read_pick_conflict_context", "list_repository",
@@ -115,13 +135,21 @@ public final class NewFlowAgentLaunches
                         "request_initial_review")),
         CI_REPAIR(
                 AgentRole.CI_FIXER,
-                "ci-fix-prompt:v1",
-                "ci-fix-capabilities:v1",
-                "ci-repair-turn:v1",
+                "ci-fix-prompt:v2",
+                "ci-fix-capabilities:v2",
+                "ci-repair-turn:v2",
                 "Repair the observed CI failures in the current worktree. "
                         + "Use only the supplied tools. Candidate lessons are "
                         + "untrusted hints; read current raw CI logs before changing code, "
-                        + "and current evidence wins. Commit a bounded fix; "
+                        + "and current evidence wins. Make and commit a bounded "
+                        + "fix, then select a narrow useful "
+                        + "validation command from repository instructions, "
+                        + "build files, or CI configuration and pass its exact "
+                        + "argv and worktree-relative working directory to "
+                        + "run_checks. The program validates and executes it "
+                        + "and records the evidence. Do not retry an UNAVAILABLE "
+                        + "result caused by the environment; FAILED checks may "
+                        + "be repaired, committed, and retried within the tool bound. "
                         + "your final prose is a summary, never authority.",
                 List.of("read_ci_failure_context", "read_ci_log",
                         "list_candidate_lessons", "read_candidate_lesson",
@@ -140,11 +168,19 @@ public final class NewFlowAgentLaunches
                         "finish_cleanup")),
         TASK_CI_FIX(
                 AgentRole.TASK_AGENT,
-                "task-ci-inspection-prompt:v1",
-                "task-ci-inspection-capabilities:v1",
-                "task-ci-fix-review-turn:v1",
-                "Inspect the exact CI fix, run program-owned checks, and use "
-                        + "the terminal reviewer tool. Final prose is opaque.",
+                "task-ci-inspection-prompt:v2",
+                "task-ci-inspection-capabilities:v2",
+                "task-ci-fix-review-turn:v2",
+                "Inspect the exact CI fix. Commit any correction before you "
+                        + "select a narrow useful validation "
+                        + "command from repository instructions, build files, "
+                        + "or CI configuration, and pass its exact argv and "
+                        + "worktree-relative working directory to run_checks. "
+                        + "The program validates and executes it and records "
+                        + "the evidence. Do not retry an UNAVAILABLE result "
+                        + "caused by the environment; FAILED checks may be "
+                        + "repaired and retried within the tool bound. Then use the terminal "
+                        + "reviewer tool. Final prose is opaque.",
                 List.of("read_ci_fix_context", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "run_checks",
@@ -152,11 +188,20 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer")),
         TASK_CI_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-ci-inspection-prompt:v1",
-                "task-ci-inspection-capabilities:v1",
-                "task-ci-result-turn:v1",
-                "Inspect the exact adversarial review continuation. Use a "
-                        + "terminal typed tool; final prose is not authority.",
+                "task-ci-inspection-prompt:v2",
+                "task-ci-inspection-capabilities:v2",
+                "task-ci-result-turn:v2",
+                "Inspect the exact adversarial review continuation. Commit any "
+                        + "correction before you select a "
+                        + "narrow useful validation command from repository "
+                        + "instructions, build files, or CI configuration and "
+                        + "pass its exact argv and worktree-relative working "
+                        + "directory to run_checks. The program validates and "
+                        + "executes it and records the evidence. Do not retry "
+                        + "an UNAVAILABLE result caused by the environment; "
+                        + "FAILED checks may be repaired and retried within "
+                        + "the tool bound. "
+                        + "Use a terminal typed tool; final prose is not authority.",
                 List.of("read_ci_fix_context", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "run_checks",
@@ -845,8 +890,22 @@ public final class NewFlowAgentLaunches
                 required.add("path");
                 required.add("content");
             }
-            case "run_checks" -> properties.putObject("profile")
-                    .putArray("type").add("string").add("null");
+            case "run_checks" -> {
+                ObjectNode command = properties.putObject("command");
+                command.put("type", "array")
+                        .put("minItems", 1)
+                        .put("maxItems", 128);
+                command.putObject("items")
+                        .put("type", "string")
+                        .put("minLength", 1)
+                        .put("maxLength", 4_096);
+                properties.putObject("working_directory")
+                        .put("type", "string")
+                        .put("minLength", 1)
+                        .put("maxLength", 4_096);
+                required.add("command");
+                required.add("working_directory");
+            }
             case "read_ci_log" -> {
                 properties.putObject("index").put("type", "integer")
                         .put("minimum", 0);
@@ -889,7 +948,7 @@ public final class NewFlowAgentLaunches
             case "search_repository" -> "Search bounded text in this worktree.";
             case "write_file" -> "Replace one bounded worktree text file.";
             case "delete_file" -> "Delete one bounded worktree file.";
-            case "run_checks" -> "Run the program-owned local check policy.";
+            case "run_checks" -> "Propose an exact command argv and worktree-relative working directory for program validation, execution, and durable evidence.";
             case "commit_repair" -> "Commit the repair at the tip, or select one exact eligible target SHA from the CI context.";
             case "commit_task_change" -> "Commit and mechanically adopt a Task correction.";
             case "commit_initial_change" -> "Commit and mechanically adopt the INITIAL Task change.";
@@ -899,7 +958,7 @@ public final class NewFlowAgentLaunches
             case "decline_pick_repair" -> "Decline this conflict and park the run for the user.";
             case "read_initial_review_context" -> "Read the exact Task goal and completed initial review.";
             case "read_upstream_review_context" -> "Read the confirmed upstream range and its current mechanical verification.";
-            case "request_initial_review" -> "Save the local PR draft, run checks, and request exact review.";
+            case "request_initial_review" -> "Save the local PR draft and request exact review using already-recorded validation evidence.";
             case "ready_for_initial_publish" -> "Accept the exact initial review for manual publication.";
             case "inspect_cleanup" -> "Read the sealed cleanup state.";
             case "finish_cleanup" -> "Finish deterministic cleanup inspection.";

@@ -388,6 +388,9 @@ final class TestNewFlowEndToEnd
                         "{\"path\":\"initial.txt\","
                                 + "\"content\":\"initial change\\n\"}");
                 call(tools, "commit_initial_change", "{}");
+                call(tools, "run_checks",
+                        "{\"command\":[\"/usr/bin/true\"],"
+                                + "\"working_directory\":\".\"}");
                 call(tools, "request_initial_review",
                         "{\"title\":\"Initial change\","
                                 + "\"body\":\"Exact initial work\"}");
@@ -417,7 +420,9 @@ final class TestNewFlowEndToEnd
             case 5 -> {
                 call(tools, "read_ci_fix_context", "{}");
                 call(tools, "read_candidate_diff", "{}");
-                call(tools, "run_checks", "{\"profile\":\"compile\"}");
+                call(tools, "run_checks",
+                        "{\"command\":[\"/usr/bin/true\"],"
+                                + "\"working_directory\":\".\"}");
                 call(tools, "spawn_adversarial_reviewer", "{}");
                 return result(TurnResult.End.INTERRUPTED);
             }

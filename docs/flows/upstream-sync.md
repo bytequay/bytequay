@@ -328,7 +328,7 @@ read_upstream_pick(pick_id)
 read_upstream_diff(upstream_sha, path?, range?)
 read_conflict_file(pick_id, path, range?)
 read_fork_context(query, paths?)
-run_checks(profile?) -> LocalCheckRunRef[]
+run_checks(command[], working_directory) -> LocalCheckRunRef[]
 continue_upstream_pick(pick_id) -> ACCEPTED_SEALED or actionable tool error
 commit_upstream_fixup(pick_id, paths) -> ACCEPTED_SEALED or actionable tool error
 commit_upstream_standalone(paths, message) -> ACCEPTED_SEALED or actionable tool error
@@ -577,16 +577,20 @@ reopen the pre-PR upstream range engine.
 
 ## Validation policy
 
-The current executable replacement does not yet expose `run_checks` on an
-Upstream Sync Task turn. That binding remains deferred until its finalizer can
-durably retain process-boundary uncertainty without releasing a successor
-writer; the policy below is the eventual component contract.
-
 The Task Agent discovers useful commands from repository instructions, build
-files, CI configuration, and Project Intelligence, then calls `run_checks`.
-The program records the policy/profile revision, allowlisted environment names
-and availability, exit state, bounded fail-closed output
-evidence, and exact head; it does not infer a semantic verdict.
+files, CI configuration, and Project Intelligence, then calls the `run_checks`
+MCP tool.
+It supplies the exact argv and worktree-relative working directory for one narrow
+useful command. The program validates the executable against current policy,
+directory containment, and the exact clean head, executes without a shell, and
+records the actual argv/directory, policy/profile revision, allowlisted
+environment names and availability, exit state, bounded fail-closed output
+evidence, and exact head; it does not infer a semantic verdict. A turn permits up
+to ten valid attempts so `FAILED` validation can be repaired and retried. After
+one `UNAVAILABLE`, no more checks run in that turn, although the captured result
+may proceed as prominently warned manual-only evidence.
+The terminal reviewer-request tool consumes that existing evidence and does not
+execute a program-chosen check.
 
 - Clean picks do not run full CI locally one by one.
 - A conflict/fixup should run the narrow useful check when available.
@@ -693,8 +697,8 @@ events. See [pr-timeline.md](./pr-timeline.md).
 10. **Target moves:** program fetches, integrates latest base under backup,
    returns conflicts to Task Agent, and invalidates old evidence.
 11. **No local toolchain:** no early push occurs; a captured `UNAVAILABLE`
-    attempt is visible and manual-only at the explicit initial gate, while a
-    missing attempt or failed check blocks it.
+    attempt ends further check attempts and is visible and manual-only at the
+    explicit initial gate, while a missing attempt or failed check blocks it.
 12. **Local review comment:** the gate stales, Task Agent updates the range
     candidate, exact checks/review repeat, and a new gate opens.
 13. **Verification binding:** initial review freezes an immutable current

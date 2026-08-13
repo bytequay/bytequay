@@ -45,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -79,7 +80,8 @@ public final class UpstreamSyncCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(
             UpstreamSyncCoordinator.class);
-    private static final int MAX_REPAIR_TOOL_CALLS = 24;
+    private static final int MAX_REPAIR_TOOL_CALLS = 64;
+    private static final int MAX_CHECK_ATTEMPTS = 10;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
     private static final int MAX_UPSTREAM_DIFF_CHARS = 128 * 1024;
     private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
@@ -254,9 +256,10 @@ public final class UpstreamSyncCoordinator
             }
         }
         if (!agentFinalized) {
+            publishPolicies(task, targetBaseRef, picker);
             String blocker = finalReview(
                     binding, worktree, capability, picker, task, request,
-                    startRun.runId(), targetBaseRef, selected);
+                    startRun.runId(), selected);
             if (blocker != null) {
                 return park(startRun.runId(), blocker);
             }
@@ -368,6 +371,8 @@ public final class UpstreamSyncCoordinator
         AtomicBoolean declined = new AtomicBoolean();
         AtomicBoolean finalReady = new AtomicBoolean();
         AtomicBoolean terminal = new AtomicBoolean();
+        AtomicInteger checkAttempts = new AtomicInteger();
+        AtomicBoolean checksUnavailable = new AtomicBoolean();
         AtomicInteger repairCalls = new AtomicInteger();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         ToolExecutor executor = bounded(terminal, repairCalls, call ->
@@ -388,7 +393,8 @@ public final class UpstreamSyncCoordinator
                             : ToolCallResult.error(
                                     "the confirmed range is not complete");
                     case "run_checks" -> finalReady.get()
-                            ? safe(() -> checkSummary(capability.runChecks()))
+                            ? runChecks(checkAttempts, checksUnavailable,
+                                    capability, call)
                             : ToolCallResult.error(
                                     "the confirmed range is not complete");
                     case "list_repository" -> guarded(capability,
@@ -419,7 +425,7 @@ public final class UpstreamSyncCoordinator
                             ? safe(() -> {
                                 requestFinalReview(
                                         capability, picker, task, request,
-                                        runId, targetBaseRef, selected,
+                                        runId, selected,
                                         text(call, "title"),
                                         text(call, "body"));
                                 terminal.set(true);
@@ -477,6 +483,7 @@ public final class UpstreamSyncCoordinator
                             }
                         }
                         finalReady.set(true);
+                        publishPolicies(task, targetBaseRef, picker);
                         return "conflicted pick continued; the confirmed range "
                                 + "is complete, so inspect it and request review";
                     });
@@ -516,10 +523,11 @@ public final class UpstreamSyncCoordinator
             Task task,
             UpstreamSyncRequest request,
             String runId,
-            String targetBaseRef,
             List<String> selected)
     {
         AtomicBoolean terminal = new AtomicBoolean();
+        AtomicInteger checkAttempts = new AtomicInteger();
+        AtomicBoolean checksUnavailable = new AtomicBoolean();
         AtomicInteger calls = new AtomicInteger();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         ToolExecutor executor = bounded(terminal, calls, call ->
@@ -529,8 +537,9 @@ public final class UpstreamSyncCoordinator
                     case "read_candidate_diff" -> safe(() ->
                             candidateDiff(capability, worktree,
                                     request.targetRef(), picker.head()));
-                    case "run_checks" -> safe(() ->
-                            checkSummary(capability.runChecks()));
+                    case "run_checks" -> runChecks(
+                            checkAttempts, checksUnavailable,
+                            capability, call);
                     case "list_repository" -> guarded(capability,
                             () -> json(workspace.listRepository()));
                     case "read_file" -> guarded(capability,
@@ -555,7 +564,7 @@ public final class UpstreamSyncCoordinator
                     case "request_initial_review" -> safe(() -> {
                         requestFinalReview(
                                 capability, picker, task, request, runId,
-                                targetBaseRef, selected, text(call, "title"),
+                                selected, text(call, "title"),
                                 text(call, "body"));
                         terminal.set(true);
                         return "upstream review requested";
@@ -611,13 +620,74 @@ public final class UpstreamSyncCoordinator
                 .collect(Collectors.joining("\n"));
     }
 
+    private ToolCallResult runChecks(
+            AtomicInteger attempts,
+            AtomicBoolean unavailable,
+            InitialToolCapability capability,
+            ToolCall call)
+    {
+        CheckRequest request;
+        try {
+            request = checkRequest(call);
+        }
+        catch (RuntimeException invalid) {
+            return ToolCallResult.error("tool argument is invalid");
+        }
+        if (unavailable.get()) {
+            return ToolCallResult.error(
+                    "local validation is unavailable in this environment");
+        }
+        if (attempts.incrementAndGet() > MAX_CHECK_ATTEMPTS) {
+            return ToolCallResult.error("local-check attempt bound reached");
+        }
+        try {
+            List<LocalCheckRun> runs = capability.runChecks(
+                    request.command(), request.workingDirectory());
+            unavailable.set(runs.stream().anyMatch(check ->
+                    check.conclusion() == LocalCheckConclusion.UNAVAILABLE));
+            return ToolCallResult.ok(checkSummary(runs));
+        }
+        catch (RuntimeException failure) {
+            return ToolCallResult.error("tool failed closed");
+        }
+    }
+
+    private static CheckRequest checkRequest(ToolCall call)
+    {
+        JsonNode input = call.input();
+        JsonNode commandNode = input == null ? null : input.get("command");
+        JsonNode directoryNode = input == null
+                ? null : input.get("working_directory");
+        if (input == null || !input.isObject() || input.size() != 2
+                || commandNode == null || !commandNode.isArray()
+                || commandNode.isEmpty()
+                || commandNode.size() > 128
+                || directoryNode == null || !directoryNode.isTextual()
+                || directoryNode.textValue().isBlank()
+                || directoryNode.textValue().length() > 4_096
+                || directoryNode.textValue().indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("invalid local check request");
+        }
+        List<String> command = new ArrayList<>();
+        for (JsonNode argument : commandNode) {
+            if (!argument.isTextual() || argument.textValue().isEmpty()
+                    || argument.textValue().length() > 4_096
+                    || argument.textValue().indexOf('\0') >= 0) {
+                throw new IllegalArgumentException(
+                        "invalid local check argument");
+            }
+            command.add(argument.textValue());
+        }
+        return new CheckRequest(
+                List.copyOf(command), directoryNode.textValue());
+    }
+
     private void requestFinalReview(
             InitialToolCapability capability,
             UpstreamPicker picker,
             Task task,
             UpstreamSyncRequest request,
             String runId,
-            String targetBaseRef,
             List<String> selected,
             String title,
             String body)
@@ -626,11 +696,16 @@ public final class UpstreamSyncCoordinator
                 picker, runId, task.taskId(), request.targetRef(), selected);
         upstreamSync.recordVerification(
                 runId, RunState.FINAL_REVIEW, picker.head(), verification);
+        capability.requestReview(title, body);
+    }
+
+    private void publishPolicies(
+            Task task, String targetBaseRef, UpstreamPicker picker)
+    {
         policies.publish(
                 task.taskId(), task.repositoryId(), targetBaseRef,
                 targetBaseRef.substring("refs/heads/".length()),
                 Path.of(task.worktreePath()), picker.head());
-        capability.requestReview(title, body);
     }
 
     /**
@@ -909,4 +984,7 @@ public final class UpstreamSyncCoordinator
         digest.update(bytes);
         digest.update((byte) '\n');
     }
+
+    private record CheckRequest(
+            List<String> command, String workingDirectory) {}
 }

@@ -653,14 +653,21 @@ read_file(path)
 search_repository(query)
 write_file(path, content)
 delete_file(path)
-run_checks(profile?)
+run_checks(command[], working_directory)
 commit_repair()
 ```
 
-No raw command, Git, owner ID, claim, fence, or arbitrary commit message is
-model-visible. Repository traversal, text I/O, search, checks, and the fixed
-commit are bounded program operations. Candidate tools accept only a
-program-derived index and never apply edits or claim a lesson matches.
+No generic shell, raw Git, owner ID, claim, fence, or arbitrary commit message is
+model-visible. The `run_checks` MCP tool accepts the exact argv and
+worktree-relative working directory Claude selected for one narrow useful
+command; the program validates
+the executable against current policy, cwd containment, and the exact clean head,
+executes without a shell, and records the actual command/cwd/evidence. A turn
+permits up to ten valid attempts for repairing and retrying `FAILED` checks; one
+`UNAVAILABLE` result ends further check attempts but may remain manual-only
+evidence. Repository traversal, text I/O, search, checks, and the fixed commit
+remain bounded program operations. Candidate tools accept only a program-derived
+index and never apply edits or claim a lesson matches.
 
 The cleanup run uses the distinct program-owned
 `ci-cleanup-capabilities:v1` set. It may use bounded read/edit and its fixed
@@ -735,8 +742,10 @@ writer lease and no code, Git, GitHub, lesson-read, or supersession tools.
    newer local unpublished work supersedes the round.
 2. It grants the fenced writer lease and resumes the persistent CI Fixer.
 3. The fixer reads complete relevant log windows and candidate lessons.
-4. It diagnoses, edits, runs useful local checks, and commits at least one
-   coherent repair commit.
+4. It diagnoses, edits, selects a narrow useful local command, and calls
+   `run_checks` with its exact argv and worktree-relative directory. It may repair
+   and retry `FAILED` checks within the ten-attempt turn bound, but cannot retry
+   after `UNAVAILABLE`, then commits at least one coherent repair commit.
 5. It ends the turn with ordinary prose.
 6. `AgentRuns.finish` stores that prose as its tagged terminal result and invokes
    `CiAutofix.finalizeAttempt` under the live claim/fence. For a clean new commit
@@ -780,7 +789,8 @@ The Task Agent:
 The reviewer request is a zero-argument terminal Task tool: the program freezes
 the current revision, exact head/tree/diff, the Task turn's frozen remote input,
 and the complete ordered latest run refs for every profile required by the
-current local-check policy. Initial reservation atomically revalidates that exact
+current local-check policy. It executes no checks; Claude must invoke
+`run_checks` first. Initial reservation atomically revalidates that exact
 policy/revision/head set; a subset or older attempt cannot be supplied. A durable
 request replays its frozen policy/refs even if policy later advances. Reviewer
 check-output reads remain deferred. The implemented local `CI_UPDATE` gate

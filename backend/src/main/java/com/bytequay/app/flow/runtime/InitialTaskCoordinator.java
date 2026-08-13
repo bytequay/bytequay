@@ -127,6 +127,17 @@ public final class InitialTaskCoordinator
             writer.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
         }
 
+        /** What this turn spent, and the handle its successor resumes. */
+        public void recordAgentTurnUsage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd)
+        {
+            writer.recordAgentTurnUsage(
+                    providerSessionId, tokensIn, tokensOut, costMilliUsd);
+        }
+
         public String readContext()
         {
             return writer.callTool(() -> {

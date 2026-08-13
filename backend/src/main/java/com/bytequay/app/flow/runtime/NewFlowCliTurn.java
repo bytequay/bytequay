@@ -86,31 +86,44 @@ final class NewFlowCliTurn
     /** The pipe is already closed by burial; this only bounds a stuck reader. */
     private static final long READER_JOIN_TIMEOUT = 5_000;
 
+    private final FlowRuntime runtime;
     private final NewFlowAgentToolBridge bridge;
     private final ObjectMapper mapper;
     private final int serverPort;
 
     NewFlowCliTurn(
+            FlowRuntime runtime,
             NewFlowAgentToolBridge bridge,
             ObjectMapper mapper,
             int serverPort)
     {
+        this.runtime = requireNonNull(runtime, "runtime is null");
         this.bridge = requireNonNull(bridge, "bridge is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.serverPort = serverPort;
     }
 
     /**
-     * Told the group a turn launched, before that turn is given any work.
+     * What the program writes down about a turn it is running.
      *
-     * <p>A callback rather than a runtime handle because the claim, fence and
-     * attempt this has to be written against belong to the supervisor, and the
-     * body is handed only a capability.
+     * <p>Callbacks rather than a runtime handle because the claim, fence and
+     * attempt these are written against belong to the supervisor, and the body
+     * is handed only a capability.
      */
-    @FunctionalInterface
-    interface GroupRecorder
+    interface TurnJournal
     {
-        void record(long agentPid, long agentPgid, Instant agentStartedAt);
+        /** Called before the turn is given any work. */
+        void group(long agentPid, long agentPgid, Instant agentStartedAt);
+
+        /**
+         * Called once the turn has ended, with what it spent and the vendor's
+         * handle for continuing it.
+         */
+        void usage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd);
     }
 
     /**
@@ -129,14 +142,14 @@ final class NewFlowCliTurn
             String systemPrompt,
             ToolExecutor executor,
             Path worktree,
-            GroupRecorder recorder,
+            TurnJournal journal,
             BooleanSupplier interrupted)
     {
         requireNonNull(worktree, "worktree is null");
         Path scratch = worktree.resolve(".git").resolve("bytequay-cli");
         return run(
                 runId, binding, tools, systemPrompt, executor, worktree,
-                scratch, false, recorder, interrupted);
+                scratch, false, journal, interrupted);
     }
 
     /**
@@ -155,7 +168,7 @@ final class NewFlowCliTurn
             ArrayNode tools,
             String systemPrompt,
             ToolExecutor executor,
-            GroupRecorder recorder,
+            TurnJournal journal,
             BooleanSupplier interrupted)
     {
         Path scratch;
@@ -169,7 +182,7 @@ final class NewFlowCliTurn
         try {
             return run(
                     runId, binding, tools, systemPrompt, executor, scratch,
-                    scratch, true, recorder, interrupted);
+                    scratch, true, journal, interrupted);
         }
         finally {
             deleteRecursively(scratch);
@@ -185,7 +198,7 @@ final class NewFlowCliTurn
             Path directory,
             Path scratch,
             boolean readOnly,
-            GroupRecorder recorder,
+            TurnJournal journal,
             BooleanSupplier interrupted)
     {
         requireNonNull(binding, "binding is null");
@@ -195,7 +208,7 @@ final class NewFlowCliTurn
         }
         requireNonNull(tools, "tools is null");
         requireNonNull(executor, "executor is null");
-        requireNonNull(recorder, "recorder is null");
+        requireNonNull(journal, "journal is null");
 
         CliAgentArgv.Vendor vendor = vendor(binding);
         try (NewFlowAgentToolBridge.Registration registration =
@@ -217,9 +230,9 @@ final class NewFlowCliTurn
                             "could not scrub the agent's environment", failure);
                 }
                 return execute(
-                        binding, systemPrompt, vendor, directory,
+                        runId, binding, systemPrompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl, scrubbed,
-                        true, recorder, interrupted);
+                        true, journal, interrupted);
             }
             CliWriterContainment.Applied contained;
             try {
@@ -240,9 +253,9 @@ final class NewFlowCliTurn
             }
             try {
                 return execute(
-                        binding, systemPrompt, vendor, directory,
+                        runId, binding, systemPrompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl,
-                        contained.environment(), false, recorder, interrupted);
+                        contained.environment(), false, journal, interrupted);
             }
             finally {
                 // Lifted even when the turn threw: a crashed turn otherwise
@@ -292,6 +305,7 @@ final class NewFlowCliTurn
     }
 
     private Outcome execute(
+            String runId,
             NewFlowAgentLaunches.Binding binding,
             String systemPrompt,
             CliAgentArgv.Vendor vendor,
@@ -301,7 +315,7 @@ final class NewFlowCliTurn
             String mcpUrl,
             Map<String, String> scrubbed,
             boolean readOnly,
-            GroupRecorder recorder,
+            TurnJournal journal,
             BooleanSupplier interrupted)
     {
         List<String> argv = CliAgentArgv.of(new CliAgentArgv.Launch(
@@ -316,7 +330,11 @@ final class NewFlowCliTurn
                 mcpUrl,
                 null,
                 null,
-                null,
+                // Continue this role's own conversation where the last turn
+                // left it. Read from the session row rather than held in
+                // memory, because the case that matters is a restart — an id
+                // that only exists in this JVM resumes nothing.
+                runtime.resumableProviderSession(runId).orElse(null),
                 List.of(),
                 List.of()));
         Map<String, String> environment = new HashMap<>(scrubbed);
@@ -350,7 +368,7 @@ final class NewFlowCliTurn
         try {
             // Before a single byte of work reaches it. Everything after this
             // point is recoverable by a later JVM; everything before it is not.
-            recorder.record(
+            journal.group(
                     spawned.process().pid(),
                     spawned.pgid(),
                     spawned.leaderStartedAt());
@@ -373,7 +391,16 @@ final class NewFlowCliTurn
             buryOrFail(spawned.pgid());
         }
         join(reader);
-        return transcript.outcome(exit, stopped);
+        Outcome outcome = transcript.outcome(exit, stopped);
+        // After burial, so a turn that could not be proven dead never adds to a
+        // budget it may still be spending against. A cancelled or failed turn
+        // still spent what it spent, so this is not conditional on the outcome.
+        journal.usage(
+                outcome.providerSessionId(),
+                outcome.turn().tokensIn(),
+                outcome.turn().tokensOut(),
+                outcome.turn().costMilliUsd());
+        return outcome;
     }
 
     /** Waits for the direct child, giving up when the turn is cancelled. */

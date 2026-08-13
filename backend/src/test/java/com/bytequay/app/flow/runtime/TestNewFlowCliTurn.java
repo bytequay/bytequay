@@ -18,13 +18,17 @@ import com.bytequay.app.service.agents.TurnResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -42,6 +46,12 @@ final class TestNewFlowCliTurn
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String RUN_ID = "run-cli-1";
     /** Absolute, because a read-only turn runs in a directory of its own. */
+    @FunctionalInterface
+    private interface GroupSeen
+    {
+        void at(long pid, long pgid, Instant startedAt);
+    }
+
     private static String marker(Path root)
     {
         return root.resolve("marker.txt").toString();
@@ -161,6 +171,30 @@ final class TestNewFlowCliTurn
         // into a successful empty turn.
         assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.ABORTED);
         assertThat(outcome.providerSessionId()).isNull();
+        // A failed turn still spent what it spent, so it is still journalled.
+        assertThat(fixture.usage).hasSize(1);
+    }
+
+    @Test
+    void whatTheTurnSpentIsJournalledWithTheSessionToResume(@TempDir Path root)
+            throws Exception
+    {
+        // Both halves of what outlives the turn: the vendor's handle on the
+        // conversation, so the next turn continues it, and the accounting the
+        // budget stops on.
+        Fixture fixture = Fixture.create(root, """
+                read line
+                echo '{"type":"system","subtype":"init","session_id":"s-7"}'
+                echo '{"type":"result","subtype":"success","result":"ok","usage":{"input_tokens":11,"output_tokens":5},"total_cost_usd":0.25}'
+                """);
+
+        fixture.run((pid, pgid, startedAt) -> {});
+
+        assertThat(fixture.usage)
+                .as("exactly one journal entry per turn, or a budget"
+                        + " double-counts")
+                .hasSize(1);
+        assertThat(fixture.usage.getFirst()).startsWith("s-7/");
     }
 
     @Test
@@ -205,12 +239,20 @@ final class TestNewFlowCliTurn
         private final NewFlowCliTurn turn;
         private final NewFlowAgentLaunches.Binding binding;
 
-        private Fixture(Path worktree, Path marker, Path executable)
+        private Fixture(
+                Path worktree, Path marker, Path executable, Path database)
         {
             this.worktree = worktree;
             this.marker = marker;
             this.bridge = new NewFlowAgentToolBridge(MAPPER);
-            this.turn = new NewFlowCliTurn(bridge, MAPPER, 1);
+            DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                    "jdbc:sqlite:" + database + "?foreign_keys=ON");
+            FlowRuntimeSchema.install(dataSource);
+            // Empty on purpose: this run has no session yet, so the turn asks
+            // for a resume id and correctly gets none.
+            this.turn = new NewFlowCliTurn(
+                    new FlowRuntime(dataSource, Clock.systemUTC()),
+                    bridge, MAPPER, 1);
             this.binding = new NewFlowAgentLaunches.Binding(
                     RUN_ID,
                     "claude-code",
@@ -253,10 +295,15 @@ final class TestNewFlowCliTurn
                     StandardCharsets.UTF_8);
             Files.setPosixFilePermissions(executable,
                     PosixFilePermissions.fromString("rwxr-xr-x"));
-            return new Fixture(worktree, root.resolve("marker.txt"), executable);
+            return new Fixture(
+                    worktree, root.resolve("marker.txt"), executable,
+                    root.resolve("runtime.db"));
         }
 
-        NewFlowCliTurn.Outcome run(NewFlowCliTurn.GroupRecorder recorder)
+        /** Captures what the turn reported, in place of the runtime writes. */
+        private final List<String> usage = new ArrayList<>();
+
+        NewFlowCliTurn.Outcome run(GroupSeen seen)
         {
             return turn.runInWorktree(
                     RUN_ID,
@@ -265,12 +312,11 @@ final class TestNewFlowCliTurn
                     "be exact",
                     call -> ToolExecutor.ToolCallResult.ok(""),
                     worktree,
-                    recorder,
+                    journal(seen),
                     () -> false);
         }
 
-        NewFlowCliTurn.Outcome runReadOnly(
-                NewFlowCliTurn.GroupRecorder recorder)
+        NewFlowCliTurn.Outcome runReadOnly(GroupSeen seen)
         {
             return turn.runReadOnly(
                     RUN_ID,
@@ -278,8 +324,31 @@ final class TestNewFlowCliTurn
                     MAPPER.createArrayNode(),
                     "be exact",
                     call -> ToolExecutor.ToolCallResult.ok(""),
-                    recorder,
+                    journal(seen),
                     () -> false);
+        }
+
+        private NewFlowCliTurn.TurnJournal journal(GroupSeen seen)
+        {
+            return new NewFlowCliTurn.TurnJournal()
+            {
+                @Override
+                public void group(long pid, long pgid, Instant startedAt)
+                {
+                    seen.at(pid, pgid, startedAt);
+                }
+
+                @Override
+                public void usage(
+                        String providerSessionId,
+                        long tokensIn,
+                        long tokensOut,
+                        long costMilliUsd)
+                {
+                    usage.add(providerSessionId + "/" + tokensIn + "/"
+                            + tokensOut + "/" + costMilliUsd);
+                }
+            };
         }
 
         int push()

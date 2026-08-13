@@ -339,6 +339,7 @@ public class NewFlowConfiguration
             TurnRunner turnRunner,
             ObjectMapper objectMapper,
             LocalChecks localChecks,
+            FlowRuntime runtime,
             NewFlowAgentToolBridge toolBridge,
             @Value("${server.port:53123}") int serverPort)
     {
@@ -347,7 +348,8 @@ public class NewFlowConfiguration
                 turnRunner,
                 objectMapper,
                 localChecks,
-                new NewFlowCliTurn(toolBridge, objectMapper, serverPort));
+                new NewFlowCliTurn(
+                        runtime, toolBridge, objectMapper, serverPort));
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

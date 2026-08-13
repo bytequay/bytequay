@@ -186,6 +186,17 @@ public final class InProcessWriterAgentSupervisor
             execution.recordAgentGroup(agentPid, agentPgid, agentStartedAt);
         }
 
+        /** What this turn spent, and the handle its successor resumes. */
+        public void recordAgentTurnUsage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd)
+        {
+            execution.recordAgentTurnUsage(
+                    providerSessionId, tokensIn, tokensOut, costMilliUsd);
+        }
+
         /** Program-bound local checks; the model supplies no command/evidence. */
         public List<LocalCheckRun> runChecks(
                 LocalChecks localChecks,
@@ -910,6 +921,26 @@ public final class InProcessWriterAgentSupervisor
         {
             abortBeforeActivation = true;
             startGate.countDown();
+        }
+
+        private void recordAgentTurnUsage(
+                String providerSessionId,
+                long tokensIn,
+                long tokensOut,
+                long costMilliUsd)
+        {
+            if (Thread.currentThread() != thread) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "recording turn usage requires the owned writer"
+                                + " thread");
+            }
+            runtime.recordAgentTurnUsage(
+                    attempt.processAttemptId(),
+                    claim,
+                    providerSessionId,
+                    tokensIn,
+                    tokensOut,
+                    costMilliUsd);
         }
 
         private void recordAgentGroup(

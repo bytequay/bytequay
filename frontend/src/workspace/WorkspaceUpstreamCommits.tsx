@@ -16,6 +16,7 @@ import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import { githubHandle } from './CommitEditorUi';
 import { message } from './WorkspaceRepoUi';
+import { isFlowRun } from './syncRunModel';
 import {
   workspaceApi,
   type CherryPickPlanDto,
@@ -124,9 +125,7 @@ export function UpstreamCherryPicker({
   onOpenSync?: (jobId: string) => void;
 }) {
   const byRange = fromSha !== undefined && toSha !== undefined;
-  const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits, fromSha, toSha));
-  const [openDraftPr, setOpenDraftPr] = useState(true);
-  const [budgetUsd, setBudgetUsd] = useState('5.00');
+  const [repairTurns, setRepairTurns] = useState('50');
   const [prDescription, setPrDescription] = useState('');
   const [skipStartsWith, setSkipStartsWith] = useState('');
   const [skipContains, setSkipContains] = useState('');
@@ -140,13 +139,19 @@ export function UpstreamCherryPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const skipped = commits.filter(commit => commit.picked).length;
-  const parsedBudget = Number(budgetUsd);
-  const budgetValid = Number.isFinite(parsedBudget)
-    && parsedBudget >= 0.10 && parsedBudget <= 1000;
+  const parsedTurns = Number(repairTurns);
+  const turnsValid = Number.isInteger(parsedTurns)
+    && parsedTurns >= 0 && parsedTurns <= 500;
 
   useEffect(() => {
     let cancelled = false;
-    void workspaceApi.upstreamCherryPicks(workspaceId)
+    // Both sources: a run started before the cutover is still running on the
+    // path that started it, and it is worth reporting here just the same.
+    void Promise.all([
+      workspaceApi.upstreamSyncs(workspaceId).catch(noRuns),
+      workspaceApi.upstreamCherryPicks(workspaceId).catch(noRuns),
+    ])
+      .then(([flow, legacy]) => [...flow, ...legacy])
       .then(jobs => {
         if (cancelled) return;
         // A closed run is over whatever its status says. Closing only stamped
@@ -177,7 +182,10 @@ export function UpstreamCherryPicker({
     let timer: number | undefined;
     const poll = () => {
       timer = window.setTimeout(() => {
-        void workspaceApi.upstreamCherryPick(workspaceId, job.jobId)
+        void (isFlowRun(job.jobId)
+          ? workspaceApi.upstreamSyncRun(workspaceId, job.jobId)
+            .then(detail => detail.job)
+          : workspaceApi.upstreamCherryPick(workspaceId, job.jobId))
           .then(next => {
             if (!cancelled) {
               setError(null);
@@ -242,11 +250,13 @@ export function UpstreamCherryPicker({
                 ? 'Run a dry run to see the resolved commits.'
                 : <>{skipped} already in {repo.repo} will be <b>skipped</b>.</>}</span>
             </div>
-            <label className="wu-upstream-cherry__branch">
-              <strong>TARGET BRANCH</strong>
-              <span><input value={targetBranch} onChange={event => setTargetBranch(event.target.value)} />
-                <small>new branch from <code>{repo.fullName}/{defaultBranch(repo)}</code></small></span>
-            </label>
+            {/* The run names its own branch and worktree when it starts, from
+                the same launch record that pins its base — so there is nothing
+                to type here, and a field that did nothing would be a lie. */}
+            <p className="wu-upstream-cherry__note">
+              The run creates its own branch from <code>{repo.fullName}/
+                {defaultBranch(repo)}</code> and picks in an isolated worktree.
+            </p>
             <label className="wu-upstream-cherry__branch">
               <strong>SKIP COMMITS WHOSE SUBJECT…</strong>
               <span className="wu-upstream-cherry__filters">
@@ -276,32 +286,31 @@ export function UpstreamCherryPicker({
                 )}
               {planError !== null && <span className="wu-form-error">{planError}</span>}
             </div>
-            <CherryOption label="Open a draft PR"
-              detail={`${repo.fullName}/${defaultBranch(repo)} ← ${targetBranch || 'new branch'} · one Upstream-PR trailer per pick.`}
-              checked={openDraftPr} onChange={setOpenDraftPr} />
             <label className="wu-upstream-cherry__branch">
-              <strong>CONFLICT-REPAIR BUDGET</strong>
-              <span className="wu-upstream-cherry__budget">$<input
-                aria-label="Conflict repair budget in dollars"
-                aria-invalid={!budgetValid} inputMode="decimal" value={budgetUsd}
-                onChange={event => setBudgetUsd(event.target.value)} />
-                <small>Agent ceiling for the whole run — resolving conflicts while
-                  picking, then repairing CI once the range is pushed. It is the only
-                  stop on the fix rounds, so a long range wants room.</small>
+              <strong>CONFLICT-REPAIR TURNS</strong>
+              <span className="wu-upstream-cherry__budget"><input
+                aria-label="Conflict repair turns"
+                aria-invalid={!turnsValid} inputMode="numeric" value={repairTurns}
+                onChange={event => setRepairTurns(event.target.value)} />
+                <small>Agent turns for the whole range — one per conflict it
+                  repairs. It is the only bound on phase 1, so a long range
+                  wants room; the run parks when they are spent.</small>
               </span>
             </label>
-            {!budgetValid && <span className="wu-form-error">Agent budget must be $0.10–$1,000.00.</span>}
-            {openDraftPr && (
-              <label className="wu-upstream-cherry__branch">
-                <strong>PULL REQUEST DESCRIPTION</strong>
-                <span><textarea rows={4} value={prDescription}
-                  placeholder="Why this bump, what reviewers should watch for…"
-                  onChange={event => setPrDescription(event.target.value)} />
-                  <small>optional · provenance and trailers are appended automatically</small></span>
-              </label>
+            {!turnsValid && (
+              <span className="wu-form-error">Repair turns must be 0–500.</span>
             )}
+            <label className="wu-upstream-cherry__branch">
+              <strong>PULL REQUEST DESCRIPTION</strong>
+              <span><textarea rows={4} value={prDescription}
+                placeholder="Why this bump, what reviewers should watch for…"
+                onChange={event => setPrDescription(event.target.value)} />
+                <small>optional · the range and its provenance are appended
+                  automatically</small></span>
+            </label>
             <p className="wu-upstream-cherry__guard">⌾ Runs in an app-owned worktree, never your checkout ·
-              conflicts are repaired and re-checked before the range moves on · it parks rather than guess.</p>
+              conflicts are repaired and re-checked before the range moves on ·
+              nothing is pushed until you authorize the first push.</p>
             {liveJob !== null && (
               <p className="wu-upstream-cherry__note">
                 A sync run is parked on <code>{liveJob.resultBranch}</code>, waiting on you.
@@ -332,23 +341,47 @@ export function UpstreamCherryPicker({
             : job.status === 'QUEUED' || job.status === 'RUNNING' ? 'Close' : 'Done'}</button>
           {job === null && (
             <button type="button" className="wu-primary-button"
-              disabled={busy || discoveringJob || targetBranch.trim().length === 0 || !budgetValid}
+              disabled={busy || discoveringJob || !turnsValid}
               onClick={() => {
                 setBusy(true);
                 setError(null);
-                void workspaceApi.createUpstreamCherryPick(workspaceId, {
+                // The run owns a range, so it is confirmed as an explicit list
+                // of commits. The dry run is what resolves a typed range and
+                // the filters into that list — including commits the visible
+                // page never loaded.
+                void workspaceApi.previewUpstreamCherryPick(workspaceId, {
                   sourceBranch: snapshot.revision,
-                  targetBranch: targetBranch.trim(),
                   ...selection,
-                  prDescription: prDescription.trim() === '' ? null : prDescription.trim(),
-                  openDraftPr,
-                  budgetMilliUsd: Math.round(parsedBudget * 1000),
-                }).then(setJob)
+                })
+                  .then(resolved => {
+                    const picked = resolved.commits.filter(entry => entry.pick);
+                    if (picked.length === 0) {
+                      throw new Error('The filters leave no commit to pick.');
+                    }
+                    return workspaceApi.createUpstreamSync(workspaceId, {
+                      commits: picked.map(entry => ({
+                        sha: entry.sha, subject: entry.subject,
+                      })),
+                      goalText: prDescription.trim() === ''
+                        ? `Cherry-pick ${picked.length} commit${
+                          picked.length === 1 ? '' : 's'} from ${
+                          snapshot.upstreamWorkspaceName}/${snapshot.revision}`
+                        : prDescription.trim(),
+                      sourceRemote: snapshot.upstreamRepoFullName,
+                      // The dry run answers oldest first, which is the order
+                      // the picks are applied in.
+                      sourceFromRef: picked[0].sha,
+                      sourceToRef: picked[picked.length - 1].sha,
+                      targetRef: defaultBranch(repo),
+                      repairTurnBudget: parsedTurns,
+                    });
+                  })
+                  .then(setJob)
                   .catch(reason => setError(message(reason)))
                   .finally(() => setBusy(false));
               }}>{busy ? 'Starting…' : 'Start cherry-pick'}</button>
           )}
-          {job?.status === 'PAUSED_CONFLICT' && (
+          {job?.status === 'PAUSED_CONFLICT' && !isFlowRun(job.jobId) && (
             <button type="button" className="wu-primary-button" disabled={busy} onClick={() => {
               setBusy(true);
               setError(null);
@@ -364,7 +397,7 @@ export function UpstreamCherryPicker({
               setJob(null);
             }}>Start another</button>
           )}
-          {job?.status === 'FAILED' && (
+          {job?.status === 'FAILED' && !isFlowRun(job.jobId) && (
             <button type="button" className="wu-primary-button" disabled={busy} onClick={() => {
               setBusy(true);
               setError(null);
@@ -381,24 +414,6 @@ export function UpstreamCherryPicker({
           )}
         </footer>
       </section>
-    </div>
-  );
-}
-
-function CherryOption({ label, detail, checked, disabled = false, extra, onChange }: {
-  label: string;
-  detail: string;
-  checked: boolean;
-  disabled?: boolean;
-  extra?: ReactNode;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className={`wu-upstream-cherry__option${checked ? ' selected' : ''}${disabled ? ' disabled' : ''}`}>
-      <button type="button" role="switch" aria-label={label} aria-checked={checked} disabled={disabled}
-        className={`wu-switch${checked ? ' on' : ''}`} onClick={() => onChange(!checked)}><i /></button>
-      <span><strong>{label}</strong><small>{detail}</small></span>
-      {extra}
     </div>
   );
 }
@@ -456,35 +471,14 @@ function PlanList({ label, tone, rows, defaultOpen = false }: {
   );
 }
 
+/** A source that cannot answer contributes nothing, never a failed load. */
+function noRuns(): UpstreamCherryPickJobDto[] {
+  return [];
+}
+
 /** Comma-separated filter terms; blanks dropped so an empty box filters nothing. */
 function splitTerms(value: string): string[] {
   return value.split(',').map(term => term.trim()).filter(term => term.length > 0);
-}
-
-/**
- * A branch name that is unique to the range it carries. The old name was built
- * from the newest version tag in range, or the literal "update" when there was
- * none — so every untagged range proposed the same branch and the second run
- * was refused for a name the first one had taken. The end shas cannot collide
- * unless the range really is the same range.
- *
- * Ordered oldest-to-newest, the direction the picks are applied.
- */
-export function suggestedTarget(
-  snapshot: UpstreamCommitsDto,
-  commits: UpstreamCommitDto[],
-  fromSha?: string,
-  toSha?: string,
-): string {
-  const repo = (snapshot.upstreamRepoFullName.split('/').pop() ?? 'upstream')
-    .toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  // The list runs newest-first; a typed range is used as the user typed it.
-  const first = short(fromSha) ?? short(commits.at(-1)?.sha);
-  const last = short(toSha) ?? short(commits[0]?.sha);
-  if (first === null || last === null) return `bump-${repo}-update`;
-  return first === last
-    ? `bump-${repo}-${first}`
-    : `bump-${repo}-${first}-to-${last}`;
 }
 
 function short(sha: string | undefined): string | null {

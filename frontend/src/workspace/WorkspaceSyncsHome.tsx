@@ -217,10 +217,15 @@ function FinishedTable({ rows, hidden, total, onOpenSync, onShowAll }: {
             <span className="sh-pr">
               {job.prNumber === null ? '—' : `#${job.prNumber}`}
             </span>
-            {/* CI fix rounds are owned by CI Autofix once the range is pushed, and
-                nothing reports them back to this list yet — so the column is
-                honest about having no number rather than showing a wrong one. */}
-            <span className="sh-pending" title="Fix rounds are not reported to this list yet">—</span>
+            {/* A run on the retired path never reported its fix rounds, so the
+                column says it has no number rather than showing a zero — which
+                would read as "CI needed no repair". */}
+            {job.roundCount === undefined ? (
+              <span className="sh-pending"
+                title="This run does not report its fix rounds">—</span>
+            ) : (
+              <span className="sh-table__rounds">{job.roundCount}</span>
+            )}
             <span className="sh-table__cost">{money(job.spentMilliUsd)}</span>
             <span className="sh-right sh-table__when">{whenLabel(job.updatedAt)}</span>
           </button>

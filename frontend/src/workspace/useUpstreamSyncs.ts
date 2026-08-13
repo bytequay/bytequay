@@ -36,10 +36,22 @@ export function useUpstreamSyncs(
     }
     let cancelled = false;
     const load = () => {
-      void workspaceApi.upstreamCherryPicks(workspaceId)
+      // Both sources, until the runs started before the cutover drain. They
+      // are read side by side and never merged in storage: a run finishes on
+      // the path that started it.
+      void Promise.all([
+        workspaceApi.upstreamSyncs(workspaceId).catch(none),
+        workspaceApi.upstreamCherryPicks(workspaceId).catch(none),
+      ])
         // The nav renders this on every workspace, including ones whose
         // sidecar answers with nothing at all — an empty list, never null.
-        .then(next => { if (!cancelled) setSyncs(Array.isArray(next) ? next : []); })
+        .then(([flow, legacy]) => {
+          if (cancelled) return;
+          setSyncs(sortByCreated([
+            ...(Array.isArray(flow) ? flow : []),
+            ...(Array.isArray(legacy) ? legacy : []),
+          ]));
+        })
         // A workspace with no upstream relation has no syncs; an empty list is
         // the right answer either way.
         .catch(() => { if (!cancelled) setSyncs([]); });
@@ -53,4 +65,21 @@ export function useUpstreamSyncs(
   }, [workspaceId]);
 
   return syncs;
+}
+
+/** A source that cannot answer contributes nothing, never a failed load. */
+function none(): UpstreamCherryPickJobDto[] {
+  return [];
+}
+
+/** Newest first, which is the order each source already answers in. */
+function sortByCreated(
+  runs: UpstreamCherryPickJobDto[],
+): UpstreamCherryPickJobDto[] {
+  return runs.sort((left, right) => created(right) - created(left));
+}
+
+function created(job: UpstreamCherryPickJobDto): number {
+  const parsed = Date.parse(job.createdAt);
+  return Number.isFinite(parsed) ? parsed : 0;
 }

@@ -20,10 +20,11 @@ import {
   ParkIcon, PauseIcon, PlayIcon, SendIcon, SkipIcon,
 } from './WorkspaceSyncIcons';
 import WorkspaceSyncFeed from './WorkspaceSyncFeed';
+import WorkspaceSyncPublishCard from './WorkspaceSyncPublishCard';
 import { TranscriptTool } from './WorkspaceSyncRunLog';
 import WorkspaceSyncTimeline from './WorkspaceSyncTimeline';
 import {
-  elapsedLabel, isClosedSync, isLiveSync, money, syncNowLine,
+  elapsedLabel, isClosedSync, isFlowRun, isLiveSync, money, syncNowLine,
   syncPhase, syncQueue, sessionTranscriptPath, transcriptEntries,
   type TranscriptEntry,
 } from './syncRunModel';
@@ -42,6 +43,8 @@ const PR_WIDTH_MIN = 340;
 const PR_WIDTH_MAX = 1000;
 /** A long turn can run hundreds of tool calls; the panel shows the tail. */
 const MAX_LIVE_ENTRIES = 40;
+/** The composer is inert on a greenfield run rather than quietly absent. */
+const STEERING_UNAVAILABLE = 'Steering this run is not wired yet';
 
 /**
  * The cockpit for one upstream sync run: the commit queue on the left, what the
@@ -81,9 +84,14 @@ export default function WorkspaceSyncRunPage({
     bodyRef.current = node;
   }, [bodyRef, shellRef]);
 
+  // A run is read from the path that owns it. The id carries its own domain,
+  // so this resolves before any list has loaded.
+  const flow = isFlowRun(jobId);
   const load = useCallback(
-    () => workspaceApi.upstreamCherryPickRun(workspaceId, jobId).then(setRun),
-    [jobId, workspaceId],
+    () => (flow
+      ? workspaceApi.upstreamSyncRun(workspaceId, jobId)
+      : workspaceApi.upstreamCherryPickRun(workspaceId, jobId)).then(setRun),
+    [flow, jobId, workspaceId],
   );
 
   useEffect(() => {
@@ -96,20 +104,26 @@ export default function WorkspaceSyncRunPage({
   }, [load]);
 
   const live = run !== null && (isLiveSync(run.job) || run.job.pauseRequested);
+  // An authorized publish is program work the run view has to watch: the run
+  // itself is parked, and the pull request appears without it moving.
+  const publishing = run?.publishGate != null
+    && run.publishGate.state !== 'CONSUMED';
   useEffect(() => {
-    if (!live) return undefined;
+    if (!live && !publishing) return undefined;
     const timer = window.setInterval(() => {
       // A dropped poll keeps the last complete run on screen rather than
       // blanking a view someone may have walked away from.
       void load().catch(() => {});
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [live, load]);
+  }, [live, publishing, load]);
 
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
   useEffect(() => {
-    if (!live) return undefined;
+    // The live turn stream belongs to the retired runner. A greenfield run's
+    // turns are the flow runtime's, and nothing streams them here yet.
+    if (!live || flow) return undefined;
     return window.bridge.subscribeSyncRunStream(jobId, event => {
       const entries = transcriptEntries(event.data);
       if (entries.length === 0) return;
@@ -121,7 +135,7 @@ export default function WorkspaceSyncRunPage({
       }
       setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
     });
-  }, [live, jobId]);
+  }, [flow, live, jobId]);
 
   useEffect(() => {
     if (!live) setAgentLive([]);
@@ -163,9 +177,17 @@ export default function WorkspaceSyncRunPage({
   // The agent bounds itself now, so the budget is the only hard stop — and one a
   // park offers to lift rather than one that ends the run. Raising by what the
   // run started with keeps the step proportional to what the user chose.
-  const outOfBudget = parked && job.spentMilliUsd >= job.budgetMilliUsd;
-  const budgetStep = Math.max(100, job.budgetMilliUsd);
+  // A greenfield run is bounded by conflict-repair turns instead, so it has no
+  // ceiling to raise and never reads as out of budget.
+  const budget = job.budgetMilliUsd;
+  const outOfBudget = parked && budget !== undefined
+    && job.spentMilliUsd >= budget;
+  const budgetStep = Math.max(100, budget ?? 0);
   const transcriptPath = sessionTranscriptPath(job.worktreePath, job.agentSessionId);
+  // The park before the first push is the publish gate. Nothing leaves the
+  // machine until the user authorizes exactly the revision they were shown.
+  const gate = run.publishGate !== undefined && run.publishGate !== null
+    && run.publishGate.state === 'OPEN' ? run.publishGate : null;
   // The pull request belongs beside the run, never in a browser tab.
   const canOpenPr = rightPane !== undefined;
   const showRight = rightPane !== undefined && prOpen;
@@ -180,7 +202,7 @@ export default function WorkspaceSyncRunPage({
           : `${queueWidth}px minmax(0, 1fr)`,
       }}>
       <WorkspaceSyncTimeline job={job} commits={run.commits} events={run.events}
-        onBack={onBack} />
+        rounds={run.rounds} onBack={onBack} />
       <ResizeHandle className="sr-resize" ariaLabel="Resize the commit queue"
         onResize={onQueueResize} style={{ left: queueWidth - 2 }} />
       <div className="sr-main">
@@ -193,7 +215,7 @@ export default function WorkspaceSyncRunPage({
           </span>
           <span className="sr-topbar__grow" />
           <span className={`sr-phase is-${phaseTone(job.status)}`}>{syncPhase(job)}</span>
-          {running && (
+          {running && !flow && (
             <button type="button" className="sr-topbar__action" disabled={busy || job.pauseRequested}
               onClick={() => act(() => workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId))}>
               <PauseIcon />
@@ -208,7 +230,7 @@ export default function WorkspaceSyncRunPage({
               <PlayIcon />Add {money(budgetStep)} and resume
             </button>
           )}
-          {parked && (
+          {parked && !flow && (
             <button
               type="button"
               className={`sr-topbar__action${outOfBudget ? '' : ' is-primary'}`}
@@ -217,24 +239,26 @@ export default function WorkspaceSyncRunPage({
               <PlayIcon />Resume
             </button>
           )}
-          {failed && (
+          {failed && !flow && (
             <button type="button" className="sr-topbar__action is-primary" disabled={busy}
               onClick={() => act(() => workspaceApi.retryUpstreamCherryPick(workspaceId, jobId))}>
               <PlayIcon />Retry
             </button>
           )}
-          {!closed && (
+          {!closed && !flow && (
             <button type="button" className="sr-topbar__action" disabled={busy}
               title="Stop the run and release everything it holds"
               onClick={() => setClosing(true)}>
               <CloseIcon />Close run
             </button>
           )}
-          <button type="button" className="sr-topbar__icon" disabled={busy}
-            title="Close the run and remove it from the list" aria-label="Delete run"
-            onClick={() => setDeleting(true)}>
-            <TrashIcon />
-          </button>
+          {!flow && (
+            <button type="button" className="sr-topbar__icon" disabled={busy}
+              title="Close the run and remove it from the list" aria-label="Delete run"
+              onClick={() => setDeleting(true)}>
+              <TrashIcon />
+            </button>
+          )}
           {canOpenPr && (
             <button type="button"
               className={`sr-topbar__icon${prOpen ? ' is-on' : ''}`}
@@ -272,8 +296,9 @@ export default function WorkspaceSyncRunPage({
             {elapsedLabel(job.createdAt, running ? undefined : job.updatedAt)} elapsed
           </span>
           <span className="sr-session__dot" aria-hidden>·</span>
-          <span className="sr-session__stat"
-            title={`${money(job.spentMilliUsd)} of ${money(job.budgetMilliUsd)} budget`}>
+          <span className="sr-session__stat" title={budget === undefined
+            ? `${job.remainingRepairTurns ?? 0} conflict-repair turns left`
+            : `${money(job.spentMilliUsd)} of ${money(budget)} budget`}>
             {money(job.spentMilliUsd)} spent
           </span>
           {job.prNumber !== null && (
@@ -306,7 +331,19 @@ export default function WorkspaceSyncRunPage({
                   - element.clientHeight < 40;
               }}>
               <WorkspaceSyncFeed job={job} commits={run.commits} events={run.events}
+                rounds={run.rounds} fixups={run.fixups}
+                compileProof={run.compileProof}
                 onOpenPr={canOpenPr ? () => setPrOpen(true) : undefined} />
+              {gate !== null && (
+                <WorkspaceSyncPublishCard gate={gate} branch={job.resultBranch} busy={busy}
+                  onAuthorize={() => act(
+                    () => workspaceApi.authorizeUpstreamSyncPublish(
+                      workspaceId, jobId, {
+                        revision: gate.revision,
+                        subjectDigest: gate.subjectDigest,
+                        actionDigest: gate.actionDigest,
+                      }))} />
+              )}
               {agentLive.length > 0 && (
                 // The turn in flight. Without this a pick that compiles for
                 // minutes reads as a stalled run — the log's next line only
@@ -344,20 +381,20 @@ export default function WorkspaceSyncRunPage({
                       ? 'Session live · guidance applies from the next action'
                       : outOfBudget
                         ? `Parked · ${money(job.spentMilliUsd)} of ${
-                          money(job.budgetMilliUsd)} spent — raise it to carry on`
+                          money(budget ?? 0)} spent — raise it to carry on`
                         : parked ? 'Parked · nothing is pushed until you resume'
                         : failed ? 'Stopped · durable progress is kept'
                           : 'Run complete · parked for your review'}
                 </span>
                 <span className="sr-topbar__grow" />
-                {parked && queue.current !== null && (
+                {parked && !flow && queue.current !== null && (
                   <button type="button" className="sr-pill" disabled={busy}
                     onClick={() => act(
                       () => workspaceApi.skipUpstreamCherryPickCommit(workspaceId, jobId))}>
                     <SkipIcon />Skip this commit
                   </button>
                 )}
-                {running && (
+                {running && !flow && (
                   <button type="button" className="sr-pill is-warn" disabled={busy || job.pauseRequested}
                     onClick={() => act(
                       () => workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId))}>
@@ -378,10 +415,13 @@ export default function WorkspaceSyncRunPage({
                     }));
                 }}>
                 <input value={guidance} onChange={event => setGuidance(event.target.value)}
-                  aria-label="Steer the run"
-                  placeholder={'Steer the run — e.g. "prefer our fork’s config names when conflicts touch them"…'} />
+                  aria-label="Steer the run" disabled={flow}
+                  title={flow ? STEERING_UNAVAILABLE : undefined}
+                  placeholder={flow
+                    ? STEERING_UNAVAILABLE
+                    : 'Steer the run — e.g. "prefer our fork’s config names when conflicts touch them"…'} />
                 <button type="submit" aria-label="Send guidance"
-                  disabled={busy || closed || guidance.trim().length === 0}>
+                  disabled={busy || closed || flow || guidance.trim().length === 0}>
                   <SendIcon />
                 </button>
               </form>

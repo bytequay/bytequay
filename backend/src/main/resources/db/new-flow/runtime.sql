@@ -422,10 +422,10 @@ CREATE TABLE flow_runtime_agent_session (
     close_reason TEXT,
     -- The vendor's own handle on this conversation, so a later turn continues
     -- it rather than starting over. This is the whole reason the session row
-    -- outlives a run: without it "one persistent CI_FIXER session per Task" is
-    -- a claim the program cannot keep across a restart. Null until a CLI turn
-    -- reports one; an API turn never has one, because the transcript this
-    -- program replays is the transcript.
+    -- outlives a run. TASK_AGENT and CI_FIXER are separate program sessions,
+    -- but both resolve this as the Task's one writer-provider conversation;
+    -- reviewer and learner rows remain isolated. Null until a CLI turn reports
+    -- one; an API turn never has one, because the program replays its transcript.
     provider_session_id TEXT,
     -- What the session has cost so far, accumulated per turn. Held here rather
     -- than summed over attempts on demand because attempts are pruned and a

@@ -5584,6 +5584,16 @@ public final class FlowRuntime
                         "process attempt belongs to another claim generation");
             }
             AgentRun run = requireRun(attempt.runId());
+            if (providerSessionId != null) {
+                List<String> existingProviderSessions =
+                        resumableProviderSessions(run.runId());
+                if (existingProviderSessions.stream().anyMatch(
+                        existing -> !existing.equals(providerSessionId))) {
+                    throw new StaleOwnerRevisionException(
+                            "agent turn reported a different provider session"
+                                    + " for the durable role");
+                }
+            }
             int attemptUpdated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
@@ -5610,7 +5620,7 @@ public final class FlowRuntime
                     SET total_tokens_in = total_tokens_in + ?,
                         total_tokens_out = total_tokens_out + ?,
                         total_cost_milli_usd = total_cost_milli_usd + ?,
-                        provider_session_id = COALESCE(?, provider_session_id),
+                        provider_session_id = COALESCE(provider_session_id, ?),
                         updated_at = ?
                     WHERE session_id = ?
                     """,
@@ -5631,24 +5641,43 @@ public final class FlowRuntime
     /**
      * The provider session a run's role should continue, if it has one.
      *
-     * <p>Read per run rather than held in memory because the point is surviving
-     * a restart: an id that only exists in this JVM resumes nothing.
+     * <p>Task Agent and CI Fixer are two program roles but one Task writer
+     * conversation. Either role therefore resumes the same provider session.
+     * Reviewer and learner sessions remain fresh and isolated. The lookup is
+     * still anchored by the current run, rather than held in memory, because
+     * the point is surviving a restart.
      */
     synchronized Optional<String> resumableProviderSession(String runId)
     {
         requireText(runId, "runId");
+        List<String> sessions = resumableProviderSessions(runId);
+        if (sessions.size() > 1) {
+            throw new IllegalStateException(
+                    "Task writer roles have divergent provider sessions");
+        }
+        return sessions.stream().findFirst();
+    }
+
+    private List<String> resumableProviderSessions(String runId)
+    {
         return jdbc.query(
                 """
-                SELECT s.provider_session_id
-                FROM flow_runtime_agent_session s
-                JOIN flow_runtime_agent_run r ON r.session_id = s.session_id
-                WHERE r.run_id = ?
+                SELECT DISTINCT candidate.provider_session_id
+                FROM flow_runtime_agent_run current_run
+                JOIN flow_runtime_agent_session owner
+                  ON owner.session_id = current_run.session_id
+                JOIN flow_runtime_agent_session candidate
+                  ON (current_run.role IN ('TASK_AGENT', 'CI_FIXER')
+                        AND candidate.task_id = owner.task_id
+                        AND candidate.role IN ('TASK_AGENT', 'CI_FIXER'))
+                    OR (current_run.role NOT IN ('TASK_AGENT', 'CI_FIXER')
+                        AND candidate.session_id = owner.session_id)
+                WHERE current_run.run_id = ?
+                  AND candidate.provider_session_id IS NOT NULL
+                  AND candidate.provider_session_id <> ''
                 """,
                 (result, row) -> result.getString("provider_session_id"),
-                runId)
-                .stream()
-                .findFirst()
-                .filter(id -> id != null && !id.isBlank());
+                runId);
     }
 
     /** Authorizes one tool call for the exact live in-process capability. */

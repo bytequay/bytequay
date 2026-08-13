@@ -13,14 +13,20 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.upstream.UpstreamPicker;
+import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
+import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,7 +36,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -230,6 +238,376 @@ final class TestNewFlowCliTurn
         assertThat(ProcessGroup.isAlive(pgid.get())).isFalse();
     }
 
+    @Test
+    void aWriterLaunchesFromALinkedWorktree(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = Fixture.createLinked(root, """
+                read line
+                echo '{"type":"result","subtype":"success","result":"linked"}'
+                """);
+
+        NewFlowCliTurn.Outcome outcome = fixture.run(
+                (pid, pgid, startedAt) -> {});
+
+        assertThat(Files.isRegularFile(fixture.worktree.resolve(".git")))
+                .isTrue();
+        assertThat(outcome.turn().finalText()).isEqualTo("linked");
+    }
+
+    @Test
+    void aRealLoopbackToolCallRunsOnTheWriterThread(@TempDir Path root)
+            throws Exception
+    {
+        AtomicReference<NewFlowAgentToolBridge> liveBridge =
+                new AtomicReference<>();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            var request = MAPPER.readTree(exchange.getRequestBody());
+            var response = liveBridge.get().handle(RUN_ID, request)
+                    .orElseThrow();
+            byte[] body = MAPPER.writeValueAsBytes(response);
+            exchange.getResponseHeaders().add(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            AtomicReference<Thread> toolThread = new AtomicReference<>();
+            Fixture fixture = Fixture.create(
+                    root,
+                    """
+                    read line
+                    request='{"id":1,"method":"tools/call","params":{"name":"test_tool"}}'
+                    curl -sS -o /dev/null -X POST -H 'Content-Type: application/json' \
+                      --data "$request" "$BYTEQUAY_NEW_FLOW_MCP_URL"
+                    echo '{"type":"result","subtype":"success","result":"called"}'
+                    """,
+                    server.getAddress().getPort(),
+                    call -> {
+                        toolThread.set(Thread.currentThread());
+                        return ToolExecutor.ToolCallResult.ok("tool ran");
+                    });
+            liveBridge.set(fixture.bridge);
+            AtomicReference<Thread> owner = new AtomicReference<>();
+
+            NewFlowCliTurn.Outcome outcome = fixture.run(
+                    (pid, pgid, startedAt) -> owner.set(
+                            Thread.currentThread()));
+
+            assertThat(outcome.turn().finalText()).isEqualTo("called");
+            assertThat(toolThread).hasValue(owner.get());
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void oneClaudeCliSessionRepairsTwoUpstreamConflictsInALinkedWorktree(
+            @TempDir Path root)
+            throws Exception
+    {
+        ConflictRange range = ConflictRange.create(root);
+        assertThat(range.commits()).allSatisfy(commit ->
+                assertThat(UpstreamPicker.hasCommit(range.target(), commit))
+                        .isFalse());
+        UpstreamPicker.transferObjects(
+                range.upstream(), range.target(), range.commits());
+
+        UpstreamPicker picker = new UpstreamPicker(range.worktree());
+        AtomicReference<ActiveConflict> active = new AtomicReference<>(
+                conflict(range.commits().getFirst(), picker));
+        AtomicInteger repaired = new AtomicInteger();
+        ToolExecutor executor = call -> {
+            try {
+                ActiveConflict current = active.get();
+                return switch (call.name()) {
+                    case "read_pick_conflict_context" ->
+                            ToolExecutor.ToolCallResult.ok(
+                                    "sha=" + current.sha()
+                                            + " conflictedPaths="
+                                            + current.result()
+                                                    .conflictedPaths());
+                    case "read_file" -> ToolExecutor.ToolCallResult.ok(
+                            Files.readString(
+                                    range.worktree().resolve(text(call, "path")),
+                                    StandardCharsets.UTF_8));
+                    case "write_file" -> {
+                        String path = text(call, "path");
+                        if (!current.result().conflictedPaths().contains(path)) {
+                            yield ToolExecutor.ToolCallResult.error(
+                                    "path is not conflicted");
+                        }
+                        Files.writeString(
+                                range.worktree().resolve(path),
+                                text(call, "content"),
+                                StandardCharsets.UTF_8);
+                        yield ToolExecutor.ToolCallResult.ok("written");
+                    }
+                    case "commit_pick_repair" -> {
+                        PickResult continued = picker.continuePick(
+                                current.result().head(), current.sha(),
+                                current.result().conflictedPaths());
+                        assertThat(continued.provenanceVerified()).isTrue();
+                        int completed = repaired.incrementAndGet();
+                        if (completed < range.commits().size()) {
+                            String next = range.commits().get(completed);
+                            active.set(conflict(next, picker));
+                            yield ToolExecutor.ToolCallResult.ok(
+                                    "next conflict ready");
+                        }
+                        yield ToolExecutor.ToolCallResult.ok("range complete");
+                    }
+                    default -> ToolExecutor.ToolCallResult.error(
+                            "tool is not available");
+                };
+            }
+            catch (IOException | RuntimeException failure) {
+                return ToolExecutor.ToolCallResult.error(failure.toString());
+            }
+        };
+
+        AtomicReference<NewFlowAgentToolBridge> liveBridge =
+                new AtomicReference<>();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            var request = MAPPER.readTree(exchange.getRequestBody());
+            var response = liveBridge.get().handle(RUN_ID, request)
+                    .orElseThrow();
+            byte[] body = MAPPER.writeValueAsBytes(response);
+            exchange.getResponseHeaders().add(
+                    "Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            Path executable = fakeConflictClaude(root);
+            DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                    "jdbc:sqlite:" + root.resolve("runtime.db")
+                            + "?foreign_keys=ON");
+            FlowRuntimeSchema.install(dataSource);
+            NewFlowAgentToolBridge bridge = new NewFlowAgentToolBridge(MAPPER);
+            liveBridge.set(bridge);
+            NewFlowCliTurn turn = new NewFlowCliTurn(
+                    new FlowRuntime(dataSource, Clock.systemUTC()), bridge,
+                    MAPPER, server.getAddress().getPort());
+            NewFlowAgentLaunches.Binding binding = binding(executable);
+            List<String> usage = new ArrayList<>();
+
+            NewFlowCliTurn.Outcome outcome = turn.runInWorktree(
+                    RUN_ID, binding, conflictManifest(),
+                    "Resolve every selected upstream conflict in order.",
+                    executor, range.worktree(), new NewFlowCliTurn.TurnJournal()
+                    {
+                        @Override
+                        public void group(
+                                long pid, long pgid, Instant startedAt) {}
+
+                        @Override
+                        public void usage(
+                                String providerSessionId,
+                                long tokensIn,
+                                long tokensOut,
+                                long costMilliUsd)
+                        {
+                            usage.add(providerSessionId);
+                        }
+                    }, () -> false);
+
+            assertThat(Files.isRegularFile(range.worktree().resolve(".git")))
+                    .isTrue();
+            assertThat(outcome.turn().end()).isEqualTo(TurnResult.End.COMPLETED);
+            assertThat(outcome.providerSessionId())
+                    .isEqualTo("claude-upstream-session");
+            assertThat(usage).containsExactly("claude-upstream-session");
+            assertThat(repaired).hasValue(2);
+            assertThat(picker.clean()).isTrue();
+            String history = ConflictRange.git(
+                    range.worktree(), "log", "-2", "--format=%B");
+            assertThat(history).contains(
+                    "(cherry picked from commit " + range.commits().get(0)
+                            + ")",
+                    "(cherry picked from commit " + range.commits().get(1)
+                            + ")");
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    private static String text(ToolCall call, String name)
+    {
+        String value = call.input().path(name).asText("");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+        return value;
+    }
+
+    private static ActiveConflict conflict(String sha, UpstreamPicker picker)
+    {
+        PickResult result = picker.pick(sha);
+        assertThat(result.outcome())
+                .isEqualTo(UpstreamPicker.Outcome.CONFLICTED);
+        assertThat(result.conflictedPaths()).hasSize(1);
+        return new ActiveConflict(sha, result);
+    }
+
+    private static ArrayNode conflictManifest()
+    {
+        var tools = MAPPER.createArrayNode();
+        for (String name : List.of(
+                "read_pick_conflict_context", "read_file", "write_file",
+                "commit_pick_repair")) {
+            tools.addObject().put("name", name)
+                    .putObject("inputSchema").put("type", "object");
+        }
+        return tools;
+    }
+
+    private static NewFlowAgentLaunches.Binding binding(Path executable)
+    {
+        return new NewFlowAgentLaunches.Binding(
+                RUN_ID, "claude-code", AgentExecution.CLI, null, null,
+                "sonnet", "high", null, null, null, null, "r1",
+                "prompt-digest", "tool-digest", null, null,
+                executable.toString(), "2.1", "binding-digest",
+                Instant.EPOCH);
+    }
+
+    private static Path fakeConflictClaude(Path root)
+            throws IOException
+    {
+        Path executable = root.resolve("fake-conflict-claude");
+        Files.writeString(executable, """
+                #!/bin/sh
+                read line
+                echo '{"type":"system","subtype":"init","session_id":"claude-upstream-session"}'
+                rpc() {
+                  response=$(curl -sS -X POST -H 'Content-Type: application/json' --data "$1" "$BYTEQUAY_NEW_FLOW_MCP_URL") || exit 40
+                  case "$response" in *'"isError":true'*) exit 41;; esac
+                }
+                rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"one.txt"}}}'
+                rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"one.txt","content":"resolved one\\n"}}}'
+                rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"two.txt"}}}'
+                rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"two.txt","content":"resolved two\\n"}}}'
+                rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                echo '{"type":"result","subtype":"success","result":"range repaired"}'
+                """, StandardCharsets.UTF_8);
+        Files.setPosixFilePermissions(executable,
+                PosixFilePermissions.fromString("rwxr-xr-x"));
+        return executable;
+    }
+
+    private record ActiveConflict(String sha, PickResult result) {}
+
+    private record ConflictRange(
+            Path upstream,
+            Path target,
+            Path worktree,
+            List<String> commits)
+    {
+        private static ConflictRange create(Path root)
+                throws IOException, InterruptedException
+        {
+            Path upstream = root.resolve("upstream");
+            Path target = root.resolve("target");
+            Path worktree = root.resolve("linked-task-worktree");
+            run(root, "git", "init", "-b", "main", upstream.toString());
+            configure(upstream);
+            write(upstream, "one.txt", "base one\n");
+            write(upstream, "two.txt", "base two\n");
+            run(upstream, "git", "add", "-A");
+            run(upstream, "git", "commit", "-m", "base");
+            run(root, "git", "clone", upstream.toString(), target.toString());
+            configure(target);
+
+            write(upstream, "one.txt", "upstream one\n");
+            run(upstream, "git", "add", "-A");
+            run(upstream, "git", "commit", "-m", "change one upstream");
+            String first = git(upstream, "rev-parse", "HEAD").strip();
+            write(upstream, "two.txt", "upstream two\n");
+            run(upstream, "git", "add", "-A");
+            run(upstream, "git", "commit", "-m", "change two upstream");
+            String second = git(upstream, "rev-parse", "HEAD").strip();
+
+            write(target, "one.txt", "fork one\n");
+            write(target, "two.txt", "fork two\n");
+            run(target, "git", "add", "-A");
+            run(target, "git", "commit", "-m", "fork changes");
+            run(target, "git", "worktree", "add", "-b", "task",
+                    worktree.toString());
+            return new ConflictRange(
+                    upstream, target, worktree, List.of(first, second));
+        }
+
+        private static void configure(Path repository)
+                throws IOException, InterruptedException
+        {
+            run(repository, "git", "config", "user.email",
+                    "test@bytequay.invalid");
+            run(repository, "git", "config", "user.name", "Test");
+        }
+
+        private static void write(Path root, String name, String content)
+                throws IOException
+        {
+            Files.writeString(
+                    root.resolve(name), content, StandardCharsets.UTF_8);
+        }
+
+        private static String git(Path directory, String... argv)
+                throws IOException, InterruptedException
+        {
+            Process process = new ProcessBuilder(argvWithGit(argv))
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(
+                    process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            if (process.waitFor() != 0) {
+                throw new IOException(
+                        String.join(" ", argv) + " failed: " + output);
+            }
+            return output;
+        }
+
+        private static void run(Path directory, String... argv)
+                throws IOException, InterruptedException
+        {
+            Process process = new ProcessBuilder(argv)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(
+                    process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            if (process.waitFor() != 0) {
+                throw new IOException(
+                        String.join(" ", argv) + " failed: " + output);
+            }
+        }
+
+        private static String[] argvWithGit(String[] arguments)
+        {
+            String[] argv = new String[arguments.length + 1];
+            argv[0] = "git";
+            System.arraycopy(arguments, 0, argv, 1, arguments.length);
+            return argv;
+        }
+    }
+
     /** A git clone with a real remote, and a script standing in for the CLI. */
     private static final class Fixture
     {
@@ -238,9 +616,15 @@ final class TestNewFlowCliTurn
         private final NewFlowAgentToolBridge bridge;
         private final NewFlowCliTurn turn;
         private final NewFlowAgentLaunches.Binding binding;
+        private final ToolExecutor executor;
 
         private Fixture(
-                Path worktree, Path marker, Path executable, Path database)
+                Path worktree,
+                Path marker,
+                Path executable,
+                Path database,
+                int serverPort,
+                ToolExecutor executor)
         {
             this.worktree = worktree;
             this.marker = marker;
@@ -252,7 +636,8 @@ final class TestNewFlowCliTurn
             // for a resume id and correctly gets none.
             this.turn = new NewFlowCliTurn(
                     new FlowRuntime(dataSource, Clock.systemUTC()),
-                    bridge, MAPPER, 1);
+                    bridge, MAPPER, serverPort);
+            this.executor = executor;
             this.binding = new NewFlowAgentLaunches.Binding(
                     RUN_ID,
                     "claude-code",
@@ -279,16 +664,53 @@ final class TestNewFlowCliTurn
         static Fixture create(Path root, String script)
                 throws IOException, InterruptedException
         {
+            return create(
+                    root, script, false, 1,
+                    call -> ToolExecutor.ToolCallResult.ok(""));
+        }
+
+        static Fixture create(
+                Path root,
+                String script,
+                int serverPort,
+                ToolExecutor executor)
+                throws IOException, InterruptedException
+        {
+            return create(root, script, false, serverPort, executor);
+        }
+
+        static Fixture createLinked(Path root, String script)
+                throws IOException, InterruptedException
+        {
+            return create(
+                    root, script, true, 1,
+                    call -> ToolExecutor.ToolCallResult.ok(""));
+        }
+
+        private static Fixture create(
+                Path root,
+                String script,
+                boolean linked,
+                int serverPort,
+                ToolExecutor executor)
+                throws IOException, InterruptedException
+        {
             Path remote = root.resolve("remote.git");
-            Path worktree = root.resolve("clone");
+            Path clone = root.resolve("clone");
             run(root, "git", "init", "--bare", "-b", "main", remote.toString());
-            run(root, "git", "clone", remote.toString(), worktree.toString());
-            run(worktree, "git", "config", "user.email", "t@example.com");
-            run(worktree, "git", "config", "user.name", "Test");
-            Files.writeString(worktree.resolve("a.txt"), "one\n",
+            run(root, "git", "clone", remote.toString(), clone.toString());
+            run(clone, "git", "config", "user.email", "t@example.com");
+            run(clone, "git", "config", "user.name", "Test");
+            Files.writeString(clone.resolve("a.txt"), "one\n",
                     StandardCharsets.UTF_8);
-            run(worktree, "git", "add", "a.txt");
-            run(worktree, "git", "commit", "-m", "first");
+            run(clone, "git", "add", "a.txt");
+            run(clone, "git", "commit", "-m", "first");
+            Path worktree = clone;
+            if (linked) {
+                worktree = root.resolve("linked");
+                run(clone, "git", "worktree", "add", "-b", "linked",
+                        worktree.toString());
+            }
 
             Path executable = root.resolve("fake-cli");
             Files.writeString(executable, "#!/bin/sh\n" + script,
@@ -297,7 +719,7 @@ final class TestNewFlowCliTurn
                     PosixFilePermissions.fromString("rwxr-xr-x"));
             return new Fixture(
                     worktree, root.resolve("marker.txt"), executable,
-                    root.resolve("runtime.db"));
+                    root.resolve("runtime.db"), serverPort, executor);
         }
 
         /** Captures what the turn reported, in place of the runtime writes. */
@@ -308,9 +730,9 @@ final class TestNewFlowCliTurn
             return turn.runInWorktree(
                     RUN_ID,
                     binding,
-                    MAPPER.createArrayNode(),
+                    manifest(),
                     "be exact",
-                    call -> ToolExecutor.ToolCallResult.ok(""),
+                    executor,
                     worktree,
                     journal(seen),
                     () -> false);
@@ -321,11 +743,19 @@ final class TestNewFlowCliTurn
             return turn.runReadOnly(
                     RUN_ID,
                     binding,
-                    MAPPER.createArrayNode(),
+                    manifest(),
                     "be exact",
-                    call -> ToolExecutor.ToolCallResult.ok(""),
+                    executor,
                     journal(seen),
                     () -> false);
+        }
+
+        private static ArrayNode manifest()
+        {
+            var tools = MAPPER.createArrayNode();
+            tools.addObject().put("name", "test_tool")
+                    .putObject("inputSchema").put("type", "object");
+            return tools;
         }
 
         private NewFlowCliTurn.TurnJournal journal(GroupSeen seen)

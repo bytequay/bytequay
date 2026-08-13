@@ -246,7 +246,7 @@ final class TestGitHubCiUpdateExecutor
         GitHubProvider.Preparation prepared = provider.prepareMutation(
                 claim, other);
 
-        assertThatThrownBy(() -> provider.pushExactFastForward(
+        assertThatThrownBy(() -> provider.pushExactLease(
                 claim, activation, activated, prepared.push()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("durable attempt");
@@ -308,6 +308,7 @@ final class TestGitHubCiUpdateExecutor
                 "refs/heads/task/one",
                 EXPECTED,
                 PROPOSED,
+                false,
                 mutationAllowed,
                 "plan-digest-1");
     }

@@ -69,6 +69,37 @@ final class TestCliAgentArgv
         assertThat(codex).containsSequence("--sandbox", "workspace-write");
     }
 
+    @Test
+    void anMcpOnlyClaudeTurnIsNoninteractiveAndHasNoBuiltinTools()
+    {
+        List<String> argv = CliAgentArgv.of(new CliAgentArgv.Launch(
+                CliAgentArgv.Vendor.CLAUDE_CODE, "claude", "sonnet", null,
+                WORKTREE, null, false, Path.of("/tmp/mcp.json"), null,
+                null, null, "session-1",
+                List.of("mcp__bytequay__read_file",
+                        "mcp__bytequay__write_file"), List.of(), true));
+
+        assertThat(argv).containsSequence("--permission-mode", "dontAsk");
+        assertThat(argv).containsSequence("--tools", "");
+        assertThat(argv).containsSequence(
+                "--allowedTools",
+                "mcp__bytequay__read_file,mcp__bytequay__write_file");
+        assertThat(argv.stream().filter("--allowedTools"::equals)).hasSize(1);
+        assertThat(argv).containsSequence("--resume", "session-1");
+    }
+
+    @Test
+    void anMcpOnlyCodexWriterMutatesOnlyThroughItsOwnerTools()
+    {
+        List<String> argv = CliAgentArgv.of(new CliAgentArgv.Launch(
+                CliAgentArgv.Vendor.CODEX, "codex", "gpt-5", null,
+                WORKTREE, null, false, null,
+                "http://127.0.0.1:1/mcp", null, null, null,
+                List.of(), List.of(), true));
+
+        assertThat(argv).containsSequence("--sandbox", "read-only");
+    }
+
     private static void launch(
             CliAgentArgv.Vendor vendor, Path mcpConfig, String mcpUrl)
     {

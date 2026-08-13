@@ -24,6 +24,10 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -243,6 +247,89 @@ class TestCiBoundaryCompileProof
         assertThat(userGates.subject(revision.subjectManifestRef())
                 .orElseThrow().manualOnly())
                 .isFalse();
+    }
+
+    @Test
+    void fixerSelectsAnExactEligibleTargetButProgramCreatesTheFixupMessage()
+    {
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(), null, null, true, BUILD);
+        var started = startRepair();
+        var tools = repairCoordinator.repairToolContext(started.binding());
+
+        assertThat(tools.failureSummary())
+                .contains("eligibleFixupTargets=" + publishedHead
+                        + " task change");
+        assertThat(tools.repairCommitMessage(publishedHead))
+                .isEqualTo("fixup! task change");
+        assertThatThrownBy(() -> tools.repairCommitMessage("f".repeat(40)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not eligible");
+    }
+
+    @Test
+    void failedBoundaryProofRestoresAndTheStoppedFinalizerReprovesDurably()
+            throws Exception
+    {
+        var marker = temporaryDirectory.resolve("boundary-passed-once");
+        var build = temporaryDirectory.resolve("boundary-build.sh");
+        Files.writeString(build, """
+                if [ ! -e '%s' ]; then
+                  touch '%s'
+                  exit 1
+                fi
+                exit 0
+                """.formatted(marker, marker));
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(), null, null, true,
+                List.of("/bin/sh", build.toString()));
+        var started = startRepair();
+        var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
+                TerminalOutcome.COMPLETED, "opaque fixer", null);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = repairCoordinator.launchRepair(
+                supervisor, started.binding(), started.claim(),
+                started.fence(), repositoryRoot, capability -> {
+                    capability.runTool(() -> commitCiChange(
+                            "proof-repair.txt", "repair\n",
+                            "fixup! task change"));
+                    return completion;
+                });
+
+        assertThatThrownBy(() -> repairCoordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL))
+                .isInstanceOf(AttributedFixupRebase.RebaseFailure.class)
+                .satisfies(failure -> assertThat(
+                        ((AttributedFixupRebase.RebaseFailure) failure).code())
+                        .isEqualTo(
+                                AttributedFixupRebase.FailureCode.PROOF_FAILED));
+        String fixerHead = gitOutput(
+                Path.of(task.worktreePath()), "rev-parse", "HEAD");
+        assertThat(gitOutput(
+                Path.of(task.worktreePath()), "log", "-1", "--format=%s"))
+                .isEqualTo("fixup! task change");
+        assertThat(autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow().state())
+                .isEqualTo(CiAutofixRecords.AttemptState.ACTIVE);
+
+        runtimeNow = NOW.plus(TTL).plusSeconds(1);
+        rebuildOwnerGraph(Clock.fixed(runtimeNow, ZoneOffset.UTC), true);
+        repairCoordinator.recoverExpiredStoppedRepair(
+                started.claim().operationId(), started.claim().generation(), TTL);
+
+        String adopted = runtime.task(task.taskId()).orElseThrow()
+                .currentHeadSha();
+        assertThat(adopted).isEqualTo(fixerHead);
+        assertThat(gitOutput(
+                Path.of(task.worktreePath()), "rev-parse", "HEAD"))
+                .isEqualTo(adopted);
+        assertThat(autofix.boundaryCompileProofForHead(adopted))
+                .get().matches(CiAutofixRecords.BoundaryCompileProof::allPassed);
+        assertThat(autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow().state())
+                .isEqualTo(CiAutofixRecords.AttemptState.FIX_PREPARED);
     }
 
     @Test

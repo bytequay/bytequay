@@ -265,6 +265,7 @@ public final class UserGateRecords
             String targetBaseRef,
             String targetSnapshotId,
             String targetSnapshotDigest,
+            InitialPublishVerificationProvider.Verification ownerVerification,
             String subjectDigest,
             String createdByRunId,
             Instant createdAt)
@@ -306,6 +307,15 @@ public final class UserGateRecords
             requireNonNull(targetSnapshotId, "targetSnapshotId is null");
             requireNonNull(targetSnapshotDigest,
                     "targetSnapshotDigest is null");
+            if (ownerVerification != null
+                    && (!ownerVerification.taskId().equals(taskId)
+                        || !ownerVerification.expectedBaseSha().equals(
+                                expectedBaseSha)
+                        || !ownerVerification.proposedHead().equals(
+                                proposedHead))) {
+                throw new IllegalArgumentException(
+                        "initial owner verification is for another subject");
+            }
             requireNonNull(subjectDigest, "subjectDigest is null");
             requireNonNull(createdByRunId, "createdByRunId is null");
             requireNonNull(createdAt, "createdAt is null");
@@ -567,6 +577,7 @@ public final class UserGateRecords
             String branchRef,
             String expectedRemoteHead,
             String proposedHead,
+            boolean forcePush,
             boolean mutationAllowed,
             String planDigest)
     {

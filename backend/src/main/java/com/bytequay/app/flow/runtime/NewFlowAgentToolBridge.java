@@ -22,7 +22,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static java.util.Objects.requireNonNull;
 
@@ -64,7 +66,27 @@ public final class NewFlowAgentToolBridge
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    private record Live(ArrayNode tools, ToolExecutor executor) {}
+    private static final class Live
+    {
+        private final Thread owner;
+        private final ArrayNode tools;
+        private final ToolExecutor executor;
+        private final ConcurrentLinkedQueue<PendingCall> pending =
+                new ConcurrentLinkedQueue<>();
+        private volatile boolean open = true;
+
+        private Live(Thread owner, ArrayNode tools, ToolExecutor executor)
+        {
+            this.owner = owner;
+            this.tools = tools;
+            this.executor = executor;
+        }
+    }
+
+    private record PendingCall(
+            JsonNode id,
+            JsonNode params,
+            CompletableFuture<JsonNode> result) {}
 
     /** A registration that must be closed when the turn ends. */
     public interface Registration
@@ -72,6 +94,9 @@ public final class NewFlowAgentToolBridge
     {
         /** What the subprocess is told to connect to, relative to the server. */
         String path();
+
+        /** Runs queued tool calls on the thread that owns the agent turn. */
+        void executePendingCalls();
 
         @Override
         void close();
@@ -90,7 +115,8 @@ public final class NewFlowAgentToolBridge
         requireText(runId, "runId");
         requireNonNull(tools, "tools is null");
         requireNonNull(executor, "executor is null");
-        Live registered = new Live((ArrayNode) tools.deepCopy(), executor);
+        Live registered = new Live(
+                Thread.currentThread(), (ArrayNode) tools.deepCopy(), executor);
         if (live.putIfAbsent(runId, registered) != null) {
             throw new IllegalStateException(
                     "agent tool bridge is already open for run " + runId);
@@ -104,9 +130,35 @@ public final class NewFlowAgentToolBridge
             }
 
             @Override
+            public void executePendingCalls()
+            {
+                if (Thread.currentThread() != registered.owner) {
+                    throw new IllegalStateException(
+                            "agent tool calls require the turn's owner thread");
+                }
+                PendingCall call;
+                while ((call = registered.pending.poll()) != null) {
+                    try {
+                        call.result().complete(NewFlowAgentToolBridge.this.call(
+                                call.id(), registered, call.params()));
+                    }
+                    catch (RuntimeException | Error failure) {
+                        call.result().completeExceptionally(failure);
+                        throw failure;
+                    }
+                }
+            }
+
+            @Override
             public void close()
             {
+                registered.open = false;
                 live.remove(runId, registered);
+                PendingCall call;
+                while ((call = registered.pending.poll()) != null) {
+                    call.result().complete(error(
+                            call.id(), -32000, "agent turn has stopped"));
+                }
             }
         };
     }
@@ -135,12 +187,28 @@ public final class NewFlowAgentToolBridge
         return Optional.of(switch (method) {
             case "initialize" -> result(id, initialize());
             case "tools/list" -> result(id, mapper.createObjectNode()
-                    .set("tools", registered.tools()));
-            case "tools/call" -> call(id, registered, request.path("params"));
+                    .set("tools", registered.tools));
+            case "tools/call" -> dispatchCall(
+                    id, registered, request.path("params"));
             // Unknown methods get the JSON-RPC code for exactly that, rather
             // than a transport error the agent would read as the tool failing.
             default -> error(id, -32601, "unsupported method " + method);
         });
+    }
+
+    private JsonNode dispatchCall(JsonNode id, Live registered, JsonNode params)
+    {
+        if (Thread.currentThread() == registered.owner) {
+            return call(id, registered, params);
+        }
+        CompletableFuture<JsonNode> result = new CompletableFuture<>();
+        PendingCall pending = new PendingCall(
+                id.deepCopy(), params.deepCopy(), result);
+        registered.pending.add(pending);
+        if (!registered.open && registered.pending.remove(pending)) {
+            result.complete(error(id, -32000, "agent turn has stopped"));
+        }
+        return result.join();
     }
 
     private ObjectNode initialize()
@@ -172,7 +240,7 @@ public final class NewFlowAgentToolBridge
         JsonNode arguments = params.path("arguments");
         ObjectNode input = arguments.isObject()
                 ? (ObjectNode) arguments.deepCopy() : mapper.createObjectNode();
-        ToolExecutor.ToolCallResult outcome = registered.executor().execute(
+        ToolExecutor.ToolCallResult outcome = registered.executor.execute(
                 new ToolCall(name + ":" + id.asText("0"), name,
                         input.toString(), input));
         ObjectNode content = mapper.createObjectNode();
@@ -188,7 +256,7 @@ public final class NewFlowAgentToolBridge
 
     private boolean offers(Live registered, String name)
     {
-        for (JsonNode tool : registered.tools()) {
+        for (JsonNode tool : registered.tools) {
             if (name.equals(tool.path("name").asText())) {
                 return true;
             }

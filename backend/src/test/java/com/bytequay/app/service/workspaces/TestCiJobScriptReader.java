@@ -84,6 +84,55 @@ class TestCiJobScriptReader
     }
 
     @Test
+    void bindsTheCommandToItsWorkflowWorkingDirectory(@TempDir Path root)
+            throws IOException
+    {
+        workflow(root, "ci.yml", """
+                jobs:
+                  checks:
+                    name: Backend checks
+                    steps:
+                      - name: Compile
+                        working-directory: backend
+                        run: mvn -B verify -DskipTests
+                """);
+
+        CiJobScriptReader.BuildInvocation build =
+                CiJobScriptReader.anyBuildInvocation(root).orElseThrow();
+        assertThat(build.command()).isEqualTo("mvn -B verify -DskipTests");
+        assertThat(build.arguments()).containsExactly(
+                "mvn", "-B", "verify", "-DskipTests");
+        assertThat(build.workingDirectory()).isEqualTo("backend");
+        assertThat(build.jobName()).isEqualTo("Backend checks");
+        assertThat(build.sourceRef()).isEqualTo(".github/workflows/ci.yml");
+        assertThat(build.sourceDigest()).startsWith("sha256:");
+    }
+
+    @Test
+    void selectsARealTestCommandInsteadOfASkipTestsBuild(@TempDir Path root)
+            throws IOException
+    {
+        workflow(root, "ci.yml", """
+                jobs:
+                  checks:
+                    steps:
+                      - working-directory: backend
+                        run: mvn -B verify -DskipTests
+                  tests:
+                    steps:
+                      - working-directory: backend
+                        run: mvn -B test -DskipErrorProne
+                """);
+
+        assertThat(CiJobScriptReader.anyBuildInvocation(root))
+                .get().extracting(CiJobScriptReader.BuildInvocation::command)
+                .isEqualTo("mvn -B verify -DskipTests");
+        assertThat(CiJobScriptReader.anyTestInvocation(root))
+                .get().extracting(CiJobScriptReader.BuildInvocation::command)
+                .isEqualTo("mvn -B test -DskipErrorProne");
+    }
+
+    @Test
     void aNamedJobStillWinsWhenTheCallerKnowsWhichOne(@TempDir Path root)
             throws IOException
     {

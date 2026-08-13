@@ -1815,6 +1815,15 @@ public final class CiAutofix
                 retryOrdinal).stream().findFirst();
     }
 
+    Optional<CiRepairAttempt> repairAttemptForOperation(String operationId)
+    {
+        requireText(operationId, "operationId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_repair_attempt WHERE operation_id = ?",
+                (result, row) -> readRepairAttempt(result), operationId)
+                .stream().findFirst();
+    }
+
     CiRepairAttempt bindRepairAttempt(
             CiRound round,
             String operationId,

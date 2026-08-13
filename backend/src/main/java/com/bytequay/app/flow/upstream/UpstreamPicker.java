@@ -102,12 +102,83 @@ public final class UpstreamPicker
     }
 
     /**
-     * Applies one upstream commit and closes the sequencer before returning.
-     *
-     * <p>A conflicted pick commits Git's own three-way resolution here, so a
-     * crash after this call finds an ordinary repository rather than an open
-     * sequencer nobody owns. The marker content that resolution may carry is
-     * transient: {@link #verifyRepair} refuses to let it reach a pull request.
+     * Copies the confirmed commits from a linked upstream clone into the
+     * target clone's own object database, without creating a ref there.
+     */
+    public static List<String> transferObjects(
+            Path sourceRepository,
+            Path targetRepository,
+            List<String> selectedShas)
+    {
+        Path source = realDirectory(sourceRepository, "source repository");
+        Path target = realDirectory(targetRepository, "target repository");
+        List<String> resolved = List.copyOf(requireNonNull(
+                selectedShas, "selectedShas is null")).stream()
+                .map(sha -> resolveCommit(source, sha))
+                .toList();
+        if (resolved.isEmpty()) {
+            throw new IllegalArgumentException("no upstream commit selected");
+        }
+        if (!source.equals(target)) {
+            List<String> arguments = new ArrayList<>(List.of(
+                    "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+                    source.toString()));
+            arguments.addAll(resolved);
+            require(git(target, true, arguments), "git fetch selected objects");
+        }
+        for (String sha : resolved) {
+            if (!hasCommit(target, sha)) {
+                throw new UnresolvedRepairException(
+                        "selected commit was not transferred: " + sha);
+            }
+        }
+        return resolved;
+    }
+
+    public static String resolveCommit(Path repository, String reference)
+    {
+        requireText(reference, "reference");
+        Result result = git(
+                realDirectory(repository, "repository"), false,
+                List.of("rev-parse", "--verify", reference + "^{commit}"));
+        String sha = result.stdout().strip();
+        if (result.exitCode() != 0 || !sha.matches("[0-9a-f]{40,64}")) {
+            throw new UnresolvedRepairException(
+                    "cannot resolve commit: " + reference);
+        }
+        return sha;
+    }
+
+    public static boolean isAncestor(
+            Path repository, String ancestor, String descendant)
+    {
+        Result result = git(
+                realDirectory(repository, "repository"), false,
+                List.of("merge-base", "--is-ancestor", ancestor, descendant));
+        return result.exitCode() == 0;
+    }
+
+    public static boolean hasCommit(Path repository, String sha)
+    {
+        requireText(sha, "sha");
+        return git(realDirectory(repository, "repository"), false,
+                List.of("cat-file", "-e", sha + "^{commit}"))
+                .exitCode() == 0;
+    }
+
+    public void requireObjects(List<String> shas)
+    {
+        for (String sha : List.copyOf(requireNonNull(shas, "shas is null"))) {
+            if (!hasCommit(worktree, sha)) {
+                throw new UnresolvedRepairException(
+                        "selected commit is unavailable: " + sha);
+            }
+        }
+    }
+
+    /**
+     * Applies one upstream commit, stopping with Git's conflict evidence
+     * intact when semantic repair is required.
      */
     public PickResult pick(String upstreamSha)
     {
@@ -143,6 +214,33 @@ public final class UpstreamPicker
             return new PickResult(
                     Outcome.EMPTY, preHead, null, List.of(), false);
         }
+        return new PickResult(
+                Outcome.CONFLICTED, preHead, null, conflicted, false);
+    }
+
+    /**
+     * Verifies the agent's semantic edit, then completes the still-open pick.
+     * No marker-bearing intermediate commit is ever created.
+     */
+    public PickResult continuePick(
+            String preHead,
+            String upstreamSha,
+            List<String> conflictedPaths)
+    {
+        requireText(preHead, "preHead");
+        requireText(upstreamSha, "upstreamSha");
+        List<String> paths = List.copyOf(requireNonNull(
+                conflictedPaths, "conflictedPaths is null"));
+        if (!head().equals(preHead) || !sequencerActive()) {
+            throw new UnresolvedRepairException(
+                    "the conflicted pick is no longer at its recorded head");
+        }
+        for (String path : paths) {
+            if (carriesConflictMarker(path)) {
+                throw new UnresolvedRepairException(
+                        "a conflicted path still carries a conflict marker");
+            }
+        }
         require(git("add", "-A"), "git add");
         if (!unmergedPaths().isEmpty()) {
             throw new UnresolvedRepairException(
@@ -150,15 +248,15 @@ public final class UpstreamPicker
         }
         require(git("-c", "core.editor=true", "cherry-pick", "--continue"),
                 "cherry-pick --continue");
-        String head = head();
-        if (head.equals(preHead)) {
+        String resultHead = head();
+        if (resultHead.equals(preHead)) {
             throw new UnresolvedRepairException(
                     "continuing a conflicted pick recorded no commit");
         }
         dropMergeScratch();
         return new PickResult(
-                Outcome.CONFLICTED, head, head, conflicted,
-                provenanceVerified(head, upstreamSha));
+                Outcome.CONFLICTED, resultHead, resultHead, paths,
+                provenanceVerified(resultHead, upstreamSha));
     }
 
     /**
@@ -212,14 +310,7 @@ public final class UpstreamPicker
         return head();
     }
 
-    /**
-     * Proves a repair before the run advances.
-     *
-     * <p>Both halves matter. A dirty worktree means the repair is not in
-     * history at all; a surviving marker means the agent reported a file
-     * resolved that it never opened, and Git's own resolution is already
-     * committed by the time it runs.
-     */
+    /** Proves a completed pick before deterministic work advances. */
     public void verifyRepair(List<String> conflictedPaths)
     {
         requireNonNull(conflictedPaths, "conflictedPaths is null");
@@ -266,6 +357,22 @@ public final class UpstreamPicker
         Result result = git("log", "-1", "--format=%B", commit);
         require(result, "git log");
         return result.stdout();
+    }
+
+    /** Bounded immutable evidence of the exact upstream change being applied. */
+    public String upstreamDiff(String upstreamSha, int maxChars)
+    {
+        requireText(upstreamSha, "upstreamSha");
+        if (maxChars <= 0) {
+            throw new IllegalArgumentException("maxChars is not positive");
+        }
+        Result result = git(
+                "show", "--format=fuller", "--no-ext-diff", "--find-renames",
+                "--stat", "--patch", upstreamSha);
+        require(result, "git show");
+        return result.stdout().length() <= maxChars
+                ? result.stdout() : result.stdout().substring(0, maxChars)
+                        + "\n[upstream diff truncated]";
     }
 
     /**
@@ -350,7 +457,8 @@ public final class UpstreamPicker
         }
         for (String line : new String(content, StandardCharsets.UTF_8)
                 .split("\\R", -1)) {
-            if (line.startsWith("<<<<<<< ") || line.startsWith(">>>>>>> ")
+            if (line.startsWith("<<<<<<< ") || line.equals("=======")
+                    || line.startsWith(">>>>>>> ")
                     || line.startsWith("||||||| ")) {
                 return true;
             }
@@ -380,6 +488,12 @@ public final class UpstreamPicker
 
     private Result git(String... arguments)
     {
+        return git(worktree, false, Arrays.asList(arguments));
+    }
+
+    private static Result git(
+            Path repository, boolean allowLocalFetch, List<String> arguments)
+    {
         List<String> command = new ArrayList<>(List.of(
                 GIT.toString(),
                 "-c", "core.hooksPath=/dev/null",
@@ -389,10 +503,12 @@ public final class UpstreamPicker
                 "-c", "core.fsmonitor=false",
                 "-c", "gc.auto=0",
                 "-c", "maintenance.auto=false",
-                "-c", "protocol.allow=never"));
-        command.addAll(Arrays.asList(arguments));
+                "-c", allowLocalFetch
+                        ? "protocol.file.allow=always"
+                        : "protocol.allow=never"));
+        command.addAll(arguments);
         ProcessBuilder builder = new ProcessBuilder(command)
-                .directory(worktree.toFile());
+                .directory(repository.toFile());
         builder.environment().clear();
         builder.environment().put("PATH", "/usr/bin:/bin");
         builder.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
@@ -434,15 +550,31 @@ public final class UpstreamPicker
                 new String(stdout.get(), StandardCharsets.UTF_8));
     }
 
+    private static Path realDirectory(Path directory, String name)
+    {
+        requireNonNull(directory, name + " is null");
+        try {
+            Path real = directory.toRealPath();
+            if (!Files.isDirectory(real, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalArgumentException(name + " is not a directory");
+            }
+            return real;
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(name + " is unavailable", failure);
+        }
+    }
+
     private static byte[] drain(InputStream input)
     {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         try (input) {
-            int read;
-            while ((read = input.read(chunk)) >= 0
-                    && buffer.size() <= OUTPUT_LIMIT) {
-                buffer.write(chunk, 0, read);
+            for (int read; (read = input.read(chunk)) >= 0; ) {
+                int remaining = OUTPUT_LIMIT - buffer.size();
+                if (remaining > 0) {
+                    buffer.write(chunk, 0, Math.min(read, remaining));
+                }
             }
         }
         catch (IOException ignored) {

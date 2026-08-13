@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -146,7 +147,26 @@ final class NewFlowCliTurn
             BooleanSupplier interrupted)
     {
         requireNonNull(worktree, "worktree is null");
-        Path scratch = worktree.resolve(".git").resolve("bytequay-cli");
+        Path scratch;
+        try {
+            // A linked worktree has a .git file, not a directory. Ask Git for
+            // the worktree's actual private git directory instead of guessing
+            // from checkout layout.
+            scratch = CliWriterContainment.gitDirectory(worktree)
+                    .resolve("bytequay-cli")
+                    .resolve(runId);
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(
+                    "could not resolve the agent worktree git directory",
+                    failure);
+        }
+        catch (InterruptedException interruption) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "interrupted while resolving the worktree git directory",
+                    interruption);
+        }
         return run(
                 runId, binding, tools, systemPrompt, executor, worktree,
                 scratch, false, journal, interrupted);
@@ -232,7 +252,8 @@ final class NewFlowCliTurn
                 return execute(
                         runId, binding, systemPrompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl, scrubbed,
-                        true, journal, interrupted);
+                        true, allowedTools(tools), registration, journal,
+                        interrupted);
             }
             CliWriterContainment.Applied contained;
             try {
@@ -255,7 +276,8 @@ final class NewFlowCliTurn
                 return execute(
                         runId, binding, systemPrompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl,
-                        contained.environment(), false, journal, interrupted);
+                        contained.environment(), false, allowedTools(tools),
+                        registration, journal, interrupted);
             }
             finally {
                 // Lifted even when the turn threw: a crashed turn otherwise
@@ -315,6 +337,8 @@ final class NewFlowCliTurn
             String mcpUrl,
             Map<String, String> scrubbed,
             boolean readOnly,
+            List<String> allowedTools,
+            NewFlowAgentToolBridge.Registration registration,
             TurnJournal journal,
             BooleanSupplier interrupted)
     {
@@ -335,8 +359,9 @@ final class NewFlowCliTurn
                 // memory, because the case that matters is a restart — an id
                 // that only exists in this JVM resumes nothing.
                 runtime.resumableProviderSession(runId).orElse(null),
+                allowedTools,
                 List.of(),
-                List.of()));
+                true));
         Map<String, String> environment = new HashMap<>(scrubbed);
         // The bridge resolves run, capability, role and fence from the run id in
         // the URL. Nothing about the fence is put in the environment, where the
@@ -380,7 +405,8 @@ final class NewFlowCliTurn
             // stop.
             reader = Thread.ofVirtual().start(
                     () -> transcript.read(spawned.process().getInputStream()));
-            stopped = !awaitExit(spawned.process(), interrupted);
+            stopped = !awaitExit(
+                    spawned.process(), registration, interrupted);
             if (!stopped) {
                 exit = spawned.process().exitValue();
             }
@@ -404,20 +430,42 @@ final class NewFlowCliTurn
     }
 
     /** Waits for the direct child, giving up when the turn is cancelled. */
-    private boolean awaitExit(Process process, BooleanSupplier interrupted)
+    private boolean awaitExit(
+            Process process,
+            NewFlowAgentToolBridge.Registration registration,
+            BooleanSupplier interrupted)
     {
         try {
-            while (!process.waitFor(200, TimeUnit.MILLISECONDS)) {
+            while (!process.waitFor(20, TimeUnit.MILLISECONDS)) {
+                // HTTP arrives on a servlet thread, but every capability is
+                // fenced to this exact owner thread. Pumping here preserves
+                // that proof while the subprocess waits for its MCP response.
+                registration.executePendingCalls();
                 if (interrupted != null && interrupted.getAsBoolean()) {
                     return false;
                 }
             }
+            registration.executePendingCalls();
             return true;
         }
         catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    private static List<String> allowedTools(ArrayNode tools)
+    {
+        List<String> allowed = new ArrayList<>();
+        for (var tool : tools) {
+            String name = tool.path("name").asText("");
+            if (name.isBlank()) {
+                throw new IllegalArgumentException(
+                        "CLI tool manifest contains an unnamed tool");
+            }
+            allowed.add("mcp__bytequay__" + name);
+        }
+        return List.copyOf(allowed);
     }
 
     private static void join(Thread reader)

@@ -14,6 +14,7 @@
 package com.bytequay.app.flow.ci;
 
 import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryOutcome;
+import com.bytequay.app.flow.ci.AttributedFixupRebase.SeriesCommit;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLesson;
@@ -143,6 +144,8 @@ public final class CiRepairCoordinator
         private final List<String> failures;
         private final List<String> logRefs;
         private final List<CiLesson> lessons;
+        private final RepairPlacementPolicy placement;
+        private final List<SeriesCommit> eligibleTargets;
 
         private RepairToolContext(
                 RepairBinding binding,
@@ -151,7 +154,9 @@ public final class CiRepairCoordinator
                 String policyRevisionId,
                 List<String> failures,
                 List<String> logRefs,
-                List<CiLesson> lessons)
+                List<CiLesson> lessons,
+                RepairPlacementPolicy placement,
+                List<SeriesCommit> eligibleTargets)
         {
             this.binding = binding;
             this.repositoryId = repositoryId;
@@ -160,6 +165,8 @@ public final class CiRepairCoordinator
             this.failures = List.copyOf(failures);
             this.logRefs = List.copyOf(logRefs);
             this.lessons = List.copyOf(lessons);
+            this.placement = placement;
+            this.eligibleTargets = List.copyOf(eligibleTargets);
         }
 
         public String failureSummary()
@@ -171,6 +178,12 @@ public final class CiRepairCoordinator
                     + "\nfailedRemoteHead="
                     + binding.attempt().inputRemoteHead()
                     + "\nrequiredCiPolicyRevision=" + policyRevisionId
+                    + "\neligibleFixupTargets=" + (eligibleTargets.isEmpty()
+                            ? "none; use a plain tip repair"
+                            : eligibleTargets.stream()
+                                    .map(target -> target.sha() + " "
+                                            + target.subject())
+                                    .collect(Collectors.joining("\n")))
                     + "\nfailures=" + (failures.isEmpty()
                             ? "No failing check summary was stored."
                             : String.join("\n", failures));
@@ -216,6 +229,25 @@ public final class CiRepairCoordinator
                     + "\ndigest=" + lesson.contentDigest()
                     + "\n" + lesson.markdown();
         }
+
+        /** Program-created commit message for one exact eligible target. */
+        public String repairCommitMessage(String targetCommit)
+        {
+            assertRepairToolContext(this);
+            if (targetCommit == null) {
+                return "Apply CI repair";
+            }
+            if (placement.placement() != RepairPlacement.ATTRIBUTED_FIXUP) {
+                throw new IllegalArgumentException(
+                        "ordinary CI repairs cannot select a fixup target");
+            }
+            SeriesCommit target = eligibleTargets.stream()
+                    .filter(candidate -> candidate.sha().equals(targetCommit))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "fixup target is not eligible for this exact head"));
+            return "fixup! " + target.subject();
+        }
     }
 
     public RepairToolContext repairToolContext(RepairBinding binding)
@@ -224,6 +256,15 @@ public final class CiRepairCoordinator
         CiRound round = autofix.roundById(binding.attempt().roundId())
                 .orElseThrow();
         Task task = runtime.task(round.taskId()).orElseThrow();
+        RepairPlacementPolicy placement = autofix.placementPolicy(task.taskId());
+        List<SeriesCommit> eligibleTargets = placement.placement()
+                == RepairPlacement.ATTRIBUTED_FIXUP
+                ? rebase.eligibleTargets(
+                        Path.of(task.worktreePath()),
+                        task.currentBaseSha(),
+                        binding.attempt().inputLocalHead(),
+                        REWRITE_TIMEOUT)
+                : List.of();
         // A series that does not compile makes every test result behind it
         // meaningless, so the compile failures are named first and, when the
         // board is still collecting, the rest is handed over marked unjudged.
@@ -252,7 +293,8 @@ public final class CiRepairCoordinator
         RepairToolContext context = new RepairToolContext(
                 binding, task.repositoryId(), task.goalText(),
                 round.policyRevisionId(), failures,
-                round.failedLogRefs(), candidateLessons(task.repositoryId()));
+                round.failedLogRefs(), candidateLessons(task.repositoryId()),
+                placement, eligibleTargets);
         assertRepairToolContext(context);
         return context;
     }
@@ -271,6 +313,9 @@ public final class CiRepairCoordinator
                 || !task.goalText().equals(context.goalText)
                 || !round.policyRevisionId().equals(
                         context.policyRevisionId)
+                || !samePlacement(
+                        autofix.placementPolicy(task.taskId()),
+                        context.placement)
                 || !candidateLessons(context.repositoryId).equals(
                         context.lessons)
                 || context.lessons.stream().anyMatch(value ->
@@ -284,6 +329,22 @@ public final class CiRepairCoordinator
     private List<CiLesson> candidateLessons(String repositoryId)
     {
         return learning.candidateLessons(repositoryId);
+    }
+
+    private static boolean samePlacement(
+            RepairPlacementPolicy left, RepairPlacementPolicy right)
+    {
+        return left.taskId().equals(right.taskId())
+                && left.placement() == right.placement()
+                && left.perCommitCompileSelectors().equals(
+                        right.perCommitCompileSelectors())
+                && Objects.equals(
+                        left.compileSourceRef(), right.compileSourceRef())
+                && Objects.equals(
+                        left.compileSourceDigest(), right.compileSourceDigest())
+                && left.allowsHistoryRewrite() == right.allowsHistoryRewrite()
+                && left.boundaryBuildCommand().equals(
+                        right.boundaryBuildCommand());
     }
 
     public QueuedRepair enqueueRepair(String roundId)
@@ -562,8 +623,11 @@ public final class CiRepairCoordinator
                 recovery.completion().terminalOutcome(),
                 recovery.completion().finalContent(),
                 recovery.completion().errorRef());
+        CiRepairAttempt attempt = autofix.repairAttemptForOperation(operationId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "stopped repair operation has no exact attempt"));
         return finalizeRepairAttempt(
-                operation.ownerId(), recovery.run().runId(),
+                attempt.attemptId(), recovery.run().runId(),
                 recovery.claim(), recovery.fence(), completion,
                 Path.of(task.repositoryRoot()));
     }
@@ -662,56 +726,71 @@ public final class CiRepairCoordinator
         AttributedSeriesResult series = attributeAndProve(
                 attempt, claim, fence, programOwnedRepositoryRoot, prepared);
         FlowRuntime.PreparedChangeSet adopted = series.prepared();
-        return requireNonNull(transactions.execute(ignored -> {
-            CiRepairAttempt current = autofix.repairAttempt(attemptId)
-                    .orElseThrow();
-            assertAttemptIdentity(current, runId, claim, fence);
-            requireActiveAttemptSubject(current, runId, claim, fence, true);
-            ChangeSetRevision output = runtime.adoptPreparedChangeSet(
-                    claim, fence, adopted);
-            if (series.boundaries() != null) {
-                autofix.storeBoundaryCompileProof(
-                        autofix.roundById(current.roundId())
-                                .orElseThrow().taskId(),
+        try {
+            return requireNonNull(transactions.execute(ignored -> {
+                CiRepairAttempt current = autofix.repairAttempt(attemptId)
+                        .orElseThrow();
+                assertAttemptIdentity(current, runId, claim, fence);
+                requireActiveAttemptSubject(current, runId, claim, fence, true);
+                ChangeSetRevision output = runtime.adoptPreparedChangeSet(
+                        claim, fence, adopted);
+                if (series.boundaries() != null) {
+                    autofix.storeBoundaryCompileProof(
+                            autofix.roundById(current.roundId())
+                                    .orElseThrow().taskId(),
+                            attemptId,
+                            output.headSha(),
+                            series.profileRevisionId(),
+                            series.boundaries());
+                }
+                CiFixOutcome outcome = output.headSha().equals(
+                        current.inputLocalHead())
+                        ? CiFixOutcome.NO_HEAD_CHANGE
+                        : CiFixOutcome.FIX_PREPARED;
+                requireActiveAttemptSubject(current, runId, claim, fence, false);
+                AgentResult result = runtime.finishCiAgentRun(
+                        runId,
+                        claim,
+                        fence,
+                        completion.terminalOutcome(),
+                        completion.finalContent(),
+                        completion.errorRef(),
+                        attemptId,
+                        outcome,
+                        output.headSha(),
+                        output.changeSetRevisionId());
+                autofix.completeRepairAttempt(
                         attemptId,
                         output.headSha(),
-                        series.profileRevisionId(),
-                        series.boundaries());
+                        output.changeSetRevisionId(),
+                        result.resultId(),
+                        toAttemptState(outcome));
+                return result;
+            }), "repair finalization transaction returned null");
+        }
+        catch (RuntimeException failure) {
+            // Git is outside the owner transaction. Rollback must restore its
+            // exact pre-rewrite head so the durable STOPPED finalizer can retry
+            // placement and proof without a split-brain Task.
+            if (series.rewrittenHead() != null) {
+                rebase.restoreExact(
+                        Path.of(runtime.task(
+                                autofix.roundById(attempt.roundId())
+                                        .orElseThrow().taskId())
+                                .orElseThrow().worktreePath()),
+                        series.rewrittenHead(),
+                        prepared.headSha());
             }
-            CiFixOutcome outcome = output.headSha().equals(
-                    current.inputLocalHead())
-                    ? CiFixOutcome.NO_HEAD_CHANGE
-                    : CiFixOutcome.FIX_PREPARED;
-            requireActiveAttemptSubject(current, runId, claim, fence, false);
-            AgentResult result = runtime.finishCiAgentRun(
-                    runId,
-                    claim,
-                    fence,
-                    completion.terminalOutcome(),
-                    completion.finalContent(),
-                    completion.errorRef(),
-                    attemptId,
-                    outcome,
-                    output.headSha(),
-                    output.changeSetRevisionId());
-            autofix.completeRepairAttempt(
-                    attemptId,
-                    output.headSha(),
-                    output.changeSetRevisionId(),
-                    result.resultId(),
-                    toAttemptState(outcome));
-            return result;
-        }), "repair finalization transaction returned null");
+            throw failure;
+        }
     }
 
     /**
      * Repositions this Task's series and proves it, when its placement says so.
      *
-     * <p>Returns the adoption to use. A Task that does not rewrite, a rewrite
-     * that cannot be generated, and a proof that is incomplete or red all fall
-     * back to the fixer's own head with no proof stored, which leaves the
-     * repair visible and blocks publication rather than pushing a series this
-     * program could not prove.
+     * <p>A failed proof restores the fixer's exact head and leaves the durable
+     * stopped finalizer unsettled. Its normal recovery route can therefore
+     * re-run program-owned placement and proof without rerunning the model.
      */
     private AttributedSeriesResult attributeAndProve(
             CiRepairAttempt attempt,
@@ -725,14 +804,14 @@ public final class CiRepairCoordinator
                 round.taskId());
         if (placement.placement() != RepairPlacement.ATTRIBUTED_FIXUP
                 || placement.boundaryBuildCommand().isEmpty()) {
-            return new AttributedSeriesResult(prepared, null, null);
+            return new AttributedSeriesResult(prepared, null, null, null);
         }
         Task task = runtime.task(round.taskId()).orElseThrow();
         Path worktree = Path.of(task.worktreePath());
         String baseSha = task.currentBaseSha();
         String head = prepared.headSha();
         List<BoundaryOutcome> boundaries;
-        String rewritten;
+        String rewritten = head;
         try {
             rewritten = rebase.reposition(
                     worktree, baseSha, head, REWRITE_TIMEOUT).outputHead();
@@ -744,30 +823,49 @@ public final class CiRepairCoordinator
                     BOUNDARY_PROOF_TIMEOUT);
         }
         catch (AttributedFixupRebase.RebaseFailure failure) {
-            return new AttributedSeriesResult(prepared, null, null);
+            // reposition restores its own input; boundary proof restores the
+            // rewritten input, so close the second leg back to the fixer head.
+            if (!rewritten.equals(head)) {
+                rebase.restoreExact(worktree, rewritten, head);
+            }
+            throw failure;
         }
         if (boundaries.isEmpty()
                 || !boundaries.stream().allMatch(BoundaryOutcome::passed)) {
-            return new AttributedSeriesResult(prepared, null, null);
+            rebase.restoreExact(worktree, rewritten, head);
+            throw new AttributedFixupRebase.RebaseFailure(
+                    AttributedFixupRebase.FailureCode.PROOF_FAILED,
+                    "an attributed repair boundary did not compile");
         }
-        FlowRuntime.PreparedChangeSet adoption = rewritten.equals(head)
-                ? prepared
-                : runtime.prepareRewrittenChangeSet(
-                        claim,
-                        fence,
-                        programOwnedRepositoryRoot,
-                        attempt.inputChangeSetRevisionId(),
-                        rewritten);
+        FlowRuntime.PreparedChangeSet adoption;
+        try {
+            adoption = rewritten.equals(head)
+                    ? prepared
+                    : runtime.prepareRewrittenChangeSet(
+                            claim,
+                            fence,
+                            programOwnedRepositoryRoot,
+                            attempt.inputChangeSetRevisionId(),
+                            rewritten);
+        }
+        catch (RuntimeException failure) {
+            if (!rewritten.equals(head)) {
+                rebase.restoreExact(worktree, rewritten, head);
+            }
+            throw failure;
+        }
         return new AttributedSeriesResult(
                 adoption,
                 boundaries,
-                "boundary-build:" + placement.boundaryBuildCommand().hashCode());
+                "boundary-build:" + placement.boundaryBuildCommand().hashCode(),
+                rewritten.equals(head) ? null : rewritten);
     }
 
     private record AttributedSeriesResult(
             FlowRuntime.PreparedChangeSet prepared,
             List<BoundaryOutcome> boundaries,
-            String profileRevisionId) {}
+            String profileRevisionId,
+            String rewrittenHead) {}
 
     private AgentResult handoffDirtyRepair(
             CiRepairAttempt attempt,

@@ -36,6 +36,7 @@ import com.bytequay.app.flow.runtime.NewFlowConfiguration;
 import com.bytequay.app.flow.runtime.NewFlowEngineResolver;
 import com.bytequay.app.flow.runtime.UpstreamSyncCommands;
 import com.bytequay.app.flow.runtime.UpstreamSyncConfiguration;
+import com.bytequay.app.flow.runtime.UpstreamSyncPolicyPublisher;
 import com.bytequay.app.flow.timeline.TaskViews;
 import com.bytequay.app.flow.upstream.RunLinePublisher;
 import com.bytequay.app.flow.upstream.UpstreamSync;
@@ -73,7 +74,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -103,6 +104,7 @@ import static org.mockito.Mockito.when;
  * {@code INITIAL_PUBLISH} effect, and the receipt it produces installs the CI
  * observation watch by itself.
  */
+@SuppressWarnings("StringConcatToTextBlock")
 final class TestUpstreamSyncEndToEnd
 {
     private static final Duration TTL = Duration.ofMinutes(30);
@@ -111,18 +113,23 @@ final class TestUpstreamSyncEndToEnd
     private Path temporaryDirectory;
 
     private String cleanCommit;
+    private String secondConflictingCommit;
     private String conflictingCommit;
     private String alreadyPresentCommit;
+    private List<String> confirmedRange;
 
     @Test
     void aPickedRangePublishesThroughTheGateAndCiAutofixAdoptsThePr()
             throws Exception
     {
-        Path repository = temporaryDirectory.resolve("repository");
+        Path upstreamRepository = temporaryDirectory.resolve("upstream");
+        Path repository = temporaryDirectory.resolve("target");
         Path worktrees = temporaryDirectory.resolve("worktrees");
         Path database = temporaryDirectory.resolve("new-flow.db");
         Path primaryDatabase = temporaryDirectory.resolve("primary.db");
-        initializeRepository(repository);
+        initializeRepositories(upstreamRepository, repository);
+        assertThat(confirmedRange).allSatisfy(sha ->
+                assertThat(hasCommit(repository, sha)).isFalse());
 
         DataSource primary = new DriverManagerDataSource(
                 "jdbc:sqlite:" + primaryDatabase);
@@ -137,6 +144,8 @@ final class TestUpstreamSyncEndToEnd
                         repository.toString(), null, null)));
         TurnRunner runner = mock(TurnRunner.class);
         NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
+        UpstreamSyncPolicyPublisher policies = mock(
+                UpstreamSyncPolicyPublisher.class);
         when(engines.resolve(any(FlowRuntimeRecords.AgentRun.class)))
                 .thenReturn(NewFlowAgentLaunches.Config.api(
                         "openai", TurnSpec.Transport.OPENAI_COMPAT,
@@ -146,10 +155,18 @@ final class TestUpstreamSyncEndToEnd
         CountDownLatch reviewerEntered = new CountDownLatch(1);
         CountDownLatch policyReady = new CountDownLatch(1);
         AtomicInteger turns = new AtomicInteger();
-        when(runner.runTurn(any(), any(), any())).thenAnswer(invocation ->
-                runModelTurn(
+        AtomicReference<Throwable> modelFailure = new AtomicReference<>();
+        when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
+            try {
+                return runModelTurn(
                         turns.incrementAndGet(), invocation.getArgument(1),
-                        reviewerEntered, policyReady));
+                        reviewerEntered, policyReady);
+            }
+            catch (Throwable failure) {
+                modelFailure.set(failure);
+                throw failure;
+            }
+        });
 
         // What a watcher would see while the repair turn is still going.
         List<String> liveLines = new CopyOnWriteArrayList<>();
@@ -167,6 +184,11 @@ final class TestUpstreamSyncEndToEnd
                         () -> primary,
                         definition -> definition.setPrimary(true))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(
+                        "testUpstreamSyncPolicyPublisher",
+                        UpstreamSyncPolicyPublisher.class,
+                        () -> policies,
+                        definition -> definition.setPrimary(true))
                 .withBean(WatchedRepoStore.class, () -> watched)
                 .withBean(CredentialStore.class, TestUpstreamSyncEndToEnd::credentials)
                 .withBean(TurnRunner.class, () -> runner)
@@ -210,7 +232,10 @@ final class TestUpstreamSyncEndToEnd
                             "upstream-local-policy:v1",
                             "upstream-local-policy-digest:v1",
                             List.of(new ProfileDefinition(
-                                    "compile", List.of("/usr/bin/true"), ".",
+                                    "compile", List.of(
+                                            "/bin/sh", "-c",
+                                            "test -f local-check-ready || "
+                                                    + "{ echo missing local-check-ready; exit 1; }"), ".",
                                     List.of(), Duration.ofSeconds(5),
                                     List.of(
                                             GateIntent.INITIAL_PUBLISH,
@@ -225,12 +250,13 @@ final class TestUpstreamSyncEndToEnd
                                     "upstream-request", "octocat/bytequay",
                                     "Bring the selected upstream commits onto "
                                             + "this fork",
-                                    "upstream", "base", "upstream", "main",
-                                    selection(
-                                            cleanCommit, conflictingCommit,
-                                            alreadyPresentCommit),
-                                    "user-1");
+                                    "octocat/upstream", "source-start",
+                                    "upstream", "main",
+                                    selection(confirmedRange),
+                                    "user-1", upstreamRepository, repository);
                     Task task = started.task();
+                    assertThat(confirmedRange).allSatisfy(sha ->
+                            assertThat(hasCommit(repository, sha)).isTrue());
                     // Enqueue is idempotent on the request key: a repeated
                     // confirmation adopts the stored run, never a second range
                     // over the same Task.
@@ -238,11 +264,9 @@ final class TestUpstreamSyncEndToEnd
                             "upstream-request", "octocat/bytequay",
                             "Bring the selected upstream commits onto this "
                                     + "fork",
-                            "upstream", "base", "upstream", "main",
-                            selection(
-                                    cleanCommit, conflictingCommit,
-                                    alreadyPresentCommit),
-                            "user-1").run().runId())
+                            "octocat/upstream", "source-start", "upstream",
+                            "main", selection(confirmedRange), "user-1",
+                            upstreamRepository, repository).run().runId())
                             .isEqualTo(started.run().runId());
                     assertThat(upstreamSync.repairPlacement(task.taskId()))
                             .isEqualTo(RepairPlacementPolicy.ATTRIBUTED_FIXUP);
@@ -261,7 +285,9 @@ final class TestUpstreamSyncEndToEnd
                                 + " agentErrors=" + jdbc.queryForList(
                                         "SELECT error_ref FROM "
                                                 + "flow_runtime_agent_result",
-                                        String.class),
+                                        String.class)
+                                + " turns=" + turns
+                                + " modelFailure=" + modelFailure.get(),
                                 stalled);
                     }
                     Task withPr = awaitValue(() -> runtime.task(task.taskId())
@@ -279,12 +305,41 @@ final class TestUpstreamSyncEndToEnd
                     policyReady.countDown();
 
                     UserGates gates = context.getBean(UserGates.class);
-                    UserGate initialGate = awaitValue(() ->
-                            gates.initialGate(localPr.prId()));
+                    UserGate initialGate;
+                    try {
+                        initialGate = awaitValue(() ->
+                                gates.initialGate(localPr.prId()));
+                    }
+                    catch (AssertionError stalled) {
+                        throw new AssertionError(
+                                "run=" + upstreamSync.run(
+                                        started.run().runId())
+                                + " agentResults=" + jdbc.queryForList(
+                                        "SELECT terminal_outcome, error_ref "
+                                                + "FROM flow_runtime_agent_result")
+                                + " turns=" + turns
+                                + " modelFailure=" + modelFailure.get(),
+                                stalled);
+                    }
 
                     assertPickedSeries(upstreamSync, started.run().runId());
+                    assertThat(history(Path.of(task.worktreePath())))
+                            .doesNotContain("<<<<<<<", "=======", ">>>>>>>");
 
                     DisplayedGate display = displayed(jdbc, initialGate);
+                    String verificationRef = upstreamSync.run(
+                            started.run().runId()).orElseThrow()
+                            .verificationRef();
+                    assertThat(jdbc.queryForMap(
+                            "SELECT owner_verification_run_id, "
+                                    + "owner_verification_ref FROM "
+                                    + "flow_user_gate_initial_publish_subject "
+                                    + "WHERE subject_digest = ?",
+                            display.subjectDigest()))
+                            .containsEntry("owner_verification_run_id",
+                                    started.run().runId())
+                            .containsEntry("owner_verification_ref",
+                                    verificationRef);
                     var authorization = gates.authorizeInitialPublish(
                             initialGate.gateId(), display.revision(),
                             display.subjectDigest(), display.actionDigest(),
@@ -358,10 +413,15 @@ final class TestUpstreamSyncEndToEnd
                     assertThat(upstreamSync.run(started.run().runId())
                             .orElseThrow().state())
                             .isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
-                    // Two model turns for a three-commit range: one conflict
-                    // repair and one adversarial review. Clean picks are
-                    // program work and cost none.
-                    assertThat(turns).hasValue(2);
+                    assertThat(upstreamSync.run(started.run().runId())
+                            .orElseThrow().remainingRepairTurns())
+                            .isEqualTo(
+                                    UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET
+                                            - 2);
+                    // The Task Agent constructs and checks the range, the
+                    // reviewer inspects it, then the same persistent Task
+                    // Agent session accepts that exact result.
+                    assertThat(turns).hasValue(3);
 
                     // An ordinary Task never appears in these records, so it
                     // resolves to the default placement without this
@@ -431,23 +491,23 @@ final class TestUpstreamSyncEndToEnd
                 views.detail(runId).orElseThrow();
         assertThat(detail.job().runNumber()).isEqualTo(1);
         assertThat(detail.job().status()).isEqualTo("COMPLETED");
-        assertThat(detail.job().requestedCount()).isEqualTo(3);
-        // Two commits landed, one was already carried by the fork, and the
+        assertThat(detail.job().requestedCount())
+                .isEqualTo(confirmedRange.size());
+        // Every commit but the already-carried last one landed; the
         // conflicted one is counted as carried rather than clean.
-        assertThat(detail.job().appliedCount()).isEqualTo(2);
+        assertThat(detail.job().appliedCount())
+                .isEqualTo(confirmedRange.size() - 1);
         assertThat(detail.job().skippedCount()).isEqualTo(1);
-        assertThat(detail.job().conflictedCount()).isEqualTo(1);
+        assertThat(detail.job().conflictedCount()).isEqualTo(2);
         assertThat(detail.job().prNumber()).isNotNull();
-        assertThat(detail.commits()).extracting(
-                UpstreamSyncViews.SyncCommit::state)
-                .containsExactly("applied", "conflicted", "skipped");
-        // Attribution: the one fixup names the pick it repaired, and says it
-        // was made while picking rather than by a CI round.
-        assertThat(detail.fixups()).singleElement().satisfies(fixup -> {
-            assertThat(fixup.pickIndex()).isEqualTo(1);
-            assertThat(fixup.upstreamSha()).isEqualTo(conflictingCommit);
-            assertThat(fixup.origin()).isEqualTo("CONFLICT_REPAIR");
-        });
+        assertThat(detail.commits().getFirst().state()).isEqualTo("applied");
+        assertThat(detail.commits().get(detail.commits().size() - 3).state())
+                .isEqualTo("conflicted");
+        assertThat(detail.commits().get(detail.commits().size() - 2).state())
+                .isEqualTo("conflicted");
+        assertThat(detail.commits().getLast().state()).isEqualTo("skipped");
+        // Resolving the pick itself is not a post-pick fork adaptation.
+        assertThat(detail.fixups()).isEmpty();
         // The CI round the pull request opened after publication, counted for
         // the list's ROUNDS column and named in the run's own rail.
         assertThat(detail.job().roundCount()).isEqualTo(1);
@@ -463,25 +523,36 @@ final class TestUpstreamSyncEndToEnd
     private void assertPickedSeries(UpstreamSync upstreamSync, String runId)
     {
         List<UpstreamPick> picks = upstreamSync.picks(runId);
-        assertThat(picks).hasSize(3);
+        assertThat(picks).hasSize(confirmedRange.size());
         assertThat(picks).extracting(UpstreamPick::upstreamSha)
-                .containsExactly(
-                        cleanCommit, conflictingCommit, alreadyPresentCommit);
-        assertThat(picks).extracting(UpstreamPick::state)
-                .containsExactly(
-                        PickState.CLEAN, PickState.RESOLVED,
-                        PickState.SKIPPED_EMPTY);
+                .containsExactlyElementsOf(confirmedRange);
+        assertThat(picks.subList(0, picks.size() - 3))
+                .allSatisfy(pick ->
+                        assertThat(pick.state()).isEqualTo(PickState.CLEAN));
+        assertThat(picks.get(picks.size() - 3).state())
+                .isEqualTo(PickState.RESOLVED);
+        assertThat(picks.get(picks.size() - 2).state())
+                .isEqualTo(PickState.RESOLVED);
+        assertThat(picks.getLast().state())
+                .isEqualTo(PickState.SKIPPED_EMPTY);
         // A change-set revision per pick that landed a commit; the fork
-        // already carried the third, so it has neither commit nor revision.
+        // already carried the last, so it has neither commit nor revision.
         assertThat(picks.get(0).changeSetRevisionId()).isNotNull();
-        assertThat(picks.get(1).changeSetRevisionId()).isNotNull();
-        assertThat(picks.get(2).changeSetRevisionId()).isNull();
+        assertThat(picks.get(picks.size() - 2).changeSetRevisionId())
+                .isNotNull();
+        assertThat(picks.getLast().changeSetRevisionId()).isNull();
         assertThat(picks.get(0).provenanceVerified()).isTrue();
-        assertThat(picks.get(1).provenanceVerified()).isTrue();
+        assertThat(picks.get(picks.size() - 2).provenanceVerified()).isTrue();
+        UpstreamPick first = picks.getFirst();
+        assertThat(upstreamSync.recordPick(
+                runId, first.ordinal(), first.upstreamSha(), first.preHead(),
+                first.resultHead(), first.resultCommitSha(), first.state(),
+                first.conflictedPaths(), first.provenanceVerified(),
+                first.changeSetRevisionId())).isEqualTo(first);
+        assertThat(upstreamSync.run(runId).orElseThrow().state())
+                .isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
 
-        assertThat(upstreamSync.fixups(runId)).singleElement().satisfies(
-                fixup -> assertThat(fixup.ownerUpstreamSha())
-                        .isEqualTo(conflictingCommit));
+        assertThat(upstreamSync.fixups(runId)).isEmpty();
         assertThat(upstreamSync.run(runId).orElseThrow().verificationRef())
                 .isNotNull();
     }
@@ -495,24 +566,50 @@ final class TestUpstreamSyncEndToEnd
     {
         switch (turn) {
             case 1 -> {
-                // The one semantic part of the range: Git's own three-way
-                // resolution is already committed, markers and all.
-                String context = call(
-                        tools, "read_pick_conflict_context", "{}");
-                assertThat(context).contains("conflictedPaths=contested.txt");
-                assertThat(call(tools, "read_file",
-                        "{\"path\":\"contested.txt\"}"))
-                        .contains("<<<<<<<");
+                for (String path : List.of(
+                        "contested-two.txt", "contested.txt")) {
+                    String context = call(
+                            tools, "read_pick_conflict_context", "{}");
+                    assertThat(context)
+                            .contains("taskGoal=Bring the selected upstream")
+                            .contains("preHead=")
+                            .contains("sequencerActive=true")
+                            .contains("upstreamDiff:")
+                            .contains("conflictedPaths=" + path);
+                    assertThat(call(tools, "read_file",
+                            "{\"path\":\"" + path + "\"}"))
+                            .contains("<<<<<<<");
+                    call(tools, "write_file",
+                            "{\"path\":\"" + path + "\","
+                                    + "\"content\":\"merged rewrite\\n\"}");
+                    call(tools, "commit_pick_repair", "{}");
+                }
+                assertThat(call(tools, "read_upstream_review_context", "{}"))
+                        .contains("selectedUpstreamShas=");
+                call(tools, "read_candidate_diff", "{}");
+                assertThat(call(tools, "run_checks", "{}"))
+                        .contains(":FAILED",
+                                "missing local-check-ready");
                 call(tools, "write_file",
-                        "{\"path\":\"contested.txt\","
-                                + "\"content\":\"merged rewrite\\n\"}");
-                call(tools, "commit_pick_repair", "{}");
-                return result(TurnResult.End.INTERRUPTED);
+                        "{\"path\":\"local-check-ready\","
+                                + "\"content\":\"ready\\n\"}");
+                call(tools, "commit_initial_change", "{}");
+                call(tools, "request_initial_review",
+                        "{\"title\":\"Bring upstream range\","
+                                + "\"body\":\"Confirmed upstream range\"}");
+                return result(TurnResult.End.COMPLETED);
             }
             case 2 -> {
                 call(tools, "read_diff", "{}");
                 reviewerEntered.countDown();
                 await(policyReady);
+                return result(TurnResult.End.COMPLETED);
+            }
+            case 3 -> {
+                assertThat(call(tools, "read_initial_review_context", "{}"))
+                        .contains("reviewSummary=opaque");
+                call(tools, "read_candidate_diff", "{}");
+                call(tools, "ready_for_initial_publish", "{}");
                 return result(TurnResult.End.COMPLETED);
             }
             default -> throw new AssertionError(
@@ -556,9 +653,9 @@ final class TestUpstreamSyncEndToEnd
     }
 
     /** The picker confirms shas; the subjects beside them are display only. */
-    private static List<SelectedCommit> selection(String... shas)
+    private static List<SelectedCommit> selection(List<String> shas)
     {
-        return Arrays.stream(shas)
+        return shas.stream()
                 .map(sha -> new SelectedCommit(sha, "upstream " + sha))
                 .toList();
     }
@@ -593,7 +690,7 @@ final class TestUpstreamSyncEndToEnd
     private static void await(CountDownLatch latch)
     {
         try {
-            if (!latch.await(30, TimeUnit.SECONDS)) {
+            if (!latch.await(180, TimeUnit.SECONDS)) {
                 throw new AssertionError("latch did not complete");
             }
         }
@@ -630,10 +727,62 @@ final class TestUpstreamSyncEndToEnd
     }
 
     /**
-     * A fork that has diverged from the upstream it tracks: one commit it is
-     * missing, one it will conflict with, and one it already carries.
+     * A fork that has diverged from the upstream it tracks: clean commits it
+     * is missing, two conflicts, and one commit it already carries.
      */
-    private void initializeRepository(Path root)
+    private void initializeRepositories(Path upstream, Path target)
+            throws IOException, InterruptedException
+    {
+        initializeBase(upstream);
+        git(upstream, "tag", "source-start");
+        git(upstream, "checkout", "-b", "upstream");
+        write(upstream, "added.txt", "upstream addition\n");
+        git(upstream, "add", "-A");
+        git(upstream, "commit", "-m", "Add a file the fork does not have");
+        cleanCommit = git(upstream, "rev-parse", "HEAD").strip();
+
+        List<String> selected = new ArrayList<>();
+        selected.add(cleanCommit);
+        Files.createDirectories(upstream.resolve("bulk"));
+        for (int index = 0; index < 2; index++) {
+            write(upstream, "bulk/commit-" + index + ".txt",
+                    "upstream " + index + "\n");
+            git(upstream, "add", "-A");
+            git(upstream, "commit", "-m", "Add upstream file " + index);
+            selected.add(git(upstream, "rev-parse", "HEAD").strip());
+        }
+        write(upstream, "contested-two.txt", "upstream rewrite two\n");
+        git(upstream, "add", "-A");
+        git(upstream, "commit", "-m", "Rewrite another contested file upstream");
+        secondConflictingCommit = git(upstream, "rev-parse", "HEAD").strip();
+        selected.add(secondConflictingCommit);
+        write(upstream, "contested.txt", "upstream rewrite\n");
+        git(upstream, "add", "-A");
+        git(upstream, "commit", "-m", "Rewrite the contested file upstream");
+        conflictingCommit = git(upstream, "rev-parse", "HEAD").strip();
+        selected.add(conflictingCommit);
+        write(upstream, "shared.txt", "shared v2\n");
+        git(upstream, "add", "-A");
+        git(upstream, "commit", "-m", "Bump the shared file");
+        alreadyPresentCommit = git(upstream, "rev-parse", "HEAD").strip();
+        selected.add(alreadyPresentCommit);
+        confirmedRange = List.copyOf(selected);
+
+        initializeBase(target);
+        write(target, "contested.txt", "fork rewrite\n");
+        write(target, "contested-two.txt", "fork rewrite two\n");
+        write(target, "shared.txt", "shared v2\n");
+        git(target, "add", "-A");
+        git(target, "commit", "-m", "Fork changes, one of them made upstream too");
+        git(target, "remote", "add", "origin",
+                "https://github.com/octocat/bytequay.git");
+        String head = git(target, "rev-parse", "HEAD").strip();
+        git(target, "update-ref", "refs/remotes/origin/main", head);
+        git(target, "symbolic-ref", "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main");
+    }
+
+    private static void initializeBase(Path root)
             throws IOException, InterruptedException
     {
         Files.createDirectories(root);
@@ -642,35 +791,20 @@ final class TestUpstreamSyncEndToEnd
         git(root, "config", "user.email", "test@bytequay.invalid");
         write(root, "shared.txt", "shared v1\n");
         write(root, "contested.txt", "original\n");
+        write(root, "contested-two.txt", "original two\n");
         git(root, "add", "-A");
         git(root, "commit", "-m", "base");
+    }
 
-        git(root, "checkout", "-b", "upstream");
-        write(root, "added.txt", "upstream addition\n");
-        git(root, "add", "-A");
-        git(root, "commit", "-m", "Add a file the fork does not have");
-        cleanCommit = git(root, "rev-parse", "HEAD").strip();
-        write(root, "contested.txt", "upstream rewrite\n");
-        git(root, "add", "-A");
-        git(root, "commit", "-m", "Rewrite the contested file upstream");
-        conflictingCommit = git(root, "rev-parse", "HEAD").strip();
-        write(root, "shared.txt", "shared v2\n");
-        git(root, "add", "-A");
-        git(root, "commit", "-m", "Bump the shared file");
-        alreadyPresentCommit = git(root, "rev-parse", "HEAD").strip();
-
-        git(root, "checkout", "main");
-        write(root, "contested.txt", "fork rewrite\n");
-        write(root, "shared.txt", "shared v2\n");
-        git(root, "add", "-A");
-        git(root, "commit", "-m", "Fork changes, one of them made upstream too");
-
-        git(root, "remote", "add", "origin",
-                "https://github.com/octocat/bytequay.git");
-        String head = git(root, "rev-parse", "HEAD").strip();
-        git(root, "update-ref", "refs/remotes/origin/main", head);
-        git(root, "symbolic-ref", "refs/remotes/origin/HEAD",
-                "refs/remotes/origin/main");
+    private static boolean hasCommit(Path root, String sha)
+            throws IOException, InterruptedException
+    {
+        Process process = new ProcessBuilder(
+                "/usr/bin/git", "-C", root.toString(),
+                "cat-file", "-e", sha + "^{commit}")
+                .redirectErrorStream(true).start();
+        process.getInputStream().readAllBytes();
+        return process.waitFor() == 0;
     }
 
     private static void write(Path root, String path, String content)
@@ -697,5 +831,15 @@ final class TestUpstreamSyncEndToEnd
             throw new IllegalStateException(output);
         }
         return output;
+    }
+
+    private static String history(Path worktree)
+    {
+        try {
+            return git(worktree, "log", "--all", "-p");
+        }
+        catch (IOException | InterruptedException failure) {
+            throw new AssertionError(failure);
+        }
     }
 }

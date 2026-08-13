@@ -500,6 +500,44 @@ final class TestGitHubProvider
     }
 
     @Test
+    void anAuthorizedRewriteMayPrepareANonFastForwardExactLease()
+            throws IOException
+    {
+        Path repository = temporaryDirectory.resolve("rewrite-repository");
+        runGit(repository.getParent(), "init", repository.toString());
+        runGit(repository, "config", "user.email", "test@example.com");
+        runGit(repository, "config", "user.name", "Test User");
+        runGit(repository, "remote", "add", "fork",
+                "https://github.com/head/repo.git");
+        Files.writeString(repository.resolve("value.txt"), "expected\n");
+        runGit(repository, "add", "value.txt");
+        runGit(repository, "commit", "-m", "expected");
+        String expected = runGitOutput(repository, "rev-parse", "HEAD");
+        runGit(repository, "checkout", "--orphan", "rewritten");
+        Files.writeString(repository.resolve("value.txt"), "rewritten\n");
+        runGit(repository, "add", "value.txt");
+        runGit(repository, "commit", "-m", "rewritten");
+        String proposed = runGitOutput(repository, "rev-parse", "HEAD");
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                (id, owner, name) -> credential(id, "token"),
+                new GitHubProvider.DirectGitProcess(),
+                matchingLookup());
+
+        assertThat(provider.prepareMutation(
+                claim(), activation(repository, expected, proposed, false))
+                .failure().kind()).isEqualTo(
+                        GitHubEffectRecords.ProviderFailureKind.INVALID);
+        assertThat(provider.prepareMutation(
+                claim(), activation(repository, expected, proposed, true))
+                .push()).isNotNull();
+        assertThat(GitHubProvider.exactPushArguments(
+                "refs/heads/task/one", expected, proposed, "remote"))
+                .contains("--force-with-lease=refs/heads/task/one:" + expected)
+                .doesNotContain("--force");
+    }
+
+    @Test
     void executorRejectsAnAmbientOwnerTransaction()
     {
         TransactionTemplate transaction = new TransactionTemplate(
@@ -560,6 +598,13 @@ final class TestGitHubProvider
     private CiUpdateEffectActivation activation(
             Path repositoryRoot, String expected, String proposed)
     {
+        return activation(repositoryRoot, expected, proposed, false);
+    }
+
+    private CiUpdateEffectActivation activation(
+            Path repositoryRoot, String expected, String proposed,
+            boolean forcePush)
+    {
         return new CiUpdateEffectActivation(
                 "authorization-1",
                 "plan-1",
@@ -573,6 +618,7 @@ final class TestGitHubProvider
                 "refs/heads/task/one",
                 expected,
                 proposed,
+                forcePush,
                 true,
                 "plan-digest-1");
     }

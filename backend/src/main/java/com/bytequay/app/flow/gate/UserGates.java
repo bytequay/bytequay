@@ -19,6 +19,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacementPolicy;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
+import com.bytequay.app.flow.gate.InitialPublishVerificationProvider.Verification;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedInitialPublish;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateAction;
@@ -130,6 +131,7 @@ public final class UserGates
     private final LocalChecks localChecks;
     private final CiAutofix autofix;
     private final GitHubEffects githubEffects;
+    private final InitialPublishVerificationProvider initialVerification;
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector =
             new FlowWorktreeInspector();
@@ -162,6 +164,19 @@ public final class UserGates
             GitHubEffects githubEffects,
             Clock clock)
     {
+        this(dataSource, runtime, localChecks, autofix, githubEffects, clock,
+                InitialPublishVerificationProvider.NONE);
+    }
+
+    public UserGates(
+            DataSource dataSource,
+            FlowRuntime runtime,
+            LocalChecks localChecks,
+            CiAutofix autofix,
+            GitHubEffects githubEffects,
+            Clock clock,
+            InitialPublishVerificationProvider initialVerification)
+    {
         requireNonNull(dataSource, "dataSource is null");
         this.jdbc = new JdbcTemplate(dataSource);
         this.transactions = new TransactionTemplate(
@@ -172,6 +187,8 @@ public final class UserGates
         this.githubEffects = requireNonNull(
                 githubEffects, "githubEffects is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.initialVerification = requireNonNull(
+                initialVerification, "initialVerification is null");
     }
 
     public static final class ReadyRejectedException
@@ -3231,9 +3248,11 @@ public final class UserGates
         List<LocalCheckBinding> bindings = checks.runs().stream().map(check ->
                 new LocalCheckBinding(check.checkRunId(), check.profileId(),
                         check.conclusion())).toList();
+        Verification ownerVerification = currentInitialVerification(
+                task.taskId(), base.baseSha(), changeSet.headSha());
         String subjectDigest = initialSubjectDigest(task, pr, changeSet, base,
                 draft, checks, review, reviewerRun, reviewerResult, reviewBinding,
-                target);
+                target, ownerVerification);
         InitialPublishSubject subject = new InitialPublishSubject(stableId(
                 "initial-publish-subject:v1", runId, subjectDigest), task.taskId(),
                 pr.prId(), task.repositoryId(), task.launchDigest(),
@@ -3246,7 +3265,8 @@ public final class UserGates
                 target.baseRepositoryName(), target.headRepositoryExternalId(),
                 target.headRepositoryOwner(), target.headRepositoryName(), branchRef,
                 target.targetBaseRef(), target.targetSnapshotId(),
-                target.targetSnapshotDigest(), subjectDigest, runId, createdAt);
+                target.targetSnapshotDigest(), ownerVerification, subjectDigest,
+                runId, createdAt);
         String actionDigest = initialActionDigest(subject, "KEEP_DRAFT");
         InitialPublishAction action = new InitialPublishAction(stableId(
                 "initial-publish-action:v1", subject.subjectId(), actionDigest),
@@ -3287,6 +3307,32 @@ public final class UserGates
                         new IllegalStateException(
                                 "INITIAL ready local review is missing"));
         return new InitialGateBundle(local, subject, action, target);
+    }
+
+    private Verification currentInitialVerification(
+            String taskId, String expectedBaseSha, String proposedHead)
+    {
+        if (!initialVerification.owns(taskId)) {
+            return null;
+        }
+        Verification verification = initialVerification.current(taskId)
+                .orElseThrow(() -> rejected("OWNER_VERIFICATION_STALE"));
+        if (!verification.taskId().equals(taskId)
+                || !verification.expectedBaseSha().equals(expectedBaseSha)
+                || !verification.proposedHead().equals(proposedHead)) {
+            throw rejected("OWNER_VERIFICATION_STALE");
+        }
+        return verification;
+    }
+
+    private boolean initialVerificationCurrent(InitialPublishSubject subject)
+    {
+        if (!initialVerification.owns(subject.taskId())) {
+            return subject.ownerVerification() == null;
+        }
+        return initialVerification.current(subject.taskId())
+                .map(current -> current.equals(subject.ownerVerification()))
+                .orElse(false);
     }
 
     private void assertInitialSubjectCurrent(
@@ -3691,8 +3737,9 @@ public final class UserGates
                     base_repository_name, head_repository_external_id,
                     head_repository_owner, head_repository_name, branch_ref,
                     target_base_ref, target_snapshot_id, target_snapshot_digest,
+                    owner_verification_run_id, owner_verification_ref,
                     created_by_run_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 subject.subjectId(), subject.subjectDigest(), subject.taskId(),
                 subject.prId(), subject.repositoryId(), subject.launchDigest(),
@@ -3709,6 +3756,10 @@ public final class UserGates
                 subject.headRepositoryOwner(), subject.headRepositoryName(),
                 subject.branchRef(), subject.targetBaseRef(),
                 subject.targetSnapshotId(), subject.targetSnapshotDigest(),
+                subject.ownerVerification() == null ? null
+                        : subject.ownerVerification().runId(),
+                subject.ownerVerification() == null ? null
+                        : subject.ownerVerification().verificationRef(),
                 subject.createdByRunId(), subject.createdAt().toEpochMilli());
         for (int ordinal = 0; ordinal < subject.localChecks().size(); ordinal++) {
             LocalCheckBinding check = subject.localChecks().get(ordinal);
@@ -3893,6 +3944,15 @@ public final class UserGates
             throws SQLException
     {
         String subjectId = result.getString("subject_id");
+        String taskId = result.getString("task_id");
+        String expectedBaseSha = result.getString("expected_base_sha");
+        String proposedHead = result.getString("proposed_head");
+        String verificationRunId = result.getString(
+                "owner_verification_run_id");
+        Verification verification = verificationRunId == null ? null
+                : new Verification(taskId, verificationRunId, expectedBaseSha,
+                        proposedHead,
+                        result.getString("owner_verification_ref"));
         List<LocalCheckBinding> checks = jdbc.query(
                 "SELECT * FROM flow_user_gate_initial_publish_subject_local_check "
                         + "WHERE subject_id = ? ORDER BY ordinal",
@@ -3901,10 +3961,10 @@ public final class UserGates
                         LocalCheckConclusion.valueOf(row.getString("conclusion"))),
                 subjectId);
         InitialPublishSubject subject = new InitialPublishSubject(subjectId,
-                result.getString("task_id"), result.getString("pr_id"),
+                taskId, result.getString("pr_id"),
                 result.getString("repository_id"), result.getString("launch_digest"),
                 result.getString("change_set_revision_id"), result.getString("base_revision_id"),
-                result.getString("expected_base_sha"), result.getString("proposed_head"),
+                expectedBaseSha, proposedHead,
                 result.getString("head_tree_digest"), result.getString("diff_digest"),
                 result.getString("draft_revision_id"), result.getString("draft_digest"),
                 result.getString("required_ci_policy_revision_id"),
@@ -3920,6 +3980,7 @@ public final class UserGates
                 result.getString("head_repository_owner"), result.getString("head_repository_name"),
                 result.getString("branch_ref"), result.getString("target_base_ref"),
                 result.getString("target_snapshot_id"), result.getString("target_snapshot_digest"),
+                verification,
                 result.getString("subject_digest"), result.getString("created_by_run_id"),
                 instant(result, "created_at"));
         assertStoredInitialSubject(subject);
@@ -4730,6 +4791,9 @@ public final class UserGates
                             subject.diffDigest())) {
                 return "WORKTREE_SUBJECT_STALE";
             }
+            if (!initialVerificationCurrent(subject)) {
+                return "OWNER_VERIFICATION_STALE";
+            }
             LocalChecks.ReviewerEvidence checks;
             try {
                 checks = localChecks.reviewerEvidence(subject.taskId(),
@@ -5341,6 +5405,7 @@ public final class UserGates
                 step.branchRef(),
                 step.expectedRemoteHead(),
                 step.proposedHead(),
+                step.forcePush(),
                 mutationAllowed,
                 plan.planDigest());
     }
@@ -5821,7 +5886,8 @@ public final class UserGates
             TaskBaseRevision base, PrDraftRevision draft,
             LocalCheckEvidence checks, ReviewerRequest reviewer,
             AgentRun reviewerRun, AgentResult reviewerResult,
-            CodePublicationReviewBinding localReview, TargetSnapshot target)
+            CodePublicationReviewBinding localReview, TargetSnapshot target,
+            Verification ownerVerification)
     {
         List<String> fields = new ArrayList<>(List.of("initial-publish-subject:v1",
                 task.taskId(), pr.prId(), task.repositoryId(), task.launchDigest(),
@@ -5832,6 +5898,11 @@ public final class UserGates
                 localReview.bindingId(), localReview.digest(),
                 target.targetSnapshotId(), target.targetSnapshotDigest(),
                 target.requiredCiPolicyRevisionId()));
+        if (ownerVerification != null) {
+            fields.add("owner-verification-run:" + ownerVerification.runId());
+            fields.add("owner-verification-ref:"
+                    + ownerVerification.verificationRef());
+        }
         checks.runs().forEach(check -> fields.add("check:" + check.checkRunId()
                 + ":" + check.profileId() + ":" + check.conclusion()));
         return stableId(fields.toArray(String[]::new));
@@ -5850,6 +5921,12 @@ public final class UserGates
                 subject.localReview().bindingId(), subject.localReview().digest(),
                 subject.targetSnapshotId(), subject.targetSnapshotDigest(),
                 subject.requiredCiPolicyRevisionId()));
+        if (subject.ownerVerification() != null) {
+            fields.add("owner-verification-run:"
+                    + subject.ownerVerification().runId());
+            fields.add("owner-verification-ref:"
+                    + subject.ownerVerification().verificationRef());
+        }
         subject.localChecks().forEach(check -> fields.add("check:"
                 + check.checkRunId() + ":" + check.profileId() + ":"
                 + check.conclusion()));
@@ -5859,7 +5936,8 @@ public final class UserGates
     private static String initialActionDigest(InitialPublishSubject subject,
             String readyPolicy)
     {
-        return stableId("initial-publish-action:v1", subject.prId(),
+        List<String> fields = new ArrayList<>(List.of(
+                "initial-publish-action:v1", subject.prId(),
                 subject.changeSetRevisionId(), subject.baseRepositoryExternalId(),
                 subject.baseRepositoryOwner(), subject.baseRepositoryName(),
                 subject.headRepositoryExternalId(), subject.headRepositoryOwner(),
@@ -5868,7 +5946,12 @@ public final class UserGates
                 subject.proposedHead(), subject.draftRevisionId(),
                 subject.draftDigest(), subject.requiredCiPolicyRevisionId(),
                 readyPolicy, subject.targetSnapshotId(),
-                subject.targetSnapshotDigest());
+                subject.targetSnapshotDigest()));
+        if (subject.ownerVerification() != null) {
+            fields.add(subject.ownerVerification().runId());
+            fields.add(subject.ownerVerification().verificationRef());
+        }
+        return stableId(fields.toArray(String[]::new));
     }
 
     private static String gateRevisionRef(GateRevision revision)

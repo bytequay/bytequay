@@ -21,6 +21,7 @@ import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
 import com.bytequay.app.flow.ci.CiLearningCoordinator;
 import com.bytequay.app.flow.ci.CiObservationCoordinator;
 import com.bytequay.app.flow.ci.CiRepairCoordinator;
+import com.bytequay.app.flow.gate.InitialPublishVerificationProvider;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
@@ -36,6 +37,7 @@ import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -138,7 +140,9 @@ public class NewFlowConfiguration
             LocalChecks localChecks,
             CiAutofix autofix,
             GitHubEffects effects,
-            @Qualifier("newFlowClock") Clock clock)
+            @Qualifier("newFlowClock") Clock clock,
+            ObjectProvider<InitialPublishVerificationProvider>
+                    initialVerification)
     {
         return new UserGates(
                 dataSource,
@@ -146,7 +150,9 @@ public class NewFlowConfiguration
                 localChecks,
                 autofix,
                 effects,
-                clock);
+                clock,
+                initialVerification.getIfAvailable(
+                        () -> InitialPublishVerificationProvider.NONE));
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

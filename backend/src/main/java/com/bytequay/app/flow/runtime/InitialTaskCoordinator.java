@@ -24,6 +24,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
@@ -41,6 +42,7 @@ import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCa
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -53,14 +55,12 @@ public final class InitialTaskCoordinator
     private static final String TASK_PROMPT = "task-initial-prompt:v1";
     private static final String TASK_CAPABILITIES =
             "task-initial-capabilities:v1";
-    /** An upstream range's first turn repairs conflicted picks instead of
-     *  implementing a goal, so it is stamped with its own sealed identity. Its
-     *  continuation turn is deterministic and runs no agent, which is why only
-     *  the first one differs. */
+    /** An upstream range's first turn constructs and finalizes the range, so it
+     *  is stamped with its own sealed identity. */
     private static final String PICK_REPAIR_PROMPT =
-            "upstream-pick-repair-prompt:v1";
+            "upstream-pick-repair-prompt:v2";
     private static final String PICK_REPAIR_CAPABILITIES =
-            "upstream-pick-repair-capabilities:v1";
+            "upstream-pick-repair-capabilities:v2";
     private static final String TASK_REVIEW_PROMPT =
             "task-initial-review-prompt:v1";
     private static final String TASK_REVIEW_CAPABILITIES =
@@ -265,6 +265,13 @@ public final class InitialTaskCoordinator
             }
             return writer.readyForInitialPublish(
                     userGates, binding.repositoryRoot(), observation);
+        }
+
+        /** Runs only the fixed local policy and returns its durable results. */
+        public List<LocalCheckRun> runChecks()
+        {
+            return writer.runChecks(
+                    localChecks, binding.repositoryRoot(), null);
         }
 
         @Override

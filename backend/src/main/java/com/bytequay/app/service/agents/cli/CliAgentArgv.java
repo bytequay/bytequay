@@ -88,8 +88,31 @@ public final class CliAgentArgv
             Long maxCostUsdMilli,
             String resumeSessionId,
             List<String> allowedTools,
-            List<String> imagePaths)
+            List<String> imagePaths,
+            boolean mcpOnly)
     {
+        public Launch(
+                Vendor vendor,
+                String executable,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                boolean readOnly,
+                Path mcpConfig,
+                String mcpUrl,
+                String permissionPromptTool,
+                Long maxCostUsdMilli,
+                String resumeSessionId,
+                List<String> allowedTools,
+                List<String> imagePaths)
+        {
+            this(vendor, executable, model, reasoningEffort, workingDirectory,
+                    systemPrompt, readOnly, mcpConfig, mcpUrl,
+                    permissionPromptTool, maxCostUsdMilli, resumeSessionId,
+                    allowedTools, imagePaths, false);
+        }
+
         public Launch
         {
             requireNonNull(vendor, "vendor is null");
@@ -136,6 +159,12 @@ public final class CliAgentArgv
         if (launch.permissionPromptTool() != null) {
             argv.add("--permission-prompt-tool", launch.permissionPromptTool());
         }
+        else {
+            // Print-mode agents have nobody at a terminal to approve a tool.
+            // Explicitly preapproved tools still run; every other permission
+            // is denied instead of hanging on a prompt that cannot be answered.
+            argv.add("--permission-mode", "dontAsk");
+        }
         argv.add("--model", launch.model());
         if (launch.reasoningEffort() != null) {
             argv.add("--effort", launch.reasoningEffort());
@@ -146,12 +175,14 @@ public final class CliAgentArgv
                     .stripTrailingZeros()
                     .toPlainString());
         }
-        if (launch.readOnly()) {
+        if (launch.mcpOnly()) {
+            argv.add("--tools", "");
+        }
+        else if (launch.readOnly()) {
             argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
         }
-        for (String allowed : launch.allowedTools()) {
-            argv.add("--allowedTools", allowed);
-        }
+        ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
+        allowedTools.addAll(launch.allowedTools());
         if (launch.systemPrompt() != null) {
             argv.add("--append-system-prompt", launch.systemPrompt());
         }
@@ -167,10 +198,16 @@ public final class CliAgentArgv
         if (!launch.imagePaths().isEmpty()) {
             // Granting the directory is not enough on its own; each attachment
             // needs its own absolute read rule.
-            argv.add("--allowedTools", launch.imagePaths().stream()
+            allowedTools.addAll(launch.imagePaths().stream()
                     .map(CliAgentArgv::absoluteReadRule)
-                    .reduce((left, right) -> left + "," + right)
-                    .orElseThrow());
+                    .toList());
+        }
+        List<String> allowed = allowedTools.build();
+        if (!allowed.isEmpty()) {
+            // Claude documents this as one comma-or-space separated option.
+            // One flag avoids vendor parsers treating repeated occurrences as
+            // replacement and silently retaining only the final MCP tool.
+            argv.add("--allowedTools", String.join(",", allowed));
         }
         return argv.build();
     }
@@ -209,7 +246,7 @@ public final class CliAgentArgv
         else {
             argv.add("--json")
                     .add("--skip-git-repo-check")
-                    .add("--sandbox", launch.readOnly()
+                    .add("--sandbox", launch.readOnly() || launch.mcpOnly()
                             ? "read-only" : "workspace-write")
                     .add("-C", launch.workingDirectory().toString())
                     .add("-m", launch.model());

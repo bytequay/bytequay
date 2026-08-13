@@ -106,7 +106,7 @@ public final class GitHubCiUpdateExecutor
                     claim, before.observation(), clock.instant());
             ActivatedAttempt activated = effects.activateAttempt(
                     claim, plan.planId(), clock.instant());
-            provider.pushExactFastForward(
+            provider.pushExactLease(
                     claim, activation, activated, preparation.push());
             GitHubProvider.ProbeResult after = provider.probe(
                     claim, activation, activated.attempt());
@@ -156,7 +156,8 @@ public final class GitHubCiUpdateExecutor
                 || !activation.branchRef().equals(step.branchRef())
                 || !activation.expectedRemoteHead().equals(
                         step.expectedRemoteHead())
-                || !activation.proposedHead().equals(step.proposedHead())) {
+                || !activation.proposedHead().equals(step.proposedHead())
+                || activation.forcePush() != step.forcePush()) {
             throw new IllegalStateException(
                     "publication activation does not match its exact plan");
         }

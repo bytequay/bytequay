@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.counting;
+import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.joining;
 
 /**
@@ -65,6 +67,7 @@ public final class AttributedFixupRebase
         HEAD_MOVED,
         INVALID_SERIES,
         REBASE_FAILED,
+        PROOF_FAILED,
         PROOF_INCOMPLETE
     }
 
@@ -214,6 +217,52 @@ public final class AttributedFixupRebase
                 outputHead,
                 readSeries(worktree, baseSha, outputHead, deadline),
                 plan.unattributedFixupShas());
+    }
+
+    /**
+     * Exact commits the fixer may name as an attributed repair target.
+     *
+     * <p>The tool accepts the SHA, not the subject. Subjects must be unique in
+     * the current series because the fixed {@code fixup!} message is what Git's
+     * later mechanical placement consumes. A duplicate subject is therefore
+     * not eligible: choosing either SHA would still produce an ambiguous
+     * message.
+     */
+    public List<SeriesCommit> eligibleTargets(
+            Path worktree, String baseSha, String expectedHead,
+            Duration timeout)
+    {
+        Deadline deadline = new Deadline(timeout);
+        requireCleanHead(worktree, baseSha, expectedHead, deadline);
+        List<SeriesCommit> series = readSeries(
+                worktree, baseSha, expectedHead, deadline);
+        Map<String, Long> subjectCounts = series.stream()
+                .filter(commit -> !commit.fixup())
+                .collect(groupingBy(
+                        SeriesCommit::subject,
+                        LinkedHashMap::new,
+                        counting()));
+        return series.stream()
+                .filter(commit -> !commit.fixup())
+                .filter(commit -> subjectCounts.get(commit.subject()) == 1L)
+                .toList();
+    }
+
+    /** Restores a failed rewrite to the exact clean head it started from. */
+    void restoreExact(Path worktree, String expectedCurrent, String restoreHead)
+    {
+        requireSha(expectedCurrent, "expectedCurrent");
+        requireSha(restoreHead, "restoreHead");
+        Deadline deadline = new Deadline(Duration.ofSeconds(60));
+        String current = head(worktree, deadline);
+        if (!current.equals(expectedCurrent) && !current.equals(restoreHead)) {
+            throw new RebaseFailure(
+                    FailureCode.HEAD_MOVED,
+                    "cannot restore a rewrite from an unexpected head");
+        }
+        restore(worktree, restoreHead);
+        requireCleanHead(worktree, restoreHead, restoreHead,
+                new Deadline(Duration.ofSeconds(60)));
     }
 
     /**

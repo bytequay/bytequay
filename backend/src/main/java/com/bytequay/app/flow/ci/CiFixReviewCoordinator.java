@@ -69,9 +69,9 @@ import static java.util.Objects.requireNonNull;
 /** Exact CI-fix inspection and fresh adversarial-review round trip. */
 public final class CiFixReviewCoordinator
 {
-    private static final String TASK_PROMPT = "task-ci-inspection-prompt:v1";
+    private static final String TASK_PROMPT = "task-ci-inspection-prompt:v2";
     private static final String TASK_CAPABILITIES =
-            "task-ci-inspection-capabilities:v1";
+            "task-ci-inspection-capabilities:v2";
     private static final String REVIEWER_PROMPT =
             "adversarial-reviewer-prompt:v1";
     private static final String REVIEWER_CAPABILITIES =
@@ -256,6 +256,13 @@ public final class CiFixReviewCoordinator
             requireText(profileName, "profileName");
             return writer.runChecks(
                     localChecks, repositoryRoot, profileName);
+        }
+
+        public List<LocalCheckRun> runChecks(
+                List<String> command, String workingDirectory)
+        {
+            return writer.runChecks(
+                    localChecks, repositoryRoot, command, workingDirectory);
         }
 
         /** Program-only adoption after the fixed local commit tool returns. */

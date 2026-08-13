@@ -735,6 +735,8 @@ CREATE TABLE flow_runtime_local_check_run (
     profile_id TEXT NOT NULL,
     operation_id TEXT NOT NULL,
     agent_run_id TEXT NOT NULL,
+    command_json TEXT NOT NULL,
+    working_directory TEXT NOT NULL,
     attempt_sequence INTEGER NOT NULL CHECK (attempt_sequence > 0),
     observed_start_head TEXT NOT NULL,
     observed_end_head TEXT,

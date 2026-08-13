@@ -229,6 +229,8 @@ public final class FlowRuntimeRecords
             String profileId,
             String operationId,
             String agentRunId,
+            List<String> command,
+            String workingDirectory,
             long attemptSequence,
             String observedStartHead,
             String observedEndHead,
@@ -254,6 +256,11 @@ public final class FlowRuntimeRecords
             requireNonNull(profileId, "profileId is null");
             requireNonNull(operationId, "operationId is null");
             requireNonNull(agentRunId, "agentRunId is null");
+            command = List.copyOf(command);
+            if (command.isEmpty()) {
+                throw new IllegalArgumentException("command is empty");
+            }
+            requireNonNull(workingDirectory, "workingDirectory is null");
             if (attemptSequence < 1) {
                 throw new IllegalArgumentException(
                         "attemptSequence must be positive");

@@ -195,9 +195,15 @@ public final class UpstreamSyncCoordinator
                         "Task is not owned by upstream synchronization"));
         try {
             if (reviewContinuation) {
+                if (upstreamSync.closeRequested(run.runId())) {
+                    return closeReviewContinuationHere(run.runId());
+                }
                 AgentCompletion completion = bodies.initialTask(
                         binding, worktree, capability, true,
                         agentActivity(run.runId(), false));
+                if (upstreamSync.closeRequested(run.runId())) {
+                    return closeReviewContinuationHere(run.runId());
+                }
                 if (completion.terminalOutcome() == TerminalOutcome.COMPLETED) {
                     if (runtime.readyForReviewRequestForRun(binding.runId())
                             .isPresent()) {
@@ -919,6 +925,15 @@ public final class UpstreamSyncCoordinator
             picker.abortSequencer();
             return null;
         });
+        upstreamSync.advanceState(runId, RunState.CANCELED);
+        return new AgentCompletion(
+                TerminalOutcome.FAILED,
+                "upstream synchronization closed by the user",
+                "UPSTREAM_SYNC_CLOSED");
+    }
+
+    private AgentCompletion closeReviewContinuationHere(String runId)
+    {
         upstreamSync.advanceState(runId, RunState.CANCELED);
         return new AgentCompletion(
                 TerminalOutcome.FAILED,

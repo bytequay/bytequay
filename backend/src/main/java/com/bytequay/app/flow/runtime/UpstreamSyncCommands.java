@@ -176,21 +176,12 @@ public final class UpstreamSyncCommands
         upstreamSync.delete(runId);
     }
 
-    /**
-     * Whether an agent may still be running against the run's worktree.
-     *
-     * <p>Only these states reach the pick loop's boundary check, and only they
-     * can have an agent holding the checkout. Everything else — parked, waiting
-     * on the publish gate, handed off, needing attention — is a run standing
-     * still.
-     *
-     * <p>{@code READY} is handled separately: its first turn advances to
-     * {@code PICKING} and observes the already-recorded close request.
-     */
+    /** Whether an INITIAL Task turn may still hold the run's worktree. */
     static boolean mayHaveATurnInFlight(RunState state)
     {
         return state == RunState.PICKING
-                || state == RunState.WAITING_CONFLICT_REPAIR;
+                || state == RunState.WAITING_CONFLICT_REPAIR
+                || state == RunState.FINAL_REVIEW;
     }
 
     private static boolean canReachCloseBoundary(RunState state)

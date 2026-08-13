@@ -91,17 +91,103 @@ describe('a greenfield sync run', () => {
     expect(screen.getByText('RUN #1')).toBeTruthy();
   });
 
+  it('is titled by its pull request, not by the shape of the range', async () => {
+    const run = flowRun();
+    // The title the user typed when they confirmed the range; the draft's own
+    // once the run names it. Either way it is what this work is called.
+    run.job.prTitle = 'Bump Trino to 482';
+    mount(run);
+    await flush();
+
+    expect(document.querySelector('.sr-topbar__title')?.textContent)
+      .toBe('Bump Trino to 482');
+  });
+
+  it('falls back to the range when nothing has named the pull request', async () => {
+    mount();
+    await flush();
+
+    expect(document.querySelector('.sr-topbar__title')?.textContent)
+      .toContain('Cherry-pick');
+  });
+
+  it('parks a running range at its own path', async () => {
+    const run = flowRun();
+    run.job.status = 'RUNNING';
+    const { request } = mount(run);
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /Park now/ }));
+    await flush();
+
+    const call = request.mock.calls.find(([input]) => input.path.endsWith('/park'));
+    expect(call?.[0].path)
+      .toBe(`/api/workspaces/fork/upstream/syncs/${encodeURIComponent(RUN_ID)}/park`);
+    expect(call?.[0].method).toBe('POST');
+  });
+
+  it('says a park it has already asked for is on its way', async () => {
+    const run = flowRun();
+    run.job.status = 'RUNNING';
+    run.job.pauseRequested = true;
+    mount(run);
+    await flush();
+
+    const pause = screen.getByRole('button', { name: /Pausing/ }) as HTMLButtonElement;
+    expect(pause.disabled).toBe(true);
+  });
+
   it('offers no control the flow does not have', async () => {
     mount();
     await flush();
 
-    // The retired path's pause, skip, resume, close and delete are its own.
-    expect(screen.queryByRole('button', { name: /Close run/ })).toBeNull();
-    expect(screen.queryByLabelText('Delete run')).toBeNull();
+    // The retired path's skip and resume are its own.
+    expect(screen.queryByRole('button', { name: /Skip this commit/ })).toBeNull();
     // The composer stays, inert and saying why, rather than vanishing.
     const composer = screen.getByLabelText('Steer the run') as HTMLInputElement;
     expect(composer.disabled).toBe(true);
     expect(composer.placeholder).toBe('Steering this run is not wired yet');
+  });
+
+  it('closes at its own path once the user confirms', async () => {
+    const { request } = mount();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /Close run/ }));
+    // The dialog's own confirm carries the same label as the control that
+    // opened it, and is the one that renders second.
+    fireEvent.click(screen.getAllByRole('button', { name: /Close run/ }).at(-1)!);
+    await flush();
+
+    const call = request.mock.calls.find(([input]) => input.path.endsWith('/close'));
+    expect(call?.[0].path)
+      .toBe(`/api/workspaces/fork/upstream/syncs/${encodeURIComponent(RUN_ID)}/close`);
+    expect(call?.[0].method).toBe('POST');
+  });
+
+  it('deletes the run and leaves the page it was on', async () => {
+    const run = flowRun();
+    const request = vi.fn(
+      async (input: WorkspaceApiRequest): Promise<unknown> => {
+        void input;
+        return run;
+      });
+    (window as unknown as { bridge: unknown }).bridge = {
+      workspaceApi: request,
+      subscribeFlowSyncRunStream: () => () => {},
+    };
+    const onBack = vi.fn();
+    render(<WorkspaceSyncRunPage workspaceId="fork" jobId={RUN_ID} onBack={onBack} />);
+    await flush();
+
+    fireEvent.click(screen.getByLabelText('Delete run'));
+    fireEvent.click(screen.getAllByRole('button', { name: /Delete run/ }).at(-1)!);
+    await flush();
+
+    const call = request.mock.calls.find(([input]) => input.method === 'DELETE');
+    expect(call?.[0].path)
+      .toBe(`/api/workspaces/fork/upstream/syncs/${encodeURIComponent(RUN_ID)}`);
+    expect(onBack).toHaveBeenCalled();
   });
 
   it('publishes only on the exact revision it displayed', async () => {

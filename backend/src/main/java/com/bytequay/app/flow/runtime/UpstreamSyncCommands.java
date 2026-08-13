@@ -18,6 +18,7 @@ import com.bytequay.app.flow.runtime.TaskProvisioning.RepositoryCatalog;
 import com.bytequay.app.flow.runtime.TaskProvisioning.RepositoryConfig;
 import com.bytequay.app.flow.upstream.UpstreamPicker;
 import com.bytequay.app.flow.upstream.UpstreamSync;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRequest;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRun;
@@ -99,6 +100,85 @@ public final class UpstreamSyncCommands
         this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
         this.initialTasks = requireNonNull(
                 initialTasks, "initialTasks is null");
+    }
+
+    /**
+     * Asks a running sync to park at its next pick boundary.
+     *
+     * <p>Nothing is woken: the request is for work already in flight, and the
+     * loop reads it when it reaches a commit it can safely stop before.
+     */
+    public void requestPause(String runId)
+    {
+        upstreamSync.requestPause(runId);
+    }
+
+    /**
+     * Stops a run for good and releases what it holds locally.
+     *
+     * <p>Where that happens depends on whether a turn is in flight. A run that
+     * is picking closes from its own loop, at the boundary where nothing is
+     * writing to the worktree — this only records the request. A run that is
+     * parked or finished holds nothing, so it closes here and now.
+     *
+     * <p>Closing an already-closed run is not an error; the user asked for a
+     * state it is already in.
+     */
+    public void close(String runId)
+    {
+        UpstreamSyncRun run = upstreamSync.run(runId).orElseThrow(
+                () -> new IllegalArgumentException(
+                        "unknown upstream sync run: " + runId));
+        if (run.state() == RunState.CANCELED) {
+            return;
+        }
+        if (mayHaveATurnInFlight(run.state())) {
+            upstreamSync.requestClose(runId);
+            return;
+        }
+        UpstreamSyncTeardown.close(
+                runtime,
+                provisioning,
+                upstreamSync,
+                runtime.task(run.taskId()).orElseThrow(
+                        () -> new IllegalStateException(
+                                "upstream sync run has no Task")),
+                runId,
+                "UPSTREAM_SYNC_CLOSED");
+    }
+
+    /**
+     * Closes the run and then drops it from the list.
+     *
+     * <p>Delete is close plus forgetting, so it goes through the same teardown
+     * rather than a second one. A run that still has a turn in flight cannot be
+     * dropped here: the close it just asked for lands at the pick boundary, and
+     * the row has to outlive the turn that is still writing under it.
+     */
+    public void delete(String runId)
+    {
+        close(runId);
+        if (upstreamSync.closeRequested(runId)) {
+            throw new IllegalStateException(
+                    "the run stops at its next commit and can be deleted once"
+                            + " it has");
+        }
+        upstreamSync.delete(runId);
+    }
+
+    /**
+     * Whether an agent may still be running against the run's worktree.
+     *
+     * <p>Only these states reach the pick loop's boundary check, and only they
+     * can have an agent holding the checkout. Everything else — parked, waiting
+     * on the publish gate, handed off, needing attention — is a run standing
+     * still.
+     */
+    private static boolean mayHaveATurnInFlight(RunState state)
+    {
+        return state == RunState.READY
+                || state == RunState.PICKING
+                || state == RunState.WAITING_CONFLICT_REPAIR;
     }
 
     /**

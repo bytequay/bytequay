@@ -442,6 +442,12 @@ export type UpstreamCherryPickJobDto = {
   worktreePath: string | null;
   prNumber: number | null;
   prUrl: string | null;
+  /**
+   * What the pull request is called — the title the user typed when they
+   * confirmed the range, and the draft's own once the run has named it. Absent
+   * on the retired path, which never carried one.
+   */
+  prTitle?: string | null;
   harnessWatchId?: string | null;
   /** How the pull request ended, once it did; null while it is open. */
   prResult?: 'merged' | 'closed' | null;
@@ -960,6 +966,32 @@ export const workspaceApi = {
   upstreamSyncRun: (workspaceId: string, runId: string) =>
     window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${enc(runId)}`,
+    }),
+  /**
+   * Asks a running sync to park at its next pick boundary. It does not stop
+   * where it stands: there is no head to wait at in the middle of a pick.
+   */
+  parkUpstreamSync: (workspaceId: string, runId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${
+        enc(runId)}/park`,
+      method: 'POST',
+    }),
+  /**
+   * Stops the run for good and releases its worktree. A run with a turn in
+   * flight closes at its next pick boundary, not on this call.
+   */
+  closeUpstreamSync: (workspaceId: string, runId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${
+        enc(runId)}/close`,
+      method: 'POST',
+    }),
+  /** Closes the run and drops it from the list; the branch is kept. */
+  deleteUpstreamSync: (workspaceId: string, runId: string) =>
+    window.bridge.workspaceApi<void>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${enc(runId)}`,
+      method: 'DELETE',
     }),
   /** Tool uses the agent wants approved — each renders as a card on the run. */
   syncRunPermissions: (runId: string) =>

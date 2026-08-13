@@ -24,6 +24,7 @@ import com.bytequay.app.service.workspaces.WorkspaceRelationService.ResolvedRela
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -150,6 +151,81 @@ public final class WorkspaceUpstreamSyncController
         return ResponseEntity.accepted().body(
                 views.job(receipt.run().runId())
                         .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+    }
+
+    /**
+     * Asks a running sync to park at its next pick boundary.
+     *
+     * <p>The run is not stopped where it stands: mid-pick there is a sequencer
+     * in flight and no head to wait at, so the request is recorded and the
+     * loop honours it between commits.
+     */
+    @PostMapping("/{runId}/park")
+    public ResponseEntity<SyncRunDetail> park(
+            @PathVariable String workspaceId,
+            @PathVariable String runId)
+    {
+        inWorkspace(workspaceId, views.detail(runId)
+                .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+        try {
+            commands.requestPause(runId);
+        }
+        catch (IllegalStateException rejected) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, rejected.getMessage(), rejected);
+        }
+        return ResponseEntity.accepted().body(
+                views.detail(runId)
+                        .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+    }
+
+    /**
+     * Stops the run for good and releases what it holds locally.
+     *
+     * <p>A run with a turn in flight closes at its next pick boundary rather
+     * than here, so this returns the run as it stands and the surface watches
+     * it settle.
+     */
+    @PostMapping("/{runId}/close")
+    public ResponseEntity<SyncRunDetail> close(
+            @PathVariable String workspaceId,
+            @PathVariable String runId)
+    {
+        inWorkspace(workspaceId, views.detail(runId)
+                .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+        try {
+            commands.close(runId);
+        }
+        catch (IllegalStateException rejected) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, rejected.getMessage(), rejected);
+        }
+        return ResponseEntity.accepted().body(
+                views.detail(runId)
+                        .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+    }
+
+    /**
+     * Closes the run and drops it from the list.
+     *
+     * <p>Nothing on the remote is touched, and the branch the picks are on is
+     * kept — this forgets the run, not its work.
+     */
+    @DeleteMapping("/{runId}")
+    public ResponseEntity<Void> delete(
+            @PathVariable String workspaceId,
+            @PathVariable String runId)
+    {
+        inWorkspace(workspaceId, views.detail(runId)
+                .orElseThrow(WorkspaceUpstreamSyncController::unknownRun));
+        try {
+            commands.delete(runId);
+        }
+        catch (IllegalStateException rejected) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, rejected.getMessage(), rejected);
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /**

@@ -239,6 +239,16 @@ public final class UpstreamSyncCoordinator
         List<String> selected = request.selectedUpstreamShas();
         boolean agentFinalized = false;
         for (int ordinal = 0; ordinal < selected.size(); ordinal++) {
+            // The user's stop, honoured between commits. Mid-pick there is a
+            // sequencer in flight and no recorded head to wait at; here the
+            // tree is exactly what the last pick record describes, which is
+            // the same boundary a conflict park uses.
+            if (upstreamSync.closeRequested(startRun.runId())) {
+                return closeHere(capability, picker, task, startRun.runId());
+            }
+            if (upstreamSync.pauseRequested(startRun.runId())) {
+                return park(capability, picker, startRun.runId(), "USER_PAUSED");
+            }
             PickStep step = applyOne(
                     capability, picker, taskId, startRun.runId(), ordinal,
                     selected.get(ordinal));
@@ -778,6 +788,32 @@ public final class UpstreamSyncCoordinator
         frame(digest, head);
         return "upstream-verification:" + HexFormat.of()
                 .formatHex(digest.digest()).substring(0, 32);
+    }
+
+    /**
+     * The user's terminal stop, taken at the boundary that asked for it.
+     *
+     * <p>The sequencer is cleaned away first for the same reason a park does
+     * it: the worktree has to be at its recorded head before anything removes
+     * it, so a half-applied pick is never what gets deleted.
+     */
+    private AgentCompletion closeHere(
+            InitialToolCapability capability,
+            UpstreamPicker picker,
+            Task task,
+            String runId)
+    {
+        capability.callTool(() -> {
+            picker.abortSequencer();
+            return null;
+        });
+        UpstreamSyncTeardown.close(
+                runtime, provisioning, upstreamSync, task, runId,
+                "UPSTREAM_SYNC_CLOSED");
+        return new AgentCompletion(
+                TerminalOutcome.FAILED,
+                "upstream synchronization closed by the user",
+                "UPSTREAM_SYNC_CLOSED");
     }
 
     private AgentCompletion park(

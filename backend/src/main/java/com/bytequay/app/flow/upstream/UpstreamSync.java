@@ -545,6 +545,127 @@ public final class UpstreamSync
                 clock.instant().toEpochMilli(), runId);
     }
 
+    /**
+     * The user asked the run to stop, recorded until the run reaches a pick
+     * boundary and honours it.
+     *
+     * <p>It is written to {@code park_reason} rather than to a column of its
+     * own because the new-flow schema is one digest-sealed baseline: adding a
+     * column there costs every existing install the runs it already has. The
+     * column is null for exactly as long as the run has no reason to stop, so
+     * a pending reason and a settled one never contend for it — {@link #park}
+     * overwrites the request with the reason it actually parked for, and
+     * {@link #resume} clears it.
+     */
+    public static final String PAUSE_REQUESTED = "USER_PAUSE_REQUESTED";
+
+    /** The user's terminal stop, honoured at the same boundary as a park. */
+    public static final String CLOSE_REQUESTED = "USER_CLOSE_REQUESTED";
+
+    /**
+     * Asks a running sync to park at its next pick boundary.
+     *
+     * <p>Between commits is the only place a run can wait safely: the worktree
+     * is at a recorded head there, so the request is stored and honoured
+     * rather than applied where it lands.
+     */
+    public void requestPause(String runId)
+    {
+        requireText(runId, "runId");
+        int updated = jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET park_reason = ?, updated_at = ?
+                WHERE run_id = ? AND park_reason IS NULL
+                  AND state IN ('READY', 'PICKING', 'WAITING_CONFLICT_REPAIR')
+                """,
+                PAUSE_REQUESTED, clock.instant().toEpochMilli(), runId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "only a running upstream sync run can be asked to park");
+        }
+    }
+
+    /**
+     * Asks a running sync to stop for good at its next pick boundary.
+     *
+     * <p>Unlike a park request this overwrites one already pending: a user who
+     * asked to pause and then asked to close wants the close, and the run has
+     * only one boundary to honour either at.
+     */
+    public void requestClose(String runId)
+    {
+        requireText(runId, "runId");
+        int updated = jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET park_reason = ?, updated_at = ?
+                WHERE run_id = ?
+                  AND state IN ('READY', 'PICKING', 'WAITING_CONFLICT_REPAIR')
+                """,
+                CLOSE_REQUESTED, clock.instant().toEpochMilli(), runId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "only a running upstream sync run stops at a boundary");
+        }
+    }
+
+    /** Whether the user's park request is still waiting for a boundary. */
+    public boolean pauseRequested(String runId)
+    {
+        requireText(runId, "runId");
+        return run(runId)
+                .map(run -> PAUSE_REQUESTED.equals(run.parkReason()))
+                .orElse(false);
+    }
+
+    /** Whether the user's terminal stop is still waiting for a boundary. */
+    public boolean closeRequested(String runId)
+    {
+        requireText(runId, "runId");
+        return run(runId)
+                .map(run -> CLOSE_REQUESTED.equals(run.parkReason()))
+                .orElse(false);
+    }
+
+    /**
+     * Drops a closed run and everything that only described it: its picks, its
+     * fixups, and the request it was started from.
+     *
+     * <p>Deliberately does not touch the Task. The branch, the worktree record
+     * and anything already pushed belong to the Task, and the user asked for
+     * the run to leave the list — not for its work to be undone.
+     *
+     * <p>Only a closed run can be deleted. Deleting a live one would leave a
+     * turn writing into a worktree whose run no longer exists.
+     */
+    public void delete(String runId)
+    {
+        requireText(runId, "runId");
+        transactions.execute(status -> {
+            UpstreamSyncRun run = run(runId).orElseThrow(
+                    () -> new IllegalArgumentException(
+                            "unknown upstream sync run: " + runId));
+            if (run.state() != RunState.CANCELED) {
+                throw new IllegalStateException(
+                        "only a closed upstream sync run can be deleted");
+            }
+            // Innermost reference first: a fixup names its pick, a pick names
+            // its run, and the run names its request.
+            jdbc.update(
+                    "DELETE FROM flow_upstream_fixup WHERE run_id = ?", runId);
+            jdbc.update(
+                    "DELETE FROM flow_upstream_pick WHERE run_id = ?", runId);
+            jdbc.update(
+                    "DELETE FROM flow_upstream_sync_run WHERE run_id = ?",
+                    runId);
+            jdbc.update(
+                    "DELETE FROM flow_upstream_sync_request WHERE request_id = ?",
+                    run.requestId());
+            return null;
+        });
+    }
+
     public void park(String runId, String parkReason)
     {
         requireText(runId, "runId");

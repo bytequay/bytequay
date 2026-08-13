@@ -361,8 +361,9 @@ final class TestNewFlowAgentRuntimeBoundaries
     }
 
     @Test
-    void aTurnAcceptsTenFailedChecksAndDeniesTheEleventh()
+    void aTurnAcceptsFailedChecksToTheBoundAndDeniesTheNext()
     {
+        int bound = NewFlowAgentBodies.MAX_CHECK_ATTEMPTS;
         NewFlowAgentLaunches launches = mock(NewFlowAgentLaunches.class);
         TurnRunner runner = mock(TurnRunner.class);
         TaskInspectionToolCapability capability =
@@ -382,7 +383,7 @@ final class TestNewFlowAgentRuntimeBoundaries
         List<ToolExecutor.ToolCallResult> results = new ArrayList<>();
         when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
             ToolExecutor executor = invocation.getArgument(1);
-            for (int attempt = 0; attempt < 11; attempt++) {
+            for (int attempt = 0; attempt < bound + 1; attempt++) {
                 results.add(executor.execute(call("run_checks", check, check)));
             }
             return new TurnResult(
@@ -395,14 +396,14 @@ final class TestNewFlowAgentRuntimeBoundaries
                 binding, temporaryDirectory, mock(TaskToolContext.class),
                 capability, false);
 
-        assertThat(results.subList(0, 10)).allSatisfy(result -> {
+        assertThat(results.subList(0, bound)).allSatisfy(result -> {
             assertThat(result.text()).contains("FAILED");
             assertThat(result.isError()).isFalse();
         });
-        assertThat(results.get(10).text())
+        assertThat(results.get(bound).text())
                 .isEqualTo("local-check attempt bound reached");
-        assertThat(results.get(10).isError()).isTrue();
-        verify(capability, times(10)).runChecks(command, "backend");
+        assertThat(results.get(bound).isError()).isTrue();
+        verify(capability, times(bound)).runChecks(command, "backend");
     }
 
     @Test

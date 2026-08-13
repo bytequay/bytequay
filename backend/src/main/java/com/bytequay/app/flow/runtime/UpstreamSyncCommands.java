@@ -52,9 +52,11 @@ import static java.util.Objects.requireNonNull;
 public final class UpstreamSyncCommands
 {
     /**
-     * ponytail: one budget knob, spent per conflict-repair turn. Phase 1 is
-     * bounded by the run's budget and nothing else — no pick ceiling and no
-     * round count, because a large range legitimately needs many repairs.
+     * ponytail: one budget knob, spent per conflict-repair turn — no pick
+     * ceiling and no round count, because a large range legitimately needs
+     * many repairs. A budget of zero means no cap at all, which is what a
+     * start without an explicit budget gets; this bounded default is only for
+     * the convenience overload below.
      */
     public static final int DEFAULT_REPAIR_TURN_BUDGET = 50;
 
@@ -128,6 +130,7 @@ public final class UpstreamSyncCommands
             String requestKey,
             String repositoryId,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,
@@ -138,16 +141,21 @@ public final class UpstreamSyncCommands
             Path targetRepository)
     {
         return startConfirmed(
-                requestKey, repositoryId, goalText, sourceRemote,
+                requestKey, repositoryId, goalText, prTitle, sourceRemote,
                 sourceFromRef, sourceToRef, targetRef, selectedCommits,
                 requestedByUserId, DEFAULT_REPAIR_TURN_BUDGET,
                 sourceRepository, targetRepository);
     }
 
+    /**
+     * @param prTitle the user's own PR title, or null to leave the title to the
+     *         agent that requests the review.
+     */
     public StartReceipt startConfirmed(
             String requestKey,
             String repositoryId,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,
@@ -193,6 +201,7 @@ public final class UpstreamSyncCommands
                     existing.requestId()).orElseThrow();
             if (!existing.repositoryId().equals(repositoryId)
                     || !existing.goalText().equals(effectiveGoal)
+                    || !Objects.equals(existing.prTitle(), prTitle)
                     || !existing.sourceRemote().equals(sourceRemote)
                     || !existing.sourceFromRef().equals(confirmedFrom)
                     || !existing.sourceToRef().equals(confirmedTo)
@@ -218,7 +227,8 @@ public final class UpstreamSyncCommands
             Task task = provisioning.startTask(
                     requestKey, repositoryId, effectiveGoal);
             UpstreamSyncRun run = upstreamSync.startRun(
-                    requestKey, repositoryId, effectiveGoal, sourceRemote,
+                    requestKey, repositoryId, effectiveGoal, prTitle,
+                    sourceRemote,
                     confirmedFrom, confirmedTo, confirmedTarget, confirmed,
                     requestedByUserId, task.taskId(), repairTurnBudget);
             return new StartReceipt(task, run);

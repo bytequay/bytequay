@@ -234,6 +234,23 @@ final class TestLocalChecks
     }
 
     @Test
+    void truncatedOutputKeepsTheTailWhereABuildSaysWhatFailed()
+    {
+        advancePolicy(
+                "policy:v2-tail",
+                "/usr/bin/jot",
+                List.of("300000"),
+                Duration.ofSeconds(10));
+
+        LocalCheckRun run = inWriter(capability -> capability.runChecks(
+                localChecks, repository, null).getFirst());
+
+        assertThat(run.outputTruncated()).isTrue();
+        assertThat(run.outputText()).endsWith("300000\n");
+        assertThat(run.outputText()).doesNotStartWith("1\n");
+    }
+
+    @Test
     void sensitiveOversizedOutputIsOmittedWholesale()
     {
         String home = System.getenv("HOME");

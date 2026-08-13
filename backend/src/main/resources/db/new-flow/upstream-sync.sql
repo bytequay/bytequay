@@ -3,6 +3,9 @@ CREATE TABLE flow_upstream_sync_request (
     request_key TEXT NOT NULL UNIQUE,
     repository_id TEXT NOT NULL,
     goal_text TEXT NOT NULL,
+    -- The user's own PR title, when they typed one. Null leaves the title to
+    -- the agent that requests the review.
+    pr_title TEXT,
     source_remote TEXT NOT NULL,
     source_from_ref TEXT NOT NULL,
     source_to_ref TEXT NOT NULL,

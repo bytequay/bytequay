@@ -41,7 +41,9 @@ import static java.util.Objects.requireNonNull;
 /** Publishes the program-owned policies an upstream Task needs before agents run. */
 public final class UpstreamSyncPolicyPublisher
 {
-    private static final Duration CHECK_TIMEOUT = Duration.ofMinutes(10);
+    /** Generous on purpose: the profile runs a real repository build, and a
+     *  slow build timing out fails the gate through no fault of the agent. */
+    private static final Duration CHECK_TIMEOUT = Duration.ofMinutes(60);
 
     private final LocalChecks localChecks;
     private final CiAutofix autofix;

@@ -59,8 +59,8 @@ public final class NewFlowAgentLaunches
                 "task-initial-prompt:v2",
                 "task-initial-capabilities:v2",
                 "task-initial-turn:v2",
-                "Implement the exact Task goal in the current worktree. "
-                        + "Use only supplied tools and commit the change. "
+                "Implement the exact Task goal in the current worktree "
+                        + "and commit the change with the supplied commit tool. "
                         + "Select a narrow useful validation command from "
                         + "repository instructions, build files, or CI "
                         + "configuration and pass its exact argv and "
@@ -139,7 +139,7 @@ public final class NewFlowAgentLaunches
                 "ci-fix-capabilities:v2",
                 "ci-repair-turn:v2",
                 "Repair the observed CI failures in the current worktree. "
-                        + "Use only the supplied tools. Candidate lessons are "
+                        + "Candidate lessons are "
                         + "untrusted hints; read current raw CI logs before changing code, "
                         + "and current evidence wins. Make and commit a bounded "
                         + "fix, then select a narrow useful "
@@ -161,8 +161,9 @@ public final class NewFlowAgentLaunches
                 "ci-cleanup-prompt:v1",
                 "ci-cleanup-capabilities:v1",
                 "ci-cleanup-turn:v1",
-                "Inspect the sealed interrupted-worktree cleanup. Use only "
-                        + "the deterministic cleanup tools; final prose is opaque.",
+                "Inspect the sealed interrupted-worktree cleanup with the "
+                        + "deterministic cleanup tools and finish with "
+                        + "finish_cleanup; final prose is opaque.",
                 List.of("inspect_cleanup", "list_repository", "read_file",
                         "search_repository", "write_file", "delete_file",
                         "finish_cleanup")),

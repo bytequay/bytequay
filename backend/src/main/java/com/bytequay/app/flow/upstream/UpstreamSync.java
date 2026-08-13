@@ -86,6 +86,7 @@ public final class UpstreamSync
             String requestKey,
             String repositoryId,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,
@@ -132,13 +133,14 @@ public final class UpstreamSync
                     """
                     INSERT INTO flow_upstream_sync_request (
                         request_id, request_key, repository_id, goal_text,
-                        source_remote, source_from_ref, source_to_ref,
-                        target_ref, selected_upstream_shas_json,
+                        pr_title, source_remote, source_from_ref,
+                        source_to_ref, target_ref,
+                        selected_upstream_shas_json,
                         selected_subjects_json, state,
                         requested_by_user_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'STARTED', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'STARTED', ?, ?)
                     """,
-                    requestId, requestKey, repositoryId, goalText,
+                    requestId, requestKey, repositoryId, goalText, prTitle,
                     sourceRemote, sourceFromRef, sourceToRef, targetRef,
                     json(shas(selected)), json(subjects(selected)),
                     requestedByUserId, now);
@@ -563,7 +565,8 @@ public final class UpstreamSync
      * <p>Only a parked run can resume — a run that failed some other way has
      * no recorded safe boundary to re-enter at. The grant is additive so a
      * budget park can be resumed with room to continue, and zero is valid for
-     * a park the user resolved by other means.
+     * a park the user resolved by other means. It is clamped to the run's cap,
+     * so it is a no-op for a run started without one.
      */
     public UpstreamSyncRun resume(String runId, int additionalRepairTurns)
     {
@@ -576,7 +579,8 @@ public final class UpstreamSync
                 """
                 UPDATE flow_upstream_sync_run
                 SET state = ?, park_reason = NULL,
-                    remaining_repair_turns = remaining_repair_turns + ?,
+                    remaining_repair_turns = MIN(
+                        remaining_repair_turns + ?, repair_turn_budget),
                     updated_at = ?
                 WHERE run_id = ? AND state = ?
                 """,
@@ -631,6 +635,7 @@ public final class UpstreamSync
                 result.getString("request_key"),
                 result.getString("repository_id"),
                 result.getString("goal_text"),
+                result.getString("pr_title"),
                 result.getString("source_remote"),
                 result.getString("source_from_ref"),
                 result.getString("source_to_ref"),

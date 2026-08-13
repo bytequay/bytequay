@@ -70,7 +70,8 @@ public final class UpstreamSyncViews
                 JOIN flow_runtime_task t ON t.task_id = r.task_id
             )
             SELECT r.run_id, r.task_id, r.state, r.park_reason,
-                   r.verification_ref, r.remaining_repair_turns,
+                   r.verification_ref, r.repair_turn_budget,
+                   r.remaining_repair_turns,
                    r.pr_result, r.pr_result_at,
                    r.created_at, r.updated_at,
                    (SELECT k.conflicted_paths_json FROM flow_upstream_pick k
@@ -506,7 +507,8 @@ public final class UpstreamSyncViews
                 rows.getInt("skipped_count"),
                 rows.getInt("conflicted_count"),
                 false,
-                rows.getInt("remaining_repair_turns"),
+                rows.getInt("repair_turn_budget") == 0
+                        ? null : rows.getInt("remaining_repair_turns"),
                 rows.getLong("spent_milli_usd"),
                 rows.getString("provider_session_id"),
                 strings(rows.getString("conflicted_paths_json")),
@@ -623,7 +625,8 @@ public final class UpstreamSyncViews
             int skippedCount,
             int conflictedCount,
             boolean pauseRequested,
-            int remainingRepairTurns,
+            /** Null when the run has no conflict-repair cap. */
+            Integer remainingRepairTurns,
             long spentMilliUsd,
             String agentSessionId,
             List<String> conflictPaths,

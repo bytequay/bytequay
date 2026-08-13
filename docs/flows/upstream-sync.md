@@ -644,8 +644,11 @@ execute a program-chosen check.
   quarantine the Task.
 - **Target moves repeatedly:** finish or restore the active internal operation,
   then enqueue one latest-base integration. Do not stack rebases.
-- **Budget exhausted/agent parks:** preserve worktree, run, conflict, and session;
-  notify the user to raise budget, give guidance, or cancel.
+- **Budget exhausted/agent parks:** the conflict-repair turn budget is an
+  optional user-set cap; a run started without one (the default) never parks
+  over spent turns. When a capped run exhausts it, preserve worktree, run,
+  conflict, and session; notify the user to raise the cap, give guidance, or
+  cancel.
 - **Initial publication partly succeeds:** GitHub effect recovery probes branch
   and PR identity, but Upstream Sync remains active while the Task is
   `NEEDS_ATTENTION` or the gate is stale. It hands off only after a later

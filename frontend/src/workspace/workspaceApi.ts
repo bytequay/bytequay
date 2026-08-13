@@ -426,8 +426,9 @@ export type UpstreamCherryPickJobDto = {
    */
   budgetMilliUsd?: number;
   spentMilliUsd: number;
-  /** Conflict-repair turns the run may still spend; greenfield runs only. */
-  remainingRepairTurns?: number;
+  /** Conflict-repair turns a capped run may still spend; greenfield runs
+   *  only, and null when the run was started without a cap. */
+  remainingRepairTurns?: number | null;
   /**
    * CI fix rounds on the pull request. Absent on the retired path, which never
    * reported them — the list says so rather than showing a zero.
@@ -477,6 +478,15 @@ export type UpstreamCherryPickEventDto = {
   exitCode: number | null;
   durationMs: number | null;
   at: string;
+};
+
+/** One tool use the agent asked the user to approve, pending an answer. */
+export type AgentToolApprovalDto = {
+  approvalId: string;
+  runId: string;
+  toolName: string;
+  inputJson: string;
+  requestedAtEpochMilli: number;
 };
 
 export type UpstreamCherryPickRunDto = {
@@ -929,11 +939,14 @@ export const workspaceApi = {
     input: {
       commits: SyncSelectedCommit[];
       goalText: string;
+      /** Omitted: the agent names the PR when it requests the review. */
+      prTitle?: string;
       sourceRemote: string;
       sourceFromRef: string;
       sourceToRef: string;
       targetRef: string;
-      repairTurnBudget: number;
+      /** Omitted: no cap — the run never parks over spent repair turns. */
+      repairTurnBudget?: number;
     },
   ) => window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
     path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs`,
@@ -947,6 +960,17 @@ export const workspaceApi = {
   upstreamSyncRun: (workspaceId: string, runId: string) =>
     window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/syncs/${enc(runId)}`,
+    }),
+  /** Tool uses the agent wants approved — each renders as a card on the run. */
+  syncRunPermissions: (runId: string) =>
+    window.bridge.workspaceApi<AgentToolApprovalDto[]>({
+      path: `/api/new-flow/runs/${enc(runId)}/permissions`,
+    }),
+  answerSyncPermission: (approvalId: string, allow: boolean) =>
+    window.bridge.workspaceApi<void>({
+      path: `/api/new-flow/permissions/${enc(approvalId)}`,
+      method: 'POST',
+      body: { allow },
     }),
   /** The user's own authorization of the first push, against what they saw. */
   authorizeUpstreamSyncPublish: (

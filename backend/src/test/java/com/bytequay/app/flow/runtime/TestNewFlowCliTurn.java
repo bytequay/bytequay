@@ -458,6 +458,7 @@ final class TestNewFlowCliTurn
             liveBridge.set(bridge);
             NewFlowCliTurn turn = new NewFlowCliTurn(
                     new FlowRuntime(dataSource, Clock.systemUTC()), bridge,
+                    new NewFlowAgentPermissions(MAPPER),
                     MAPPER, server.getAddress().getPort());
             NewFlowAgentLaunches.Binding binding = binding(executable);
             List<String> usage = new ArrayList<>();
@@ -697,7 +698,8 @@ final class TestNewFlowCliTurn
             // for a resume id and correctly gets none.
             this.turn = new NewFlowCliTurn(
                     new FlowRuntime(dataSource, Clock.systemUTC()),
-                    bridge, MAPPER, serverPort);
+                    bridge, new NewFlowAgentPermissions(MAPPER),
+                    MAPPER, serverPort);
             this.executor = executor;
             this.binding = new NewFlowAgentLaunches.Binding(
                     RUN_ID,

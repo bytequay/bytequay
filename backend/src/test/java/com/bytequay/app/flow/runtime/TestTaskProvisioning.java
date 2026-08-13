@@ -150,6 +150,21 @@ final class TestTaskProvisioning
     }
 
     @Test
+    void repeatedWorkGetsANewBranchAndWorktree()
+    {
+        TaskProvisioning provisioning = provisioning(config);
+
+        Task first = provisioning.startTask(
+                "upstream-submit-1", "repo-1", "same range");
+        Task second = provisioning.startTask(
+                "upstream-submit-2", "repo-1", "same range");
+
+        assertThat(second.taskId()).isNotEqualTo(first.taskId());
+        assertThat(second.branchName()).isNotEqualTo(first.branchName());
+        assertThat(second.worktreePath()).isNotEqualTo(first.worktreePath());
+    }
+
+    @Test
     void directGitDistinguishesAnAbsentLiteralBranch()
     {
         TaskProvisioning.ProcessResult absent =

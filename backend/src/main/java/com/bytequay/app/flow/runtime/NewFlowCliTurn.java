@@ -22,6 +22,7 @@ import com.bytequay.app.service.threads.CodexJsonParser;
 import com.bytequay.app.service.threads.StreamJsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,19 +88,38 @@ final class NewFlowCliTurn
     /** The pipe is already closed by burial; this only bounds a stuck reader. */
     private static final long READER_JOIN_TIMEOUT = 5_000;
 
+    /**
+     * Appended to every CLI turn's prompt. The agent's own tools are open;
+     * this tells it where the program's protocol still lives.
+     */
+    private static final String TOOLING_GUIDANCE =
+            "Your own built-in tools are available for this turn; reading,"
+            + " searching, editing, and common build/test commands are"
+            + " pre-approved. The supplied bytequay tools are the recommended"
+            + " way to read, edit, and check this worktree, and their terminal"
+            + " call is the only completion signal the program reads — always"
+            + " finish with the exact terminal tool the instructions name."
+            + " Never run git commit or git push yourself; the program owns"
+            + " the repository history. A shell command or tool outside the"
+            + " pre-approved set raises an approval card for the user; a"
+            + " denial means continue another way, not stop.";
+
     private final FlowRuntime runtime;
     private final NewFlowAgentToolBridge bridge;
+    private final NewFlowAgentPermissions permissions;
     private final ObjectMapper mapper;
     private final int serverPort;
 
     NewFlowCliTurn(
             FlowRuntime runtime,
             NewFlowAgentToolBridge bridge,
+            NewFlowAgentPermissions permissions,
             ObjectMapper mapper,
             int serverPort)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.bridge = requireNonNull(bridge, "bridge is null");
+        this.permissions = requireNonNull(permissions, "permissions is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.serverPort = serverPort;
     }
@@ -230,9 +250,30 @@ final class NewFlowCliTurn
         requireNonNull(executor, "executor is null");
         requireNonNull(journal, "journal is null");
 
+        // The bridge additionally serves the permission tool so a tool use
+        // outside the pre-approved set becomes a user question, not a dead
+        // end. It is answered here rather than by the turn's own executor —
+        // approval is the program's conversation with the user, not work.
+        ArrayNode bridgeTools = tools.deepCopy();
+        ObjectNode permissionTool = bridgeTools.addObject()
+                .put("name", NewFlowAgentPermissions.TOOL_NAME)
+                .put("description", "Ask the user to approve a tool use that"
+                        + " is not pre-approved.");
+        permissionTool.putObject("inputSchema")
+                .put("type", "object")
+                .put("additionalProperties", true);
+        ToolExecutor gated = call ->
+                NewFlowAgentPermissions.TOOL_NAME.equals(call.name())
+                        ? ToolExecutor.ToolCallResult.ok(
+                                permissions.ask(runId, call.input()))
+                        : executor.execute(call);
+        String prompt = systemPrompt == null || systemPrompt.isBlank()
+                ? TOOLING_GUIDANCE
+                : systemPrompt + "\n\n" + TOOLING_GUIDANCE;
+
         CliAgentArgv.Vendor vendor = vendor(binding);
         try (NewFlowAgentToolBridge.Registration registration =
-                     bridge.open(runId, tools, executor)) {
+                     bridge.open(runId, bridgeTools, gated)) {
             String mcpUrl = "http://127.0.0.1:" + serverPort
                     + registration.path();
             Path mcpConfig = vendor == CliAgentArgv.Vendor.CLAUDE_CODE
@@ -250,7 +291,7 @@ final class NewFlowCliTurn
                             "could not scrub the agent's environment", failure);
                 }
                 return execute(
-                        runId, binding, systemPrompt, vendor, directory,
+                        runId, binding, prompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl, scrubbed,
                         true, allowedTools(tools), registration, journal,
                         interrupted);
@@ -274,7 +315,7 @@ final class NewFlowCliTurn
             }
             try {
                 return execute(
-                        runId, binding, systemPrompt, vendor, directory,
+                        runId, binding, prompt, vendor, directory,
                         scratch.resolve("pgid"), mcpConfig, mcpUrl,
                         contained.environment(), false, allowedTools(tools),
                         registration, journal, interrupted);
@@ -413,7 +454,7 @@ final class NewFlowCliTurn
                 readOnly,
                 mcpConfig,
                 mcpUrl,
-                null,
+                "mcp__bytequay__" + NewFlowAgentPermissions.TOOL_NAME,
                 null,
                 resumeSessionId,
                 allowedTools,

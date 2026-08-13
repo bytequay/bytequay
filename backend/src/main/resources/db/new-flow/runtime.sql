@@ -717,7 +717,7 @@ CREATE TABLE flow_runtime_local_check_profile (
     environment_allowlist_json TEXT NOT NULL,
     required_gate_kinds_json TEXT NOT NULL,
     timeout_seconds INTEGER NOT NULL CHECK (
-        timeout_seconds > 0 AND timeout_seconds <= 600
+        timeout_seconds > 0 AND timeout_seconds <= 7200
     ),
     UNIQUE (policy_revision_id, name),
     UNIQUE (policy_revision_id, profile_id),

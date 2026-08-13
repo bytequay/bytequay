@@ -101,11 +101,16 @@ public final class UpstreamSyncRecords
         }
     }
 
+    /**
+     * @param prTitle the user's own PR title, or null to leave the title to the
+     *         agent that requests the review.
+     */
     public record UpstreamSyncRequest(
             String requestId,
             String requestKey,
             String repositoryId,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,
@@ -143,6 +148,7 @@ public final class UpstreamSyncRecords
             String taskId,
             RepairPlacementPolicy repairPlacement,
             RunState state,
+            /** Zero means unbounded: the user set no conflict-repair cap. */
             int repairTurnBudget,
             int remainingRepairTurns,
             int currentIndex,
@@ -168,6 +174,15 @@ public final class UpstreamSyncRecords
                 throw new IllegalArgumentException(
                         "upstream sync run counters are negative");
             }
+        }
+
+        /**
+         * Whether another conflict-repair turn may launch. A run without a
+         * cap always has one; a capped run stops when the cap is spent.
+         */
+        public boolean repairTurnsRemaining()
+        {
+            return repairTurnBudget == 0 || remainingRepairTurns > 0;
         }
     }
 

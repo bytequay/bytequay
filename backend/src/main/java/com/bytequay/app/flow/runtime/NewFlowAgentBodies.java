@@ -60,8 +60,10 @@ import static java.util.Objects.requireNonNull;
 /** Neutral TurnRunner bodies behind role-specific, zero-owner-id tools. */
 final class NewFlowAgentBodies
 {
-    private static final int MAX_TOOL_CALLS = 64;
-    private static final int MAX_CHECK_ATTEMPTS = 10;
+    /** A backstop on real build runs, not a ration: each attempt is a full
+     *  repository check, so the only turn this ends is one that is looping.
+     *  Package-visible for the boundary test. */
+    static final int MAX_CHECK_ATTEMPTS = 25;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
     private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
 
@@ -560,10 +562,15 @@ final class NewFlowAgentBodies
                 });
     }
 
+    /**
+     * No call counting: every tool here is program-served, lease-guarded, and
+     * permitted by the role's manifest, so a permitted call is a permitted
+     * call however many came before it. The turn ends on its terminal tool,
+     * the check-attempt bound, or the agent's own context — not on a quota.
+     */
     private ToolExecutor bounded(
             AtomicBoolean terminalSeal, ToolExecutor delegate)
     {
-        AtomicInteger calls = new AtomicInteger();
         return call -> {
             if (terminalSeal.get()) {
                 return ToolCallResult.error("terminal tool already accepted");
@@ -571,15 +578,14 @@ final class NewFlowAgentBodies
             if (!validArguments(call)) {
                 return ToolCallResult.error("tool argument is invalid");
             }
-            if (calls.incrementAndGet() > MAX_TOOL_CALLS) {
-                return ToolCallResult.error("tool-call bound reached");
-            }
             ToolCallResult result = delegate.execute(call);
             if (result.text().length() <= MAX_TOOL_RESULT_CHARS) {
                 return result;
             }
             return new ToolCallResult(
-                    result.text().substring(0, MAX_TOOL_RESULT_CHARS),
+                    result.text().substring(0, MAX_TOOL_RESULT_CHARS)
+                            + "\n[result truncated; narrow the request to"
+                            + " see the rest]",
                     result.isError());
         };
     }
@@ -726,12 +732,23 @@ final class NewFlowAgentBodies
                         return summary;
                     }
                     return String.join(
-                            "\n", summary, output.substring(
-                                    0, Math.min(output.length(),
-                                            MAX_CHECK_OUTPUT_CHARS)));
+                            "\n", summary, tailOf(output));
                 })
                 .toList();
         return summaries.isEmpty() ? "no checks" : String.join("\n", summaries);
+    }
+
+    /**
+     * The end of the output, labeled when the start had to go: a build log
+     * says what failed at the end, so the tail is the half worth keeping.
+     */
+    static String tailOf(String output)
+    {
+        if (output.length() <= MAX_CHECK_OUTPUT_CHARS) {
+            return output;
+        }
+        return "[earlier output omitted]\n" + output.substring(
+                output.length() - MAX_CHECK_OUTPUT_CHARS);
     }
 
     private ToolCallResult guarded(

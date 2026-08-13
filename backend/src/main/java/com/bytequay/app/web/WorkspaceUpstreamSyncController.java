@@ -116,6 +116,13 @@ public final class WorkspaceUpstreamSyncController
         String goalText = body.goalText() == null || body.goalText().isBlank()
                 ? "Sync " + selected.size() + " upstream commits"
                 : body.goalText();
+        String prTitle = body.prTitle() == null || body.prTitle().isBlank()
+                ? null
+                : body.prTitle().strip();
+        if (prTitle != null && prTitle.length() > 256) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "PR title is too long");
+        }
         String sourceRemote = relation.upstream().fullName();
         String sourceFromRef = text(
                 body.sourceFromRef(), selected.getFirst().sha());
@@ -125,11 +132,12 @@ public final class WorkspaceUpstreamSyncController
         int repairTurnBudget = repairTurns(body.repairTurnBudget());
         UpstreamSyncCommands.StartReceipt receipt = commands.startConfirmed(
                 requestKey(
-                        repositoryId, selected, goalText, sourceRemote,
+                        repositoryId, selected, goalText, prTitle, sourceRemote,
                         sourceFromRef, sourceToRef, targetRef,
                         repairTurnBudget),
                 repositoryId,
                 goalText,
+                prTitle,
                 sourceRemote,
                 sourceFromRef,
                 sourceToRef,
@@ -244,10 +252,12 @@ public final class WorkspaceUpstreamSyncController
                 .toList();
     }
 
+    /** Zero — no cap — unless the user asked for one; zero is also what an
+     *  explicit "no cap" submits, so both spell the same stored value. */
     private static int repairTurns(Integer requested)
     {
         if (requested == null) {
-            return UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET;
+            return 0;
         }
         if (requested < 0 || requested > MAX_REPAIR_TURNS) {
             throw new ResponseStatusException(
@@ -269,6 +279,7 @@ public final class WorkspaceUpstreamSyncController
             String repositoryId,
             List<SelectedCommit> selected,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,
@@ -284,6 +295,7 @@ public final class WorkspaceUpstreamSyncController
         }
         update(digest, repositoryId);
         update(digest, goalText);
+        update(digest, prTitle == null ? "" : prTitle);
         update(digest, sourceRemote);
         update(digest, sourceFromRef);
         update(digest, sourceToRef);
@@ -292,7 +304,7 @@ public final class WorkspaceUpstreamSyncController
         for (SelectedCommit commit : selected) {
             update(digest, commit.sha());
         }
-        return "upstream-sync-command:v2:"
+        return "upstream-sync-command:v3:"
                 + HexFormat.of().formatHex(digest.digest());
     }
 
@@ -325,12 +337,15 @@ public final class WorkspaceUpstreamSyncController
     public record SelectedCommitBody(String sha, String subject) {}
 
     /**
-     * @param repairTurnBudget conflict-repair turns for the whole range; the
-     *         run's only bound, and null takes the default.
+     * @param prTitle optional PR title; blank or null leaves the title to the
+     *         agent that requests the review.
+     * @param repairTurnBudget optional cap on conflict-repair turns for the
+     *         whole range; null or zero runs without one.
      */
     public record StartSyncBody(
             List<SelectedCommitBody> commits,
             String goalText,
+            String prTitle,
             String sourceRemote,
             String sourceFromRef,
             String sourceToRef,

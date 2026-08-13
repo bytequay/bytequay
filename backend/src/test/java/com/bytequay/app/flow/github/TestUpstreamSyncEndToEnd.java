@@ -252,6 +252,7 @@ final class TestUpstreamSyncEndToEnd
                                         "upstream-request", "octocat/bytequay",
                                         "Bring the selected upstream commits onto "
                                                 + "this fork",
+                                        "Sync the upstream range",
                                         "octocat/upstream", "source-start",
                                         "upstream", "main",
                                         selection(confirmedRange),
@@ -267,6 +268,7 @@ final class TestUpstreamSyncEndToEnd
                                 "upstream-request", "octocat/bytequay",
                                 "Bring the selected upstream commits onto this "
                                         + "fork",
+                                "Sync the upstream range",
                                 "octocat/upstream", "source-start", "upstream",
                                 "main", selection(confirmedRange), "user-1",
                                 upstreamRepository, repository).run().runId())
@@ -296,6 +298,11 @@ final class TestUpstreamSyncEndToEnd
                                 .filter(current -> current.prId() != null));
                         PullRequestSubject localPr = runtime.pullRequest(
                                 withPr.prId()).orElseThrow();
+                        // The title the picker was given wins over the one the
+                        // agent asked its review with.
+                        assertThat(runtime.currentPrDraft(localPr.prId())
+                                .orElseThrow().title())
+                                .isEqualTo("Sync the upstream range");
                         CiAutofix autofix = context.getBean(CiAutofix.class);
                         autofix.recordPlacementPolicy(
                                 task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,

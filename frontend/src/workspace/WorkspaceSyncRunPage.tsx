@@ -30,6 +30,7 @@ import {
 } from './syncRunModel';
 import {
   workspaceApi,
+  type AgentToolApprovalDto,
   type UpstreamCherryPickJobDto,
   type UpstreamCherryPickRunDto,
 } from './workspaceApi';
@@ -67,6 +68,8 @@ export default function WorkspaceSyncRunPage({
   const [guidance, setGuidance] = useState('');
   const [closing, setClosing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  /** Tool uses the agent asked to have approved; each waits on a card here. */
+  const [approvals, setApprovals] = useState<AgentToolApprovalDto[]>([]);
   const streamRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   /** What the current agent turn has said and run, as it arrives. */
@@ -117,6 +120,30 @@ export default function WorkspaceSyncRunPage({
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [live, publishing, load]);
+
+  // A live agent turn may be waiting on a tool approval; the question only
+  // exists while the turn is open, so it is polled with the run and cleared
+  // the moment the run is no longer live.
+  useEffect(() => {
+    if (!flow || !live) {
+      setApprovals([]);
+      return undefined;
+    }
+    const poll = () => {
+      void workspaceApi.syncRunPermissions(jobId)
+        .then(list => setApprovals(Array.isArray(list) ? list : []))
+        .catch(() => {});
+    };
+    poll();
+    const timer = window.setInterval(poll, REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [flow, live, jobId]);
+
+  const answerApproval = (approvalId: string, allow: boolean) => {
+    setApprovals(current =>
+      current.filter(approval => approval.approvalId !== approvalId));
+    void workspaceApi.answerSyncPermission(approvalId, allow).catch(() => {});
+  };
 
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
@@ -272,6 +299,23 @@ export default function WorkspaceSyncRunPage({
           )}
         </header>
 
+        {approvals.map(approval => (
+          <div key={approval.approvalId} className="sr-approval" role="alert">
+            <div className="sr-approval__text">
+              <strong>Agent asks to use “{approval.toolName}”</strong>
+              <code title={approval.inputJson}>{approval.inputJson}</code>
+            </div>
+            <button type="button" className="sr-topbar__action is-primary"
+              onClick={() => answerApproval(approval.approvalId, true)}>
+              Approve
+            </button>
+            <button type="button" className="sr-topbar__action"
+              onClick={() => answerApproval(approval.approvalId, false)}>
+              Deny
+            </button>
+          </div>
+        ))}
+
         {/* The session the whole run shares, and what it has cost. `claude
             --resume` continues a conversation rather than attaching to a live
             one, so tailing the session's own transcript is how you watch from a
@@ -299,7 +343,9 @@ export default function WorkspaceSyncRunPage({
           </span>
           <span className="sr-session__dot" aria-hidden>·</span>
           <span className="sr-session__stat" title={budget === undefined
-            ? `${job.remainingRepairTurns ?? 0} conflict-repair turns left`
+            ? (job.remainingRepairTurns === undefined || job.remainingRepairTurns === null
+              ? 'no conflict-repair turn cap'
+              : `${job.remainingRepairTurns} conflict-repair turns left`)
             : `${money(job.spentMilliUsd)} of ${money(budget)} budget`}>
             {money(job.spentMilliUsd)} spent
           </span>

@@ -48,6 +48,35 @@ public final class CliAgentArgv
     /** The built-in tools a read-only turn keeps; everything else is denied. */
     private static final String CLAUDE_READ_ONLY_TOOLS =
             "Read,Glob,Grep,WebFetch,WebSearch";
+    /** Pre-approved so a flow turn never stalls on its own toolset. The
+     *  owner's MCP tools are the recommended path, not the only one. */
+    private static final List<String> CLAUDE_NATIVE_READ_ALLOWS =
+            List.of("Read", "Glob", "Grep", "WebFetch", "WebSearch");
+    /**
+     * Auto-permission: the expected work of a repair — reading, searching,
+     * editing, building, testing — runs without asking, while a shell command
+     * outside these patterns routes to the owner's permission tool and
+     * becomes an approval card. Notably absent on purpose: {@code rm},
+     * {@code curl}, {@code git commit}, {@code git push} — the program owns
+     * history and publication, so those asking first is the feature.
+     */
+    private static final List<String> CLAUDE_NATIVE_WRITER_ALLOWS =
+            List.of("Read", "Glob", "Grep", "Edit", "Write",
+                    "WebFetch", "WebSearch",
+                    "Bash(git status:*)", "Bash(git diff:*)",
+                    "Bash(git log:*)", "Bash(git show:*)",
+                    "Bash(git grep:*)", "Bash(git blame:*)",
+                    "Bash(git branch:*)", "Bash(git rev-parse:*)",
+                    "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)",
+                    "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)",
+                    "Bash(rg:*)", "Bash(find:*)", "Bash(diff:*)",
+                    "Bash(mvn:*)", "Bash(./mvnw:*)", "Bash(make:*)",
+                    "Bash(gradle:*)", "Bash(./gradlew:*)",
+                    "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)",
+                    "Bash(yarn:*)", "Bash(pnpm:*)",
+                    "Bash(python3:*)", "Bash(pytest:*)",
+                    "Bash(java:*)", "Bash(javac:*)",
+                    "Bash(go:*)", "Bash(cargo:*)");
 
     private CliAgentArgv() {}
 
@@ -89,7 +118,7 @@ public final class CliAgentArgv
             String resumeSessionId,
             List<String> allowedTools,
             List<String> imagePaths,
-            boolean mcpOnly)
+            boolean mcpFirst)
     {
         public Launch(
                 Vendor vendor,
@@ -175,14 +204,33 @@ public final class CliAgentArgv
                     .stripTrailingZeros()
                     .toPlainString());
         }
-        if (launch.mcpOnly()) {
-            argv.add("--tools", "");
-        }
-        else if (launch.readOnly()) {
-            argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
-        }
         ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
         allowedTools.addAll(launch.allowedTools());
+        if (launch.readOnly()) {
+            argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
+            if (launch.mcpFirst()) {
+                allowedTools.addAll(CLAUDE_NATIVE_READ_ALLOWS);
+            }
+        }
+        else if (launch.mcpFirst()) {
+            // No --tools flag: the full native toolset stays available and is
+            // pre-approved. The owner's MCP tools are recommended in the
+            // prompt, and their terminal calls remain the only completion
+            // signal the program reads — that is protocol, not a restriction.
+            allowedTools.addAll(CLAUDE_NATIVE_WRITER_ALLOWS);
+            // Deleting its own scratch is the agent cleaning up, not a risk:
+            // rm scoped to /tmp and this turn's own worktree runs without a
+            // card, the same way the agent's sandbox behaves interactively.
+            // An rm outside those roots still asks.
+            for (String root : List.of(
+                    "/tmp/", "/private/tmp/",
+                    launch.workingDirectory() + "/")) {
+                for (String flags : List.of(
+                        "", "-f ", "-r ", "-rf ", "-fr ")) {
+                    allowedTools.add("Bash(rm " + flags + root + "*)");
+                }
+            }
+        }
         if (launch.systemPrompt() != null) {
             argv.add("--append-system-prompt", launch.systemPrompt());
         }
@@ -246,7 +294,7 @@ public final class CliAgentArgv
         else {
             argv.add("--json")
                     .add("--skip-git-repo-check")
-                    .add("--sandbox", launch.readOnly() || launch.mcpOnly()
+                    .add("--sandbox", launch.readOnly()
                             ? "read-only" : "workspace-write")
                     .add("-C", launch.workingDirectory().toString())
                     .add("-m", launch.model());

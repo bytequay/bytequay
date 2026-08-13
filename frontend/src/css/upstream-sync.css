@@ -1200,6 +1200,18 @@
 }
 
 /* The run's agent session, and how to watch it from a terminal. */
+.sr-approval {
+  align-items: center; background: #fff8e6; border-bottom: 1px solid #f0dfb6;
+  display: flex; gap: 10px; font-size: 12px; padding: 8px 18px;
+}
+.sr-approval__text {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;
+}
+.sr-approval__text code {
+  color: #57606a; font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
 .sr-session {
   align-items: center; border-bottom: 1px solid #eef0f2; color: #8b949e;
   display: flex; gap: 9px; font-size: 10.5px; padding: 6px 18px;

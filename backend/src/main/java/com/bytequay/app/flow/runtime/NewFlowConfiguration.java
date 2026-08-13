@@ -340,6 +340,13 @@ public class NewFlowConfiguration
     }
 
     @Bean
+    public NewFlowAgentPermissions newFlowAgentPermissions(
+            ObjectMapper objectMapper)
+    {
+        return new NewFlowAgentPermissions(objectMapper);
+    }
+
+    @Bean
     NewFlowAgentBodies newFlowAgentBodies(
             NewFlowAgentLaunches launches,
             TurnRunner turnRunner,
@@ -347,6 +354,7 @@ public class NewFlowConfiguration
             LocalChecks localChecks,
             FlowRuntime runtime,
             NewFlowAgentToolBridge toolBridge,
+            NewFlowAgentPermissions permissions,
             @Value("${server.port:53123}") int serverPort)
     {
         return new NewFlowAgentBodies(
@@ -355,7 +363,8 @@ public class NewFlowConfiguration
                 objectMapper,
                 localChecks,
                 new NewFlowCliTurn(
-                        runtime, toolBridge, objectMapper, serverPort));
+                        runtime, toolBridge, permissions, objectMapper,
+                        serverPort));
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

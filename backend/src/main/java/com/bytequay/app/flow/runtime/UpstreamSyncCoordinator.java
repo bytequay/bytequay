@@ -81,11 +81,11 @@ public final class UpstreamSyncCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(
             UpstreamSyncCoordinator.class);
-    private static final int MAX_REPAIR_TOOL_CALLS = 64;
-    private static final int MAX_CHECK_ATTEMPTS = 10;
+    /** A backstop on real build runs, not a ration: each attempt is a full
+     *  repository check, so the only turn this ends is one that is looping. */
+    private static final int MAX_CHECK_ATTEMPTS = 25;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
     private static final int MAX_UPSTREAM_DIFF_CHARS = 128 * 1024;
-    private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
     private static final int MAX_DRAFT_BODY_COMMITS = 50;
 
     private final FlowRuntime runtime;
@@ -375,7 +375,7 @@ public final class UpstreamSyncCoordinator
             List<String> selected,
             UpstreamPick firstConflict)
     {
-        if (upstreamSync.run(runId).orElseThrow().remainingRepairTurns() <= 0) {
+        if (!upstreamSync.run(runId).orElseThrow().repairTurnsRemaining()) {
             return "BUDGET_SPENT";
         }
         upstreamSync.spendRepairTurn(runId);
@@ -390,9 +390,8 @@ public final class UpstreamSyncCoordinator
         AtomicBoolean terminal = new AtomicBoolean();
         AtomicInteger checkAttempts = new AtomicInteger();
         AtomicBoolean checksUnavailable = new AtomicBoolean();
-        AtomicInteger repairCalls = new AtomicInteger();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
-        ToolExecutor executor = bounded(terminal, repairCalls, call ->
+        ToolExecutor executor = bounded(terminal, call ->
                 switch (call.name()) {
                     case "read_pick_conflict_context" -> safe(() ->
                             conflictContext(
@@ -481,8 +480,8 @@ public final class UpstreamSyncCoordinator
                                         + "refused and the range will park";
                             }
                             if (step.conflict() != null) {
-                                if (upstreamSync.run(runId).orElseThrow()
-                                        .remainingRepairTurns() <= 0) {
+                                if (!upstreamSync.run(runId).orElseThrow()
+                                        .repairTurnsRemaining()) {
                                     stopReason.set("BUDGET_SPENT");
                                     terminal.set(true);
                                     return "repair recorded; the next conflict "
@@ -493,7 +492,6 @@ public final class UpstreamSyncCoordinator
                                 targetSubject.set(capability.callTool(() ->
                                         picker.subject(step.conflict()
                                                 .upstreamSha())));
-                                repairCalls.set(0);
                                 return "conflicted pick continued; another conflict is "
                                         + "ready, so read its context and "
                                         + "repair it next";
@@ -545,9 +543,8 @@ public final class UpstreamSyncCoordinator
         AtomicBoolean terminal = new AtomicBoolean();
         AtomicInteger checkAttempts = new AtomicInteger();
         AtomicBoolean checksUnavailable = new AtomicBoolean();
-        AtomicInteger calls = new AtomicInteger();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
-        ToolExecutor executor = bounded(terminal, calls, call ->
+        ToolExecutor executor = bounded(terminal, call ->
                 switch (call.name()) {
                     case "read_upstream_review_context" -> safe(() ->
                             finalReviewContext(request, runId, picker));
@@ -629,10 +626,8 @@ public final class UpstreamSyncCoordinator
                             || check.outputText().isBlank()) {
                         return summary;
                     }
-                    String output = check.outputText();
-                    return summary + "\n" + output.substring(
-                            0, Math.min(output.length(),
-                                    MAX_CHECK_OUTPUT_CHARS));
+                    return summary + "\n"
+                            + NewFlowAgentBodies.tailOf(check.outputText());
                 })
                 .collect(Collectors.joining("\n"));
     }
@@ -713,7 +708,12 @@ public final class UpstreamSyncCoordinator
                 picker, runId, task.taskId(), request.targetRef(), selected);
         upstreamSync.recordVerification(
                 runId, RunState.FINAL_REVIEW, picker.head(), verification);
-        capability.requestReview(title, body);
+        // A title the user typed is the title, not a suggestion: the agent only
+        // names the PR when the picker left that field empty.
+        String requested = request.prTitle();
+        capability.requestReview(
+                requested == null || requested.isBlank() ? title : requested,
+                body);
     }
 
     private void publishPolicies(
@@ -958,24 +958,28 @@ public final class UpstreamSyncCoordinator
         }
     }
 
+    /**
+     * No call counting: every tool here is program-served, lease-guarded, and
+     * permitted by the role's manifest, so a permitted call is a permitted
+     * call however many came before it. The turn ends on its terminal tool,
+     * the check-attempt bound, or the agent's own context — not on a quota.
+     */
     private ToolExecutor bounded(
             AtomicBoolean terminal,
-            AtomicInteger calls,
             ToolExecutor delegate)
     {
         return call -> {
             if (terminal.get()) {
                 return ToolCallResult.error("terminal tool already accepted");
             }
-            if (calls.incrementAndGet() > MAX_REPAIR_TOOL_CALLS) {
-                return ToolCallResult.error("tool-call bound reached");
-            }
             ToolCallResult result = delegate.execute(call);
             if (result.text().length() <= MAX_TOOL_RESULT_CHARS) {
                 return result;
             }
             return new ToolCallResult(
-                    result.text().substring(0, MAX_TOOL_RESULT_CHARS),
+                    result.text().substring(0, MAX_TOOL_RESULT_CHARS)
+                            + "\n[result truncated; narrow the request to"
+                            + " see the rest]",
                     result.isError());
         };
     }

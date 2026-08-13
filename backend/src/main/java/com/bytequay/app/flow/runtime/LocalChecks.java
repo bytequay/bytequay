@@ -231,13 +231,15 @@ public final class LocalChecks
                 }
             }
             requireNonNull(timeout, "timeout is null");
+            // The ceiling exists to catch a nonsense value, not to ration a
+            // real build: repository verifies routinely run past an hour.
             if (timeout.isZero() || timeout.isNegative()
-                    || timeout.compareTo(Duration.ofMinutes(10)) > 0
+                    || timeout.compareTo(Duration.ofHours(2)) > 0
                     || timeout.toSeconds() == 0
                     || !timeout.equals(Duration.ofSeconds(
                             timeout.toSeconds()))) {
                 throw new IllegalArgumentException(
-                        "timeout must be 1-600 whole seconds");
+                        "timeout must be 1-7200 whole seconds");
             }
             requiredForGateKinds = List.copyOf(requiredForGateKinds).stream()
                     .sorted().toList();
@@ -820,7 +822,8 @@ public final class LocalChecks
                         ? "local check output omitted because allowlisted "
                                 + "environment values were present\n"
                         : drain.truncated()
-                        ? "local check output exceeded 262144 bytes\n"
+                        ? "[earlier output dropped; the tail follows]\n"
+                                + drain.output()
                         : drain.output()
                 : "";
         if (interrupted) {
@@ -1408,9 +1411,11 @@ public final class LocalChecks
         if (bytes.length <= MAX_OUTPUT_BYTES) {
             return new BoundedOutput(output, false);
         }
+        // The tail, for the same reason the drain keeps it: that is where a
+        // build says what failed.
         return new BoundedOutput(new String(
                 bytes,
-                0,
+                bytes.length - (MAX_OUTPUT_BYTES - 3),
                 MAX_OUTPUT_BYTES - 3,
                 StandardCharsets.UTF_8), true);
     }
@@ -1497,13 +1502,7 @@ public final class LocalChecks
             try {
                 int read;
                 while ((read = input.read(buffer)) >= 0) {
-                    int remaining = MAX_OUTPUT_BYTES - captured.size();
-                    if (remaining > 0) {
-                        append(buffer, Math.min(remaining, read));
-                    }
-                    if (read > remaining) {
-                        truncated = true;
-                    }
+                    append(buffer, read);
                 }
                 sawEof = true;
             }
@@ -1514,12 +1513,33 @@ public final class LocalChecks
 
         private synchronized String output()
         {
+            compact();
             return captured.toString(StandardCharsets.UTF_8);
         }
 
+        /**
+         * Keeps the tail rather than the head: a build log's failure summary
+         * is at the end, and a head-kept excerpt of a long red build would
+         * show the agent everything except why it failed.
+         */
         private synchronized void append(byte[] value, int length)
         {
             captured.write(value, 0, length);
+            if (captured.size() > 2 * MAX_OUTPUT_BYTES) {
+                compact();
+            }
+        }
+
+        private void compact()
+        {
+            if (captured.size() <= MAX_OUTPUT_BYTES) {
+                return;
+            }
+            byte[] all = captured.toByteArray();
+            captured.reset();
+            captured.write(
+                    all, all.length - MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
+            truncated = true;
         }
 
         private boolean truncated()

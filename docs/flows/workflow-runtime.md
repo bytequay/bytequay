@@ -450,6 +450,18 @@ honestly pin instead — binary and version — so a CLI run's sealed binding pr
 strictly less than an API run's. That is permanent, and a property of delegating
 authentication rather than a gap to close.
 
+A CLI turn keeps the agent's own native toolset, pre-approved, alongside the
+program's MCP tools. The program's tools are the recommended path — and their
+terminal calls are the only completion signal the runtime reads — but they are
+guidance, not a cage: helping the agent finish outranks fencing how it works.
+Writer turns pre-approve the native read and write set; read-only turns
+(adversarial review) keep only the native read trio. A tool use outside the
+pre-approved set is routed to the program's permission tool, which surfaces an
+approval card on the run's page and blocks the call until the user answers;
+no answer within the window is a deny that tells the agent to continue another
+way. Safety lives in mechanical containment (below) and in the program owning
+Git and credentials, not in stripping the agent's hands.
+
 Because the agent has a shell, a writer turn is contained mechanically rather than
 asked to behave: no push destination, no credential helper, no agent socket and no
 prompt, and the program separately records the remote head and quarantines a turn

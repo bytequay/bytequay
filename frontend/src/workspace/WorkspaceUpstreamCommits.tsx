@@ -125,7 +125,8 @@ export function UpstreamCherryPicker({
   onOpenSync?: (jobId: string) => void;
 }) {
   const byRange = fromSha !== undefined && toSha !== undefined;
-  const [repairTurns, setRepairTurns] = useState('50');
+  const [repairTurns, setRepairTurns] = useState('');
+  const [prTitle, setPrTitle] = useState('');
   const [prDescription, setPrDescription] = useState('');
   const [skipStartsWith, setSkipStartsWith] = useState('');
   const [skipContains, setSkipContains] = useState('');
@@ -139,9 +140,10 @@ export function UpstreamCherryPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const skipped = commits.filter(commit => commit.picked).length;
+  const uncapped = repairTurns.trim() === '';
   const parsedTurns = Number(repairTurns);
-  const turnsValid = Number.isInteger(parsedTurns)
-    && parsedTurns >= 0 && parsedTurns <= 500;
+  const turnsValid = uncapped || (Number.isInteger(parsedTurns)
+    && parsedTurns >= 0 && parsedTurns <= 500);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,15 +293,23 @@ export function UpstreamCherryPicker({
               <span className="wu-upstream-cherry__budget"><input
                 aria-label="Conflict repair turns"
                 aria-invalid={!turnsValid} inputMode="numeric" value={repairTurns}
+                placeholder="No limit"
                 onChange={event => setRepairTurns(event.target.value)} />
-                <small>Agent turns for the whole range — one per conflict it
-                  repairs. It is the only bound on phase 1, so a long range
-                  wants room; the run parks when they are spent.</small>
+                <small>Optional cap on agent turns — one is spent per conflict
+                  repaired. Leave blank and the range runs to the end; set a
+                  cap and the run pauses for you when it is spent.</small>
               </span>
             </label>
             {!turnsValid && (
-              <span className="wu-form-error">Repair turns must be 0–500.</span>
+              <span className="wu-form-error">Repair turns must be blank or 0–500.</span>
             )}
+            <label className="wu-upstream-cherry__branch">
+              <strong>PULL REQUEST TITLE</strong>
+              <span><input maxLength={256} value={prTitle}
+                placeholder="Sync 5 upstream commits"
+                onChange={event => setPrTitle(event.target.value)} />
+                <small>optional · left blank, the run names the PR itself</small></span>
+            </label>
             <label className="wu-upstream-cherry__branch">
               <strong>PULL REQUEST DESCRIPTION</strong>
               <span><textarea rows={4} value={prDescription}
@@ -367,13 +377,15 @@ export function UpstreamCherryPicker({
                           picked.length === 1 ? '' : 's'} from ${
                           snapshot.upstreamWorkspaceName}/${snapshot.revision}`
                         : prDescription.trim(),
+                      prTitle: prTitle.trim() === ''
+                        ? undefined : prTitle.trim(),
                       sourceRemote: snapshot.upstreamRepoFullName,
                       // The dry run answers oldest first, which is the order
                       // the picks are applied in.
                       sourceFromRef: picked[0].sha,
                       sourceToRef: picked[picked.length - 1].sha,
                       targetRef: defaultBranch(repo),
-                      repairTurnBudget: parsedTurns,
+                      repairTurnBudget: uncapped ? undefined : parsedTurns,
                     });
                   })
                   .then(setJob)

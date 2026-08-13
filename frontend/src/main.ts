@@ -2302,7 +2302,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const request = args as { path?: unknown; method?: unknown; body?: unknown };
     if (typeof request.path !== 'string'
-        || !/^\/api\/(?:workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
+        || !/^\/api\/(?:workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$)|new-flow\/(?:runs|permissions)(?:\/|$))/.test(request.path)
         || request.path.includes('..')) {
       throw new Error('workspace request path is not allowed');
     }

@@ -60,11 +60,6 @@ final class TestUpstreamSyncPolicyPublisher
                     steps:
                       - working-directory: backend
                         run: ./mvnw -B verify -DskipTests
-                  test:
-                    name: test
-                    steps:
-                      - working-directory: backend
-                        run: ./mvnw -B test
                 """, StandardCharsets.UTF_8);
 
         LocalChecks local = mock(LocalChecks.class);
@@ -81,13 +76,12 @@ final class TestUpstreamSyncPolicyPublisher
         when(resolver.resolve("secret", "acme", "fork", "main"))
                 .thenReturn(new Snapshot(
                         "github:rules/branches/main", "sha256:rules",
-                        List.of("GITHUB_CHECK:7:build",
-                                "GITHUB_CHECK:9:test")));
+                        List.of("GITHUB_CHECK:7:build")));
         RequiredCiPolicyRevision required = new RequiredCiPolicyRevision(
                 "policy", "acme/fork", "refs/heads/main",
                 "refs/heads/main", 1, PolicyResolution.RESOLVED,
                 "github:rules/branches/main", "sha256:rules", null,
-                List.of("GITHUB_CHECK:7:build", "GITHUB_CHECK:9:test"),
+                List.of("GITHUB_CHECK:7:build"),
                 List.of("NEUTRAL", "SKIPPED", "SUCCESS"), Instant.EPOCH);
         when(autofix.recordPolicy(
                 eq("acme/fork"), eq("refs/heads/main"),
@@ -108,8 +102,9 @@ final class TestUpstreamSyncPolicyPublisher
                 eq("git:" + "a".repeat(40) + ":.github/workflows/ci.yml"),
                 any(), profiles.capture());
         assertThat(profiles.getValue()).singleElement().satisfies(profile -> {
+            assertThat(profile.name()).isEqualTo("agent-selected");
             assertThat(profile.command()).containsExactly(
-                    "./mvnw", "-B", "test");
+                    "./mvnw", "-B", "verify", "-DskipTests");
             assertThat(profile.workingDirectory()).isEqualTo("backend");
             assertThat(profile.requiredForGateKinds()).containsExactly(
                     FlowRuntimeRecords.GateIntent.INITIAL_PUBLISH,

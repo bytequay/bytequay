@@ -17,13 +17,17 @@ import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
+import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WakeKind;
 import com.bytequay.app.flow.runtime.InProcessCiLearningAgentSupervisor.CiLearningToolCapability;
+import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
 import com.bytequay.app.flow.runtime.InitialTaskCoordinator.InitialToolCapability;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.service.agents.ToolCall;
@@ -32,6 +36,7 @@ import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.junit.jupiter.api.Test;
@@ -62,6 +67,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_LEARNER;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.CI_REPAIR;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_FIX;
+import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_CI_REVIEW_RESULT;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.TASK_INITIAL_REVIEW_RESULT;
 import static com.bytequay.app.flow.runtime.NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR;
@@ -72,6 +78,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -208,6 +215,39 @@ final class TestNewFlowAgentRuntimeBoundaries
     }
 
     @Test
+    void runChecksRequiresAgentSelectedArgvAndWorkingDirectory()
+    {
+        NewFlowAgentLaunches launches = launches(
+                dataSource(), mock(FlowRuntime.class),
+                mock(CredentialStore.class), "model");
+
+        for (ArrayNode manifest : List.of(
+                launches.tools(CI_REPAIR, ANTHROPIC),
+                launches.mcpTools(CI_REPAIR))) {
+            JsonNode tool = tool(manifest, "run_checks");
+            var schema = tool.has("input_schema")
+                    ? tool.path("input_schema") : tool.path("inputSchema");
+
+            assertThat(schema.path("required").toString())
+                    .isEqualTo("[\"command\",\"working_directory\"]");
+            assertThat(schema.path("properties").path("command")
+                    .path("type").asText()).isEqualTo("array");
+            assertThat(schema.path("properties").path("command")
+                    .path("items").path("type").asText())
+                    .isEqualTo("string");
+            assertThat(schema.path("properties")
+                    .path("working_directory").path("type").asText())
+                    .isEqualTo("string");
+            assertThat(schema.path("properties").has("profile")).isFalse();
+        }
+        for (var program : List.of(
+                CI_REPAIR, TASK_CI_FIX, TASK_CI_REVIEW_RESULT)) {
+            assertThat(launches.systemPrompt(program)).contains(
+                    "narrow useful", "exact argv", "Do not retry an UNAVAILABLE");
+        }
+    }
+
+    @Test
     void aTurnCannotRunAProgramItsBindingWasNotSealedAs()
     {
         DataSource dataSource = dataSource();
@@ -229,7 +269,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                 launches.requireSealedAs(sealed, TASK_INITIAL))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("was sealed as")
-                .hasMessageContaining("ci-repair-turn:v1");
+                .hasMessageContaining("ci-repair-turn:v2");
         launches.requireSealedAs(sealed, CI_REPAIR);
     }
 
@@ -264,7 +304,10 @@ final class TestNewFlowAgentRuntimeBoundaries
         when(launches.systemPrompt(TASK_CI_FIX)).thenReturn("system");
         when(launches.tools(TASK_CI_FIX, ANTHROPIC))
                 .thenReturn(MAPPER.createArrayNode());
-        when(capability.runChecks()).thenReturn(List.of());
+        List<String> command = List.of("./mvnw", "test");
+        when(capability.runChecks(command, "backend")).thenReturn(List.of());
+        String check = "{\"command\":[\"./mvnw\",\"test\"],"
+                + "\"working_directory\":\"backend\"}";
 
         List<ToolExecutor.ToolCallResult> results = new ArrayList<>();
         when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
@@ -278,10 +321,18 @@ final class TestNewFlowAgentRuntimeBoundaries
                     "run_checks", "{\"profile\":4}",
                     "{\"profile\":4}")));
             results.add(executor.execute(call(
-                    "run_checks", "{\"profile\":null}",
-                    "{\"profile\":null}")));
+                    "run_checks",
+                    "{\"command\":\"./mvnw\","
+                            + "\"working_directory\":\"backend\"}",
+                    "{\"command\":\"./mvnw\","
+                            + "\"working_directory\":\"backend\"}")));
             results.add(executor.execute(call(
-                    "run_checks", "{}", "{}")));
+                    "run_checks", "{\"command\":[\"./mvnw\"]}",
+                    "{\"command\":[\"./mvnw\"]}")));
+            results.add(executor.execute(call(
+                    "run_checks", check, check)));
+            results.add(executor.execute(call(
+                    "run_checks", check, check)));
             results.add(executor.execute(call(
                     "spawn_adversarial_reviewer", "{}", "{}")));
             assertThat(hooks.interrupted()).isTrue();
@@ -300,12 +351,105 @@ final class TestNewFlowAgentRuntimeBoundaries
                 false);
 
         assertThat(results).extracting(ToolExecutor.ToolCallResult::isError)
-                .containsExactly(true, true, true, false, true, false);
-        verify(capability).runChecks();
+                .containsExactly(
+                        true, true, true, true, true, false, false, false);
+        verify(capability, times(2)).runChecks(command, "backend");
         verify(capability).spawnAdversarialReviewer();
         assertThat(completion.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
         assertThat(completion.errorRef()).isNull();
+    }
+
+    @Test
+    void aTurnAcceptsTenFailedChecksAndDeniesTheEleventh()
+    {
+        NewFlowAgentLaunches launches = mock(NewFlowAgentLaunches.class);
+        TurnRunner runner = mock(TurnRunner.class);
+        TaskInspectionToolCapability capability =
+                mock(TaskInspectionToolCapability.class);
+        NewFlowAgentLaunches.Binding binding = binding();
+        List<String> command = List.of("./mvnw", "test");
+        LocalCheckRun failed = mock(LocalCheckRun.class);
+        when(failed.conclusion()).thenReturn(LocalCheckConclusion.FAILED);
+        when(launches.resolveSecret(binding)).thenReturn("secret");
+        when(launches.systemPrompt(TASK_CI_FIX)).thenReturn("system");
+        when(launches.tools(TASK_CI_FIX, ANTHROPIC))
+                .thenReturn(MAPPER.createArrayNode());
+        when(capability.runChecks(command, "backend"))
+                .thenReturn(List.of(failed));
+        String check = "{\"command\":[\"./mvnw\",\"test\"],"
+                + "\"working_directory\":\"backend\"}";
+        List<ToolExecutor.ToolCallResult> results = new ArrayList<>();
+        when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
+            ToolExecutor executor = invocation.getArgument(1);
+            for (int attempt = 0; attempt < 11; attempt++) {
+                results.add(executor.execute(call("run_checks", check, check)));
+            }
+            return new TurnResult(
+                    "opaque", 1, 1, 0, 1, TurnResult.End.COMPLETED);
+        });
+        NewFlowAgentBodies bodies = new NewFlowAgentBodies(
+                launches, runner, MAPPER, mock(LocalChecks.class), null);
+
+        bodies.taskFixReview(
+                binding, temporaryDirectory, mock(TaskToolContext.class),
+                capability, false);
+
+        assertThat(results.subList(0, 10)).allSatisfy(result -> {
+            assertThat(result.text()).contains("FAILED");
+            assertThat(result.isError()).isFalse();
+        });
+        assertThat(results.get(10).text())
+                .isEqualTo("local-check attempt bound reached");
+        assertThat(results.get(10).isError()).isTrue();
+        verify(capability, times(10)).runChecks(command, "backend");
+    }
+
+    @Test
+    void ciRepairForwardsOneAgentSelectedCheckAndDoesNotRetryUnavailable()
+            throws Exception
+    {
+        NewFlowAgentLaunches launches = mock(NewFlowAgentLaunches.class);
+        TurnRunner runner = mock(TurnRunner.class);
+        LocalChecks localChecks = mock(LocalChecks.class);
+        WriterToolCapability capability = mock(WriterToolCapability.class);
+        RepairToolContext context = mock(RepairToolContext.class);
+        NewFlowAgentLaunches.Binding binding = binding();
+        List<String> command = List.of("./mvnw", "-pl", "core", "test");
+        LocalCheckRun unavailable = mock(LocalCheckRun.class);
+        when(unavailable.conclusion())
+                .thenReturn(LocalCheckConclusion.UNAVAILABLE);
+        when(launches.resolveSecret(binding)).thenReturn("secret");
+        when(launches.systemPrompt(CI_REPAIR)).thenReturn("system");
+        when(launches.tools(CI_REPAIR, ANTHROPIC))
+                .thenReturn(MAPPER.createArrayNode());
+        when(capability.runChecks(
+                localChecks, temporaryDirectory, command, "backend"))
+                .thenReturn(List.of(unavailable));
+        String check = "{\"command\":[\"./mvnw\",\"-pl\",\"core\","
+                + "\"test\"],\"working_directory\":\"backend\"}";
+        List<ToolExecutor.ToolCallResult> results = new ArrayList<>();
+        when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
+            ToolExecutor executor = invocation.getArgument(1);
+            results.add(executor.execute(call("run_checks", check, check)));
+            results.add(executor.execute(call("run_checks", check, check)));
+            return new TurnResult(
+                    "opaque", 1, 1, 0, 1, TurnResult.End.COMPLETED);
+        });
+        NewFlowAgentBodies bodies = new NewFlowAgentBodies(
+                launches, runner, MAPPER, localChecks, null);
+
+        bodies.repair(
+                binding, temporaryDirectory, temporaryDirectory,
+                context, capability);
+
+        assertThat(results.getFirst().text()).contains("UNAVAILABLE");
+        assertThat(results.getFirst().isError()).isFalse();
+        assertThat(results.get(1).text())
+                .isEqualTo("local validation is unavailable in this environment");
+        assertThat(results.get(1).isError()).isTrue();
+        verify(capability).runChecks(
+                localChecks, temporaryDirectory, command, "backend");
     }
 
     @Test
@@ -316,11 +460,11 @@ final class TestNewFlowAgentRuntimeBoundaries
         FlowRuntime runtime = mock(FlowRuntime.class);
         CredentialStore credentials = mock(CredentialStore.class);
         AgentRun firstRun = initialRun(
-                "initial-first", "task-initial-prompt:v1",
-                "task-initial-capabilities:v1");
+                "initial-first", "task-initial-prompt:v2",
+                "task-initial-capabilities:v2");
         AgentRun reviewRun = initialRun(
-                "initial-review", "task-initial-review-prompt:v1",
-                "task-initial-review-capabilities:v1");
+                "initial-review", "task-initial-review-prompt:v2",
+                "task-initial-review-capabilities:v2");
         when(runtime.run(firstRun.runId())).thenReturn(Optional.of(firstRun));
         when(runtime.run(reviewRun.runId())).thenReturn(Optional.of(reviewRun));
         when(credentials.find(CredentialType.AI, "anthropic", "ci"))
@@ -332,9 +476,9 @@ final class TestNewFlowAgentRuntimeBoundaries
         NewFlowAgentLaunches.Binding review = actual.bind(
                 reviewRun, TASK_INITIAL_REVIEW_RESULT);
 
-        assertThat(first.promptRevision()).isEqualTo("task-initial-turn:v1");
+        assertThat(first.promptRevision()).isEqualTo("task-initial-turn:v2");
         assertThat(review.promptRevision())
-                .isEqualTo("task-initial-review-turn:v1");
+                .isEqualTo("task-initial-review-turn:v2");
         assertThat(first.promptDigest()).isNotEqualTo(review.promptDigest());
         assertThat(first.toolManifestDigest())
                 .isNotEqualTo(review.toolManifestDigest());
@@ -342,7 +486,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .containsExactly(
                         "read_initial_task_context", "list_repository",
                         "read_file", "search_repository", "write_file",
-                        "delete_file", "commit_initial_change",
+                        "delete_file", "commit_initial_change", "run_checks",
                         "request_initial_review")
                 .doesNotContain(
                         "ready_for_initial_publish", "request_user_input",
@@ -352,8 +496,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .containsExactly(
                         "read_initial_review_context", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
-                        "write_file", "delete_file",
-                        "commit_initial_change", "request_initial_review",
+                        "write_file", "delete_file", "commit_initial_change",
+                        "run_checks", "request_initial_review",
                         "ready_for_initial_publish")
                 .doesNotContain(
                         "read_initial_task_context", "request_user_input",
@@ -370,10 +514,16 @@ final class TestNewFlowAgentRuntimeBoundaries
         when(capability.requestReview("title", "body"))
                 .thenThrow(new IllegalStateException("rejected"))
                 .thenReturn(mock(FlowRuntimeRecords.ReviewerRequest.class));
+        when(capability.runChecks(List.of("/usr/bin/true"), "."))
+                .thenReturn(List.of());
+        String validation = "{\"command\":[\"/usr/bin/true\"],"
+                + "\"working_directory\":\".\"}";
         List<ToolExecutor.ToolCallResult> calls = new ArrayList<>();
         when(runner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
             ToolExecutor executor = invocation.getArgument(1);
             TurnHooks hooks = invocation.getArgument(2);
+            calls.add(executor.execute(call(
+                    "run_checks", validation, validation)));
             calls.add(executor.execute(call(
                     "request_initial_review",
                     "{\"title\":\"title\",\"body\":\"body\"}",
@@ -397,7 +547,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 first, temporaryDirectory, capability, false);
 
         assertThat(calls).extracting(ToolExecutor.ToolCallResult::isError)
-                .containsExactly(true, false, true);
+                .containsExactly(false, true, false, true);
+        verify(capability).runChecks(List.of("/usr/bin/true"), ".");
         assertThat(firstCompletion.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
         assertThat(firstCompletion.errorRef()).isNull();
@@ -756,8 +907,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "session-1",
                 AgentRole.CI_FIXER,
                 HEAD,
-                "ci-fix-prompt:v1",
-                "ci-fix-capabilities:v1",
+                "ci-fix-prompt:v2",
+                "ci-fix-capabilities:v2",
                 "ci-input",
                 null,
                 null,
@@ -773,7 +924,7 @@ final class TestNewFlowAgentRuntimeBoundaries
     private static AgentRun initialRun(
             String runId, String prompt, String capabilities)
     {
-        boolean review = prompt.equals("task-initial-review-prompt:v1");
+        boolean review = prompt.equals("task-initial-review-prompt:v2");
         return new AgentRun(
                 runId,
                 "operation-" + runId,
@@ -801,6 +952,16 @@ final class TestNewFlowAgentRuntimeBoundaries
         return names;
     }
 
+    private static JsonNode tool(ArrayNode tools, String name)
+    {
+        for (JsonNode tool : tools) {
+            if (tool.path("name").asText().equals(name)) {
+                return tool;
+            }
+        }
+        throw new AssertionError("missing tool " + name);
+    }
+
     private static NewFlowAgentLaunches.Binding binding()
     {
         return new NewFlowAgentLaunches.Binding(
@@ -815,7 +976,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "anthropic",
                 "ci",
                 NOW,
-                "task-ci-fix-review-turn:v1",
+                "task-ci-fix-review-turn:v2",
                 "prompt-digest",
                 "tool-digest",
                 1_024,

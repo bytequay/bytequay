@@ -211,8 +211,8 @@ class TestFlowRuntime
         ActiveWriter ci = startWriter(
                 OperationKind.RUN_CI_FIXER,
                 AgentRole.CI_FIXER,
-                "ci-fix-prompt:v1",
-                "ci-fix-capabilities:v1");
+                "ci-fix-prompt:v2",
+                "ci-fix-capabilities:v2");
         NewFlowEngineResolver engines = mock(NewFlowEngineResolver.class);
         when(engines.resolve(ci.run())).thenReturn(
                 NewFlowAgentLaunches.Config.cli(

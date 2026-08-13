@@ -255,6 +255,7 @@ final class TestUpstreamSyncEndToEnd
                                     selection(confirmedRange),
                                     "user-1", upstreamRepository, repository);
                     Task task = started.task();
+                    assertThat(confirmedRange).hasSize(103);
                     assertThat(confirmedRange).allSatisfy(sha ->
                             assertThat(hasCommit(repository, sha)).isTrue());
                     // Enqueue is idempotent on the request key: a repeated
@@ -323,6 +324,9 @@ final class TestUpstreamSyncEndToEnd
                     }
 
                     assertPickedSeries(upstreamSync, started.run().runId());
+                    assertThat(jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM flow_runtime_local_check_run",
+                            Integer.class)).isEqualTo(1);
                     assertThat(history(Path.of(task.worktreePath())))
                             .doesNotContain("<<<<<<<", "=======", ">>>>>>>");
 
@@ -587,13 +591,18 @@ final class TestUpstreamSyncEndToEnd
                 assertThat(call(tools, "read_upstream_review_context", "{}"))
                         .contains("selectedUpstreamShas=");
                 call(tools, "read_candidate_diff", "{}");
-                assertThat(call(tools, "run_checks", "{}"))
-                        .contains(":FAILED",
-                                "missing local-check-ready");
                 call(tools, "write_file",
                         "{\"path\":\"local-check-ready\","
                                 + "\"content\":\"ready\\n\"}");
                 call(tools, "commit_initial_change", "{}");
+                assertThat(callFails(tools, "run_checks", "{}"))
+                        .contains("argument is invalid");
+                String checkRequest = """
+                        {"command":["/bin/sh","-c","test -f local-check-ready"],
+                         "working_directory":"."}
+                        """;
+                assertThat(call(tools, "run_checks", checkRequest))
+                        .contains(":PASSED");
                 call(tools, "request_initial_review",
                         "{\"title\":\"Bring upstream range\","
                                 + "\"body\":\"Confirmed upstream range\"}");
@@ -628,6 +637,18 @@ final class TestUpstreamSyncEndToEnd
         assertThat(result.isError())
                 .as(name + ": " + result.text())
                 .isFalse();
+        return result.text();
+    }
+
+    private static String callFails(
+            ToolExecutor tools, String name, String arguments)
+            throws Exception
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        ToolExecutor.ToolCallResult result = tools.execute(new ToolCall(
+                "call-" + name, name, arguments,
+                mapper.readTree(arguments)));
+        assertThat(result.isError()).as(name).isTrue();
         return result.text();
     }
 
@@ -744,7 +765,7 @@ final class TestUpstreamSyncEndToEnd
         List<String> selected = new ArrayList<>();
         selected.add(cleanCommit);
         Files.createDirectories(upstream.resolve("bulk"));
-        for (int index = 0; index < 2; index++) {
+        for (int index = 0; index < 99; index++) {
             write(upstream, "bulk/commit-" + index + ".txt",
                     "upstream " + index + "\n");
             git(upstream, "add", "-A");

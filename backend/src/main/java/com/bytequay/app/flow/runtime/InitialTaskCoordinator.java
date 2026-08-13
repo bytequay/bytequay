@@ -52,19 +52,19 @@ import static java.util.Objects.requireNonNull;
 /** Exact owner for ordinary unpublished INITIAL Task and reviewer turns. */
 public final class InitialTaskCoordinator
 {
-    private static final String TASK_PROMPT = "task-initial-prompt:v1";
+    private static final String TASK_PROMPT = "task-initial-prompt:v2";
     private static final String TASK_CAPABILITIES =
-            "task-initial-capabilities:v1";
+            "task-initial-capabilities:v2";
     /** An upstream range's first turn constructs and finalizes the range, so it
      *  is stamped with its own sealed identity. */
     private static final String PICK_REPAIR_PROMPT =
-            "upstream-pick-repair-prompt:v2";
+            "upstream-pick-repair-prompt:v3";
     private static final String PICK_REPAIR_CAPABILITIES =
-            "upstream-pick-repair-capabilities:v2";
+            "upstream-pick-repair-capabilities:v3";
     private static final String TASK_REVIEW_PROMPT =
-            "task-initial-review-prompt:v1";
+            "task-initial-review-prompt:v2";
     private static final String TASK_REVIEW_CAPABILITIES =
-            "task-initial-review-capabilities:v1";
+            "task-initial-review-capabilities:v2";
     private static final String REVIEWER_PROMPT =
             "adversarial-reviewer-prompt:v1";
     private static final String REVIEWER_CAPABILITIES =
@@ -196,7 +196,7 @@ public final class InitialTaskCoordinator
             changeSetRevisionId = adopted.changeSetRevisionId();
         }
 
-        /** Saves draft, runs fixed checks, then seals exact reviewer request. */
+        /** Saves the draft, then seals a review using already-recorded checks. */
         public ReviewerRequest requestReview(String title, String body)
         {
             ReviewerRequest replay = runtime.reviewerRequestForParentRun(
@@ -242,7 +242,6 @@ public final class InitialTaskCoordinator
             writer.savePrDraft(
                     pr.prId(), current.changeSetRevisionId(),
                     current.headSha(), title, body);
-            writer.runChecks(localChecks, binding.repositoryRoot(), null);
             LocalChecks.ReviewerEvidence evidence =
                     localChecks.reviewerEvidence(
                             task.taskId(), current.changeSetRevisionId(),
@@ -267,11 +266,13 @@ public final class InitialTaskCoordinator
                     userGates, binding.repositoryRoot(), observation);
         }
 
-        /** Runs only the fixed local policy and returns its durable results. */
-        public List<LocalCheckRun> runChecks()
+        /** Runs the agent-selected command through the fixed local policy. */
+        public List<LocalCheckRun> runChecks(
+                List<String> command, String workingDirectory)
         {
             return writer.runChecks(
-                    localChecks, binding.repositoryRoot(), null);
+                    localChecks, binding.repositoryRoot(), command,
+                    workingDirectory);
         }
 
         @Override

@@ -17,9 +17,14 @@ import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryKind;
 import com.bytequay.app.flow.ci.AttributedFixupRebase.BoundaryOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.BoundaryExitState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RepairPlacement;
+import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
+import com.bytequay.app.flow.gate.UserGateRecords.GateSubject;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
+import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -158,6 +163,101 @@ class TestCiBoundaryCompileProof
                         0, "sha256:one")));
 
         assertThat(acceptedRequiredCi()).isFalse();
+    }
+
+    @Test
+    void aRewriteWithoutAProvenBoundaryCannotEvenOpenItsGate()
+    {
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(), null, null, true);
+
+        assertThatThrownBy(() -> readyGate("unproven", null))
+                .hasMessageContaining("BOUNDARY_COMPILE_PROOF_MISSING");
+        assertThat(count("flow_user_gate_revision", "1 = 1")).isZero();
+    }
+
+    @Test
+    void aRewriteWithoutStandingAuthorityIsManualOnly()
+    {
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(), null, null, false);
+
+        GateRevision revision = readyGate("unauthorized", TARGET_FIXUP);
+
+        GateSubject subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.warningCodes())
+                .contains("HISTORY_REWRITE_UNAUTHORIZED");
+        // Manual-only is what stops a one-shot consent from rewriting
+        // published history without the user saying so for this exact round.
+        assertThat(subject.manualOnly()).isTrue();
+    }
+
+    @Test
+    void aRewriteWithStandingAuthorityPublishesLikeAnyOtherFix()
+    {
+        autofix.recordPlacementPolicy(
+                task.taskId(), RepairPlacement.ATTRIBUTED_FIXUP,
+                List.of(), null, null, true);
+
+        GateRevision revision = readyGate("authorized", TARGET_FIXUP);
+
+        GateSubject subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.warningCodes())
+                .doesNotContain("HISTORY_REWRITE_UNAUTHORIZED");
+        assertThat(subject.manualOnly()).isFalse();
+    }
+
+    /**
+     * Drives one repair to its ready gate, storing a boundary proof for the
+     * exact candidate head first when {@code provenBoundary} is given.
+     */
+    private GateRevision readyGate(String suffix, String provenBoundary)
+    {
+        var ready = prepareReviewerResult(suffix);
+        String candidate = runtime.task(task.taskId())
+                .orElseThrow().currentHeadSha();
+        if (provenBoundary != null) {
+            autofix.storeBoundaryCompileProof(
+                    task.taskId(),
+                    autofix.repairAttemptForRound(
+                            ready.ready().binding().projection().roundId(), 0)
+                            .orElseThrow().attemptId(),
+                    candidate,
+                    "profile-1",
+                    List.of(new BoundaryOutcome(
+                            provenBoundary, BoundaryKind.TARGET_WITH_FIXUP,
+                            0, "sha256:one")));
+        }
+        AtomicReference<RuntimeException> rejection = new AtomicReference<>();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review().launchReviewerResultContinuation(
+                supervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    try {
+                        capability.readyForReview();
+                    }
+                    catch (RuntimeException rejected) {
+                        // The tool error the Task Agent would actually see.
+                        rejection.set(rejected);
+                    }
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "opaque ready " + suffix,
+                            null);
+                });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+        if (rejection.get() != null) {
+            throw rejection.get();
+        }
+        return userGates.revisionForRun(ready.binding().run().runId())
+                .orElseThrow();
     }
 
     /** Whether required CI counts as accepted for the published head. */

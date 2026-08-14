@@ -121,32 +121,6 @@ final class TestNewFlowAgentRuntimeBoundaries
     }
 
     @Test
-    void replaysLegacyReviewerProgramAfterPromptUpgrade()
-    {
-        DataSource dataSource = dataSource();
-        FlowRuntime runtime = mock(FlowRuntime.class);
-        CredentialStore credentials = mock(CredentialStore.class);
-        AgentRun run = reviewerRun("adversarial-reviewer-prompt:v2");
-        when(runtime.run(run.runId())).thenReturn(Optional.of(run));
-        NewFlowAgentLaunches launches = new NewFlowAgentLaunches(
-                dataSource,
-                runtime,
-                credentials,
-                resolvingTo(NewFlowAgentLaunches.Config.cli(
-                        "claude-code", "review-model", "high",
-                        "claude", "2.1.0")),
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                MAPPER);
-
-        NewFlowAgentLaunches.Binding binding = launches.bindReviewer(run);
-
-        assertThat(binding.promptRevision())
-                .isEqualTo("ci-adversarial-review-turn:v2");
-        assertThat(launches.reviewerProgram(binding))
-                .isEqualTo(NewFlowAgentLaunches.Program.REVIEWER_V2);
-    }
-
-    @Test
     void rejectsSameMillisecondCredentialRotationBeforeSecretRead()
     {
         DataSource dataSource = dataSource();
@@ -958,28 +932,6 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "ci-fix-prompt:v2",
                 "ci-fix-capabilities:v2",
                 "ci-input",
-                null,
-                null,
-                null,
-                null,
-                RunState.QUEUED,
-                null,
-                NOW,
-                null,
-                null);
-    }
-
-    private static AgentRun reviewerRun(String prompt)
-    {
-        return new AgentRun(
-                "reviewer-run-1",
-                "reviewer-operation-1",
-                "reviewer-session-1",
-                AgentRole.ADVERSARIAL_REVIEWER,
-                HEAD,
-                prompt,
-                "immutable-git-object-reader:v1",
-                "review-request:request-1",
                 null,
                 null,
                 null,

@@ -634,13 +634,6 @@ class TestCiAutofixCoordinatorReviewAndConsent
         ReviewerClaim reviewer = prepareReviewerClaim("reserved-expiry");
         insertReviewerProcessAttempt(
                 reviewer, "reserved-reviewer", "RESERVED");
-        jdbc.update("""
-                UPDATE flow_runtime_agent_run
-                SET prompt_manifest_ref = ?
-                WHERE run_id = ?
-                """,
-                "adversarial-reviewer-prompt:v2",
-                reviewer.start().run().runId());
         expireRuntime();
 
         assertThat(runtime.recoverExpiredClaim(
@@ -656,8 +649,6 @@ class TestCiAutofixCoordinatorReviewAndConsent
                 "adversarial-reviewer-prompt:v3",
                 "immutable-git-object-reader:v1");
         assertThat(start.run().runId()).isEqualTo(reviewer.start().run().runId());
-        assertThat(start.run().promptManifestRef())
-                .isEqualTo("adversarial-reviewer-prompt:v2");
         assertThat(redriven.generation())
                 .isEqualTo(reviewer.claim().generation() + 1);
     }

@@ -4928,6 +4928,8 @@ public final class FlowRuntime
                 AgentSession session = requireSession(run.sessionId());
                 if (run.role() != AgentRole.ADVERSARIAL_REVIEWER
                         || !run.headSha().equals(request.reviewedHeadSha())
+                        || !run.promptManifestRef().equals(promptManifestRef)
+                        || !run.capabilitySetRef().equals(capabilitySetRef)
                         || !run.inputRef().equals(
                                 "review-request:" + requestId)
                         || (run.state() != RunState.QUEUED
@@ -4939,9 +4941,6 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "reviewer start redelivery changed identity");
                 }
-                // First write wins. A later binary may request a newer prompt,
-                // but an interrupted operation must replay the exact durable
-                // program it already owns rather than rewrite its identity.
                 return new ReviewerStart(request, session, run);
             }
             Instant now = clock.instant();

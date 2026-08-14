@@ -271,6 +271,34 @@ describe('UpstreamCherryPicker dry run', () => {
 
     expect(screen.queryByText('Add null checks')).toBeNull();
   });
+
+  it('sends every added skip rule, not just the first', async () => {
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return { pickCount: 0, skipCount: 0, commits: [] };
+      }
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+
+    fireEvent.change(screen.getByLabelText('Skip commits whose subject contains'),
+      { target: { value: 'docs' } });
+    fireEvent.click(screen.getByLabelText('Add a rule for subjects that contains'));
+    fireEvent.change(screen.getByLabelText('Skip commits whose subject contains 2'),
+      { target: { value: 'flaky' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+    await flush();
+
+    const preview = request.mock.calls
+      .map(([input]) => input)
+      .find(input => input.path === '/api/workspaces/fork/upstream/cherry-picks/preview');
+    expect((preview?.body as { skipContains: string[] }).skipContains).toEqual(['docs', 'flaky']);
+  });
 });
 
 describe('UpstreamCherryPicker durable polling', () => {

@@ -128,8 +128,8 @@ export function UpstreamCherryPicker({
   const [repairTurns, setRepairTurns] = useState('');
   const [prTitle, setPrTitle] = useState('');
   const [prDescription, setPrDescription] = useState('');
-  const [skipStartsWith, setSkipStartsWith] = useState('');
-  const [skipContains, setSkipContains] = useState('');
+  const [skipStartsWith, setSkipStartsWith] = useState(['']);
+  const [skipContains, setSkipContains] = useState(['']);
   const [plan, setPlan] = useState<CherryPickPlanDto | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -221,9 +221,10 @@ export function UpstreamCherryPicker({
       skipStartsWith: startsWithTerms,
       skipContains: containsTerms,
     };
-  // The plan is only valid for the filters it was run with; editing either box
+  // The plan is only valid for the filters it was run with; editing any box
   // clears it so a stale preview can never be mistaken for the current one.
-  useEffect(() => { setPlan(null); setPlanError(null); }, [skipStartsWith, skipContains]);
+  const filterKey = `${startsWithTerms.join('\n')} ${containsTerms.join('\n')}`;
+  useEffect(() => { setPlan(null); setPlanError(null); }, [filterKey]);
 
   const runDryRun = () => {
     setPlanning(true);
@@ -265,14 +266,8 @@ export function UpstreamCherryPicker({
             <label className="wu-upstream-cherry__branch">
               <strong>SKIP COMMITS WHOSE SUBJECT…</strong>
               <span className="wu-upstream-cherry__filters">
-                <label>starts with
-                  <input aria-label="Skip commits whose subject starts with"
-                    value={skipStartsWith} onChange={event => setSkipStartsWith(event.target.value)} />
-                </label>
-                <label>contains
-                  <input aria-label="Skip commits whose subject contains"
-                    value={skipContains} onChange={event => setSkipContains(event.target.value)} />
-                </label>
+                <SkipRules label="starts with" rules={skipStartsWith} onChange={setSkipStartsWith} />
+                <SkipRules label="contains" rules={skipContains} onChange={setSkipContains} />
               </span>
             </label>
             <div className="wu-upstream-cherry__dryrun">
@@ -498,9 +493,35 @@ function noRuns(): UpstreamCherryPickJobDto[] {
   return [];
 }
 
-/** Comma-separated filter terms; blanks dropped so an empty box filters nothing. */
-function splitTerms(value: string): string[] {
-  return value.split(',').map(term => term.trim()).filter(term => term.length > 0);
+/** One row per rule, still comma-splitting each so a pasted list keeps working;
+ *  blanks are dropped, which is what makes an untouched row filter nothing. */
+function splitTerms(rules: string[]): string[] {
+  return rules.flatMap(rule => rule.split(','))
+    .map(term => term.trim()).filter(term => term.length > 0);
+}
+
+/** A stack of subject rules with a "+" that adds another; any non-blank row
+ *  skips a commit, so several rules mean several subjects skipped. */
+function SkipRules({ label, rules, onChange }: {
+  label: string;
+  rules: string[];
+  onChange: (rules: string[]) => void;
+}) {
+  return (
+    <label>{label}
+      {rules.map((rule, index) => (
+        // Rows are identified by position: nothing reorders them, and the
+        // value is the only thing that changes.
+        <input key={index} value={rule}
+          aria-label={`Skip commits whose subject ${label}${index === 0 ? '' : ` ${index + 1}`}`}
+          onChange={event => onChange(rules.map(
+            (old, position) => (position === index ? event.target.value : old)))} />
+      ))}
+      <button type="button" className="wu-upstream-cherry__add-rule"
+        aria-label={`Add a rule for subjects that ${label}`}
+        onClick={() => onChange([...rules, ''])}>+</button>
+    </label>
+  );
 }
 
 function short(sha: string | undefined): string | null {

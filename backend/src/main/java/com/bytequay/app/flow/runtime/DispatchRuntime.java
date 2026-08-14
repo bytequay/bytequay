@@ -64,6 +64,7 @@ final class DispatchRuntime
 {
     private static final int RECONCILIATION_PRIORITY = 900;
     private static final int CI_FIX_PRIORITY = 800;
+    private static final int UPSTREAM_SYNC_PRIORITY = 750;
     private static final int TASK_TURN_PRIORITY = 700;
 
     private final FlowRuntime runtime;
@@ -398,6 +399,24 @@ final class DispatchRuntime
                                             ))
                                     )
                               ))
+                          OR (o.kind = 'UPSTREAM_SYNC'
+                              AND o.owner_kind = 'UPSTREAM_RUN'
+                              AND t.selected_writer_operation_id =
+                                    o.operation_id
+                              AND ts.state = 'IDLE'
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM flow_runtime_inbox i
+                                  WHERE i.selected_by_operation_id =
+                                            o.operation_id
+                                    AND i.handled_by_operation_id IS NULL
+                                    AND i.terminal_reason IS NULL
+                                    AND o.input_ref = 'inbox:' || i.inbox_id
+                                    AND i.task_id = t.task_id
+                                    AND i.kind = 'INITIAL_TASK'
+                                    AND i.intended_gate_kind =
+                                        'INITIAL_PUBLISH'
+                              ))
                           OR (o.kind = 'RUN_REVIEWER'
                               AND o.owner_kind = 'REVIEW_REQUEST'
                               AND t.selected_writer_operation_id IS NULL
@@ -537,7 +556,11 @@ final class DispatchRuntime
                                         'RETRYABLE'
                                     )
                               ))
-                          OR (o.kind IN ('RUN_TASK_TURN', 'RUN_CI_FIXER')
+                          OR (o.kind IN (
+                                  'UPSTREAM_SYNC',
+                                  'RUN_TASK_TURN',
+                                  'RUN_CI_FIXER'
+                              )
                               AND t.status = 'ACTIVE'
                               AND t.waiting_mutation_state_ref IS NULL
                               AND NOT EXISTS (
@@ -970,13 +993,18 @@ final class DispatchRuntime
 
                 OperationKind writerKind = item.kind() == PendingKind.FINAL_RED
                         ? OperationKind.RUN_CI_FIXER
-                        : OperationKind.RUN_TASK_TURN;
+                        : upstreamWriterKind(task, item);
                 String ownerKind = switch (item.kind()) {
                     case FINAL_RED -> "CI_ROUND";
                     case CI_FIX_READY -> "CI_ATTEMPT";
                     case AGENT_RESULT_READY -> "AGENT_RUN";
                     case INITIAL_TASK -> "TASK";
                 };
+                String ownerId = item.externalKey();
+                if (writerKind == OperationKind.UPSTREAM_SYNC) {
+                    ownerKind = "UPSTREAM_RUN";
+                    ownerId = upstreamRunId(task.taskId());
+                }
                 String subjectDigest = FlowRuntime.stableId(
                         "writer-subject",
                         task.taskId(),
@@ -992,13 +1020,13 @@ final class DispatchRuntime
                 String operationId = FlowRuntime.stableId(
                         "operation",
                         ownerKind,
-                        item.externalKey(),
+                        ownerId,
                         writerKind.name(),
                         subjectDigest);
                 insertOperationAndTicket(
                         operationId,
                         ownerKind,
-                        item.externalKey(),
+                        ownerId,
                         task.taskId(),
                         writerKind,
                         subjectDigest,
@@ -1006,7 +1034,9 @@ final class DispatchRuntime
                         null,
                         writerKind == OperationKind.RUN_CI_FIXER
                                 ? CI_FIX_PRIORITY
-                                : TASK_TURN_PRIORITY,
+                                : writerKind == OperationKind.UPSTREAM_SYNC
+                                        ? UPSTREAM_SYNC_PRIORITY
+                                        : TASK_TURN_PRIORITY,
                         clock.instant());
                 int pointerUpdated = jdbc.update(
                         """
@@ -1082,6 +1112,51 @@ final class DispatchRuntime
                 && item.subjectHead().equals(request.reviewedHeadSha());
     }
 
+    private OperationKind upstreamWriterKind(Task task, PendingWork item)
+    {
+        if (item.kind() != PendingKind.INITIAL_TASK) {
+            return OperationKind.RUN_TASK_TURN;
+        }
+        if (!upstreamSchemaInstalled()) {
+            return OperationKind.RUN_TASK_TURN;
+        }
+        List<String> states = jdbc.queryForList(
+                "SELECT state FROM flow_upstream_sync_run WHERE task_id = ?",
+                String.class, task.taskId());
+        if (states.isEmpty()) {
+            return OperationKind.RUN_TASK_TURN;
+        }
+        if (states.size() != 1) {
+            throw new IllegalStateException(
+                    "Task owns more than one upstream sync run");
+        }
+        return switch (states.getFirst()) {
+            case "READY", "PICKING" -> OperationKind.UPSTREAM_SYNC;
+            case "WAITING_CONFLICT_REPAIR", "FINAL_REVIEW" ->
+                    OperationKind.RUN_TASK_TURN;
+            default -> throw new IllegalStateException(
+                    "upstream run state cannot select INITIAL work: "
+                            + states.getFirst());
+        };
+    }
+
+    private boolean upstreamSchemaInstalled()
+    {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sqlite_master "
+                        + "WHERE type = 'table' "
+                        + "AND name = 'flow_upstream_sync_run'",
+                Integer.class);
+        return requireNonNull(count, "schema count is null") == 1;
+    }
+
+    private String upstreamRunId(String taskId)
+    {
+        return jdbc.queryForObject(
+                "SELECT run_id FROM flow_upstream_sync_run WHERE task_id = ?",
+                String.class, taskId);
+    }
+
     boolean ownsCurrentInitialDispatch(Operation operation)
     {
         requireNonNull(operation, "operation is null");
@@ -1111,6 +1186,28 @@ final class DispatchRuntime
                                     input.externalKey())
                                 && input.kind()
                                     == PendingKind.AGENT_RESULT_READY));
+            case UPSTREAM_SYNC -> operation.ownerKind()
+                        .equals("UPSTREAM_RUN")
+                    && runtime.pendingWork(task.taskId()).stream()
+                            .filter(input -> Objects.equals(
+                                    input.selectedByOperationId(),
+                                    operation.operationId()))
+                            .filter(input -> input.handledByOperationId() == null
+                                    && input.terminalReason() == null
+                                    && input.kind() == PendingKind.INITIAL_TASK
+                                    && operation.inputRef().equals(
+                                            "inbox:" + input.pendingId()))
+                            .anyMatch(input -> jdbc.queryForObject(
+                                    "SELECT COUNT(*) FROM "
+                                            + "flow_upstream_sync_run "
+                                            + "WHERE run_id = ? AND task_id = ? "
+                                            + "AND state IN ("
+                                            + "'READY','PICKING',"
+                                            + "'WAITING_CONFLICT_REPAIR',"
+                                            + "'FINAL_REVIEW','WAITING_USER',"
+                                            + "'CANCELED','NEEDS_ATTENTION')",
+                                    Integer.class, operation.ownerId(),
+                                    task.taskId()) == 1);
             case RUN_REVIEWER -> operation.ownerKind()
                         .equals("REVIEW_REQUEST")
                     && runtime.reviewerRequest(operation.ownerId())

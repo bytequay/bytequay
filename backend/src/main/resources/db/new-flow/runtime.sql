@@ -258,6 +258,7 @@ CREATE TABLE flow_runtime_operation (
         kind IN (
             'PROVISION_TASK',
             'RECONCILE_TASK',
+            'UPSTREAM_SYNC',
             'RUN_TASK_TURN',
             'RUN_REVIEWER',
             'RUN_CI_FIXER',
@@ -393,7 +394,7 @@ CREATE TABLE flow_runtime_writer_lease (
     operation_id TEXT NOT NULL UNIQUE,
     task_epoch INTEGER NOT NULL,
     holder_kind TEXT NOT NULL CHECK (
-        holder_kind IN ('TASK_AGENT', 'CI_FIXER')
+        holder_kind IN ('TASK_AGENT', 'CI_FIXER', 'UPSTREAM_SYNC')
     ),
     fencing_token INTEGER NOT NULL,
     claim_generation INTEGER NOT NULL,
@@ -840,7 +841,7 @@ CREATE TABLE flow_runtime_reviewer_request (
 CREATE TABLE flow_runtime_task_terminal_request (
     run_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (
-        kind IN ('REVIEWER', 'CONTINUE_TASK', 'READY_FOR_REVIEW')
+        kind IN ('REVIEWER', 'CONTINUE_UPSTREAM_SYNC', 'READY_FOR_REVIEW')
     ),
     request_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,

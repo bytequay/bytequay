@@ -1997,7 +1997,7 @@ final class GitHubProvider
         String basic = Base64.getEncoder().encodeToString(
                 credential.getBytes(StandardCharsets.UTF_8));
         Map<String, String> environment = safeEnvironment();
-        environment.put("GIT_CONFIG_COUNT", "9");
+        environment.put("GIT_CONFIG_COUNT", "8");
         environment.put("GIT_CONFIG_KEY_0", "credential.helper");
         environment.put("GIT_CONFIG_VALUE_0", "");
         environment.put("GIT_CONFIG_KEY_1", "core.hooksPath");
@@ -2017,11 +2017,8 @@ final class GitHubProvider
                 "http." + exactUrl + ".proxy");
         environment.put("GIT_CONFIG_VALUE_6", "");
         environment.put("GIT_CONFIG_KEY_7",
-                "http." + exactUrl + ".sslCAInfo");
-        environment.put("GIT_CONFIG_VALUE_7", "");
-        environment.put("GIT_CONFIG_KEY_8",
                 "http." + exactUrl + ".extraHeader");
-        environment.put("GIT_CONFIG_VALUE_8", "Authorization: Basic " + basic);
+        environment.put("GIT_CONFIG_VALUE_7", "Authorization: Basic " + basic);
         return environment;
     }
 

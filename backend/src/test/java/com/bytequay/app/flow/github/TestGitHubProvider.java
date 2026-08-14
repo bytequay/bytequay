@@ -115,6 +115,15 @@ final class TestGitHubProvider
                 "GIT_CONFIG_VALUE_4", "true");
         assertThat(git.networkEnvironment).containsEntry(
                 "GIT_CONFIG_VALUE_5", "false");
+        assertThat(git.networkEnvironment)
+                .containsEntry("GIT_CONFIG_COUNT", "8")
+                .containsEntry(
+                        "GIT_CONFIG_KEY_7",
+                        "http.https://github.com/head/repo.git.extraHeader");
+        assertThat(git.networkEnvironment.get("GIT_CONFIG_VALUE_7"))
+                .startsWith("Authorization: Basic ");
+        assertThat(git.networkEnvironment.values())
+                .noneMatch(value -> value.contains("sslCAInfo"));
     }
 
     @Test

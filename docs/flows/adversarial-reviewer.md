@@ -7,8 +7,8 @@ Parent architecture: [Development-flow architecture](./README.md)
 
 The Adversarial Reviewer is a fresh, read-only child agent that challenges one exact
 committed candidate. For Upstream Sync, its instruction narrows its attention to
-conflict resolutions and fork fixups and tells it not to re-review mechanically clean
-cherry-picks; the program does not preselect commits. It looks for actionable
+explicit `fixup!` commits and tells it not to review cherry-picked commits, including
+conflict resolutions. It looks for actionable
 correctness, security, reliability, regression, and test-coverage problems before the
 candidate reaches a user gate.
 
@@ -162,6 +162,14 @@ The launch prompt must say, in substance:
 > no authority.
 
 This guidance improves usefulness but is not a storage protocol.
+
+For an Upstream Sync range, the launch prompt additionally requires the reviewer to
+read commit history first and review only commits whose subject begins exactly
+`fixup! `. If none exists, it saves `No fixup commits to review.` without reading the
+full diff or source files. Cherry-picked commits, conflict resolutions, and other
+non-fixup commits are out of scope. For each fixup, it checks only whether the
+fixup preserves its picked commit's intent, adapts safely to the fork, and introduces
+no regression. Ordinary non-upstream Tasks retain full-change review.
 
 ## 6. Read-only source model
 

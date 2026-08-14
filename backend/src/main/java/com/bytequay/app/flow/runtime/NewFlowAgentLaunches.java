@@ -239,21 +239,25 @@ public final class NewFlowAgentLaunches
                         "commit_task_change")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
-                "adversarial-reviewer-prompt:v6",
+                "adversarial-reviewer-prompt:v7",
                 "immutable-git-object-reader:v4",
                 "ci-adversarial-review-turn:v5",
                 "Review the immutable base-to-head change adversarially using "
-                        + "read-only tools. For an upstream cherry-pick range, "
-                        + "inspect commit history yourself and review every "
-                        + "conflict resolution and every fork-authored "
-                        + "correction or fixup. A fork correction need not have "
-                        + "a fixup! subject. Ignore only mechanically clean "
-                        + "cherry-picks: cherry-picked-from provenance alone "
-                        + "does not prove that a pick was mechanically clean. "
-                        + "If history cannot prove a pick was mechanically "
-                        + "clean, inspect it conservatively. "
-                        + "Never return no findings merely because no fixup! "
-                        + "commit exists. When inspection is complete, call "
+                        + "read-only tools. Read commit history first. When it "
+                        + "shows an upstream cherry-pick range, review only "
+                        + "commits whose subject begins exactly `fixup! `. Do "
+                        + "not review cherry-picked commits, including conflict "
+                        + "resolutions, or any other non-fixup commit. If the "
+                        + "range has no `fixup! ` commit, do not read the full "
+                        + "diff or source files; save the report `No fixup "
+                        + "commits to review.` immediately. If fixups exist, "
+                        + "check only whether each fixup is correct: it must "
+                        + "preserve its picked commit's intent, adapt safely to "
+                        + "the fork, and introduce no regression. Limit findings "
+                        + "to changes introduced by those fixup commits; "
+                        + "unrelated files are context only. For a "
+                        + "non-upstream Task, review the full committed change. "
+                        + "When inspection is complete, call "
                         + "save_report exactly once with your complete opaque "
                         + "report. That call only creates the Task's "
                         + "subagent-review.txt handoff file; it "

@@ -451,18 +451,22 @@ evidence refs, and `manualOnly`. It does not read result prose.
 A local check attempt has an exact-head conclusion `PASSED`, `FAILED`, or
 `UNAVAILABLE`. `UNAVAILABLE` means the program captured a real attempted command
 and objective reason such as absent local credentials/toolchain. It is evidence,
-not a boolean override. Missing/never-attempted and `FAILED` block. `UNAVAILABLE`
-may open a prominently warned, manual-only gate; it can never use CI standing
-consent. Required remote CI remains authoritative before feedback replies and
-merge. A missing or unavailable `RequiredCiPolicyRevision` for the PR's exact
+not a boolean override. Missing or stale evidence blocks. For the initial draft
+publication, completed `FAILED` and `UNAVAILABLE` attempts remain visible
+evidence but do not block the exact manual gate; remote CI after publication is
+authoritative. For `CI_UPDATE`, `FAILED` blocks and `UNAVAILABLE` may open a
+prominently warned, manual-only gate; neither can use CI standing consent. A
+missing or unavailable `RequiredCiPolicyRevision` for the PR's exact
 target-base/ruleset scope is a hard blocker and is never treated as an explicit
 empty required-check set.
 
 The current Local Checks owner freezes `FAILED` and genuine tool/environment
 `UNAVAILABLE` attempts as reviewer evidence and blocks reviewer reservation
 only for missing/stale evidence or an unproven process boundary. The implemented
-local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
-manual-only warning, and rejects missing/stale/process-boundary evidence. Its
+initial gate carries completed failures as evidence without blocking manual
+draft publication. The implemented local `CI_UPDATE` gate blocks `FAILED`,
+records genuine `UNAVAILABLE` as a manual-only warning, and rejects
+missing/stale/process-boundary evidence. Its
 complete-empty local-review binding is implemented; private comments/threads,
 configurable/multi-use consent, and general provider observation remain
 deferred. Manual INITIAL authorization is implemented with a provider-sealed

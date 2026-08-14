@@ -220,12 +220,15 @@ final class TestNewFlowAgentRuntimeBoundaries
         assertThat(toolNames(launches.tools(REVIEWER, ANTHROPIC)))
                 .contains("read_commit_history", "save_report");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
-                "review every conflict resolution",
-                "fork correction need not have a fixup! subject",
-                "Ignore only mechanically clean cherry-picks",
-                "inspect it conservatively",
-                "Never return no findings merely because no fixup! commit exists")
-                .doesNotContain("do not re-review picked commits or their conflict resolutions");
+                "Read commit history first",
+                "review only commits whose subject begins exactly `fixup! `",
+                "including conflict resolutions",
+                "do not read the full diff or source files",
+                "No fixup commits to review.",
+                "check only whether each fixup is correct",
+                "preserve its picked commit's intent",
+                "For a non-upstream Task, review the full committed change")
+                .doesNotContain("review every conflict resolution");
     }
 
     @Test

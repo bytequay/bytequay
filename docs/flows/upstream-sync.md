@@ -65,9 +65,9 @@ fallback.
 - The user confirms the exact ordered range and exclusions before mutation.
 - Clean picks are deterministic program operations using `git cherry-pick -x`.
 - Final adversarial review remains bound to the exact last-picked candidate and is
-  instructed to identify and review conflict resolutions and fork fixups while
-  ignoring mechanically clean picks. The program does not preselect commits for
-  the reviewer.
+  instructed to review only explicit `fixup!` commits. Cherry-picked commits,
+  including conflict resolutions, are out of scope. With no fixup commit, it saves a
+  no-fixups report without reading the full diff or source files.
 - The reviewer terminally calls `save_report(report)` to create the Task's
   program-owned `subagent-review.txt` outside Git. The persistent Task Agent
   calls `ask_report()` to read and remove it; neither Upstream Sync nor a
@@ -450,11 +450,11 @@ sequencer back to the recorded head and parks with objective evidence.
 
 ### 4. Keep fork corrections reviewable
 
-Conflict-resolution commits retain exact `-x` provenance. Any later fork
-correction made during final review is committed at the current tip and adopted
-as a Task change-set revision; it is not hidden by a history-control tool. The
-reviewer receives immutable commit-history reads and must inspect every
-conflict resolution and fork-authored correction, regardless of commit subject.
+Conflict-resolution commits retain exact `-x` provenance. Any explicit `fixup!`
+commit remains visible in immutable commit history and is the only Upstream Sync
+commit class the reviewer inspects. Cherry-picked commits and their conflict
+resolutions are not reviewed again. The reviewer checks whether each fixup preserves
+its picked commit's intent, adapts safely to the fork, and introduces no regression.
 
 ### 5. Target branch moves
 
@@ -484,8 +484,8 @@ After the last pick:
 2. It calls the normal `save_pr_draft` flow, which materializes the Local PR
    only for a clean, non-empty, reviewable diff and saves its title/body draft.
 3. It spawns a fresh read-only adversarial reviewer for the exact final head,
-   with an upstream-specific instruction to find and review conflict
-   resolutions and fork fixups and ignore mechanically clean cherry-picks.
+   with an upstream-specific instruction to review only explicit `fixup!`
+   commits. If none exists, the reviewer saves a no-fixups report immediately.
 4. The reviewer calls `save_report(report)`, atomically creating
    `subagent-review.txt`. After exact process stop, the runtime stores only
    technical completion and resumes the persistent Task Agent.

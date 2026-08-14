@@ -326,9 +326,11 @@ the upstream component's deterministic clean-pick loop first; its persistent
 Task Agent stays idle until conflict or final semantic review. It then joins the
 common checks/review/initial-gate path and uses the same GitHub, CI, feedback,
 and merge contracts. Its one reviewer stays bound to the exact last-picked head
-and is instructed to find and review only conflict resolutions and fork fixups,
-without re-reviewing mechanically clean cherry-picks. The final gate may include
-only mechanically recorded corrections made by the resumed Task turn.
+and is instructed to review only explicit `fixup!` commits, without reviewing
+cherry-picked commits or their conflict resolutions. With no fixup commit, it
+saves a no-fixups report without reading the full diff or source files. The final
+gate may include only mechanically recorded corrections made by the resumed Task
+turn.
 
 ## Cross-component contracts
 

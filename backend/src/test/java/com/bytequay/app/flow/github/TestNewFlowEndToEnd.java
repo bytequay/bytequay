@@ -398,12 +398,14 @@ final class TestNewFlowEndToEnd
             }
             case 2 -> {
                 call(tools, "read_diff", "{}");
+                call(tools, "save_report",
+                        "{\"report\":\"No review comments.\"}");
                 reviewerEntered.countDown();
                 await(policyReady);
                 return result(TurnResult.End.COMPLETED);
             }
             case 3 -> {
-                call(tools, "read_initial_review_context", "{}");
+                call(tools, "ask_report", "{}");
                 call(tools, "read_candidate_diff", "{}");
                 call(tools, "ready_for_initial_publish", "{}");
                 return result(TurnResult.End.INTERRUPTED);
@@ -428,10 +430,13 @@ final class TestNewFlowEndToEnd
             }
             case 6 -> {
                 call(tools, "read_diff", "{}");
+                call(tools, "save_report",
+                        "{\"report\":\"No review comments.\"}");
                 return result(TurnResult.End.COMPLETED);
             }
             case 7 -> {
                 call(tools, "read_ci_fix_context", "{}");
+                call(tools, "ask_report", "{}");
                 call(tools, "read_candidate_diff", "{}");
                 call(tools, "ready_for_review", "{}");
                 return result(TurnResult.End.INTERRUPTED);

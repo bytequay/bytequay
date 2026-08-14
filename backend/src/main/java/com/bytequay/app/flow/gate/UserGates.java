@@ -2896,10 +2896,7 @@ public final class UserGates
                 || !reviewerRequest.originCiFixSourceKind().equals(
                         origin.sourceKind().name())
                 || !reviewerRequest.originCiFixSourceId().equals(
-                        origin.sourceId())
-                || reviewerRun.state() != RunState.COMPLETED
-                || reviewerResult.terminalOutcome()
-                        != TerminalOutcome.COMPLETED) {
+                        origin.sourceId())) {
             blockers.add("EXACT_HEAD_REVIEW_MISSING");
         }
         if (!pr.published()
@@ -3155,8 +3152,6 @@ public final class UserGates
                 || run.state() != RunState.RUNNING
                 || run.wakeKind() != WakeKind.AGENT_RESULT_READY
                 || run.intendedGateKind() != GateIntent.INITIAL_PUBLISH
-                || !Objects.equals(run.inputChangeSetRevisionId(),
-                        changeSet.changeSetRevisionId())
                 || input.kind() != PendingKind.AGENT_RESULT_READY
                 || input.intendedGateKind()
                         != GateIntent.INITIAL_PUBLISH
@@ -3171,21 +3166,22 @@ public final class UserGates
                 || parent.state() == RunState.QUEUED
                 || parent.state() == RunState.RUNNING
                 || !parent.operationId().equals(review.parentOperationId())
-                || !review.changeSetRevisionId().equals(
-                        changeSet.changeSetRevisionId())
-                || !review.reviewedHeadSha().equals(changeSet.headSha())
                 || !review.baseHeadSha().equals(base.baseSha())
-                || !review.headTreeDigest().equals(changeSet.headTreeDigest())
-                || !review.diffDigest().equals(changeSet.diffDigest())
                 || !changeSet.differsFromBase()) {
+            throw rejected("INITIAL_SUBJECT_STALE");
+        }
+        try {
+            runtime.assertTaskTurnDescendant(
+                    review.changeSetRevisionId(),
+                    changeSet.changeSetRevisionId(), runId);
+        }
+        catch (RuntimeException stale) {
             throw rejected("INITIAL_SUBJECT_STALE");
         }
         AgentRun reviewerRun = runtime.runForOperation(review.reviewerOperationId())
                 .orElseThrow(() -> rejected("EXACT_HEAD_REVIEW_MISSING"));
-        if (reviewerRun.state() != RunState.COMPLETED
-                || !reviewerRun.runId().equals(input.externalKey())
-                || !reviewerResult.runId().equals(reviewerRun.runId())
-                || reviewerResult.terminalOutcome() != TerminalOutcome.COMPLETED) {
+        if (!reviewerRun.runId().equals(input.externalKey())
+                || !reviewerResult.runId().equals(reviewerRun.runId())) {
             throw rejected("EXACT_HEAD_REVIEW_MISSING");
         }
         PrDraftRevision draft = runtime.currentPrDraft(pr.prId())
@@ -3199,10 +3195,6 @@ public final class UserGates
                 GateIntent.INITIAL_PUBLISH);
         reservation.assertCurrentForReservation();
         LocalCheckEvidence checks = reservation.evidence();
-        if (!checks.policyRevisionId().equals(review.localCheckPolicyRevisionId())
-                || !checks.checkRunRefs().equals(review.checkRunRefs())) {
-            throw rejected("LOCAL_CHECK_EVIDENCE_STALE");
-        }
         List<String> blockers = new ArrayList<>();
         for (LocalCheckRun check : checks.runs()) {
             if (check.conclusion() == LocalCheckConclusion.FAILED) {
@@ -4986,6 +4978,15 @@ public final class UserGates
                 """,
                 Integer.class,
                 revision.gateId(), revision.revision(), READY_ACTOR);
+        try {
+            runtime.assertTaskTurnDescendant(
+                    request.changeSetRevisionId(),
+                    subject.changeSetRevisionId(), readyRun.runId());
+        }
+        catch (RuntimeException stale) {
+            throw new IllegalStateException(
+                    "initial reviewer graph is inconsistent", stale);
+        }
         if (!ready.requestId().equals(stableId(
                         "ready-request", readyRun.runId(), subject.subjectId()))
                 || !ready.subjectRef().equals(subject.subjectId())
@@ -5003,9 +5004,9 @@ public final class UserGates
                 || !readyRun.inputRef().equals(
                         "inbox:" + readyInput.pendingId())
                 || !Objects.equals(readyRun.inputChangeSetRevisionId(),
-                        subject.changeSetRevisionId())
+                        request.changeSetRevisionId())
                 || readyRun.inputRemoteHeadSha() != null
-                || !readyRun.headSha().equals(subject.proposedHead())
+                || !readyRun.headSha().equals(request.reviewedHeadSha())
                 || readyOperation.kind() != OperationKind.RUN_TASK_TURN
                 || !readyOperation.taskId().equals(subject.taskId())
                 || !readyOperation.ownerKind().equals("AGENT_RUN")
@@ -5015,7 +5016,7 @@ public final class UserGates
                 || readyInput.kind() != PendingKind.AGENT_RESULT_READY
                 || readyInput.intendedGateKind() != GateIntent.INITIAL_PUBLISH
                 || !readyInput.externalKey().equals(reviewer.runId())
-                || !readyInput.subjectHead().equals(subject.proposedHead())
+                || !readyInput.subjectHead().equals(request.reviewedHeadSha())
                 || !Objects.equals(
                         readyInput.agentResultId(), result.resultId())
                 || !readyInput.payloadRef().equals(reviewerResultPayload(
@@ -5035,8 +5036,6 @@ public final class UserGates
                 || !reviewerOperation.ownerKind().equals("REVIEW_REQUEST")
                 || !reviewerOperation.ownerId().equals(request.requestId())
                 || !reviewerOperation.inputRef().equals("review-request:" + request.requestId())
-                || reviewer.state() != RunState.COMPLETED
-                || result.terminalOutcome() != TerminalOutcome.COMPLETED
                 || parent.state() == RunState.QUEUED
                 || parent.state() == RunState.RUNNING
                 || parentOperation.state() == OperationState.READY
@@ -5047,15 +5046,7 @@ public final class UserGates
                         parentResult.resultId())
                 || !result.runId().equals(reviewer.runId())
                 || !result.resultId().equals(subject.reviewerResultId())
-                || !request.changeSetRevisionId().equals(subject.changeSetRevisionId())
-                || !request.reviewedHeadSha().equals(subject.proposedHead())
                 || !request.baseHeadSha().equals(subject.expectedBaseSha())
-                || !request.headTreeDigest().equals(subject.headTreeDigest())
-                || !request.diffDigest().equals(subject.diffDigest())
-                || !request.localCheckPolicyRevisionId().equals(
-                        subject.localCheckPolicyRevisionId())
-                || !request.checkRunRefs().equals(subject.localChecks().stream()
-                        .map(LocalCheckBinding::checkRunId).toList())
                 || requireNonNull(readyTransition,
                         "initial ready transition count is null") != 1) {
             throw new IllegalStateException("initial reviewer graph is inconsistent");
@@ -5604,11 +5595,8 @@ public final class UserGates
                         reviewerRun.operationId())
                 || !runtime.reviewerRequestForReviewerRun(
                         reviewerRun.runId()).orElseThrow().equals(request)
-                || reviewerRun.state() != RunState.COMPLETED
                 || !reviewerResult.resultId().equals(
                         subject.reviewerResultId())
-                || reviewerResult.terminalOutcome()
-                        != TerminalOutcome.COMPLETED
                 || readyRun.state() != RunState.COMPLETED
                 || readyRun.wakeKind() != WakeKind.AGENT_RESULT_READY
                 || readyInput.kind() != PendingKind.AGENT_RESULT_READY

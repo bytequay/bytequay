@@ -217,7 +217,7 @@ final class TestNewFlowAgentRuntimeBoundaries
         assertThat(prompt).contains(
                 "only that exact pick", "new turn", "request exact review");
         assertThat(toolNames(launches.tools(REVIEWER, ANTHROPIC)))
-                .contains("read_commit_history");
+                .contains("read_commit_history", "save_report");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
                 "review every conflict resolution",
                 "fork correction need not have a fixup! subject",
@@ -477,8 +477,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "initial-first", "task-initial-prompt:v2",
                 "task-initial-capabilities:v2");
         AgentRun reviewRun = initialRun(
-                "initial-review", "task-initial-review-prompt:v2",
-                "task-initial-review-capabilities:v2");
+                "initial-review", "task-initial-review-prompt:v4",
+                "task-initial-review-capabilities:v4");
         when(runtime.run(firstRun.runId())).thenReturn(Optional.of(firstRun));
         when(runtime.run(reviewRun.runId())).thenReturn(Optional.of(reviewRun));
         when(credentials.find(CredentialType.AI, "anthropic", "ci"))
@@ -492,7 +492,7 @@ final class TestNewFlowAgentRuntimeBoundaries
 
         assertThat(first.promptRevision()).isEqualTo("task-initial-turn:v2");
         assertThat(review.promptRevision())
-                .isEqualTo("task-initial-review-turn:v2");
+                .isEqualTo("task-initial-review-turn:v4");
         assertThat(first.promptDigest()).isNotEqualTo(review.promptDigest());
         assertThat(first.toolManifestDigest())
                 .isNotEqualTo(review.toolManifestDigest());
@@ -508,11 +508,10 @@ final class TestNewFlowAgentRuntimeBoundaries
         assertThat(toolNames(actual.tools(
                 TASK_INITIAL_REVIEW_RESULT, ANTHROPIC)))
                 .containsExactly(
-                        "read_initial_review_context", "read_candidate_diff",
+                        "ask_report", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "commit_initial_change",
-                        "run_checks", "request_initial_review",
-                        "ready_for_initial_publish")
+                        "run_checks", "ready_for_initial_publish")
                 .doesNotContain(
                         "read_initial_task_context", "request_user_input",
                         "shell", "git", "run_id", "claim_id");
@@ -951,7 +950,7 @@ final class TestNewFlowAgentRuntimeBoundaries
     private static AgentRun initialRun(
             String runId, String prompt, String capabilities)
     {
-        boolean review = prompt.equals("task-initial-review-prompt:v2");
+        boolean review = prompt.equals("task-initial-review-prompt:v4");
         return new AgentRun(
                 runId,
                 "operation-" + runId,

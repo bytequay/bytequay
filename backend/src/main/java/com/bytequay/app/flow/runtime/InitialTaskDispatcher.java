@@ -289,9 +289,9 @@ public final class InitialTaskDispatcher
                         Path worktree = Path.of(
                                 runtime.task(claim.taskId()).orElseThrow()
                                         .worktreePath());
-                        // An upstream range replaces only what happens between
-                        // the Task's start and its review request; the gate,
-                        // the reviewer and publication stay the ordinary ones.
+                        // Upstream replaces deterministic picking and conflict
+                        // preparation only. Its review report returns to the
+                        // persistent Task Agent like every other review.
                         return upstreamRange
                                 ? upstreamSync.runAgentTurn(
                                         launch, worktree, capability,

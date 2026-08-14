@@ -381,7 +381,7 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     {
         ReviewerClaim reviewer = prepareReviewerClaim(
                 "completion-seal-reviewer");
-        String reviewerContent = "sealed reviewer completion";
+        String reviewerContent = null;
         AgentProcessAttempt reviewerAttempt =
                 ReflectionTestUtils.invokeMethod(
                         runtime,
@@ -403,8 +403,8 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 reviewer.start().run().runId(), reviewer.claim(),
                 TerminalOutcome.COMPLETED,
                 "changed reviewer completion", null))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("stopped completion");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("save_report");
         assertThat(runtime.resultForRun(
                 reviewer.start().run().runId())).isEmpty();
         AgentResult reviewerResult = runtime.finishReviewerAgentRun(

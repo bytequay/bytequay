@@ -70,9 +70,9 @@ import static java.util.Objects.requireNonNull;
 /** Exact CI-fix inspection and fresh adversarial-review round trip. */
 public final class CiFixReviewCoordinator
 {
-    private static final String TASK_PROMPT = "task-ci-inspection-prompt:v2";
+    private static final String TASK_PROMPT = "task-ci-inspection-prompt:v3";
     private static final String TASK_CAPABILITIES =
-            "task-ci-inspection-capabilities:v2";
+            "task-ci-inspection-capabilities:v3";
     private static final String REVIEWER_PROMPT =
             NewFlowAgentLaunches.currentReviewerPromptManifestRef();
     private static final String REVIEWER_CAPABILITIES =
@@ -247,6 +247,15 @@ public final class CiFixReviewCoordinator
             writer.runTool(effect);
         }
 
+        public String askReport()
+        {
+            if (completedReviewerResult == null) {
+                throw new IllegalStateException(
+                        "review result is unavailable");
+            }
+            return writer.askReviewReport();
+        }
+
         public List<LocalCheckRun> runChecks()
         {
             return writer.runChecks(localChecks, repositoryRoot, null);
@@ -410,9 +419,7 @@ public final class CiFixReviewCoordinator
                 binding.request().reviewedHeadSha(),
                 "reviewOutcome=" + binding.result().terminalOutcome()
                         + "\nreviewError="
-                        + Objects.toString(binding.result().errorRef(), "")
-                        + "\nreviewSummary="
-                        + bounded(binding.result().finalContent()));
+                        + Objects.toString(binding.result().errorRef(), ""));
     }
 
     private TaskToolContext taskToolContext(

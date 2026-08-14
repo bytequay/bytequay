@@ -32,7 +32,6 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
-import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ExecutionHandle;
@@ -138,14 +137,20 @@ public final class InitialTaskCoordinator
                                         .terminalOutcome()
                                 + "\nreviewError=" + bounded(
                                         binding.completedReviewResult()
-                                                .errorRef())
-                                + "\nreviewSummary=" + bounded(
-                                        binding.completedReviewResult()
-                                                .finalContent());
+                                                .errorRef());
                 return "taskGoal=" + task.goalText()
                         + "\ninitialBase=" + task.currentBaseSha()
                         + review;
             });
+        }
+
+        public String askReport()
+        {
+            if (!binding.reviewContinuation()) {
+                throw new IllegalStateException(
+                        "initial first turn has no review report");
+            }
+            return writer.askReviewReport();
         }
 
         public byte[] readCandidateDiff()
@@ -239,10 +244,18 @@ public final class InitialTaskCoordinator
                 throw new IllegalStateException(
                         "initial ready requires an exact reviewer result");
             }
-            if (binding.completedReviewResult().terminalOutcome()
-                    != TerminalOutcome.COMPLETED) {
-                throw new IllegalStateException(
-                        "initial ready requires a completed reviewer result");
+            Task task = requireCurrentTask(binding);
+            ChangeSetRevision current = runtime.currentChangeSet(task.taskId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "initial ready has no current change set"));
+            PullRequestSubject pr = runtime.pullRequest(task.prId())
+                    .orElseThrow();
+            var draft = runtime.currentPrDraft(pr.prId()).orElseThrow();
+            if (!draft.changeSetRevisionId().equals(
+                    current.changeSetRevisionId())) {
+                writer.savePrDraft(
+                        pr.prId(), current.changeSetRevisionId(),
+                        current.headSha(), draft.title(), draft.body());
             }
             return writer.readyForInitialPublish(
                     userGates, binding.repositoryRoot(), observation);

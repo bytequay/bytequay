@@ -186,20 +186,30 @@ and `request_initial_review(title, body)`. That terminal command mechanically
 materializes/reuses the one local unpublished PR, appends the exact draft, requires
 already-recorded validation evidence, and seals a fresh reviewer request; it does
 not run checks itself.
-The exact reviewer-result successor may correct and commit another descendant,
-request a fresh review, or call `ready_for_initial_publish()` after a completed
-same-head review. It does not expose a generic shell, raw Git, owner IDs, or a
-question tool.
+The exact reviewer-result successor calls `ask_report()`. The program checks for
+`subagent-review.txt`, reads and removes it, then returns either the nonempty
+comments with a "fix or ignore" instruction or "no review comments". The Task
+Agent judges the prose itself, may correct and commit an exact descendant, and
+then calls `ready_for_initial_publish()`. It does not request another initial
+review. Its successful terminal settlement marks the technical result input
+handled. It does not expose a generic shell, raw Git, owner IDs, or a
+question tool. Upstream Sync uses this same successor; its deterministic owner
+never consumes reviewer prose or opens a gate from it.
 
 ### Adversarial review
 
 8. When Task intends to present or publish the current committed change, it calls
    `spawn_agent(role="adversarial_reviewer")`.
 9. Runtime freezes the current head/diff/evidence, parks Task's mutation activity,
-   starts a fresh read-only reviewer, and automatically stores its result.
-10. Runtime resumes Task with `AgentResultReady`; Task reads the opaque prose.
+   and starts one fresh immutable reviewer. The reviewer terminally calls
+   `save_report(report)`, creating program-owned `subagent-review.txt` outside
+   the Git worktree. The database stores only technical process completion.
+10. Runtime resumes Task with `AgentResultReady`; Task calls `ask_report()`.
+    The tool reads and removes the file and returns its opaque prose, or reports
+    that there are no comments when the file is missing or empty.
 11. Task decides which observations are actionable. It fixes accepted issues,
-    reruns checks, commits, and requests another exact-head review. The normative
+    reruns checks, and commits an exact descendant without starting another
+    initial review. The normative
     future surface calls `request_user_input` for a material product choice; that
     tool and its owner are not exposed in the current checkpoint.
 12. No program branch asks whether “findings exist.” Completion against the current
@@ -286,7 +296,8 @@ cannot bypass it.
 | `save_pr_draft(title, body)` | Before first publication only: on a clean committed non-empty diff, materializes the stable Local PR if absent and stores a title/body revision. Reject once remote identity exists; v1 has no post-publication metadata-edit effect |
 | `spawn_agent(role="adversarial_reviewer")` | Successful call returns `reviewRequestId`, seals/ends the parent turn, and durably queues the one allowed exact-head read-only reviewer request; the claimed reviewer operation later creates the child session/run |
 | `request_initial_review(title, body)` | Current ordinary-INITIAL terminal tool. After a fixed commit/adoption it materializes or reuses the one local unpublished PR, appends the bounded draft, requires already-recorded exact INITIAL check evidence, and seals the fresh read-only reviewer request without executing checks. No owner IDs are accepted or returned. |
-| `ready_for_initial_publish()` | Current INITIAL reviewer-result terminal tool. It accepts no arguments, consumes one fresh authenticated repository observation into a stored target/subject/action/request bundle, and stops. Only the STOPPED finalizer may atomically open the manual INITIAL gate and settle the run/session/input/pointer/lease. |
+| `ask_report()` | Checks for the Task's program-owned `subagent-review.txt`, reads and removes it when present, and returns nonempty prose with a "fix or ignore" instruction or "no review comments". It grants no authority. |
+| `ready_for_initial_publish()` | Current INITIAL reviewer-result terminal request. It accepts no arguments, consumes one fresh authenticated repository observation into a stored target/subject/action/request bundle, and stops. It does not accept or approve reviewer prose. A post-review correction must be a mechanically recorded descendant from this exact Task turn; another initial review is not requested. Only the STOPPED finalizer may open the manual INITIAL gate and settle the run/session/input/pointer/lease. |
 | `read_agent_result(run_id)` | Reads an already persisted result, primarily for recovery/history; normal completion is delivered automatically |
 | `list_local_review_items(batch_id?)` | Lists private local review items and current revision IDs; omission selects the authenticated active batch |
 | `read_local_review_item(revision_id)` | Returns one exact immutable local comment/thread revision |
@@ -333,7 +344,8 @@ The Task Agent's standing instruction is short and explicit:
 - never assume a queued event still applies to a newer head;
 - before `ready_for_review()` for changed code, commit, capture checks, and request a
   fresh exact-head adversarial review;
-- interpret reviewer prose yourself; the runtime will not interpret it;
+- call `ask_report()` and interpret reviewer prose yourself; neither the
+  report nor your interpretation gives the runtime authority;
 - never perform a remote effect;
 - release/park at a user gate or when waiting for an external event.
 
@@ -378,11 +390,12 @@ current production commands. No current prompt or tool manifest contains
 ### [Adversarial Reviewer](./adversarial-reviewer.md)
 
 - Task may spawn only this child role.
-- Runtime binds exact head/diff/evidence and auto-persists the result before resuming
-  Task.
+- Runtime binds exact head/diff/evidence and persists the terminally submitted
+  report before resuming Task.
 - Runtime also supplies resolved Task-scoped question/answer records created after
   launch; it does not replay or semantically filter the Trunk transcript.
-- Task interprets ordinary prose; the program only verifies run completion and head.
+- Task interprets ordinary prose; the program only verifies exact submission,
+  storage, delivery, run completion, and head.
 
 ### [CI Fixer](./ci-autofix.md)
 
@@ -458,7 +471,7 @@ current production commands. No current prompt or tool manifest contains
 |---|---|
 | Task process dies with dirty worktree | After death is proven, release lease; persist `RECOVERY` work with measured status; the selector resumes a new run without destructive reset |
 | Process dies after commit but before completion | Measure current head, retain commit, and resume from durable state; do not repeat edits blindly |
-| Reviewer fails | Store failed opaque result; Task retries a fresh reviewer before readiness |
+| Reviewer fails or leaves no file | Store only technical completion, resume Task, and let `ask_report()` return no comments; no model-authored failure or report text controls readiness |
 | Reviewer completes for stale head | Keep result for audit; `ready_for_review` rejects it and requires a new exact-head run |
 | Malformed agent tool call | Return immediate validation error to the active agent; final prose is not a fallback payload |
 | Local review is submitted while Task runs | Store immutable revisions/batch, transition the reviewed gate to `CHANGES_REQUESTED`, ensure reconciliation, and do not interrupt |
@@ -481,8 +494,11 @@ current production commands. No current prompt or tool manifest contains
 
 1. Task reads goal/repository and commits H1.
 2. `run_checks([exact argv], ".")` records green evidence for H1.
-3. Fresh reviewer result R1 is auto-persisted for H1 and delivered to Task.
-4. Task calls `ready_for_review`; gate G1 opens for H1.
+3. The one initial reviewer calls `save_report`; `subagent-review.txt` is ready
+   for Task while only technical completion is stored in the database.
+4. Task calls `ask_report`, which reads and removes the file, judges it, and
+   requests readiness; gate G1
+   opens for H1.
 5. User submits local comment C1. G1 becomes `CHANGES_REQUESTED`; Task is resumed.
 6. Task fixes C1, commits H2, captures checks and obtains R2.
 7. New gate G2 opens for H2. User authorizes G2 with `KEEP_DRAFT`.

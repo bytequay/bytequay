@@ -39,7 +39,7 @@ durable upstream preview before Task creation
   -> create Task at resolved target base
   -> construct branch locally
   -> resolve conflicts and shape history
-  -> final checks + repair-only adversarial review
+  -> final checks + repair-only adversarial review + Task-Agent judgement
   -> user Local PR review
   -> program opens draft GitHub PR
   -> Upstream Sync stops
@@ -64,10 +64,14 @@ fallback.
 - Source/target refs are fetched and resolved to immutable SHAs before preview.
 - The user confirms the exact ordered range and exclusions before mutation.
 - Clean picks are deterministic program operations using `git cherry-pick -x`.
-- Final adversarial review remains bound to the exact final candidate and is
+- Final adversarial review remains bound to the exact last-picked candidate and is
   instructed to identify and review conflict resolutions and fork fixups while
   ignoring mechanically clean picks. The program does not preselect commits for
   the reviewer.
+- The reviewer terminally calls `save_report(report)` to create the Task's
+  program-owned `subagent-review.txt` outside Git. The persistent Task Agent
+  calls `ask_report()` to read and remove it; neither Upstream Sync nor a
+  program parser judges that prose.
 - A conflict is semantic work. The program preserves sequencer/conflict evidence
   and resumes the Task Agent; it never guesses a resolution.
 - Never commit unresolved index entries or deliberately commit conflict markers.
@@ -520,22 +524,33 @@ After the last pick:
 3. It spawns a fresh read-only adversarial reviewer for the exact final head,
    with an upstream-specific instruction to find and review conflict
    resolutions and fork fixups and ignore mechanically clean cherry-picks.
-4. It fixes actionable findings through the same terminal history-command
-   boundary and repeats exact-head checks/review as needed.
-5. It calls `ready_for_review()` and receives `ACCEPTED_SEALED` or an actionable
-   error; no gate ID is returned to the model.
-6. After result/head/lease evidence is durable, a final `UPSTREAM_SYNC`
-   verification operation calls `verifyHistory` and stores an immutable
-   `UpstreamVerification` proving selection/provenance/order,
-   one-fixup-per-owner shape, standalone-tip placement, clean worktree, and
-   current target base.
-7. The ordinary `INITIAL_PUBLISH` gate freezes that
-   `upstreamVerificationRef` and shows the complete range summary,
-   conflict/fixup history, missing validation, exact diff, checks, and review.
+4. The reviewer calls `save_report(report)`, atomically creating
+   `subagent-review.txt`. After exact process stop, the runtime stores only
+   technical completion and resumes the persistent Task Agent.
+5. The Task Agent calls `ask_report()`. The program checks for the file, reads
+   and removes it, and returns nonempty comments with a "fix or ignore"
+   instruction or reports that there are no comments. The Task Agent judges
+   every observation; no program branch interprets prose.
+6. If code changes, Task commits and validates the exact Task-turn descendant.
+   Whether it fixes or ignores comments, it then calls
+   `ready_for_initial_publish()`. It does not request another initial review.
+7. The stopped Task finalizer mechanically validates the consumed handoff,
+   verification, draft, checks, and repository observation. It atomically opens
+   the `INITIAL_PUBLISH` gate, marks the report input handled, transitions the
+   upstream run to `WAITING_INITIAL_PUBLISH`, and settles the Task turn. No
+   report wording participates.
+8. The gate freezes the stored `UpstreamVerification` proving
+   selection/provenance/order, one-fixup-per-owner shape, standalone-tip
+   placement, clean worktree, and current target base.
+9. The `INITIAL_PUBLISH` gate shows that the review handoff was processed
+   alongside the `upstreamVerificationRef`, complete range summary,
+   conflict/fixup history, missing validation, exact final diff, and checks.
+   The consumed report prose is not retained in the database or gate.
    Authorization revalidates the verification's head, base, range, mappings,
    and safety receipts.
-8. User local comments return to the same Task Agent, stale the gate, and require
-   a fresh verification after the next sealed candidate.
+10. If the user sends the candidate back for changes, that explicit decision
+    starts new Task work under the later user-feedback review contract. There
+    is no program-decided initial review/fix/re-review loop.
 
 ### 7. Publish and hand off
 
@@ -687,8 +702,9 @@ events. See [pr-timeline.md](./pr-timeline.md).
    checkout. Confirming its current digest creates exactly one Task at the
    resolved target-base SHA, one run, and one provision operation.
 2. **All clean:** confirm 100-commit range -> deterministic `-x` picks -> one
-   reviewer turn instructed not to re-review the clean picks -> one gate -> one
-   draft PR -> generic CI ownership.
+   reviewer turn instructed not to re-review the clean picks -> one Task Agent
+   report-processing continuation -> one manual gate -> one draft PR -> generic
+   CI ownership. No report text or verdict selects a transition.
 3. **Already present:** trailer/patch-equivalent entries are shown and excluded
    only by the confirmed preview; duplicate delivery does not enter history.
 4. **Ambiguous presence:** program refuses to infer; user selection controls the

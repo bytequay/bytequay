@@ -202,11 +202,11 @@ final class NewFlowAgentBodies
                 }
                 yield safe(capability::readContext);
             }
-            case "read_initial_review_context" -> {
+            case "ask_report" -> {
                 if (!reviewContinuation) {
                     yield ToolCallResult.error("tool is not available");
                 }
-                yield safe(capability::readContext);
+                yield safe(capability::askReport);
             }
             case "read_candidate_diff" -> safe(() -> utf8(
                     capability.readCandidateDiff()));
@@ -233,12 +233,17 @@ final class NewFlowAgentBodies
                 capability.adoptCommittedHead(head);
                 return "Task change committed and inspected";
             });
-            case "request_initial_review" -> safe(() -> {
-                capability.requestReview(
-                        text(call, "title"), text(call, "body"));
-                terminal.set(true);
-                return "initial review requested";
-            });
+            case "request_initial_review" -> {
+                if (reviewContinuation) {
+                    yield ToolCallResult.error("tool is not available");
+                }
+                yield safe(() -> {
+                    capability.requestReview(
+                            text(call, "title"), text(call, "body"));
+                    terminal.set(true);
+                    return "initial review requested";
+                });
+            }
             case "ready_for_initial_publish" -> {
                 if (!reviewContinuation) {
                     yield ToolCallResult.error("tool is not available");
@@ -425,6 +430,12 @@ final class NewFlowAgentBodies
         ToolExecutor executor = bounded(terminal, call -> switch (call.name()) {
             case "read_ci_fix_context" -> guarded(capability,
                     context::readCiFixContext);
+            case "ask_report" -> {
+                if (!reviewerResultContinuation) {
+                    yield ToolCallResult.error("tool is not available");
+                }
+                yield safe(capability::askReport);
+            }
             case "read_candidate_diff" -> guarded(capability, () -> utf8(
                     context.readCandidateDiff()));
             case "list_repository" -> guarded(capability,
@@ -485,6 +496,7 @@ final class NewFlowAgentBodies
             Consumer<StreamEvent> activity)
     {
         AtomicBoolean stop = new AtomicBoolean();
+        AtomicBoolean reportSaved = new AtomicBoolean();
         ToolExecutor executor = bounded(stop, call -> switch (call.name()) {
             case "list_tree" -> safe(() -> json(capability.listTree().stream()
                     .map(entry -> entry.mode() + " " + entry.objectType()
@@ -497,6 +509,12 @@ final class NewFlowAgentBodies
                     capability.readReviewedBlob(text(call, "path"))));
             case "read_base_blob" -> safe(() -> utf8(
                     capability.readBaseBlob(text(call, "path"))));
+            case "save_report" -> safe(() -> {
+                capability.saveReport(text(call, "report"));
+                reportSaved.set(true);
+                stop.set(true);
+                return "review report saved to subagent-review.txt";
+            });
             default -> ToolCallResult.error("tool is not available");
         });
         TurnResult result = run(
@@ -505,8 +523,18 @@ final class NewFlowAgentBodies
                         capability::recordAgentGroup,
                         capability::recordAgentTurnUsage,
                         activity));
+        if (reportSaved.get()) {
+            return new InProcessReviewerAgentSupervisor.AgentCompletion(
+                    TerminalOutcome.COMPLETED, null, null);
+        }
+        TerminalOutcome outcome = terminal(result);
+        String failure = error(result);
+        if (outcome == TerminalOutcome.COMPLETED) {
+            outcome = TerminalOutcome.FAILED;
+            failure = "MISSING_REVIEW_REPORT";
+        }
         return new InProcessReviewerAgentSupervisor.AgentCompletion(
-                terminal(result), result.finalText(), error(result));
+                outcome, null, failure);
     }
 
     InProcessCiLearningAgentSupervisor.AgentCompletion learner(

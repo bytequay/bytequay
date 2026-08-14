@@ -180,51 +180,17 @@ public final class UpstreamSyncCoordinator
         requireNonNull(binding, "binding is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(capability, "capability is null");
-        if (!reviewContinuation) {
-            launches.requireSealedAs(
-                    binding, NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
-        }
         UpstreamSyncRun run = upstreamSync.runForTask(taskId).orElseThrow(
                 () -> new IllegalStateException(
                         "Task is not owned by upstream synchronization"));
         try {
             if (reviewContinuation) {
-                if (upstreamSync.closeRequested(run.runId())) {
-                    return closeAtBoundary(run.runId());
-                }
-                AgentCompletion completion = bodies.initialTask(
-                        binding, worktree, capability, true,
-                        agentActivity(run.runId(), false));
-                if (upstreamSync.closeRequested(run.runId())) {
-                    return closeAtBoundary(run.runId());
-                }
-                if (completion.terminalOutcome() == TerminalOutcome.COMPLETED) {
-                    if (runtime.readyForReviewRequestForRun(binding.runId())
-                            .isPresent()) {
-                        upstreamSync.advanceState(
-                                run.runId(), RunState.WAITING_INITIAL_PUBLISH);
-                    }
-                    else {
-                        UpstreamSyncRequest request = upstreamSync
-                                .request(run.requestId()).orElseThrow();
-                        UpstreamPicker picker = new UpstreamPicker(worktree);
-                        String verification = verifyHistory(
-                                picker, run.runId(), taskId,
-                                request.targetRef(),
-                                request.selectedUpstreamShas());
-                        upstreamSync.recordVerification(
-                                run.runId(), picker.head(), verification);
-                        Task task = runtime.task(taskId).orElseThrow();
-                        String targetBaseRef = provisioning.targetBaseRef(taskId);
-                        policies.publish(
-                                taskId, task.repositoryId(), targetBaseRef,
-                                targetBaseRef.substring(
-                                        "refs/heads/".length()),
-                                worktree, picker.head());
-                    }
-                }
-                return completion;
+                return reviewResultTurn(
+                        binding, worktree, capability, taskId, run);
             }
+            launches.requireSealedAs(
+                    binding,
+                    NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR);
             return switch (run.state()) {
                 case WAITING_CONFLICT_REPAIR -> conflictTurn(
                         binding, worktree, capability, taskId, run);
@@ -248,6 +214,41 @@ public final class UpstreamSyncCoordinator
                     TerminalOutcome.FAILED, null,
                     "UPSTREAM_SYNC_FAILED:" + describe(failure));
         }
+    }
+
+    private AgentCompletion reviewResultTurn(
+            NewFlowAgentLaunches.Binding binding,
+            Path worktree,
+            InitialToolCapability capability,
+            String taskId,
+            UpstreamSyncRun run)
+    {
+        if (upstreamSync.closeRequested(run.runId())) {
+            return closeAtBoundary(run.runId());
+        }
+        AgentCompletion completion = bodies.initialTask(
+                binding, worktree, capability, true,
+                agentActivity(run.runId(), false));
+        if (upstreamSync.closeRequested(run.runId())) {
+            return closeAtBoundary(run.runId());
+        }
+        if (completion.terminalOutcome() != TerminalOutcome.COMPLETED
+                || runtime.readyForReviewRequestForRun(binding.runId())
+                        .isPresent()) {
+            return completion;
+        }
+        UpstreamSyncRequest request = upstreamSync.request(run.requestId())
+                .orElseThrow();
+        UpstreamPicker picker = new UpstreamPicker(worktree);
+        String verification = verifyHistory(
+                picker, run.runId(), taskId, request.targetRef(),
+                request.selectedUpstreamShas());
+        upstreamSync.recordVerification(
+                run.runId(), picker.head(), verification);
+        Task task = runtime.task(taskId).orElseThrow();
+        String targetBaseRef = provisioning.targetBaseRef(taskId);
+        publishPolicies(task, targetBaseRef, picker);
+        return completion;
     }
 
     private AgentCompletion conflictTurn(

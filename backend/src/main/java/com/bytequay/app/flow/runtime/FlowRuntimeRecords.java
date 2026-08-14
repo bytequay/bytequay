@@ -709,6 +709,25 @@ public final class FlowRuntimeRecords
                     "snapshotEvidenceRef is null");
             requireNonNull(expiresAt, "expiresAt is null");
         }
+
+        public WriterFence(
+                String taskId,
+                String operationId,
+                long taskEpoch,
+                AgentRole holderKind,
+                long fencingToken,
+                long claimGeneration,
+                String claimTokenDigest,
+                String headSha,
+                String treeDigest,
+                String snapshotEvidenceRef,
+                Instant expiresAt)
+        {
+            this(taskId, operationId, taskEpoch,
+                    WriterHolderKind.valueOf(holderKind.name()), fencingToken,
+                    claimGeneration, claimTokenDigest, headSha, treeDigest,
+                    snapshotEvidenceRef, expiresAt);
+        }
     }
 
     /**

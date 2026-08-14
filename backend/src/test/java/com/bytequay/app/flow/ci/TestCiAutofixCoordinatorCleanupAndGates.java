@@ -928,8 +928,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
         releaseReviewer.countDown();
         AgentResult reviewerResult = ready.review().awaitReviewer(
                 reviewerSupervisor, reviewerHandle, TTL);
-        assertThat(reviewerResult.finalContent())
-                .isEqualTo("{\"approved\":false,\"arbitrary\":true}");
+        assertThat(reviewerResult.finalContent()).isNull();
 
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
         Operation selected = runtime.selectNext(reconciliation).orElseThrow();
@@ -1066,8 +1065,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                 reviewerHandle, TTL);
         assertThat(reviewerResult.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
-        assertThat(reviewerResult.finalContent())
-                .isEqualTo("completed reviewer result");
+        assertThat(reviewerResult.finalContent()).isNull();
     }
 
     @Test

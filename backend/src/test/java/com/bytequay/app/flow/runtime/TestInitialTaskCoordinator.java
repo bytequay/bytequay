@@ -238,31 +238,42 @@ class TestInitialTaskCoordinator
                 capability -> {
                     assertThat(capability.readDiff()).isNotEmpty();
                     reviewReads.incrementAndGet();
+                    capability.saveReport(
+                            "Correct feature.txt before publication.");
                     return new InProcessReviewerAgentSupervisor.AgentCompletion(
-                            TerminalOutcome.FAILED,
-                            "A correction is required", "REVIEW_FAILED");
+                            TerminalOutcome.COMPLETED, null, null);
                 });
-        AgentResult failedReview = coordinator.awaitReviewer(
+        AgentResult reviewed = coordinator.awaitReviewer(
                 reviewers, reviewerHandle, TTL);
-        assertThat(failedReview.terminalOutcome())
-                .isEqualTo(TerminalOutcome.FAILED);
+        assertThat(reviewed.terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(reviewed.finalContent()).isNull();
         assertThat(reviewReads).hasValue(1);
+
+        autofix.recordPolicy(
+                task.repositoryId(), localPr.scopeKey(),
+                localPr.targetBaseRef(), "test-required-ci:v1",
+                "test-required-ci-digest:v1", PolicyResolution.RESOLVED,
+                null, List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
 
         Claim correctionClaim = selectAndClaimInitial();
         InitialTaskCoordinator.TaskBinding correction = coordinator.beginTask(
                 correctionClaim, TTL);
+        AtomicInteger repositoryLookups = new AtomicInteger();
+        char[] token = "repo-secret".toCharArray();
         var correctionHandle = coordinator.launchTask(
                 writers, correction, correctionClaim,
-                () -> {
-                    throw new AssertionError(
-                            "failed review cannot authorize publication");
-                },
+                () -> initialRepositoryObservation(
+                        runtime, correction.run().runId(), "101", "101",
+                        token, repositoryLookups),
                 capability -> {
-                    assertThat(capability.readContext()).contains(
-                            "reviewOutcome=FAILED",
-                            "reviewError=REVIEW_FAILED");
-                    assertThatThrownBy(capability::readyForInitialPublish)
-                            .isInstanceOf(IllegalStateException.class);
+                    assertThat(capability.readContext())
+                            .contains("reviewOutcome=COMPLETED")
+                            .doesNotContain("Correct feature.txt");
+                    assertThat(capability.askReport()).contains(
+                            "Review comments from a subagent",
+                            "Correct feature.txt before publication.");
+                    assertThat(capability.readCandidateDiff()).isNotEmpty();
                     NewFlowWorkspaceTools workspace =
                             new NewFlowWorkspaceTools(Path.of(runtime.task(
                                     task.taskId()).orElseThrow()
@@ -273,60 +284,6 @@ class TestInitialTaskCoordinator
                     capability.adoptCommittedHead(head);
                     capability.adoptCommittedHead(head);
                     capability.runChecks(List.of("/usr/bin/true"), ".");
-                    capability.requestReview(
-                            "Corrected exact Task", "Corrects feature.txt");
-                    return new InProcessWriterAgentSupervisor.AgentCompletion(
-                            TerminalOutcome.COMPLETED,
-                            "fresh review requested", null);
-                });
-        coordinator.awaitTask(
-                writers, correction, correctionHandle, TTL);
-        PullRequestSubject correctedPr = runtime.pullRequest(localPr.prId())
-                .orElseThrow();
-        assertThat(correctedPr.prId()).isEqualTo(localPr.prId());
-        assertThat(correctedPr.published()).isFalse();
-        ReviewerRequest correctedRequest =
-                runtime.reviewerRequestForParentRun(
-                        correction.run().runId()).orElseThrow();
-
-        Claim correctedReviewerClaim = claimInitial(
-                OperationKind.RUN_REVIEWER);
-        FlowRuntime.ReviewerStart correctedReviewer =
-                coordinator.beginReviewer(
-                        correctedRequest.requestId(), correctedReviewerClaim);
-        var correctedReviewerHandle = coordinator.launchReviewer(
-                reviewers, correctedReviewer, correctedReviewerClaim,
-                capability -> {
-                    assertThat(capability.readDiff()).isNotEmpty();
-                    return new InProcessReviewerAgentSupervisor.AgentCompletion(
-                            TerminalOutcome.COMPLETED,
-                            "No blocking findings", null);
-                });
-        AgentResult reviewed = coordinator.awaitReviewer(
-                reviewers, correctedReviewerHandle, TTL);
-        assertThat(reviewed.terminalOutcome())
-                .isEqualTo(TerminalOutcome.COMPLETED);
-
-        autofix.recordPolicy(
-                task.repositoryId(), localPr.scopeKey(),
-                localPr.targetBaseRef(), "test-required-ci:v1",
-                "test-required-ci-digest:v1", PolicyResolution.RESOLVED,
-                null, List.of("GITHUB_CHECK:7:build"), List.of("SUCCESS"));
-
-        Claim readyClaim = selectAndClaimInitial();
-        InitialTaskCoordinator.TaskBinding ready = coordinator.beginTask(
-                readyClaim, TTL);
-        AtomicInteger repositoryLookups = new AtomicInteger();
-        char[] token = "repo-secret".toCharArray();
-        var readyHandle = coordinator.launchTask(
-                writers, ready, readyClaim,
-                () -> initialRepositoryObservation(
-                        runtime, ready.run().runId(), "101", "101",
-                        token, repositoryLookups),
-                capability -> {
-                    assertThat(capability.readContext())
-                            .contains("reviewSummary=No blocking findings");
-                    assertThat(capability.readCandidateDiff()).isNotEmpty();
                     capability.readyForInitialPublish();
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.CANCELED,
@@ -334,7 +291,11 @@ class TestInitialTaskCoordinator
                             "model-ended-after-terminal");
                 });
         AgentResult readyResult = coordinator.awaitTask(
-                writers, ready, readyHandle, TTL);
+                writers, correction, correctionHandle, TTL);
+        PullRequestSubject correctedPr = runtime.pullRequest(localPr.prId())
+                .orElseThrow();
+        assertThat(correctedPr.prId()).isEqualTo(localPr.prId());
+        assertThat(correctedPr.published()).isFalse();
 
         assertThat(readyResult.terminalOutcome())
                 .isEqualTo(TerminalOutcome.CANCELED);
@@ -462,6 +423,8 @@ class TestInitialTaskCoordinator
             }
             if (turn == 2) {
                 assertTool(tools, "read_diff", "{}");
+                assertTool(tools, "save_report",
+                        "{\"report\":\"No review comments.\"}");
                 reviewerEntered.countDown();
                 if (!policyReady.await(10, TimeUnit.SECONDS)) {
                     throw new AssertionError("required CI policy was not set");
@@ -469,7 +432,7 @@ class TestInitialTaskCoordinator
                 return turnResult(TurnResult.End.COMPLETED);
             }
             if (turn == 3) {
-                assertTool(tools, "read_initial_review_context", "{}");
+                assertTool(tools, "ask_report", "{}");
                 assertTool(tools, "read_candidate_diff", "{}");
                 assertTool(tools, "ready_for_initial_publish", "{}");
                 return turnResult(TurnResult.End.INTERRUPTED);
@@ -585,10 +548,13 @@ class TestInitialTaskCoordinator
                 new InProcessReviewerAgentSupervisor(runtime);
         var reviewerHandle = coordinator.launchReviewer(
                 reviewers, reviewer, reviewerClaim,
-                capability -> new InProcessReviewerAgentSupervisor
-                        .AgentCompletion(
-                                TerminalOutcome.COMPLETED,
-                                "reviewed", null));
+                capability -> {
+                    capability.saveReport("reviewed");
+                    return new InProcessReviewerAgentSupervisor
+                            .AgentCompletion(
+                                    TerminalOutcome.COMPLETED,
+                                    null, null);
+                });
         coordinator.awaitReviewer(reviewers, reviewerHandle, TTL);
         return new ReviewedInitial(task, pr, writers);
     }

@@ -1250,8 +1250,7 @@ final class DispatchRuntime
                     && pending.payloadRef().equals(
                             "task-goal:" + task.taskId())
                     && pending.subjectHead().equals(task.currentHeadSha())
-                    && task.prId() == null
-                    && task.currentChangeSetRevisionId() == null;
+                    && task.prId() == null;
             case FINAL_RED -> {
                 if (pending.prId() == null) {
                     yield false;

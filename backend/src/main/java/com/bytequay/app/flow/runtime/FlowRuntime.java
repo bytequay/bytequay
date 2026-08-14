@@ -1474,34 +1474,38 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "Task changed while being re-armed");
             }
-            Integer priorRegistrations = jdbc.queryForObject(
-                    """
-                    SELECT COUNT(*) FROM flow_runtime_inbox
-                    WHERE source = 'TASK' AND external_key = ?
-                      AND kind = 'INITIAL_TASK'
-                    """,
-                    Integer.class,
-                    taskId);
-            String revision = Long.toString(requireNonNull(
-                    priorRegistrations, "prior registration count is null")
-                    + 1L);
             Task rearmed = requireTask(taskId);
-            PendingWork pending = appendPendingWork(
-                    stableId("inbox", "TASK", taskId, revision),
-                    rearmed,
-                    null,
-                    "TASK",
-                    taskId,
-                    revision,
-                    PendingKind.INITIAL_TASK,
-                    rearmed.currentHeadSha(),
-                    "task-goal:" + taskId,
-                    null,
-                    GateIntent.INITIAL_PUBLISH,
-                    now);
+            PendingWork pending = appendNextInitialTask(rearmed, now);
             ensureReconciliation(taskId);
             return pending;
         });
+    }
+
+    private PendingWork appendNextInitialTask(Task task, Instant now)
+    {
+        Integer priorRegistrations = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_inbox
+                WHERE source = 'TASK' AND external_key = ?
+                  AND kind = 'INITIAL_TASK'
+                """,
+                Integer.class,
+                task.taskId());
+        String revision = Long.toString(requireNonNull(
+                priorRegistrations, "prior registration count is null") + 1L);
+        return appendPendingWork(
+                stableId("inbox", "TASK", task.taskId(), revision),
+                task,
+                null,
+                "TASK",
+                task.taskId(),
+                revision,
+                PendingKind.INITIAL_TASK,
+                task.currentHeadSha(),
+                "task-goal:" + task.taskId(),
+                null,
+                GateIntent.INITIAL_PUBLISH,
+                now);
     }
 
     /**
@@ -6486,13 +6490,19 @@ public final class FlowRuntime
         synchronized (this) {
             return inTransaction(() -> {
             AgentRun run = requireRun(runId);
-            if (taskTerminalRequest(runId)
+            Optional<TaskTerminalRequest> terminalRequest =
+                    taskTerminalRequest(runId);
+            if (terminalRequest
                     .filter(request -> request.kind()
                             == TaskTerminalRequestKind.READY_FOR_REVIEW)
                     .isPresent()) {
                 throw new MutationRejectedException(
                         "ready-for-review run requires its gate finalizer");
             }
+            boolean continueTask = terminalRequest
+                    .filter(request -> request.kind()
+                            == TaskTerminalRequestKind.CONTINUE_TASK)
+                    .isPresent();
             Optional<ReviewerRequest> request =
                     reviewerRequestForParentRun(runId);
             Optional<AgentResult> existing = resultForRun(runId);
@@ -6518,6 +6528,7 @@ public final class FlowRuntime
             assertFenceRow(claim, fence);
             Operation operation = requireOperation(claim.operationId());
             Task task = requireTask(fence.taskId());
+            PendingWork input = selectedInput(operation);
             if (!run.operationId().equals(operation.operationId())
                     || run.role() != AgentRole.TASK_AGENT
                     || run.state() != RunState.RUNNING
@@ -6525,6 +6536,15 @@ public final class FlowRuntime
                             task.selectedWriterOperationId())) {
                 throw new StaleOwnerRevisionException(
                         "Task review parent is no longer current");
+            }
+            if (continueTask
+                    && (terminalOutcome != TerminalOutcome.COMPLETED
+                        || request.isPresent()
+                        || !terminalRequest.orElseThrow().requestId().equals(
+                                taskContinuationId(
+                                        run, operation, input, task)))) {
+                throw new StaleOwnerRevisionException(
+                        "Task continuation changed before parent stop");
             }
             AgentProcessAttempt stopped = requireExactStoppedCompletion(
                     runId, claim.generation(), terminalOutcome,
@@ -6636,6 +6656,22 @@ public final class FlowRuntime
                     throw new StaleOwnerRevisionException(
                             "reviewer eligibility changed before parent stop");
                 }
+            }
+            else if (continueTask) {
+                int inputHandled = jdbc.update(
+                        """
+                        UPDATE flow_runtime_inbox
+                        SET handled_by_operation_id = ?
+                        WHERE selected_by_operation_id = ?
+                          AND handled_by_operation_id IS NULL
+                        """,
+                        operation.operationId(),
+                        operation.operationId());
+                if (inputHandled != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "Task continuation lost its input");
+                }
+                appendNextInitialTask(task, now);
             }
             else if (consumeReviewedResult) {
                 int inputHandled = jdbc.update(
@@ -8501,6 +8537,66 @@ public final class FlowRuntime
         }
     }
 
+    /** Terminally ends one Task turn while keeping its exact Task work active. */
+    public synchronized TaskTerminalRequest reserveTaskContinuation(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String processAttemptId,
+            String capabilityId)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(processAttemptId, "processAttemptId");
+        requireText(capabilityId, "capabilityId");
+        return inTransaction(() -> {
+            assertInProcessWriterToolCapability(
+                    runId, claim, fence, capabilityId);
+            AgentProcessAttempt process = requireProcessAttempt(
+                    processAttemptId);
+            AgentRun run = requireRun(runId);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(claim.taskId());
+            PendingWork input = selectedInput(operation);
+            if (!process.runId().equals(runId)
+                    || !process.capabilityId().equals(capabilityId)
+                    || !run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING
+                    || run.wakeKind() != WakeKind.INITIAL_TASK
+                    || operation.kind() != OperationKind.RUN_TASK_TURN
+                    || !operation.ownerKind().equals("TASK")
+                    || !operation.ownerId().equals(task.taskId())
+                    || input.kind() != PendingKind.INITIAL_TASK
+                    || input.intendedGateKind()
+                            != GateIntent.INITIAL_PUBLISH
+                    || !input.subjectHead().equals(run.headSha())
+                    || task.status() != TaskStatus.ACTIVE
+                    || task.prId() != null) {
+                throw new StaleCapabilityException(
+                        "Task continuation requires the exact live INITIAL turn");
+            }
+            String requestId = taskContinuationId(
+                    run, operation, input, task);
+            return reserveTaskTerminalRequest(
+                    runId, TaskTerminalRequestKind.CONTINUE_TASK,
+                    requestId, clock.instant());
+        });
+    }
+
+    private static String taskContinuationId(
+            AgentRun run, Operation operation, PendingWork input, Task task)
+    {
+        return stableId(
+                "task-continuation:v1",
+                run.runId(),
+                operation.operationId(),
+                input.pendingId(),
+                task.currentHeadSha(),
+                nullableId(task.currentChangeSetRevisionId()));
+    }
+
     /** Narrow capability-validated reservation for the terminal ready tool. */
     public synchronized ReadyForReviewRequest reserveReadyForReviewRequest(
             String runId,
@@ -10340,12 +10436,10 @@ public final class FlowRuntime
             throw new MutationRejectedException(
                     "INITIAL review change set is not current and nonempty");
         }
-        if (run.wakeKind() == WakeKind.INITIAL_TASK) {
-            if (run.inputChangeSetRevisionId() != null
-                    || !isExactInitialTaskChain(
-                            current, operation, run)) {
+        if (run.inputChangeSetRevisionId() == null) {
+            if (!isExactInitialTaskChain(current, operation, run)) {
                 throw new MutationRejectedException(
-                        "INITIAL first change set has the wrong lineage");
+                        "INITIAL change set has the wrong lineage");
             }
         }
         else {
@@ -10625,6 +10719,10 @@ public final class FlowRuntime
             PendingWork input = inbox(requireTextResult(
                     run.inputRef(), "inbox:")).orElseThrow();
             AgentResult result = resultForRun(run.runId()).orElseThrow();
+            boolean continued = taskTerminalRequest(run.runId())
+                    .filter(terminal -> terminal.kind()
+                            == TaskTerminalRequestKind.CONTINUE_TASK)
+                    .isPresent();
             boolean consumedReviewerResult =
                     run.wakeKind() == WakeKind.AGENT_RESULT_READY
                     && run.intendedGateKind() == GateIntent.CI_UPDATE
@@ -10652,7 +10750,10 @@ public final class FlowRuntime
                     requiredAttentionReason,
                     requiredAttentionReason);
             if (!run.operationId().equals(input.handledByOperationId())
-                    || (!consumedReviewerResult
+                    || (continued
+                        && result.terminalOutcome()
+                                != TerminalOutcome.COMPLETED)
+                    || (!continued && !consumedReviewerResult
                         && requireNonNull(
                                 attention, "attention count is null") != 1)) {
                 throw new IllegalStateException(
@@ -10865,13 +10966,27 @@ public final class FlowRuntime
         ReviewerRequest reviewer = null;
         String reviewerResultId = null;
         if (input.kind() == PendingKind.INITIAL_TASK) {
+            boolean firstInitialTurn = input.pendingId().equals(
+                    stableId("inbox", "TASK", task.taskId(), "1"));
             if (!operation.ownerKind().equals("TASK")
                     || !operation.ownerId().equals(task.taskId())
                     || !input.externalKey().equals(task.taskId())
-                    || changeSet != null || pr != null
-                    || !task.currentHeadSha().equals(base.baseSha())) {
+                    || !input.payloadRef().equals(
+                            "task-goal:" + task.taskId())
+                    || pr != null
+                    || (firstInitialTurn && changeSet != null)
+                    || (changeSet == null
+                        && !task.currentHeadSha().equals(base.baseSha()))
+                    || (changeSet != null
+                        && (!changeSet.taskId().equals(task.taskId())
+                            || !changeSet.changeSetRevisionId().equals(
+                                    task.currentChangeSetRevisionId())
+                            || !changeSet.baseRevisionId().equals(
+                                    base.baseRevisionId())
+                            || !changeSet.headSha().equals(
+                                    task.currentHeadSha())))) {
                 throw new MutationRejectedException(
-                        "first INITIAL Task input changed identity");
+                        "INITIAL Task input changed identity");
             }
         }
         else {

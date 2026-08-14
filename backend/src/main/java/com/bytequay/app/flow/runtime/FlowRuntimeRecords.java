@@ -114,6 +114,7 @@ public final class FlowRuntimeRecords
     public enum TaskTerminalRequestKind
     {
         REVIEWER,
+        CONTINUE_TASK,
         READY_FOR_REVIEW
     }
 
@@ -771,8 +772,7 @@ public final class FlowRuntimeRecords
                     && intendedGateKind != null
                     && ((intendedGateKind == GateIntent.INITIAL_PUBLISH
                             && inputRemoteHeadSha == null
-                            && ((wakeKind == WakeKind.INITIAL_TASK
-                                    && inputChangeSetRevisionId == null)
+                            && ((wakeKind == WakeKind.INITIAL_TASK)
                                 || (wakeKind == WakeKind.AGENT_RESULT_READY
                                     && inputChangeSetRevisionId != null)))
                         || (intendedGateKind == GateIntent.CI_UPDATE

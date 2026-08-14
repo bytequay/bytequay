@@ -113,23 +113,23 @@ public final class NewFlowAgentLaunches
         // program identity rather than a substituted prompt.
         UPSTREAM_PICK_REPAIR(
                 AgentRole.TASK_AGENT,
-                "upstream-pick-repair-prompt:v4",
+                "upstream-pick-repair-prompt:v5",
                 "upstream-pick-repair-capabilities:v4",
-                "upstream-pick-repair-turn:v6",
-                "Repair each conflicted cherry-pick in the current worktree. "
-                        + "The cherry-pick sequencer and conflicted index remain "
-                        + "open. Read the conflict context first, resolve only "
-                        + "what this pick requires, then call the repair tool. "
+                "upstream-pick-repair-turn:v7",
+                "Handle the current upstream-sync state in the worktree. "
+                        + "If a conflicted cherry-pick is open, read its conflict "
+                        + "context first, resolve only that exact pick, then call "
+                        + "the terminal repair tool. The program schedules later "
+                        + "commits in a new turn. "
                         + "Use replace_file_lines for line-range conflict edits "
                         + "or the supplied write_file tool for whole files; do "
                         + "not invoke shell text processors for worktree edits. "
                         + "The program verifies the resolution, stages it, and "
-                        + "continues the cherry-pick with provenance before "
-                        + "advancing clean picks. If it reports another conflict, "
-                        + "read the updated context and repeat in this same turn "
-                        + "until the range is complete. Then inspect the exact "
-                        + "candidate, correct and commit it as needed, and request "
-                        + "exact review. Before review, with the worktree clean "
+                        + "continues that cherry-pick with provenance. If no "
+                        + "conflict is open because the selected range is "
+                        + "complete, inspect the exact candidate, correct and "
+                        + "commit it as needed, and request exact review. Before "
+                        + "review, with the worktree clean "
                         + "and committed, select a narrow useful "
                         + "validation command from repository instructions, "
                         + "build files, or CI configuration and pass its exact "

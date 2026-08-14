@@ -29,6 +29,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskTerminalRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import org.slf4j.Logger;
@@ -300,6 +301,12 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId,
                     localCheckPolicyRevisionId,
                     checkRunRefs);
+        }
+
+        /** Ends this Task turn and durably schedules its next deterministic turn. */
+        public TaskTerminalRequest continueTask()
+        {
+            return execution.continueTask();
         }
 
         /** Terminal ready command over one program-derived immutable subject. */
@@ -1305,6 +1312,19 @@ public final class InProcessWriterAgentSupervisor
                             runId, programOwnedRepositoryRoot,
                             expectedChangeSetRevisionId,
                             localCheckPolicyRevisionId, checkRunRefs));
+        }
+
+        private TaskTerminalRequest continueTask()
+        {
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            return callTerminalTool(() -> runtime.reserveTaskContinuation(
+                    runId, claim, fence, attempt.processAttemptId(),
+                    attempt.capabilityId()));
         }
 
         private ReadyForReviewAcceptance readyForReview(

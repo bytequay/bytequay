@@ -115,6 +115,10 @@ abstract class BaseTestCiAutofixCoordinator
      */
     static final Duration LIVENESS_TIMEOUT = Duration.ofSeconds(30);
 
+    private static final Object SCHEMA_TEMPLATE_LOCK = new Object();
+
+    private static volatile byte[] schemaTemplate;
+
     @TempDir
     Path temporaryDirectory;
 
@@ -167,14 +171,10 @@ abstract class BaseTestCiAutofixCoordinator
     {
         fixtureRequestId = "request-" + testInfo.getTestMethod()
                 .orElseThrow().getName();
-        dataSource = new DriverManagerDataSource(
-                "jdbc:sqlite:" + temporaryDirectory.resolve("flow.db")
-                        + "?foreign_keys=ON&busy_timeout=5000");
+        Path database = temporaryDirectory.resolve("flow.db");
+        writeSchemaTemplate(database);
+        dataSource = sqliteDataSource(database);
         runtimeNow = NOW;
-        FlowRuntimeSchema.install(dataSource);
-        CiAutofixSchema.install(dataSource);
-        UserGatesSchema.install(dataSource);
-        GitHubEffectsSchema.install(dataSource);
         jdbc = new JdbcTemplate(dataSource);
         runtime = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -210,6 +210,48 @@ abstract class BaseTestCiAutofixCoordinator
                 Clock.fixed(NOW, ZoneOffset.UTC));
         rebuildCiCoordinators(
                 Clock.fixed(runtimeNow, ZoneOffset.UTC));
+    }
+
+    private static DataSource sqliteDataSource(Path database)
+    {
+        return new DriverManagerDataSource(
+                "jdbc:sqlite:" + database
+                        + "?foreign_keys=ON&busy_timeout=5000");
+    }
+
+    private static void writeSchemaTemplate(Path database)
+    {
+        byte[] template = schemaTemplate;
+        if (template == null) {
+            synchronized (SCHEMA_TEMPLATE_LOCK) {
+                template = schemaTemplate;
+                if (template == null) {
+                    template = createSchemaTemplate(database);
+                    schemaTemplate = template;
+                }
+            }
+        }
+        try {
+            Files.write(database, template);
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static byte[] createSchemaTemplate(Path database)
+    {
+        DataSource templateDataSource = sqliteDataSource(database);
+        FlowRuntimeSchema.install(templateDataSource);
+        CiAutofixSchema.install(templateDataSource);
+        UserGatesSchema.install(templateDataSource);
+        GitHubEffectsSchema.install(templateDataSource);
+        try {
+            return Files.readAllBytes(database);
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     void assertBoundaryUnprovenNeedsAttention(
@@ -1293,8 +1335,6 @@ abstract class BaseTestCiAutofixCoordinator
         try {
             Files.createDirectories(repository);
             gitOutput(repository, "init", "-b", "main");
-            gitOutput(repository, "config", "user.name", "ByteQuay Test");
-            gitOutput(repository, "config", "user.email", "test@bytequay.invalid");
             Files.writeString(
                     repository.resolve("base.txt"), "base\n", StandardCharsets.UTF_8);
             gitOutput(repository, "add", "base.txt");
@@ -1318,10 +1358,16 @@ abstract class BaseTestCiAutofixCoordinator
             List<String> command = new ArrayList<>();
             command.add("/usr/bin/git");
             command.addAll(List.of(arguments));
-            Process process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(directory.toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            builder.environment().put("GIT_AUTHOR_NAME", "ByteQuay Test");
+            builder.environment().put(
+                    "GIT_AUTHOR_EMAIL", "test@bytequay.invalid");
+            builder.environment().put("GIT_COMMITTER_NAME", "ByteQuay Test");
+            builder.environment().put(
+                    "GIT_COMMITTER_EMAIL", "test@bytequay.invalid");
+            Process process = builder.start();
             String output = new String(
                     process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (process.waitFor() != 0) {

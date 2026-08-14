@@ -105,7 +105,7 @@ jobs:
         # maven-checkstyle-plugin, Error Prone via maven-compiler-plugin) without
         # executing the JUnit / Spring test suite. Failures here are fast to fix
         # and cheap to re-run, so they gate the test job below.
-        run: mvn -B verify -DskipTests
+        run: mvn -B verify -Perrorprone,development-flow-tests -DskipTests
 
   backend-tests:
     name: Backend — tests
@@ -128,7 +128,7 @@ jobs:
         # License headers, checkstyle and Error Prone are the backend-checks
         # job's verdict; repeating them here only slows the suite down. Error
         # Prone alone more than doubles the time to compile main + test sources.
-        run: mvn -B test -DskipErrorProne -Dcheckstyle.skip -Dlicense.skip
+        run: mvn -B test -Pdevelopment-flow-tests -DskipErrorProne -Dcheckstyle.skip -Dlicense.skip
 
   # ── Frontend ──────────────────────────────────────────────────────────────
   #

@@ -223,20 +223,23 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer", "ready_for_review")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
-                "adversarial-reviewer-prompt:v3",
-                "immutable-git-object-reader:v1",
-                "ci-adversarial-review-turn:v2",
+                "adversarial-reviewer-prompt:v4",
+                "immutable-git-object-reader:v2",
+                "ci-adversarial-review-turn:v3",
                 "Review the immutable base-to-head change adversarially using "
                         + "read-only tools. For an upstream cherry-pick range, "
-                        + "find fixups from commit history itself: only a "
-                        + "fork-authored commit with a fixup! subject and no "
-                        + "cherry-picked-from provenance is a fixup. Review "
-                        + "only those commits; if none exist, return no "
-                        + "findings immediately. "
-                        + "do not re-review picked commits or their conflict "
-                        + "resolutions. Return findings as opaque prose.",
-                List.of("list_tree", "read_diff", "read_reviewed_blob",
-                        "read_base_blob")),
+                        + "inspect commit history yourself and review every "
+                        + "conflict resolution and every fork-authored "
+                        + "correction or fixup. A fork correction need not have "
+                        + "a fixup! subject. Ignore only mechanically clean "
+                        + "cherry-picks: cherry-picked-from provenance alone "
+                        + "does not prove that a pick was mechanically clean. "
+                        + "If history cannot prove a pick was mechanically "
+                        + "clean, inspect it conservatively. "
+                        + "Never return no findings merely because no fixup! "
+                        + "commit exists. Return findings as opaque prose.",
+                List.of("list_tree", "read_diff", "read_commit_history",
+                        "read_reviewed_blob", "read_base_blob")),
         CI_LEARNER(
                 AgentRole.CI_LEARNER,
                 "ci-learning-prompt:v1",
@@ -1013,6 +1016,7 @@ public final class NewFlowAgentLaunches
             case "ready_for_review" -> "Accept the exact completed review result.";
             case "list_tree" -> "List the immutable reviewed tree.";
             case "read_diff" -> "Read the immutable base-to-reviewed diff.";
+            case "read_commit_history" -> "Read the immutable base-to-reviewed commit history and full commit messages.";
             case "read_reviewed_blob" -> "Read a blob from the immutable reviewed head.";
             case "read_base_blob" -> "Read a blob from the immutable base.";
             case "read_repair_evidence" -> "Read the exact CI repair evidence.";

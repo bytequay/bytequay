@@ -1043,6 +1043,7 @@ public final class FlowRuntime
                         clock.instant().toEpochMilli(), settlement.resultId(),
                         settlement.operationId(), settlement.planId());
                 ensureCiObservationWatch(settlement.resultId());
+                handOffUpstreamSync(taskId, settlement.proposedHead());
                 settleDispatch(claim.operationId(), OperationState.SUCCEEDED,
                         settlement.resultId());
             }
@@ -1075,6 +1076,30 @@ public final class FlowRuntime
             resumeWaitingReconciliation(taskId);
             return Boolean.TRUE;
         });
+    }
+
+    /** Completes only the exact upstream run whose initial draft is now live. */
+    private void handOffUpstreamSync(String taskId, String proposedHead)
+    {
+        Integer owners = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_upstream_sync_run WHERE task_id = ?",
+                Integer.class, taskId);
+        if (requireNonNull(owners,
+                "upstream sync owner count is null") == 0) {
+            return;
+        }
+        int updated = jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET state = 'HANDED_OFF', updated_at = ?
+                WHERE task_id = ? AND state = 'WAITING_INITIAL_PUBLISH'
+                  AND current_head = ?
+                """,
+                clock.instant().toEpochMilli(), taskId, proposedHead);
+        if (updated != 1) {
+            throw new StaleOwnerRevisionException(
+                    "upstream sync is not awaiting this initial publication");
+        }
     }
 
     /** Validates response-loss replay against every terminal runtime owner. */

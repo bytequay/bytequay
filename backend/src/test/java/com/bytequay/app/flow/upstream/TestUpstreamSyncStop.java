@@ -17,6 +17,7 @@ import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeTestSupport;
 import com.bytequay.app.flow.runtime.NewFlowDatabase;
+import com.bytequay.app.flow.upstream.UpstreamSyncRecords.PickState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.RunState;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.SelectedCommit;
 import com.bytequay.app.flow.upstream.UpstreamSyncRecords.UpstreamSyncRun;
@@ -129,13 +130,77 @@ class TestUpstreamSyncStop
     @Test
     void aCloseDuringFinalReviewWaitsForTheReviewBoundary()
     {
-        upstreamSync.advanceState(run.runId(), RunState.FINAL_REVIEW);
+        upstreamSync.recordVerification(
+                run.runId(), "review-head", "verification-1");
 
         upstreamSync.requestClose(run.runId());
 
         assertThat(upstreamSync.closeRequested(run.runId())).isTrue();
         assertThat(upstreamSync.run(run.runId()).orElseThrow().state())
                 .isEqualTo(RunState.FINAL_REVIEW);
+    }
+
+    @Test
+    void anIllegalRegressionDoesNotOverwriteTheCurrentState()
+    {
+        upstreamSync.recordVerification(
+                run.runId(), "review-head", "verification-1");
+
+        assertThatThrownBy(() -> upstreamSync.advanceState(
+                run.runId(), RunState.PICKING))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FINAL_REVIEW -> PICKING");
+        assertThat(upstreamSync.run(run.runId()).orElseThrow().state())
+                .isEqualTo(RunState.FINAL_REVIEW);
+    }
+
+    @Test
+    void staleVerificationCannotReopenAPublishReadyRun()
+    {
+        upstreamSync.recordVerification(
+                run.runId(), "reviewed-head", "verification-1");
+        upstreamSync.advanceState(
+                run.runId(), RunState.WAITING_INITIAL_PUBLISH);
+
+        assertThatThrownBy(() -> upstreamSync.recordVerification(
+                run.runId(), "stale-head", "verification-2"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WAITING_INITIAL_PUBLISH -> FINAL_REVIEW");
+        UpstreamSyncRun current = upstreamSync.run(run.runId()).orElseThrow();
+        assertThat(current.state()).isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
+        assertThat(current.currentHead()).isEqualTo("reviewed-head");
+        assertThat(current.verificationRef()).isEqualTo("verification-1");
+    }
+
+    @Test
+    void aStalePickCannotAppendAfterFinalReviewStarts()
+    {
+        upstreamSync.recordVerification(
+                run.runId(), "review-head", "verification-1");
+
+        assertThatThrownBy(() -> upstreamSync.recordPick(
+                run.runId(), 0, "a1b2c3d", "pre-head", null, null,
+                PickState.SKIPPED_EMPTY, List.of(), false, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot advance");
+        assertThat(upstreamSync.picks(run.runId())).isEmpty();
+        assertThat(upstreamSync.run(run.runId()).orElseThrow().state())
+                .isEqualTo(RunState.FINAL_REVIEW);
+    }
+
+    @Test
+    void aResumedConflictRestoresItsRepairBoundaryBeforeResolution()
+    {
+        var conflict = upstreamSync.recordPick(
+                run.runId(), 0, "a1b2c3d", "pre-head", "pre-head", null,
+                PickState.CONFLICTED, List.of("conflict.txt"), false, null);
+        upstreamSync.park(run.runId(), "CONFLICT_UNRESOLVED");
+        upstreamSync.resume(run.runId(), 0);
+
+        upstreamSync.reenterConflictRepair(conflict.pickId());
+
+        assertThat(upstreamSync.run(run.runId()).orElseThrow().state())
+                .isEqualTo(RunState.WAITING_CONFLICT_REPAIR);
     }
 
     @Test

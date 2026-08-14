@@ -71,6 +71,16 @@ public final class UpstreamPicker
         }
     }
 
+    /** The two durable fields Git must re-prove before final review. */
+    public record LandedPick(String upstreamSha, String commitSha)
+    {
+        public LandedPick
+        {
+            requireText(upstreamSha, "upstreamSha");
+            requireText(commitSha, "commitSha");
+        }
+    }
+
     /** A mechanical refusal to advance; the caller parks rather than guesses. */
     public static final class UnresolvedRepairException
             extends RuntimeException
@@ -384,8 +394,46 @@ public final class UpstreamPicker
     {
         requireText(commit, "commit");
         requireText(upstreamSha, "upstreamSha");
-        return message(commit).contains(
-                "(cherry picked from commit " + upstreamSha + ")");
+        String provenance = "(cherry picked from commit " + upstreamSha + ")";
+        return message(commit).lines().anyMatch(provenance::equals);
+    }
+
+    /**
+     * Re-proves durable pick records against the candidate's current history.
+     */
+    public void verifyLandedHistory(
+            String expectedBaseSha, List<LandedPick> landedPicks)
+    {
+        requireText(expectedBaseSha, "expectedBaseSha");
+        List<LandedPick> picks = List.copyOf(requireNonNull(
+                landedPicks, "landedPicks is null"));
+        if (!hasCommit(worktree, expectedBaseSha)) {
+            throw new UnresolvedRepairException(
+                    "the recorded base commit is unavailable");
+        }
+        String previous = expectedBaseSha;
+        for (LandedPick pick : picks) {
+            if (!hasCommit(worktree, pick.commitSha())) {
+                throw new UnresolvedRepairException(
+                        "a recorded picked commit is unavailable");
+            }
+            if (previous.equals(pick.commitSha())
+                    || !isAncestor(worktree, previous, pick.commitSha())) {
+                throw new UnresolvedRepairException(
+                        "the recorded picked commits are out of order");
+            }
+            if (!provenanceVerified(
+                    pick.commitSha(), pick.upstreamSha())) {
+                throw new UnresolvedRepairException(
+                        "a recorded picked commit carries no exact upstream "
+                                + "provenance");
+            }
+            previous = pick.commitSha();
+        }
+        if (!isAncestor(worktree, previous, head())) {
+            throw new UnresolvedRepairException(
+                    "a recorded picked commit is not in the current history");
+        }
     }
 
     public List<String> changedPaths(String fromCommit, String toCommit)

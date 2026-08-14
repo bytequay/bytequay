@@ -162,6 +162,8 @@ the committed Git tree through the current immutable reader:
 - `read_reviewed_blob` reads raw bytes from `reviewedHead`;
 - `read_diff` reads the bounded raw `baseHead..reviewedHead` object-change
   manifest.
+- `read_commit_history` reads the bounded immutable commit sequence and full
+  commit messages between those heads.
 
 This avoids a second worktree while ensuring later filesystem changes cannot alter
 what was reviewed. Task/CI mutation events are queued while the parent waits. Even if
@@ -228,6 +230,7 @@ changes later.
 | `read_base_blob(path)` | Reads raw bytes from the exact base commit |
 | `read_reviewed_blob(path)` | Reads raw bytes from the exact reviewed commit |
 | `read_diff()` | Reads the bounded raw immutable object-change manifest |
+| `read_commit_history()` | Reads immutable base-to-reviewed commit history and messages |
 
 Semantic subject projection, text search, Project Intelligence, and
 `read_check_evidence` remain deferred. The current supervisor does not expose

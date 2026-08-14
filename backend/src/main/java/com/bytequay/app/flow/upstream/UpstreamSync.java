@@ -332,18 +332,24 @@ public final class UpstreamSync
                     pickId, runId, ordinal, upstreamSha, preHead,
                     resultHead, resultCommitSha, state.name(), json(paths),
                     provenanceVerified ? 1 : 0, changeSetRevisionId, now);
-            jdbc.update(
-                    """
-                    UPDATE flow_upstream_sync_run
-                    SET current_index = ?, current_head = COALESCE(?,
-                            current_head), state = ?, updated_at = ?
-                    WHERE run_id = ?
-                    """,
+            int advanced = jdbc.update(
+                    "UPDATE flow_upstream_sync_run "
+                            + "SET current_index = ?, "
+                            + "current_head = COALESCE(?, current_head), "
+                            + "state = ?, updated_at = ? "
+                            + "WHERE run_id = ? AND state = ? "
+                            + "AND current_index = ? "
+                            + "AND (current_head = ? OR current_head IS NULL)",
                     ordinal + 1, resultHead,
                     (state == PickState.CONFLICTED
                             ? RunState.WAITING_CONFLICT_REPAIR
                             : RunState.PICKING).name(),
-                    now, runId);
+                    now, runId, RunState.PICKING.name(), ordinal, preHead);
+            if (advanced != 1) {
+                status.setRollbackOnly();
+                throw new IllegalStateException(
+                        "pick cannot advance the current upstream state");
+            }
             return pick(pickId).orElseThrow();
         });
     }
@@ -365,6 +371,44 @@ public final class UpstreamSync
                         + "WHERE run_id = ? AND ordinal = ?",
                 (result, row) -> readPick(result), runId, ordinal)
                 .stream().findFirst();
+    }
+
+    /** Restores the durable conflict boundary before a parked repair resumes. */
+    public void reenterConflictRepair(String pickId)
+    {
+        requireText(pickId, "pickId");
+        transactions.execute(status -> {
+            UpstreamPick conflict = pick(pickId).orElseThrow(() ->
+                    new IllegalArgumentException(
+                            "unknown upstream pick: " + pickId));
+            if (conflict.state() != PickState.CONFLICTED) {
+                throw new IllegalStateException(
+                        "only a conflicted pick can re-enter repair");
+            }
+            UpstreamSyncRun current = run(conflict.runId()).orElseThrow();
+            if (current.state() == RunState.WAITING_CONFLICT_REPAIR) {
+                if (!Objects.equals(
+                        current.currentHead(), conflict.preHead())) {
+                    throw new IllegalStateException(
+                            "conflicted pick lost its recorded repair head");
+                }
+                return null;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_upstream_sync_run
+                    SET state = ?, updated_at = ?
+                    WHERE run_id = ? AND state = ? AND current_head = ?
+                    """,
+                    RunState.WAITING_CONFLICT_REPAIR.name(),
+                    clock.instant().toEpochMilli(), conflict.runId(),
+                    RunState.PICKING.name(), conflict.preHead());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "conflicted pick cannot restore its repair boundary");
+            }
+            return null;
+        });
     }
 
     /** Records the commit created only after a conflicted index was resolved. */
@@ -404,7 +448,7 @@ public final class UpstreamSync
                         "only an uncommitted conflict can be resolved");
             }
             long now = clock.instant().toEpochMilli();
-            jdbc.update(
+            int resolved = jdbc.update(
                     """
                     UPDATE flow_upstream_pick
                     SET result_head = ?, result_commit_sha = ?, state = ?,
@@ -415,13 +459,24 @@ public final class UpstreamSync
                     resultHead, resultCommitSha, PickState.RESOLVED.name(),
                     changeSetRevisionId, now, pickId,
                     PickState.CONFLICTED.name());
-            jdbc.update(
+            if (resolved != 1) {
+                status.setRollbackOnly();
+                throw new IllegalStateException(
+                        "conflicted pick changed while it was being resolved");
+            }
+            int advanced = jdbc.update(
                     """
                     UPDATE flow_upstream_sync_run
                     SET current_head = ?, state = ?, updated_at = ?
-                    WHERE run_id = ?
+                    WHERE run_id = ? AND state = ? AND current_head = ?
                     """,
-                    resultHead, RunState.PICKING.name(), now, existing.runId());
+                    resultHead, RunState.PICKING.name(), now, existing.runId(),
+                    RunState.WAITING_CONFLICT_REPAIR.name(), existing.preHead());
+            if (advanced != 1) {
+                status.setRollbackOnly();
+                throw new IllegalStateException(
+                        "resolved pick cannot advance the current upstream state");
+            }
             return pick(pickId).orElseThrow();
         });
     }
@@ -485,13 +540,19 @@ public final class UpstreamSync
                     """,
                     PickState.RESOLVED.name(), currentCommitSha, now,
                     owner.pickId());
-            jdbc.update(
+            int advanced = jdbc.update(
                     """
                     UPDATE flow_upstream_sync_run
                     SET current_head = ?, state = ?, updated_at = ?
-                    WHERE run_id = ?
+                    WHERE run_id = ? AND state = ?
                     """,
-                    currentCommitSha, RunState.PICKING.name(), now, runId);
+                    currentCommitSha, RunState.PICKING.name(), now, runId,
+                    RunState.PICKING.name());
+            if (advanced != 1) {
+                status.setRollbackOnly();
+                throw new IllegalStateException(
+                        "fixup cannot advance the current upstream state");
+            }
             return fixup(owner.pickId()).orElseThrow();
         });
     }
@@ -671,14 +732,20 @@ public final class UpstreamSync
     {
         requireText(runId, "runId");
         requireText(parkReason, "parkReason");
-        jdbc.update(
+        int updated = jdbc.update(
                 """
                 UPDATE flow_upstream_sync_run
                 SET state = ?, park_reason = ?, updated_at = ?
-                WHERE run_id = ?
+                WHERE run_id = ? AND state IN (
+                    'READY', 'PICKING', 'WAITING_CONFLICT_REPAIR', 'FINAL_REVIEW'
+                )
                 """,
                 RunState.WAITING_USER.name(), parkReason,
                 clock.instant().toEpochMilli(), runId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "only an active upstream sync run can park");
+        }
     }
 
     /**
@@ -718,39 +785,91 @@ public final class UpstreamSync
 
     public void recordVerification(
             String runId,
-            RunState state,
             String currentHead,
             String verificationRef)
     {
         requireText(runId, "runId");
-        requireNonNull(state, "state is null");
         requireText(currentHead, "currentHead");
         requireText(verificationRef, "verificationRef");
-        jdbc.update(
-                """
-                UPDATE flow_upstream_sync_run
-                SET state = ?, current_head = ?, verification_ref = ?,
-                    updated_at = ?
-                WHERE run_id = ?
-                """,
-                state.name(), currentHead, verificationRef,
-                clock.instant().toEpochMilli(), runId);
+        transactions.execute(status -> {
+            UpstreamSyncRun current = run(runId).orElseThrow(() ->
+                    new IllegalArgumentException(
+                            "unknown upstream sync run: " + runId));
+            if (current.state() != RunState.PICKING
+                    && current.state() != RunState.FINAL_REVIEW) {
+                throw illegalTransition(
+                        current.state(), RunState.FINAL_REVIEW);
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_upstream_sync_run
+                    SET state = ?, current_head = ?, verification_ref = ?,
+                        updated_at = ?
+                    WHERE run_id = ? AND state = ?
+                    """,
+                    RunState.FINAL_REVIEW.name(), currentHead, verificationRef,
+                    clock.instant().toEpochMilli(), runId,
+                    current.state().name());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "upstream sync state changed during verification");
+            }
+            return null;
+        });
     }
 
     public void advanceState(String runId, RunState state)
     {
         requireText(runId, "runId");
         requireNonNull(state, "state is null");
-        jdbc.update(
-                """
-                UPDATE flow_upstream_sync_run
-                SET state = ?,
-                    park_reason = CASE WHEN ? = 'CANCELED' THEN NULL
-                                       ELSE park_reason END,
-                    updated_at = ? WHERE run_id = ?
-                """,
-                state.name(), state.name(), clock.instant().toEpochMilli(),
-                runId);
+        transactions.execute(status -> {
+            UpstreamSyncRun current = run(runId).orElseThrow(() ->
+                    new IllegalArgumentException(
+                            "unknown upstream sync run: " + runId));
+            if (!transitionAllowed(current.state(), state)) {
+                throw illegalTransition(current.state(), state);
+            }
+            if (state == RunState.WAITING_INITIAL_PUBLISH
+                    && (current.currentHead() == null
+                            || current.verificationRef() == null)) {
+                throw new IllegalStateException(
+                        "an unverified upstream sync cannot await publication");
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_upstream_sync_run
+                    SET state = ?,
+                        park_reason = CASE WHEN ? = 'CANCELED' THEN NULL
+                                           ELSE park_reason END,
+                        updated_at = ? WHERE run_id = ? AND state = ?
+                    """,
+                    state.name(), state.name(), clock.instant().toEpochMilli(),
+                    runId, current.state().name());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "upstream sync state changed during transition");
+            }
+            return null;
+        });
+    }
+
+    private static boolean transitionAllowed(RunState from, RunState to)
+    {
+        if (to == RunState.CANCELED) {
+            return true;
+        }
+        return switch (to) {
+            case PICKING -> from == RunState.READY || from == RunState.PICKING;
+            case WAITING_INITIAL_PUBLISH -> from == RunState.FINAL_REVIEW;
+            default -> false;
+        };
+    }
+
+    private static IllegalStateException illegalTransition(
+            RunState from, RunState to)
+    {
+        return new IllegalStateException(
+                "illegal upstream sync transition: " + from + " -> " + to);
     }
 
     private UpstreamSyncRequest readRequest(ResultSet result)

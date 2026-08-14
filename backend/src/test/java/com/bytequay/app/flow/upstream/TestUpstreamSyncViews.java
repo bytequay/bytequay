@@ -132,9 +132,9 @@ final class TestUpstreamSyncViews
     {
         insertTask("task-failed", "upstream-sync-command:v3:failed", AT);
         var run = start("failed", "task-failed", "abc123");
+        sync.advanceState(run.runId(), RunState.PICKING);
         sync.recordVerification(
-                run.runId(), RunState.FINAL_REVIEW,
-                "abc123", "verification-1");
+                run.runId(), "abc123", "verification-1");
         jdbc.update("""
                 UPDATE flow_runtime_task
                 SET status = 'NEEDS_ATTENTION'

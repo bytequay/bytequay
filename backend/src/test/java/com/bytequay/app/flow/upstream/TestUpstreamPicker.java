@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.upstream;
 
+import com.bytequay.app.flow.upstream.UpstreamPicker.LandedPick;
 import com.bytequay.app.flow.upstream.UpstreamPicker.Outcome;
 import com.bytequay.app.flow.upstream.UpstreamPicker.PickResult;
 import com.bytequay.app.flow.upstream.UpstreamPicker.UnresolvedRepairException;
@@ -219,6 +220,66 @@ final class TestUpstreamPicker
                 picker.subject(continued.commitSha()), false))
                 .isInstanceOf(UnresolvedRepairException.class)
                 .hasMessageContaining("nothing to attribute");
+    }
+
+    @Test
+    void verifiesTheRecordedPicksAgainstCurrentOrderedHistory()
+            throws Exception
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        String base = picker.head();
+        PickResult clean = picker.pick(cleanCommit);
+        PickResult conflict = picker.pick(conflictingCommit);
+        write("contested.txt", "merged rewrite\n");
+        PickResult resolved = picker.continuePick(
+                conflict.head(), conflictingCommit,
+                conflict.conflictedPaths());
+
+        picker.verifyLandedHistory(base, List.of(
+                new LandedPick(cleanCommit, clean.commitSha()),
+                new LandedPick(conflictingCommit, resolved.commitSha())));
+
+        assertThatThrownBy(() -> picker.verifyLandedHistory(base, List.of(
+                new LandedPick(conflictingCommit, resolved.commitSha()),
+                new LandedPick(cleanCommit, clean.commitSha()))))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("out of order");
+    }
+
+    @Test
+    void rejectsRecordedPicksOutsideCurrentHistoryOrWithoutExactProvenance()
+            throws Exception
+    {
+        UpstreamPicker picker = new UpstreamPicker(repository);
+        String base = picker.head();
+        git("checkout", "-b", "detached-pick");
+        write("side.txt", "side\n");
+        git("add", "-A");
+        git("commit", "-m", "Side pick\n\n"
+                + "prefix (cherry picked from commit " + cleanCommit
+                + ") suffix");
+        String inexactCommit = revision("HEAD");
+        git("commit", "--amend", "-m", "Side pick\n\n"
+                + "(cherry picked from commit " + cleanCommit + ")");
+        String sideCommit = revision("HEAD");
+        git("checkout", "main");
+
+        assertThat(picker.provenanceVerified(inexactCommit, cleanCommit))
+                .isFalse();
+        assertThatThrownBy(() -> picker.verifyLandedHistory(base, List.of(
+                new LandedPick(cleanCommit, inexactCommit))))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("exact upstream provenance");
+        assertThatThrownBy(() -> picker.verifyLandedHistory(base, List.of(
+                new LandedPick(cleanCommit, sideCommit))))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("not in the current history");
+
+        assertThatThrownBy(() -> picker.verifyLandedHistory(base, List.of(
+                new LandedPick(cleanCommit,
+                        "0000000000000000000000000000000000000000"))))
+                .isInstanceOf(UnresolvedRepairException.class)
+                .hasMessageContaining("unavailable");
     }
 
     @Test

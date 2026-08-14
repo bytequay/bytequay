@@ -114,6 +114,12 @@ public final class InProcessReviewerAgentSupervisor
             return execution.read(() -> execution.reader.readDiff());
         }
 
+        public byte[] readCommitHistory()
+        {
+            return execution.read(() ->
+                    execution.reader.readCommitHistory());
+        }
+
         /**
          * Records the process group a CLI reviewer just launched, before its
          * prompt goes in. Not a read: this is the program recording what it

@@ -491,6 +491,8 @@ final class NewFlowAgentBodies
                             + " " + entry.path())
                     .toList()));
             case "read_diff" -> safe(() -> utf8(capability.readDiff()));
+            case "read_commit_history" -> safe(() ->
+                    utf8(capability.readCommitHistory()));
             case "read_reviewed_blob" -> safe(() -> utf8(
                     capability.readReviewedBlob(text(call, "path"))));
             case "read_base_blob" -> safe(() -> utf8(

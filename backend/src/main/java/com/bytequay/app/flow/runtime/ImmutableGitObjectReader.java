@@ -41,6 +41,7 @@ public final class ImmutableGitObjectReader
     private static final int MAX_BLOB_BYTES = 2 * 1024 * 1024;
     private static final int MAX_TREE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIFF_BYTES = 8 * 1024 * 1024;
+    private static final int MAX_HISTORY_BYTES = 2 * 1024 * 1024;
     private static final int MAX_CONFIG_BYTES = 1024 * 1024;
     private static final int MAX_STDERR_BYTES = 64 * 1024;
 
@@ -158,6 +159,21 @@ public final class ImmutableGitObjectReader
                 "-r",
                 baseHead,
                 reviewedHead,
+                "--");
+    }
+
+    /** Reads the immutable base-to-reviewed commit history and full messages. */
+    public byte[] readCommitHistory()
+    {
+        return run(
+                MAX_HISTORY_BYTES,
+                "log",
+                "--reverse",
+                "--topo-order",
+                "--no-decorate",
+                "--no-show-signature",
+                "--format=commit %H%nparents %P%n%B%x00",
+                baseHead + ".." + reviewedHead,
                 "--");
     }
 

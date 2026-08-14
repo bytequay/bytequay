@@ -218,8 +218,7 @@ public final class UpstreamSyncCoordinator
                                 request.targetRef(),
                                 request.selectedUpstreamShas());
                         upstreamSync.recordVerification(
-                                run.runId(), RunState.FINAL_REVIEW,
-                                picker.head(), verification);
+                                run.runId(), picker.head(), verification);
                         Task task = runtime.task(taskId).orElseThrow();
                         String targetBaseRef = provisioning.targetBaseRef(taskId);
                         policies.publish(
@@ -382,6 +381,7 @@ public final class UpstreamSyncCoordinator
             if (pick.state() != PickState.CONFLICTED) {
                 return PickStep.advanced();
             }
+            upstreamSync.reenterConflictRepair(pick.pickId());
             try {
                 capability.callTool(() -> {
                     regenerateConflict(picker, pick);
@@ -733,7 +733,7 @@ public final class UpstreamSyncCoordinator
         String verification = verifyHistory(
                 picker, runId, task.taskId(), request.targetRef(), selected);
         upstreamSync.recordVerification(
-                runId, RunState.FINAL_REVIEW, picker.head(), verification);
+                runId, picker.head(), verification);
         // A title the user typed is the title, not a suggestion: the agent only
         // names the PR when the picker left that field empty.
         String requested = request.prTitle();
@@ -796,6 +796,11 @@ public final class UpstreamSyncCoordinator
             upstreamSync.fixup(pick.pickId()).ifPresent(
                     fixup -> frame(digest, fixup.currentCommitSha()));
         }
+        picker.verifyLandedHistory(expectedBaseSha, picks.stream()
+                .filter(UpstreamPick::landedCommit)
+                .map(pick -> new UpstreamPicker.LandedPick(
+                        pick.upstreamSha(), pick.resultCommitSha()))
+                .toList());
         if (!picker.clean()) {
             throw new UnresolvedRepairException(
                     "the worktree is not clean at final review");

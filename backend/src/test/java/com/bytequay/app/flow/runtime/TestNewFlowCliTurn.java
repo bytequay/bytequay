@@ -745,30 +745,28 @@ final class TestNewFlowCliTurn
     }
 
     @Test
-    void oneClaudeCliSessionRepairsTwoUpstreamConflictsInALinkedWorktree(
+    void oneClaudeCliSessionRepairsOneUpstreamConflictInALinkedWorktree(
             @TempDir Path root)
             throws Exception
     {
         ConflictRange range = ConflictRange.create(root);
-        assertThat(range.commits()).allSatisfy(commit ->
-                assertThat(UpstreamPicker.hasCommit(range.target(), commit))
-                        .isFalse());
+        String conflictedCommit = range.commits().getFirst();
+        assertThat(UpstreamPicker.hasCommit(
+                range.target(), conflictedCommit)).isFalse();
         UpstreamPicker.transferObjects(
-                range.upstream(), range.target(), range.commits());
+                range.upstream(), range.target(), List.of(conflictedCommit));
 
         UpstreamPicker picker = new UpstreamPicker(range.worktree());
-        AtomicReference<ActiveConflict> active = new AtomicReference<>(
-                conflict(range.commits().getFirst(), picker));
+        ActiveConflict active = conflict(conflictedCommit, picker);
         AtomicInteger repaired = new AtomicInteger();
         ToolExecutor executor = call -> {
             try {
-                ActiveConflict current = active.get();
                 return switch (call.name()) {
                     case "read_pick_conflict_context" ->
                             ToolExecutor.ToolCallResult.ok(
-                                    "sha=" + current.sha()
+                                    "sha=" + active.sha()
                                             + " conflictedPaths="
-                                            + current.result()
+                                            + active.result()
                                                     .conflictedPaths());
                     case "read_file" -> ToolExecutor.ToolCallResult.ok(
                             Files.readString(
@@ -776,7 +774,7 @@ final class TestNewFlowCliTurn
                                     StandardCharsets.UTF_8));
                     case "write_file" -> {
                         String path = text(call, "path");
-                        if (!current.result().conflictedPaths().contains(path)) {
+                        if (!active.result().conflictedPaths().contains(path)) {
                             yield ToolExecutor.ToolCallResult.error(
                                     "path is not conflicted");
                         }
@@ -788,17 +786,12 @@ final class TestNewFlowCliTurn
                     }
                     case "commit_pick_repair" -> {
                         PickResult continued = picker.continuePick(
-                                current.result().head(), current.sha(),
-                                current.result().conflictedPaths());
+                                active.result().head(), active.sha(),
+                                active.result().conflictedPaths());
                         assertThat(continued.provenanceVerified()).isTrue();
-                        int completed = repaired.incrementAndGet();
-                        if (completed < range.commits().size()) {
-                            String next = range.commits().get(completed);
-                            active.set(conflict(next, picker));
-                            yield ToolExecutor.ToolCallResult.ok(
-                                    "next conflict ready");
-                        }
-                        yield ToolExecutor.ToolCallResult.ok("range complete");
+                        repaired.incrementAndGet();
+                        yield ToolExecutor.ToolCallResult.ok(
+                                "conflict repaired");
                     }
                     default -> ToolExecutor.ToolCallResult.error(
                             "tool is not available");
@@ -843,7 +836,7 @@ final class TestNewFlowCliTurn
 
             NewFlowCliTurn.Outcome outcome = turn.runInWorktree(
                     RUN_ID, binding, conflictManifest(),
-                    "Resolve every selected upstream conflict in order.",
+                    "Resolve only the current upstream conflict.",
                     executor, range.worktree(), new NewFlowCliTurn.TurnJournal()
                     {
                         @Override
@@ -883,15 +876,12 @@ final class TestNewFlowCliTurn
                             StreamEvent.ToolCallDone.class,
                             done -> assertThat(done.outputJson())
                                     .contains("native contents")));
-            assertThat(repaired).hasValue(2);
+            assertThat(repaired).hasValue(1);
             assertThat(picker.clean()).isTrue();
             String history = ConflictRange.git(
-                    range.worktree(), "log", "-2", "--format=%B");
+                    range.worktree(), "log", "-1", "--format=%B");
             assertThat(history).contains(
-                    "(cherry picked from commit " + range.commits().get(0)
-                            + ")",
-                    "(cherry picked from commit " + range.commits().get(1)
-                            + ")");
+                    "(cherry picked from commit " + conflictedCommit + ")");
         }
         finally {
             server.stop(0);
@@ -956,11 +946,7 @@ final class TestNewFlowCliTurn
                 rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"one.txt"}}}'
                 rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"one.txt","content":"resolved one\\n"}}}'
                 rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
-                rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
-                rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"two.txt"}}}'
-                rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"two.txt","content":"resolved two\\n"}}}'
-                rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
-                echo '{"type":"result","subtype":"success","result":"range repaired"}'
+                echo '{"type":"result","subtype":"success","result":"conflict repaired"}'
                 """, StandardCharsets.UTF_8);
         Files.setPosixFilePermissions(executable,
                 PosixFilePermissions.fromString("rwxr-xr-x"));

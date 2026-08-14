@@ -348,6 +348,33 @@ final class TestUpstreamSyncEndToEnd
                         }
 
                         assertPickedSeries(upstreamSync, started.run().runId());
+                        assertThat(jdbc.queryForList(
+                                """
+                                SELECT o.kind
+                                FROM flow_runtime_operation o
+                                LEFT JOIN flow_runtime_agent_run r
+                                  ON r.operation_id = o.operation_id
+                                WHERE o.task_id = ?
+                                  AND (o.kind = 'UPSTREAM_SYNC'
+                                    OR r.prompt_manifest_ref =
+                                        'upstream-pick-repair-prompt:v5')
+                                ORDER BY o.rowid
+                                """,
+                                String.class, task.taskId()))
+                                .containsExactly(
+                                        "UPSTREAM_SYNC", "RUN_TASK_TURN",
+                                        "UPSTREAM_SYNC", "RUN_TASK_TURN",
+                                        "UPSTREAM_SYNC", "RUN_TASK_TURN");
+                        assertThat(jdbc.queryForObject(
+                                """
+                                SELECT COUNT(*)
+                                FROM flow_runtime_operation o
+                                JOIN flow_runtime_agent_run r
+                                  ON r.operation_id = o.operation_id
+                                WHERE o.task_id = ?
+                                  AND o.kind = 'UPSTREAM_SYNC'
+                                """,
+                                Integer.class, task.taskId())).isZero();
                         Files.writeString(
                                 fixupTarget,
                                 upstreamSync.picks(started.run().runId())

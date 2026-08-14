@@ -38,6 +38,7 @@ public final class FlowRuntimeRecords
     {
         PROVISION_TASK,
         RECONCILE_TASK,
+        UPSTREAM_SYNC,
         RUN_TASK_TURN,
         RUN_REVIEWER,
         RUN_CI_FIXER,
@@ -63,6 +64,14 @@ public final class FlowRuntimeRecords
         ADVERSARIAL_REVIEWER,
         CI_FIXER,
         CI_LEARNER
+    }
+
+    /** Local writer identity; deterministic programs are not agent roles. */
+    public enum WriterHolderKind
+    {
+        TASK_AGENT,
+        CI_FIXER,
+        UPSTREAM_SYNC
     }
 
     public enum GateIntent
@@ -114,7 +123,7 @@ public final class FlowRuntimeRecords
     public enum TaskTerminalRequestKind
     {
         REVIEWER,
-        CONTINUE_TASK,
+        CONTINUE_UPSTREAM_SYNC,
         READY_FOR_REVIEW
     }
 
@@ -678,7 +687,7 @@ public final class FlowRuntimeRecords
             String taskId,
             String operationId,
             long taskEpoch,
-            AgentRole holderKind,
+            WriterHolderKind holderKind,
             long fencingToken,
             long claimGeneration,
             String claimTokenDigest,

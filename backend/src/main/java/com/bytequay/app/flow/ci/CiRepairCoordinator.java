@@ -45,6 +45,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterHolderKind;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
@@ -1096,7 +1097,7 @@ public final class CiRepairCoordinator
                 .orElseThrow(() -> new IllegalStateException(
                         "CI repair operation does not exist"));
         if (claim.kind() != OperationKind.RUN_CI_FIXER
-                || fence.holderKind() != AgentRole.CI_FIXER
+                || fence.holderKind() != WriterHolderKind.CI_FIXER
                 || !operation.operationId().equals(
                         task.selectedWriterOperationId())
                 || operation.kind() != OperationKind.RUN_CI_FIXER
@@ -1118,7 +1119,7 @@ public final class CiRepairCoordinator
         if (!attempt.operationId().equals(claim.operationId())
                 || !attempt.agentRunId().equals(runId)
                 || !fence.operationId().equals(claim.operationId())
-                || fence.holderKind() != AgentRole.CI_FIXER) {
+                || fence.holderKind() != WriterHolderKind.CI_FIXER) {
             throw new IllegalStateException(
                     "CI repair finalizer does not own this attempt");
         }

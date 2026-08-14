@@ -818,6 +818,26 @@ public final class UpstreamSync
         });
     }
 
+    /** Hands a fully picked range to a fresh final-review agent turn. */
+    public void beginFinalReview(String runId, String currentHead)
+    {
+        requireText(runId, "runId");
+        requireText(currentHead, "currentHead");
+        int updated = jdbc.update(
+                """
+                UPDATE flow_upstream_sync_run
+                SET state = ?, current_head = ?, updated_at = ?
+                WHERE run_id = ? AND state = ? AND current_head = ?
+                """,
+                RunState.FINAL_REVIEW.name(), currentHead,
+                clock.instant().toEpochMilli(), runId,
+                RunState.PICKING.name(), currentHead);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "picked range cannot enter final review");
+        }
+    }
+
     public void advanceState(String runId, RunState state)
     {
         requireText(runId, "runId");

@@ -53,6 +53,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WakeKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterHolderKind;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
@@ -209,6 +210,24 @@ public final class FlowRuntime
         private PreparedInitialTaskAdmission(
                 Claim claim,
                 InitialTaskAdmissionSnapshot snapshot,
+                Inspection inspection)
+        {
+            this.claim = claim;
+            this.snapshot = snapshot;
+            this.inspection = inspection;
+        }
+    }
+
+    /** Private proof of one inspected deterministic upstream program input. */
+    public static final class PreparedUpstreamSyncAdmission
+    {
+        private final Claim claim;
+        private final UpstreamSyncAdmissionSnapshot snapshot;
+        private final Inspection inspection;
+
+        private PreparedUpstreamSyncAdmission(
+                Claim claim,
+                UpstreamSyncAdmissionSnapshot snapshot,
                 Inspection inspection)
         {
             this.claim = claim;
@@ -2728,6 +2747,38 @@ public final class FlowRuntime
                 claim, snapshot, inspection);
     }
 
+    /** Mechanically inspects one selected deterministic upstream input. */
+    public PreparedUpstreamSyncAdmission prepareUpstreamSyncAdmission(
+            Claim claim, Path programOwnedRepositoryRoot)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        UpstreamSyncAdmissionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() ->
+                    upstreamSyncAdmissionSnapshot(claim));
+        }
+        Inspection inspection = worktreeInspector.inspect(
+                programOwnedRepositoryRoot,
+                snapshot.worktree(),
+                snapshot.branchName(),
+                snapshot.baseSha(),
+                snapshot.headSha());
+        if (!inspection.headSha().equals(snapshot.headSha())
+                || (snapshot.headTreeDigest() != null
+                    && !inspection.headTreeDigest().equals(
+                            snapshot.headTreeDigest()))
+                || (snapshot.diffDigest() != null
+                    && !inspection.baseToHeadDiffDigest().equals(
+                            snapshot.diffDigest()))) {
+            throw new MutationRejectedException(
+                    "inspected upstream program input changed");
+        }
+        return new PreparedUpstreamSyncAdmission(
+                claim, snapshot, inspection);
+    }
+
     /** Atomically consumes one inspected INITIAL input into a fence and run. */
     public synchronized TaskWriterStart startInspectedInitialTaskWriter(
             Claim claim,
@@ -2753,10 +2804,37 @@ public final class FlowRuntime
                     prepared.inspection.headTreeDigest(),
                     "initial-task:" + prepared.snapshot.pendingId());
             WriterFence fence = acquireWriterLease(
-                    claim, AgentRole.TASK_AGENT, snapshot, leaseTtl, true);
+                    claim, WriterHolderKind.TASK_AGENT, snapshot, leaseTtl, true);
             AgentRun run = startWriterAgent(
                     claim, fence, promptManifestRef, capabilitySetRef);
             return new TaskWriterStart(fence, run);
+        });
+    }
+
+    /** Atomically consumes an inspected upstream input into a program fence. */
+    public synchronized WriterFence startInspectedUpstreamSyncWriter(
+            Claim claim,
+            PreparedUpstreamSyncAdmission prepared,
+            Duration leaseTtl)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(prepared, "prepared is null");
+        requirePositive(leaseTtl, "leaseTtl");
+        return inTransaction(() -> {
+            if (!sameClaimAuthority(prepared.claim, claim)
+                    || !prepared.snapshot.equals(
+                            upstreamSyncAdmissionSnapshot(claim))) {
+                throw new StaleOwnerRevisionException(
+                        "upstream program admission changed after inspection");
+            }
+            WorktreeSnapshot snapshot = new WorktreeSnapshot(
+                    prepared.inspection.headSha(),
+                    prepared.inspection.headTreeDigest(),
+                    "upstream-sync:" + prepared.snapshot.runId()
+                            + ":" + prepared.snapshot.currentIndex());
+            return acquireWriterLease(
+                    claim, WriterHolderKind.UPSTREAM_SYNC,
+                    snapshot, leaseTtl, true);
         });
     }
 
@@ -2793,7 +2871,7 @@ public final class FlowRuntime
                     "task-change-set:" + current.changeSetRevisionId());
             WriterFence fence = acquireWriterLease(
                     claim,
-                    AgentRole.TASK_AGENT,
+                    WriterHolderKind.TASK_AGENT,
                     snapshot,
                     leaseTtl,
                     true);
@@ -3224,12 +3302,24 @@ public final class FlowRuntime
             Duration leaseTtl)
     {
         return acquireWriterLease(
+                claim, WriterHolderKind.valueOf(holderKind.name()),
+                snapshot, leaseTtl);
+    }
+
+    /** Acquires a fence for an agent or deterministic program writer. */
+    public synchronized WriterFence acquireWriterLease(
+            Claim claim,
+            WriterHolderKind holderKind,
+            WorktreeSnapshot snapshot,
+            Duration leaseTtl)
+    {
+        return acquireWriterLease(
                 claim, holderKind, snapshot, leaseTtl, false);
     }
 
     private WriterFence acquireWriterLease(
             Claim claim,
-            AgentRole holderKind,
+            WriterHolderKind holderKind,
             WorktreeSnapshot snapshot,
             Duration leaseTtl,
             boolean inspectedTaskAdmission)
@@ -3247,8 +3337,9 @@ public final class FlowRuntime
                 throw new MutationRejectedException(
                         "CI cleanup cannot use caller-authored worktree admission");
             }
-            AgentRole requiredRole = roleForWriter(operation.kind());
-            if (holderKind != requiredRole) {
+            WriterHolderKind requiredHolder = holderForWriter(
+                    operation.kind());
+            if (holderKind != requiredHolder) {
                 throw new IllegalArgumentException(
                         "writer holder does not match operation kind");
             }
@@ -3361,7 +3452,7 @@ public final class FlowRuntime
             assertFenceRow(claim, fence);
             Operation operation = requireOperation(claim.operationId());
             assertFenceOwnsOperation(
-                    fence, operation, roleForWriter(operation.kind()));
+                    fence, operation, holderForWriter(operation.kind()));
             Instant expiresAt = earlier(
                     clock.instant().plus(leaseTtl),
                     currentClaimExpiry(claim));
@@ -3439,6 +3530,23 @@ public final class FlowRuntime
                 programOwnedRepositoryRoot,
                 expectedChangeSetRevisionId);
         return adoptPreparedChangeSet(claim, fence, prepared);
+    }
+
+    /** Adopts one clean deterministic upstream step without an AgentRun. */
+    public ChangeSetRevision adoptUpstreamChangeSet(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        if (claim.kind() != OperationKind.UPSTREAM_SYNC
+                || fence.holderKind() != WriterHolderKind.UPSTREAM_SYNC) {
+            throw new MutationRejectedException(
+                    "upstream adoption requires its exact program writer");
+        }
+        return adoptChangeSet(
+                claim, fence, programOwnedRepositoryRoot,
+                expectedChangeSetRevisionId);
     }
 
     /** Adopts only the first nonempty INITIAL Task change set. */
@@ -3894,14 +4002,24 @@ public final class FlowRuntime
             assertFenceRow(claim, fence);
             Operation operation = requireOperation(claim.operationId());
             Task task = requireTask(snapshot.taskId());
-            AgentRun run = requireRun(snapshot.sourceRunId());
+            AgentRun run = snapshot.sourceRunId() == null
+                    ? null : requireRun(snapshot.sourceRunId());
+            boolean exactSource = snapshot.source()
+                    == ChangeSetSource.UPSTREAM_SYNC
+                    ? operation.kind() == OperationKind.UPSTREAM_SYNC
+                            && run == null
+                            && fence.holderKind()
+                                == WriterHolderKind.UPSTREAM_SYNC
+                    : run != null
+                            && operation.operationId().equals(run.operationId())
+                            && run.state() == RunState.RUNNING
+                            && run.role() == (snapshot.source()
+                                    == ChangeSetSource.TASK_AGENT
+                                            ? AgentRole.TASK_AGENT
+                                            : AgentRole.CI_FIXER);
             if (!operation.operationId().equals(snapshot.operationId())
-                    || !operation.operationId().equals(run.operationId())
                     || operation.kind() != snapshot.operationKind()
-                    || run.state() != RunState.RUNNING
-                    || run.role() != (snapshot.source() == ChangeSetSource.TASK_AGENT
-                            ? AgentRole.TASK_AGENT
-                            : AgentRole.CI_FIXER)
+                    || !exactSource
                     || task.epoch() != snapshot.taskEpoch()
                     || task.status() != TaskStatus.ACTIVE
                     || !operation.operationId().equals(
@@ -3978,7 +4096,7 @@ public final class FlowRuntime
                     inspection.baseToHeadDiffDigest(),
                     inspection.differsFromBase() ? 1 : 0,
                     snapshot.source().name(),
-                    run.runId(),
+                    snapshot.sourceRunId(),
                     operation.operationId(),
                     now.toEpochMilli());
             int advanced = jdbc.update(
@@ -4132,7 +4250,7 @@ public final class FlowRuntime
                     task.taskId(),
                     operation.operationId(),
                     task.epoch(),
-                    AgentRole.CI_FIXER,
+                    WriterHolderKind.CI_FIXER,
                     token,
                     claim.generation(),
                     claimTokenDigest(claim),
@@ -4332,8 +4450,9 @@ public final class FlowRuntime
                 throw new MutationRejectedException(
                         "CI cleanup requires specialized sealed-state admission");
             }
-            AgentRole role = roleForWriter(operation.kind());
-            assertFenceOwnsOperation(fence, operation, role);
+            AgentRole role = roleForAgentWriter(operation.kind());
+            assertFenceOwnsOperation(
+                    fence, operation, WriterHolderKind.valueOf(role.name()));
             Optional<AgentRun> existingRun = runForOperation(
                     operation.operationId());
             if (existingRun.isPresent()) {
@@ -6516,9 +6635,9 @@ public final class FlowRuntime
                 throw new MutationRejectedException(
                         "ready-for-review run requires its gate finalizer");
             }
-            boolean continueTask = terminalRequest
+            boolean continueUpstream = terminalRequest
                     .filter(request -> request.kind()
-                            == TaskTerminalRequestKind.CONTINUE_TASK)
+                            == TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC)
                     .isPresent();
             Optional<ReviewerRequest> request =
                     reviewerRequestForParentRun(runId);
@@ -6554,14 +6673,14 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "Task review parent is no longer current");
             }
-            if (continueTask
+            if (continueUpstream
                     && (terminalOutcome != TerminalOutcome.COMPLETED
                         || request.isPresent()
                         || !terminalRequest.orElseThrow().requestId().equals(
-                                taskContinuationId(
+                                upstreamSyncContinuationId(
                                         run, operation, input, task)))) {
                 throw new StaleOwnerRevisionException(
-                        "Task continuation changed before parent stop");
+                        "upstream continuation changed before parent stop");
             }
             AgentProcessAttempt stopped = requireExactStoppedCompletion(
                     runId, claim.generation(), terminalOutcome,
@@ -6674,7 +6793,7 @@ public final class FlowRuntime
                             "reviewer eligibility changed before parent stop");
                 }
             }
-            else if (continueTask) {
+            else if (continueUpstream) {
                 int inputHandled = jdbc.update(
                         """
                         UPDATE flow_runtime_inbox
@@ -6686,7 +6805,7 @@ public final class FlowRuntime
                         operation.operationId());
                 if (inputHandled != 1) {
                     throw new StaleOwnerRevisionException(
-                            "Task continuation lost its input");
+                            "upstream continuation lost its input");
                 }
                 appendNextInitialTask(task, now);
             }
@@ -7207,7 +7326,8 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "cleanup subject changed after non-clean inspection");
             }
-            assertFenceOwnsOperation(fence, operation, AgentRole.CI_FIXER);
+            assertFenceOwnsOperation(
+                    fence, operation, WriterHolderKind.CI_FIXER);
             AgentProcessAttempt processAttempt =
                     requireExactStoppedCompletion(
                             runId, claim.generation(), terminalOutcome,
@@ -7951,7 +8071,8 @@ public final class FlowRuntime
                         "run is not active under this dispatch claim");
             }
             assertFenceOwnsOperation(
-                    fence, requireOperation(run.operationId()), run.role());
+                    fence, requireOperation(run.operationId()),
+                    WriterHolderKind.valueOf(run.role().name()));
             if (ciFinalization) {
                 Task task = requireTask(fence.taskId());
                 ChangeSetRevision output = requireChangeSetRevision(
@@ -8309,7 +8430,8 @@ public final class FlowRuntime
                 throw new IllegalStateException(
                         "agent run or operation is not durably finalized");
             }
-            assertFenceOwnsOperation(fence, operation, run.role());
+            assertFenceOwnsOperation(
+                    fence, operation, WriterHolderKind.valueOf(run.role().name()));
 
             AgentSession session = requireSession(run.sessionId());
             if (runId.equals(session.lastRunId())) {
@@ -8554,8 +8676,8 @@ public final class FlowRuntime
         }
     }
 
-    /** Terminally ends one Task turn while keeping its exact Task work active. */
-    public synchronized TaskTerminalRequest reserveTaskContinuation(
+    /** Terminally hands one repaired conflict back to its program operation. */
+    public synchronized TaskTerminalRequest reserveUpstreamSyncContinuation(
             String runId,
             Claim claim,
             WriterFence fence,
@@ -8576,6 +8698,10 @@ public final class FlowRuntime
             Operation operation = requireOperation(claim.operationId());
             Task task = requireTask(claim.taskId());
             PendingWork input = selectedInput(operation);
+            Integer upstreamOwner = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM flow_upstream_sync_run "
+                            + "WHERE task_id = ? AND state = 'PICKING'",
+                    Integer.class, task.taskId());
             if (!process.runId().equals(runId)
                     || !process.capabilityId().equals(capabilityId)
                     || !run.operationId().equals(operation.operationId())
@@ -8590,23 +8716,25 @@ public final class FlowRuntime
                             != GateIntent.INITIAL_PUBLISH
                     || !input.subjectHead().equals(run.headSha())
                     || task.status() != TaskStatus.ACTIVE
-                    || task.prId() != null) {
+                    || task.prId() != null
+                    || requireNonNull(
+                            upstreamOwner, "upstream owner count is null") != 1) {
                 throw new StaleCapabilityException(
-                        "Task continuation requires the exact live INITIAL turn");
+                        "upstream continuation requires one repaired conflict");
             }
-            String requestId = taskContinuationId(
+            String requestId = upstreamSyncContinuationId(
                     run, operation, input, task);
             return reserveTaskTerminalRequest(
-                    runId, TaskTerminalRequestKind.CONTINUE_TASK,
+                    runId, TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC,
                     requestId, clock.instant());
         });
     }
 
-    private static String taskContinuationId(
+    private static String upstreamSyncContinuationId(
             AgentRun run, Operation operation, PendingWork input, Task task)
     {
         return stableId(
-                "task-continuation:v1",
+                "upstream-sync-continuation:v1",
                 run.runId(),
                 operation.operationId(),
                 input.pendingId(),
@@ -8912,6 +9040,104 @@ public final class FlowRuntime
             String operationId, OperationState state, String resultRef)
     {
         dispatches.settleDispatch(operationId, state, resultRef);
+    }
+
+    /** Settles one deterministic upstream writer and schedules its next agent. */
+    public synchronized void finishUpstreamSyncProgram(
+            Claim claim, WriterFence fence, String resultRef)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(resultRef, "resultRef");
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            Operation operation = requireOperation(claim.operationId());
+            if (operation.kind() != OperationKind.UPSTREAM_SYNC
+                    || !operation.ownerKind().equals("UPSTREAM_RUN")
+                    || fence.holderKind()
+                        != WriterHolderKind.UPSTREAM_SYNC) {
+                throw new MutationRejectedException(
+                        "claim does not own an upstream program writer");
+            }
+            var run = jdbc.queryForMap(
+                    "SELECT task_id, state, current_head, park_reason "
+                            + "FROM flow_upstream_sync_run WHERE run_id = ?",
+                    operation.ownerId());
+            Task task = requireTask(operation.taskId());
+            String state = (String) run.get("state");
+            String currentHead = (String) run.get("current_head");
+            boolean schedulesAgent = state.equals("WAITING_CONFLICT_REPAIR")
+                    || state.equals("FINAL_REVIEW");
+            boolean parked = state.equals("WAITING_USER")
+                    || state.equals("NEEDS_ATTENTION");
+            boolean canceled = state.equals("CANCELED");
+            if (!task.taskId().equals(run.get("task_id"))
+                    || !(schedulesAgent || parked || canceled)
+                    || currentHead != null
+                        && !currentHead.equals(task.currentHeadSha())) {
+                throw new StaleOwnerRevisionException(
+                        "upstream program stopped outside a durable boundary");
+            }
+            PendingWork input = selectedInput(operation);
+            int leaseReleased = jdbc.update(
+                    "DELETE FROM flow_runtime_writer_lease "
+                            + "WHERE task_id = ? AND operation_id = ? "
+                            + "AND fencing_token = ?",
+                    task.taskId(), operation.operationId(),
+                    fence.fencingToken());
+            int inputHandled = jdbc.update(
+                    "UPDATE flow_runtime_inbox "
+                            + "SET handled_by_operation_id = ? "
+                            + "WHERE inbox_id = ? "
+                            + "AND selected_by_operation_id = ? "
+                            + "AND handled_by_operation_id IS NULL",
+                    operation.operationId(), input.pendingId(),
+                    operation.operationId());
+            int writerReleased = jdbc.update(
+                    "UPDATE flow_runtime_task "
+                            + "SET selected_writer_operation_id = NULL "
+                            + "WHERE task_id = ? "
+                            + "AND selected_writer_operation_id = ?",
+                    task.taskId(), operation.operationId());
+            if (leaseReleased != 1 || inputHandled != 1
+                    || writerReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "upstream program lost its settlement authority");
+            }
+            OperationState terminalState = canceled
+                    ? OperationState.CANCELED
+                    : parked ? OperationState.FAILED
+                            : OperationState.SUCCEEDED;
+            settleDispatch(
+                    operation.operationId(), terminalState, resultRef);
+            if (parked) {
+                Task current = requireTask(task.taskId());
+                String reason = (String) run.get("park_reason");
+                TaskLifecycleRevision attention = appendLifecycle(
+                        current, TaskStatus.NEEDS_ATTENTION,
+                        reason == null ? "UPSTREAM_SYNC_PARKED" : reason,
+                        resultRef, operation.operationId(),
+                        clock.instant());
+                int updated = jdbc.update(
+                        "UPDATE flow_runtime_task SET status = 'NEEDS_ATTENTION', "
+                                + "current_lifecycle_revision_id = ? "
+                                + "WHERE task_id = ? AND status = 'ACTIVE' "
+                                + "AND current_lifecycle_revision_id = ?",
+                        attention.lifecycleRevisionId(), current.taskId(),
+                        current.currentLifecycleRevisionId());
+                if (updated != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "upstream park lost its Task lifecycle");
+                }
+            }
+            else if (schedulesAgent) {
+                appendNextInitialTask(requireTask(task.taskId()),
+                        clock.instant());
+                ensureReconciliation(task.taskId());
+            }
+            return Boolean.TRUE;
+        });
     }
 
     void assertCurrentClaim(
@@ -9722,6 +9948,38 @@ public final class FlowRuntime
     private void assertWriterSubjectCurrent(
             Operation operation, String admissionHead)
     {
+        if (operation.kind() == OperationKind.UPSTREAM_SYNC) {
+            Integer matches = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_task t
+                    JOIN flow_runtime_inbox i
+                      ON i.selected_by_operation_id = ?
+                     AND i.task_id = t.task_id
+                    JOIN flow_upstream_sync_run u
+                      ON u.run_id = ? AND u.task_id = t.task_id
+                    WHERE t.task_id = ? AND t.status = 'ACTIVE'
+                      AND t.selected_writer_operation_id = ?
+                      AND i.handled_by_operation_id IS NULL
+                      AND i.terminal_reason IS NULL
+                      AND u.state IN (
+                          'READY', 'PICKING', 'WAITING_CONFLICT_REPAIR',
+                          'WAITING_USER', 'FINAL_REVIEW', 'CANCELED',
+                          'NEEDS_ATTENTION'
+                      )
+                    """,
+                    Integer.class,
+                    operation.operationId(),
+                    operation.ownerId(),
+                    operation.taskId(),
+                    operation.operationId());
+            if (requireNonNull(
+                    matches, "upstream writer subject count is null") != 1) {
+                throw new MutationRejectedException(
+                        "upstream writer input is no longer current");
+            }
+            return;
+        }
         String condition = operation.kind() == OperationKind.RUN_CI_FIXER
                 ? """
                   i.kind = 'FINAL_RED'
@@ -9758,11 +10016,11 @@ public final class FlowRuntime
     }
 
     private static void assertFenceOwnsOperation(
-            WriterFence fence, Operation operation, AgentRole role)
+            WriterFence fence, Operation operation, WriterHolderKind holder)
     {
         if (!fence.operationId().equals(operation.operationId())
                 || !fence.taskId().equals(operation.taskId())
-                || fence.holderKind() != role) {
+                || fence.holderKind() != holder) {
             throw new MutationRejectedException(
                     "writer fence does not own the agent operation");
         }
@@ -9778,7 +10036,8 @@ public final class FlowRuntime
                         result.getString("task_id"),
                         result.getString("operation_id"),
                         result.getLong("task_epoch"),
-                        AgentRole.valueOf(result.getString("holder_kind")),
+                        WriterHolderKind.valueOf(
+                                result.getString("holder_kind")),
                         result.getLong("fencing_token"),
                         result.getLong("claim_generation"),
                         result.getString("claim_token_digest"),
@@ -9976,7 +10235,18 @@ public final class FlowRuntime
         }
     }
 
-    private static AgentRole roleForWriter(OperationKind kind)
+    private static WriterHolderKind holderForWriter(OperationKind kind)
+    {
+        return switch (kind) {
+            case RUN_TASK_TURN -> WriterHolderKind.TASK_AGENT;
+            case RUN_CI_FIXER -> WriterHolderKind.CI_FIXER;
+            case UPSTREAM_SYNC -> WriterHolderKind.UPSTREAM_SYNC;
+            default -> throw new IllegalArgumentException(
+                    "operation is not a writer: " + kind);
+        };
+    }
+
+    private static AgentRole roleForAgentWriter(OperationKind kind)
     {
         return switch (kind) {
             case RUN_TASK_TURN -> AgentRole.TASK_AGENT;
@@ -10175,20 +10445,28 @@ public final class FlowRuntime
         ChangeSetSource source = switch (operation.kind()) {
             case RUN_TASK_TURN -> ChangeSetSource.TASK_AGENT;
             case RUN_CI_FIXER -> ChangeSetSource.CI_FIXER;
+            case UPSTREAM_SYNC -> ChangeSetSource.UPSTREAM_SYNC;
             default -> throw new IllegalArgumentException(
-                    "operation cannot adopt an agent change set");
+                    "operation cannot adopt a change set");
         };
-        AgentRole role = source == ChangeSetSource.TASK_AGENT
-                ? AgentRole.TASK_AGENT
-                : AgentRole.CI_FIXER;
-        assertFenceOwnsOperation(fence, operation, role);
-        AgentRun run = runForOperation(operation.operationId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "writer operation has no exact AgentRun"));
-        if (run.role() != role || run.state() != RunState.RUNNING) {
+        WriterHolderKind holder = holderForWriter(operation.kind());
+        assertFenceOwnsOperation(fence, operation, holder);
+        AgentRun run = source == ChangeSetSource.UPSTREAM_SYNC
+                ? null
+                : runForOperation(operation.operationId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "agent writer has no exact AgentRun"));
+        if (run != null
+                && (run.role() != roleForAgentWriter(operation.kind())
+                    || run.state() != RunState.RUNNING)) {
             throw new IllegalStateException(
-                    "writer operation has no running source AgentRun");
+                    "agent writer has no running source AgentRun");
         }
+        if (run == null && runForOperation(operation.operationId()).isPresent()) {
+            throw new IllegalStateException(
+                    "upstream program operation unexpectedly owns an AgentRun");
+        }
+        String sourceRunId = run == null ? null : run.runId();
         Task task = requireTask(operation.taskId());
         TaskBaseRevision base = currentBaseRevision(task.taskId())
                 .orElseThrow(() -> new IllegalStateException(
@@ -10197,7 +10475,7 @@ public final class FlowRuntime
         if (current.isPresent()) {
             ChangeSetRevision revision = current.get();
             if (revision.sourceOperationId().equals(operation.operationId())
-                    && Objects.equals(revision.sourceRunId(), run.runId())
+                    && Objects.equals(revision.sourceRunId(), sourceRunId)
                     && Objects.equals(revision.previousChangeSetRevisionId(),
                             expectedChangeSetRevisionId)
                     && Objects.equals(task.currentChangeSetRevisionId(),
@@ -10210,7 +10488,7 @@ public final class FlowRuntime
                         operation.operationId(),
                         operation.kind(),
                         source,
-                        run.runId(),
+                        sourceRunId,
                         Path.of(task.worktreePath()),
                         task.branchName(),
                         base.baseRevisionId(),
@@ -10230,7 +10508,7 @@ public final class FlowRuntime
                 operation.operationId(),
                 operation.kind(),
                 source,
-                run.runId(),
+                sourceRunId,
                 Path.of(task.worktreePath()),
                 task.branchName(),
                 base.baseRevisionId(),
@@ -10738,7 +11016,7 @@ public final class FlowRuntime
             AgentResult result = resultForRun(run.runId()).orElseThrow();
             boolean continued = taskTerminalRequest(run.runId())
                     .filter(terminal -> terminal.kind()
-                            == TaskTerminalRequestKind.CONTINUE_TASK)
+                            == TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC)
                     .isPresent();
             boolean consumedReviewerResult =
                     run.wakeKind() == WakeKind.AGENT_RESULT_READY
@@ -11087,6 +11365,73 @@ public final class FlowRuntime
                 changeSet != null && changeSet.differsFromBase(),
                 pr == null ? null : pr.prId(),
                 reviewer == null ? null : reviewer.requestId());
+    }
+
+    private UpstreamSyncAdmissionSnapshot upstreamSyncAdmissionSnapshot(
+            Claim claim)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        Operation operation = requireOperation(claim.operationId());
+        if (operation.kind() != OperationKind.UPSTREAM_SYNC
+                || !operation.ownerKind().equals("UPSTREAM_RUN")
+                || !Objects.equals(operation.taskId(), claim.taskId())) {
+            throw new MutationRejectedException(
+                    "claim does not own an upstream program operation");
+        }
+        Task task = requireTask(operation.taskId());
+        PendingWork input = selectedInput(operation);
+        if (task.status() != TaskStatus.ACTIVE
+                || task.waitingMutationStateRef() != null
+                || !operation.operationId().equals(
+                        task.selectedWriterOperationId())
+                || input.kind() != PendingKind.INITIAL_TASK
+                || input.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || !operation.inputRef().equals(
+                        "inbox:" + input.pendingId())) {
+            throw new MutationRejectedException(
+                    "upstream program input is no longer current");
+        }
+        var owner = jdbc.queryForMap(
+                "SELECT run_id, task_id, state, current_index, current_head "
+                        + "FROM flow_upstream_sync_run WHERE run_id = ?",
+                operation.ownerId());
+        String state = (String) owner.get("state");
+        String runHead = (String) owner.get("current_head");
+        if (!operation.ownerId().equals(owner.get("run_id"))
+                || !task.taskId().equals(owner.get("task_id"))
+                || !(state.equals("READY") || state.equals("PICKING"))
+                || runHead != null && !runHead.equals(task.currentHeadSha())) {
+            throw new MutationRejectedException(
+                    "upstream program owner changed identity");
+        }
+        if (runForOperation(operation.operationId()).isPresent()) {
+            throw new MutationRejectedException(
+                    "upstream program operation must not own an AgentRun");
+        }
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "upstream Task has no immutable base"));
+        ChangeSetRevision changeSet = task.currentChangeSetRevisionId() == null
+                ? null : requireChangeSetRevision(
+                        task.currentChangeSetRevisionId());
+        if (changeSet != null
+                && (!changeSet.taskId().equals(task.taskId())
+                    || !changeSet.headSha().equals(task.currentHeadSha())
+                    || !changeSet.baseRevisionId().equals(
+                            base.baseRevisionId()))) {
+            throw new MutationRejectedException(
+                    "upstream program change set is not current");
+        }
+        Number currentIndex = (Number) owner.get("current_index");
+        return new UpstreamSyncAdmissionSnapshot(
+                task.taskId(), task.epoch(), operation.operationId(),
+                operation.subjectDigest(), input.pendingId(),
+                operation.ownerId(), currentIndex.intValue(),
+                Path.of(task.worktreePath()), task.branchName(),
+                base.baseRevisionId(), base.baseSha(),
+                task.currentChangeSetRevisionId(), task.currentHeadSha(),
+                changeSet == null ? null : changeSet.headTreeDigest(),
+                changeSet == null ? null : changeSet.diffDigest());
     }
 
     String initialTaskHead(String taskId)
@@ -11533,6 +11878,23 @@ public final class FlowRuntime
             boolean differsFromBase,
             String prId,
             String reviewerRequestId) {}
+
+    private record UpstreamSyncAdmissionSnapshot(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            String operationSubjectDigest,
+            String pendingId,
+            String runId,
+            int currentIndex,
+            Path worktree,
+            String branchName,
+            String baseRevisionId,
+            String baseSha,
+            String changeSetRevisionId,
+            String headSha,
+            String headTreeDigest,
+            String diffDigest) {}
 
     private record ReviewRequestSnapshot(
             String taskId,

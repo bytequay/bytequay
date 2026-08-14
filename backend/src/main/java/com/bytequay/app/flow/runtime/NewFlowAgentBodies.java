@@ -165,7 +165,7 @@ final class NewFlowAgentBodies
         return launches.bind(run, TASK_INITIAL_REVIEW_RESULT);
     }
 
-    /** The first turn of an upstream range, which repairs conflicted picks. */
+    /** One upstream conflict-repair or completed-range review turn. */
     NewFlowAgentLaunches.Binding bindUpstreamPickRepair(AgentRun run)
     {
         return launches.bind(run, UPSTREAM_PICK_REPAIR);
@@ -662,7 +662,7 @@ final class NewFlowAgentBodies
      * call however many came before it. The turn ends on its terminal tool,
      * the check-attempt bound, or the agent's own context — not on a quota.
      */
-    private ToolExecutor bounded(
+    ToolExecutor bounded(
             AtomicBoolean terminalSeal, ToolExecutor delegate)
     {
         return call -> {
@@ -861,14 +861,14 @@ final class NewFlowAgentBodies
         return safe(() -> capability.callTool(action));
     }
 
-    private ToolCallResult guarded(
+    ToolCallResult guarded(
             InitialToolCapability capability,
             Supplier<String> action)
     {
         return safe(() -> capability.callTool(action));
     }
 
-    private static ToolCallResult safe(
+    static ToolCallResult safe(
             Supplier<String> action)
     {
         try {
@@ -921,7 +921,7 @@ final class NewFlowAgentBodies
         };
     }
 
-    private String json(Object value)
+    String json(Object value)
     {
         try {
             return mapper.writeValueAsString(value);
@@ -939,7 +939,7 @@ final class NewFlowAgentBodies
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private static String text(ToolCall call, String name)
+    static String text(ToolCall call, String name)
     {
         JsonNode value = call.input().get(name);
         if (value == null || !value.isTextual() || value.textValue().isBlank()) {

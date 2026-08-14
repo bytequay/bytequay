@@ -303,10 +303,10 @@ public final class InProcessWriterAgentSupervisor
                     checkRunRefs);
         }
 
-        /** Ends this Task turn and durably schedules its next deterministic turn. */
-        public TaskTerminalRequest continueTask()
+        /** Ends this conflict turn and schedules the upstream program. */
+        public TaskTerminalRequest continueUpstreamSync()
         {
-            return execution.continueTask();
+            return execution.continueUpstreamSync();
         }
 
         /** Terminal ready command over one program-derived immutable subject. */
@@ -1314,7 +1314,7 @@ public final class InProcessWriterAgentSupervisor
                             localCheckPolicyRevisionId, checkRunRefs));
         }
 
-        private TaskTerminalRequest continueTask()
+        private TaskTerminalRequest continueUpstreamSync()
         {
             synchronized (this) {
                 if (Thread.currentThread() != thread) {
@@ -1322,7 +1322,7 @@ public final class InProcessWriterAgentSupervisor
                             "terminal tool requires the owned writer thread");
                 }
             }
-            return callTerminalTool(() -> runtime.reserveTaskContinuation(
+            return callTerminalTool(() -> runtime.reserveUpstreamSyncContinuation(
                     runId, claim, fence, attempt.processAttemptId(),
                     attempt.capabilityId()));
         }

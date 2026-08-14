@@ -53,12 +53,14 @@ public final class FlowRuntimeTestSupport
         try {
             Method method = FlowRuntime.class.getDeclaredMethod(
                     "acquireWriterLease", Claim.class,
-                    FlowRuntimeRecords.AgentRole.class,
+                    FlowRuntimeRecords.WriterHolderKind.class,
                     FlowRuntimeRecords.WorktreeSnapshot.class,
                     Duration.class, boolean.class);
             method.setAccessible(true);
             return (FlowRuntimeRecords.WriterFence) method.invoke(
-                    runtime, claim, role, snapshot, ttl, true);
+                    runtime, claim,
+                    FlowRuntimeRecords.WriterHolderKind.valueOf(role.name()),
+                    snapshot, ttl, true);
         }
         catch (InvocationTargetException failure) {
             if (failure.getCause() instanceof RuntimeException runtimeFailure) {

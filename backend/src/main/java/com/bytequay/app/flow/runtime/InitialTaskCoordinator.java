@@ -52,23 +52,6 @@ import static java.util.Objects.requireNonNull;
 /** Exact owner for ordinary unpublished INITIAL Task and reviewer turns. */
 public final class InitialTaskCoordinator
 {
-    private static final String TASK_PROMPT = "task-initial-prompt:v2";
-    private static final String TASK_CAPABILITIES =
-            "task-initial-capabilities:v2";
-    /** Upstream conflict and final-review turns use their own sealed identity. */
-    private static final String PICK_REPAIR_PROMPT =
-            "upstream-pick-repair-prompt:v5";
-    private static final String PICK_REPAIR_CAPABILITIES =
-            "upstream-pick-repair-capabilities:v4";
-    private static final String TASK_REVIEW_PROMPT =
-            "task-initial-review-prompt:v2";
-    private static final String TASK_REVIEW_CAPABILITIES =
-            "task-initial-review-capabilities:v2";
-    private static final String REVIEWER_PROMPT =
-            NewFlowAgentLaunches.currentReviewerPromptManifestRef();
-    private static final String REVIEWER_CAPABILITIES =
-            NewFlowAgentLaunches.currentReviewerCapabilitySetRef();
-
     public record TaskBinding(
             PendingWork input,
             Path repositoryRoot,
@@ -274,10 +257,10 @@ public final class InitialTaskCoordinator
                     workingDirectory);
         }
 
-        /** Terminal handoff from one upstream conflict to deterministic picking. */
-        public void continueTask()
+        /** Terminal handoff from one conflict to deterministic picking. */
+        public void continueUpstreamSync()
         {
-            writer.continueTask();
+            writer.continueUpstreamSync();
         }
 
         @Override
@@ -341,13 +324,14 @@ public final class InitialTaskCoordinator
         Path repositoryRoot = Path.of(task.repositoryRoot());
         PreparedInitialTaskAdmission prepared =
                 runtime.prepareInitialTaskAdmission(claim, repositoryRoot);
+        NewFlowAgentLaunches.Program program = continuation
+                ? NewFlowAgentLaunches.Program.TASK_INITIAL_REVIEW_RESULT
+                : upstreamRange
+                        ? NewFlowAgentLaunches.Program.UPSTREAM_PICK_REPAIR
+                        : NewFlowAgentLaunches.Program.TASK_INITIAL;
         TaskWriterStart start = runtime.startInspectedInitialTaskWriter(
-                claim, prepared, leaseTtl,
-                continuation ? TASK_REVIEW_PROMPT
-                        : upstreamRange ? PICK_REPAIR_PROMPT : TASK_PROMPT,
-                continuation ? TASK_REVIEW_CAPABILITIES
-                        : upstreamRange ? PICK_REPAIR_CAPABILITIES
-                                : TASK_CAPABILITIES);
+                claim, prepared, leaseTtl, program.promptManifestRef(),
+                program.capabilitySetRef());
         ReviewerRequest review = continuation
                 ? runtime.reviewerRequestForReviewerRun(input.externalKey())
                         .orElseThrow()
@@ -394,7 +378,9 @@ public final class InitialTaskCoordinator
                     "reviewer is not owned by INITIAL flow");
         }
         return runtime.startReviewerAgent(
-                requestId, claim, REVIEWER_PROMPT, REVIEWER_CAPABILITIES);
+                requestId, claim,
+                NewFlowAgentLaunches.Program.REVIEWER.promptManifestRef(),
+                NewFlowAgentLaunches.Program.REVIEWER.capabilitySetRef());
     }
 
     public ExecutionHandle launchReviewer(

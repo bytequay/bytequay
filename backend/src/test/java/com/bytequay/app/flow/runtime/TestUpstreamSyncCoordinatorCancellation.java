@@ -34,13 +34,4 @@ final class TestUpstreamSyncCoordinatorCancellation
                 new IllegalStateException("ordinary failure"), false))
                 .isFalse();
     }
-
-    @Test
-    void anUnfinishedConflictHasOnlyResolvedOrDeclinedOutcomes()
-    {
-        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(false))
-                .isEqualTo("CONFLICT_UNRESOLVED");
-        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true))
-                .isEqualTo("CONFLICT_DECLINED");
-    }
 }

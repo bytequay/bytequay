@@ -238,10 +238,25 @@ public final class InitialTaskDispatcher
     {
         switch (claim.kind()) {
             case RECONCILE_TASK -> runtime.selectNextInitial(claim);
+            case UPSTREAM_SYNC -> dispatchUpstreamProgram(claim);
             case RUN_TASK_TURN -> dispatchTask(claim);
             case RUN_REVIEWER -> dispatchReviewer(claim);
             default -> throw new IllegalArgumentException(
                     "operation is not owned by INITIAL Task lane");
+        }
+    }
+
+    private void dispatchUpstreamProgram(Claim claim)
+    {
+        UpstreamSyncCoordinator upstreamSync = requireNonNull(
+                upstream, "upstream coordinator is not wired");
+        registerCancellation(claim.operationId(), () -> {});
+        try {
+            upstreamSync.runProgram(claim, config.claimTtl());
+        }
+        finally {
+            clearCancellation(claim.operationId());
+            upstreamSync.finishCanceledTask(claim.taskId());
         }
     }
 
@@ -278,7 +293,7 @@ public final class InitialTaskDispatcher
                         // the Task's start and its review request; the gate,
                         // the reviewer and publication stay the ordinary ones.
                         return upstreamRange
-                                ? upstreamSync.runTurn(
+                                ? upstreamSync.runAgentTurn(
                                         launch, worktree, capability,
                                         claim.taskId(),
                                         binding.reviewContinuation())
@@ -347,6 +362,14 @@ public final class InitialTaskDispatcher
             activeCancellation.compareAndSet(cancellation, null);
             throw new IllegalStateException(
                     "INITIAL dispatcher already owns an active agent");
+        }
+    }
+
+    private void clearCancellation(String operationId)
+    {
+        if (operationId.equals(activeOperationId.get())) {
+            activeCancellation.set(null);
+            activeOperationId.compareAndSet(operationId, null);
         }
     }
 
@@ -453,7 +476,7 @@ public final class InitialTaskDispatcher
                                 operation.operationId(), expired.generation(),
                                 config.claimTtl());
                     }
-                    else {
+                    else if (operation.kind() != OperationKind.UPSTREAM_SYNC) {
                         throw new IllegalStateException(
                                 "INITIAL reconciliation cannot be STOPPED");
                     }

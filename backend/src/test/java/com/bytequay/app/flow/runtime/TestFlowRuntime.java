@@ -660,8 +660,8 @@ class TestFlowRuntime
     @Test
     void aFailedInitialTurnCanBeRearmedForAnotherAttempt()
     {
-        // A parked upstream run fails its turn, which consumes the pending
-        // INITIAL fact and moves the Task to attention. Re-arming registers
+        // A failed initial turn consumes the pending fact and moves the Task
+        // to attention. Re-arming registers
         // the next revision of the same fact and returns the Task to ACTIVE,
         // so the lane produces another turn — the whole cycle must repeat.
         Task task = startAndProvision("rearm");

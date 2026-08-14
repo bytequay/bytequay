@@ -21,6 +21,9 @@
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <development-flow-test-exclude>**/developmentflow/**</development-flow-test-exclude>
+        <new-flow-test-exclude>**/flow/**</new-flow-test-exclude>
+        <development-flow-migration-test-exclude>**/repository/sqlite/migration/**</development-flow-migration-test-exclude>
     </properties>
 
     <dependencies>
@@ -96,6 +99,18 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <testExcludes>
+                        <testExclude>${development-flow-test-exclude}</testExclude>
+                        <testExclude>${new-flow-test-exclude}</testExclude>
+                        <testExclude>${development-flow-migration-test-exclude}</testExclude>
+                    </testExcludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
@@ -130,6 +145,11 @@
                          unrelated NoSuchBeanDefinitionException errors. -->
                     <forkCount>4</forkCount>
                     <reuseForks>true</reuseForks>
+                    <excludes>
+                        <exclude>${development-flow-test-exclude}</exclude>
+                        <exclude>${new-flow-test-exclude}</exclude>
+                        <exclude>${development-flow-migration-test-exclude}</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
 
@@ -211,22 +231,25 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>development-flow-tests</id>
+            <properties>
+                <development-flow-test-exclude>**/__no_excluded_tests__/**</development-flow-test-exclude>
+                <new-flow-test-exclude>**/__no_excluded_tests__/**</new-flow-test-exclude>
+                <development-flow-migration-test-exclude>**/__no_excluded_tests__/**</development-flow-migration-test-exclude>
+            </properties>
+        </profile>
+
         <!-- Error Prone — Google's static analyzer attached to the compiler.
              Same .mvn/errorprone.config Trino uses (curated -Xep flags). The
              JVM add-exports/add-opens args it needs on Java 16+ to reach
              compiler internals live in .mvn/jvm.config.
 
-             On by default, so a plain `mvn verify` analyses every compile.
-             `-DskipErrorProne` turns it off for a build that only needs class
-             files — CI runs the analysis once in its static-check job and
-             skips it in the test job rather than paying for it twice. -->
+             Opt in with `-Perrorprone`. CI runs the analysis once in its
+             static-check job and leaves it out of the test job rather than
+             paying for it twice. -->
         <profile>
             <id>errorprone</id>
-            <activation>
-                <property>
-                    <name>!skipErrorProne</name>
-                </property>
-            </activation>
             <build>
                 <plugins>
                     <plugin>

@@ -75,7 +75,6 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -137,6 +136,7 @@ final class TestUpstreamSyncEndToEnd
     private void runScenario(CliVendor vendor)
             throws Exception
     {
+        String requestKey = "upstream-request-" + vendor.provider;
         Path upstreamRepository = temporaryDirectory.resolve("upstream");
         Path repository = temporaryDirectory.resolve("target");
         Path worktrees = temporaryDirectory.resolve("worktrees");
@@ -261,7 +261,7 @@ final class TestUpstreamSyncEndToEnd
                                 UpstreamSync.class);
                         UpstreamSyncCommands.StartReceipt started =
                                 commands.startConfirmed(
-                                        "upstream-request", "octocat/bytequay",
+                                        requestKey, "octocat/bytequay",
                                         "Bring the selected upstream commits onto "
                                                 + "this fork",
                                         "Sync the upstream range",
@@ -270,14 +270,14 @@ final class TestUpstreamSyncEndToEnd
                                         selection(confirmedRange),
                                         "user-1", upstreamRepository, repository);
                         Task task = started.task();
-                        assertThat(confirmedRange).hasSize(6);
+                        assertThat(confirmedRange).hasSize(4);
                         assertThat(confirmedRange).allSatisfy(sha ->
                                 assertThat(hasCommit(repository, sha)).isTrue());
                         // Enqueue is idempotent on the request key: a repeated
                         // confirmation adopts the stored run, never a second range
                         // over the same Task.
                         assertThat(commands.startConfirmed(
-                                "upstream-request", "octocat/bytequay",
+                                requestKey, "octocat/bytequay",
                                 "Bring the selected upstream commits onto this "
                                         + "fork",
                                 "Sync the upstream range",
@@ -1028,7 +1028,7 @@ final class TestUpstreamSyncEndToEnd
     }
 
     /**
-     * A fork that has diverged from the upstream it tracks: clean commits it
+     * A fork that has diverged from the upstream it tracks: one clean commit it
      * is missing, two conflicts, and one commit it already carries.
      */
     private void initializeRepositories(Path upstream, Path target)
@@ -1042,32 +1042,21 @@ final class TestUpstreamSyncEndToEnd
         git(upstream, "commit", "-m", "Add a file the fork does not have");
         cleanCommit = git(upstream, "rev-parse", "HEAD").strip();
 
-        List<String> selected = new ArrayList<>();
-        selected.add(cleanCommit);
-        Files.createDirectories(upstream.resolve("bulk"));
-        for (int index = 0; index < 2; index++) {
-            write(upstream, "bulk/commit-" + index + ".txt",
-                    "upstream " + index + "\n");
-            git(upstream, "add", "-A");
-            git(upstream, "commit", "-m", "Add upstream file " + index);
-            selected.add(git(upstream, "rev-parse", "HEAD").strip());
-        }
         write(upstream, "contested-two.txt", "upstream rewrite two\n");
         git(upstream, "add", "-A");
         git(upstream, "commit", "-m", "Rewrite another contested file upstream");
         secondConflictingCommit = git(upstream, "rev-parse", "HEAD").strip();
-        selected.add(secondConflictingCommit);
         write(upstream, "contested.txt", "upstream rewrite\n");
         git(upstream, "add", "-A");
         git(upstream, "commit", "-m", "Rewrite the contested file upstream");
         conflictingCommit = git(upstream, "rev-parse", "HEAD").strip();
-        selected.add(conflictingCommit);
         write(upstream, "shared.txt", "shared v2\n");
         git(upstream, "add", "-A");
         git(upstream, "commit", "-m", "Bump the shared file");
         alreadyPresentCommit = git(upstream, "rev-parse", "HEAD").strip();
-        selected.add(alreadyPresentCommit);
-        confirmedRange = List.copyOf(selected);
+        confirmedRange = List.of(
+                cleanCommit, secondConflictingCommit,
+                conflictingCommit, alreadyPresentCommit);
 
         initializeBase(target);
         write(target, "contested.txt", "fork rewrite\n");

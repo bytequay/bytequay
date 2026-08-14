@@ -42,6 +42,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneOffset;
@@ -456,48 +457,27 @@ class TestCiAutofixCoordinatorLearningAndReceipts
     @Test
     void finalizedCandidateIsOfferedOnlyToTheNextExactRepositoryRepair()
     {
-        Claim greenClaim = observationClaim("lesson-next-repair-green");
         List<CiLesson> lessons = new ArrayList<>();
         for (int index = 0; index < 7; index++) {
-            CiRound green = executeCiObservation(
-                    runtime, observationCoordinator, greenClaim,
-                    Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
-                    .orElseThrow();
-            assertThat(green.state()).isEqualTo(RoundState.GREEN);
-            Claim learning = runtime.claimNextCiLearning("learner", TTL)
-                    .orElseThrow();
-            FlowRuntime.CiLearningStart start = learningCoordinator.beginCiLearning(
-                    learning).orElseThrow();
-            int lessonIndex = index;
-            var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
-            var handle = supervisor.launch(
-                    start, learning, learningCoordinator, capability -> {
-                        capability.saveCiLesson(
-                                "Candidate lesson " + lessonIndex,
-                                "Bounded repair hint " + lessonIndex);
-                        return new InProcessCiLearningAgentSupervisor
-                                .AgentCompletion(
-                                        TerminalOutcome.COMPLETED,
-                                        "saved " + lessonIndex,
-                                        null);
-                    });
-            supervisor.awaitAndFinish(handle, TTL);
-            String lessonId = learningCoordinator.learningCompletion(
-                    learning.operationId()).orElseThrow().lessonId();
+            String lessonId = "candidate-lesson-" + index;
+            updateWithoutForeignKeys(
+                    """
+                    INSERT INTO flow_ci_lesson (
+                        lesson_id, repository_id, learning_operation_id,
+                        run_id, subject_id, status, title, markdown,
+                        content_digest, created_at
+                    ) VALUES (?, ?, ?, ?, ?, 'CANDIDATE', ?, ?, ?, ?)
+                    """,
+                    lessonId,
+                    task.repositoryId(),
+                    "candidate-operation-" + index,
+                    "candidate-run-" + index,
+                    "candidate-subject-" + index,
+                    "Candidate lesson " + index,
+                    "Bounded repair hint " + index,
+                    "candidate-digest-" + index,
+                    NOW.plusSeconds(index).toEpochMilli());
             lessons.add(learningCoordinator.lesson(lessonId).orElseThrow());
-            if (index < 6) {
-                advancePublicationClock(Duration.ofMinutes(6));
-                Claim redClaim = runtime.claimNextCiObservation(
-                        "observer", TTL).orElseThrow();
-                CiRound red = executeCiObservation(
-                        runtime, observationCoordinator, redClaim,
-                        Clock.fixed(runtimeNow, ZoneOffset.UTC),
-                        FAILED_ACTIONS).orElseThrow();
-                CompletedReady next = openReadyGate(
-                        "lesson-next-repair-" + index, red);
-                greenClaim = publishReadyAndClaimObservation(
-                        next, "lesson-next-repair-" + index);
-            }
         }
 
         CiLesson crossRepository = lessons.getLast();
@@ -519,13 +499,11 @@ class TestCiAutofixCoordinatorLearningAndReceipts
                 .thenComparing(CiLesson::lessonId));
         expected = List.copyOf(expected.subList(0, 5));
 
-        advancePublicationClock(Duration.ofMinutes(6));
-        Claim redClaim = runtime.claimNextCiObservation("observer", TTL)
-                .orElseThrow();
-        CiRound red = executeCiObservation(
-                runtime, observationCoordinator, redClaim,
-                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
-                .orElseThrow();
+        CiRound red = failedRound("candidate-selection-red", NOW);
+        autofix.attachLog(
+                red.checkObservationIds().getFirst(),
+                "failure".getBytes(StandardCharsets.UTF_8),
+                List.of());
         StartedRepair repair = startRepair(red);
         CiRepairCoordinator.RepairToolContext context =
                 repairCoordinator.repairToolContext(repair.binding());

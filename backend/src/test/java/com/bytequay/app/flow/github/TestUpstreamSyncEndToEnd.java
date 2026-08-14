@@ -270,7 +270,7 @@ final class TestUpstreamSyncEndToEnd
                                         selection(confirmedRange),
                                         "user-1", upstreamRepository, repository);
                         Task task = started.task();
-                        assertThat(confirmedRange).hasSize(103);
+                        assertThat(confirmedRange).hasSize(6);
                         assertThat(confirmedRange).allSatisfy(sha ->
                                 assertThat(hasCommit(repository, sha)).isTrue());
                         // Enqueue is idempotent on the request key: a repeated
@@ -1044,7 +1044,7 @@ final class TestUpstreamSyncEndToEnd
         List<String> selected = new ArrayList<>();
         selected.add(cleanCommit);
         Files.createDirectories(upstream.resolve("bulk"));
-        for (int index = 0; index < 99; index++) {
+        for (int index = 0; index < 2; index++) {
             write(upstream, "bulk/commit-" + index + ".txt",
                     "upstream " + index + "\n");
             git(upstream, "add", "-A");

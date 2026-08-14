@@ -123,7 +123,6 @@ public final class FlowRuntimeRecords
     public enum TaskTerminalRequestKind
     {
         REVIEWER,
-        CONTINUE_UPSTREAM_SYNC,
         READY_FOR_REVIEW
     }
 

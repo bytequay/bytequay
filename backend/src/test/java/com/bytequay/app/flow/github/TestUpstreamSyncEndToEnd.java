@@ -360,7 +360,7 @@ final class TestUpstreamSyncEndToEnd
                                 WHERE o.task_id = ?
                                   AND (o.kind = 'UPSTREAM_SYNC'
                                     OR r.prompt_manifest_ref =
-                                        'upstream-pick-repair-prompt:v5')
+                                        'upstream-pick-repair-prompt:v6')
                                 ORDER BY o.rowid
                                 """,
                                 String.class, task.taskId()))
@@ -530,9 +530,10 @@ final class TestUpstreamSyncEndToEnd
                                 .isEqualTo(
                                         UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET
                                                 - 2);
-                        // The Task Agent constructs and checks the range once;
-                        // the reviewer result opens the exact user gate without
-                        // another Task Agent turn.
+                        // The Task Agent constructs and checks the range, then
+                        // resumes once to consume the review report. Program
+                        // preflight opens the exact gate without an agent
+                        // readiness tool.
                         verifyNoInteractions(runner);
                         assertCliSessions(readIfPresent(launchLog));
 
@@ -567,7 +568,7 @@ final class TestUpstreamSyncEndToEnd
     {
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .contains("\"type\":\"tool_use\"")
-                .contains("commit_pick_repair"));
+                .contains("read_pick_conflict_context"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .contains("\"type\":\"tool_result\"")
                 .contains("conflictedPaths"));
@@ -695,7 +696,7 @@ final class TestUpstreamSyncEndToEnd
                   *read_pick_conflict_context*|*"Handle the current upstream-sync state"*) role=upstream ;;
                   *"Call ask_report to read and remove the exact local review"*) role=initial-review ;;
                   *read_ci_failure_context*|*"Repair the observed CI failures"*) role=ci-fixer ;;
-                  *ready_for_review*|*"Inspect the exact adversarial review continuation"*) role=ci-ready ;;
+                  *"Inspect the exact adversarial review continuation"*) role=ci-ready ;;
                   *spawn_adversarial_reviewer*|*"Inspect the exact CI fix"*) role=ci-task ;;
                   *save_ci_lesson*|*"Extract one bounded reusable CI lesson"*) role=learner ;;
                   *read_diff*|*"Review the immutable base-to-head change adversarially"*) role=reviewer ;;
@@ -754,7 +755,6 @@ final class TestUpstreamSyncEndToEnd
                           rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
                           rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
                         fi
-                        rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
                         ;;
                       contested.txt)
                         rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
@@ -765,7 +765,6 @@ final class TestUpstreamSyncEndToEnd
                           rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
                           rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
                         fi
-                        rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
                         ;;
                       '')
                         rpc '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_upstream_review_context","arguments":{}}}'
@@ -786,7 +785,6 @@ final class TestUpstreamSyncEndToEnd
                   initial-review)
                     rpc '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"ask_report","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"ready_for_initial_publish","arguments":{}}}'
                     ;;
                   ci-fixer)
                     rpc '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"read_ci_failure_context","arguments":{}}}'
@@ -810,7 +808,6 @@ final class TestUpstreamSyncEndToEnd
                     rpc '{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"read_ci_fix_context","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"ask_report","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"ready_for_review","arguments":{}}}'
                     ;;
                   reviewer)
                     rpc '{"jsonrpc":"2.0","id":59,"method":"tools/call","params":{"name":"read_commit_history","arguments":{}}}'
@@ -896,7 +893,8 @@ final class TestUpstreamSyncEndToEnd
                         "upstream|writer-session|writer-session");
         assertThat(phases).filteredOn(line ->
                 line.startsWith("initial-review|"))
-                .isEmpty();
+                .containsExactly(
+                        "initial-review|writer-session|writer-session");
         assertThat(phases).filteredOn(line -> line.startsWith("ci-fixer|"))
                 .containsExactly("ci-fixer|writer-session|writer-session");
         assertThat(phases).filteredOn(line -> line.startsWith("ci-task|"))

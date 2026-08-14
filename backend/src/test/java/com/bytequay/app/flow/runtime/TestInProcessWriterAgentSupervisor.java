@@ -1189,22 +1189,36 @@ class TestInProcessWriterAgentSupervisor
     }
 
     @Test
-    void turnUsageIsCountedOnceEvenIfTheCompletionIsRedelivered()
+    void boundedRepairTurnsAccumulateUsageOnOneAttempt()
     {
-        // A redelivery that quietly added again would inflate the session total
-        // and stop a healthy run on a budget it never actually spent.
+        // One owned process attempt can resume the same Task conversation for
+        // the bounded program-requested publication repair turns.
         ActiveWriter writer = startWriter("turn-usage-once");
         AgentProcessAttempt attempt = activatedAttempt(writer);
         runtime.recordAgentTurnUsage(
                 attempt.processAttemptId(), writer.claim(), "prov-1", 11, 5, 250);
 
-        assertThatThrownBy(() -> runtime.recordAgentTurnUsage(
-                attempt.processAttemptId(), writer.claim(), "prov-1", 11, 5, 250))
-                .isInstanceOf(FlowRuntime.StaleOwnerRevisionException.class);
+        runtime.recordAgentTurnUsage(
+                attempt.processAttemptId(), writer.claim(), "prov-1", 7, 3, 125);
+
         assertThat(jdbc.queryForObject(
-                "SELECT total_tokens_in FROM flow_runtime_agent_session",
-                Long.class))
-                .isEqualTo(11L);
+                """
+                SELECT total_tokens_in || '/' || total_tokens_out || '/'
+                    || total_cost_milli_usd
+                FROM flow_runtime_agent_session
+                """,
+                String.class))
+                .isEqualTo("18/8/375");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT attempt_tokens_in || '/' || attempt_tokens_out || '/'
+                    || attempt_cost_milli_usd
+                FROM flow_runtime_agent_process_attempt
+                WHERE process_attempt_id = ?
+                """,
+                String.class,
+                attempt.processAttemptId()))
+                .isEqualTo("18/8/375");
     }
 
     private AgentProcessAttempt activatedAttempt(ActiveWriter writer)

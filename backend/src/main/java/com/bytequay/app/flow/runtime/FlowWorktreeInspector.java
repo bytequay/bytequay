@@ -101,6 +101,37 @@ public final class FlowWorktreeInspector
                 predecessorSha, false);
     }
 
+    /** Rejects conflict markers introduced by the exact publish candidate. */
+    public void assertNoConflictMarkers(
+            Path worktree, String baseSha, String headSha)
+    {
+        requireNonNull(worktree, "worktree is null");
+        if (!isFullLowercaseSha(baseSha) || !isFullLowercaseSha(headSha)) {
+            throw failure(FailureCode.INVALID_INPUT);
+        }
+        Path exactWorktree;
+        try {
+            exactWorktree = worktree.toRealPath();
+        }
+        catch (IOException failure) {
+            throw failure(FailureCode.INVALID_INPUT);
+        }
+        CommandResult result = runGit(
+                exactWorktree,
+                new Deadline(TOTAL_TIMEOUT),
+                Command.DIFF_CHECK,
+                baseSha,
+                headSha,
+                OutputMode.HASH);
+        if (result.exitCode() == 0) {
+            return;
+        }
+        if (result.hadOutput()) {
+            throw failure(FailureCode.CONFLICT_MARKERS);
+        }
+        throw failure(FailureCode.COMMAND_FAILED);
+    }
+
     /**
      * Inspects a worktree whose head deliberately no longer descends from its
      * predecessor.
@@ -1513,6 +1544,13 @@ public final class FlowWorktreeInspector
         processArguments.add("core.ignoreCase=false");
         processArguments.add("-c");
         processArguments.add("core.symlinks=true");
+        if (command == Command.DIFF_CHECK) {
+            // `diff --check` also reports whitespace. Publication cares only
+            // about unresolved conflict markers; project checks own style.
+            processArguments.add("-c");
+            processArguments.add(
+                    "core.whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab");
+        }
         processArguments.addAll(arguments);
 
         ProcessBuilder builder = new ProcessBuilder(processArguments);
@@ -1716,6 +1754,7 @@ public final class FlowWorktreeInspector
         BRANCH_HEAD_MISMATCH,
         DIRTY,
         GIT_OPERATION_IN_PROGRESS,
+        CONFLICT_MARKERS,
         BASE_NOT_FOUND,
         PREDECESSOR_NOT_FOUND,
         BASE_NOT_ANCESTOR,
@@ -1781,7 +1820,8 @@ public final class FlowWorktreeInspector
         HEAD_PATHS,
         OBJECT_TYPE,
         IS_ANCESTOR,
-        TREE;
+        TREE,
+        DIFF_CHECK;
 
         private List<String> arguments(String first, String second)
         {
@@ -1822,6 +1862,7 @@ public final class FlowWorktreeInspector
                 case IS_ANCESTOR -> List.of(
                         "merge-base", "--is-ancestor", first, second);
                 case TREE -> List.of("rev-parse", "--verify", first + "^{tree}");
+                case DIFF_CHECK -> List.of("diff", "--check", first, second);
             };
         }
     }

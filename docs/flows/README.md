@@ -137,6 +137,12 @@ receipts, and policy—can authorize or satisfy a transition. Every component
 contract and implementation follows this rule; adding structured model output
 does not create an exception.
 
+State-machine progress is derived from durable current state after the active
+run stops. An agent-facing tool may append a bounded command, fact, or artifact,
+but it must not accept a target lifecycle state or act as a `ready`, `done`,
+`proceed`, or `advance` signal. The program, not the previous agent's choice to
+call or omit such a tool, selects and validates the next transition.
+
 ### 2. Agents own meaning; the program owns facts
 
 Agents decide what the user means, what code should change, whether review
@@ -149,7 +155,7 @@ It never infers semantic workflow state from agent prose.
 ### 3. Tool calls request commands; agent output is evidence
 
 An agent requests a durable local action through a small tool call such as
-`start_task(goal)`, `spawn_agent(role)`, or `ready_for_review()`. Tool arguments
+`start_task(goal)`, `spawn_agent(role)`, or `save_report(report)`. Tool arguments
 are validated while the agent is still running, so an invalid call can be
 corrected immediately. Acceptance records only the request; program facts and,
 where required, user authority determine what may happen next.
@@ -279,9 +285,11 @@ effects, feedback, merge, frontend exposure, and cutover remain deferred.
    returns comments if nonempty, and otherwise reports that there are none. The
    Task Agent judges every observation itself and fixes what
    it accepts or ignores what it rejects. It commits and validates accepted
-   corrections, then calls the terminal readiness-request tool. This is the
-   same single review round; it does not request another initial review.
-   Settlement marks the report input handled; no report wording selects a path.
+   corrections, then ends its turn. After exact process stop, program preflight
+   derives the next action from the report-file state and mechanically observed
+   Git state. This is the same single review round; it does not request another
+   initial review. Settlement marks the report input handled; no report wording
+   or agent-selected readiness call selects a path.
 9. The program opens the exact initial-publish gate. The user can add local
    comments, return them to the same Task Agent, or approve the exact candidate.
 10. After approval, the program pushes the exact branch head and opens the
@@ -331,14 +339,14 @@ only mechanically recorded corrections made by the resumed Task turn.
 | Trunk/UI | Upstream Sync | `request_upstream_sync_preview(...)` | Optional structured refs create only a durable preview operation; no Task or Git work runs in the handler. |
 | Upstream Sync | Flow Runtime / User Gate | user-confirmed preview plus `UpstreamVerification` | Confirmation creates one Task at the resolved base; exact final verification is mandatory evidence for its initial gate. |
 | Flow Runtime | Task Agent | immutable `TaskLaunch` | Contains exact goal plus program-owned repository, worktree, base/head, and policy facts. Task reads repository instructions and queries Project Intelligence itself. |
-| Agent | Flow Runtime | tool calls plus program facts | Tool calls request bounded domain commands. Neither their arguments nor final prose grant authority. |
+| Agent | Flow Runtime | tool calls plus program facts | Tool calls append bounded commands, facts, or artifacts. They never accept a target lifecycle state or substitute for the program deriving the next transition. Neither their arguments nor final prose grant authority. |
 | Task Agent | Adversarial Reviewer | `spawn_agent` command bound by the runtime | Program supplies exact head/diff/check evidence; parent does not compose a hidden protocol payload. |
 | Adversarial Reviewer | Task Agent | `save_report(report)` then `ask_report()` | One program-owned `subagent-review.txt` handoff outside Git. `ask_report()` reads and removes it; report text is never stored in the database and never grants authority. |
 | GitHub Observer | Flow Runtime | immutable `RemoteObservation` revisions | Provider identity and head bind every event; delivery is deduplicated. |
 | Flow Runtime | CI Fixer | immutable `CiFixLaunch` | One finalized CI round, exact head, bounded logs and candidate lessons. |
 | CI Autofix | User Gates / GitHub Executor | `RequiredCiPolicyRevision` plus exact-head `AcceptedCiEvidence` | Requiredness is program-owned and revisioned; callers never supply or infer it. |
 | Flow Runtime | Task Agent | immutable `FeedbackLaunch` | Full current item/thread revisions and exact remote/local heads. |
-| Task Agent | User Gate | locally stored PR draft, feedback drafts, check evidence and `ready_for_review()` | Program builds the gate from owned records; no aggregate agent JSON. |
+| Task Agent | User Gate | stopped Task turn, locally stored PR draft, feedback drafts, and check evidence | Program consumes no agent verdict. It proves the report is absent and Git is publishable, then builds the gate from owned records. |
 | User Gate | GitHub Effect Executor | immutable `Authorization`, ordered effect payload, and one runtime operation/ticket | Authorization atomically queues execution; GitHub owns attempts, probes, and receipts tied to that runtime operation. |
 | Every owner | PR Timeline | owner record and timestamp | Projector creates a deterministic event ID; no agent timeline tool. |
 
@@ -406,10 +414,10 @@ then lets the Task Agent judge its applicability to the new code.
 - Lease expiry never proves an old process stopped. The program quarantines the
   Task, terminates and proves the full old runner/process group dead, revokes its
   tools, and only then inspects state or admits a successor.
-- A terminal upstream history command that intentionally leaves sealed
-  sequencer/dirty state reserves the exact successor operation. The old lease
-  is released, but no unrelated writer may acquire before that successor
-  succeeds, restores cleanly, or quarantines the Task.
+- An upstream conflict agent only edits. After its process stops, program code
+  under the same exact writer fence either validates and continues the
+  cherry-pick or restores the recorded head and parks. No tool call transfers
+  dirty/sequencer state or grants successor authority.
 - The normative deferred `request_user_input` design uses the same safety idea:
   a future Task-question owner would store a question plus sealed
   worktree/sequencer state and admit no writer until an exact answer-bound

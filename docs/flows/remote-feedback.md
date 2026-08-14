@@ -229,7 +229,7 @@ propose_keep_open(content_revision_id, rationale) -> draftActionId
 request_user_input(question) -> user request
 run_checks(profile?) -> LocalCheckRunRef[]
 spawn_agent(role="adversarial_reviewer") -> reviewRequestId
-ready_for_review() -> ACCEPTED_SEALED or actionable tool error
+Task finishes; program preflight proves the exact candidate
 ```
 
 Every command resolves `taskId`, `prId`, agent run, and current head from the
@@ -269,8 +269,8 @@ further model mutation; it is not a gate ID or publication authority.
 4. Code changes are committed. `run_checks()` stores exact-head evidence.
 5. For a changed head, the agent spawns a fresh exact-head adversarial reviewer,
    reads the stored result, and fixes anything it judges actionable.
-6. The agent calls `ready_for_review()`; the runtime derives the current workset,
-   Task, and head from the authenticated session, seals the candidate, and
+6. The agent finishes. The runtime derives the current workset, Task, and head
+   from the authenticated session, proves the report/Git preconditions, seals the candidate, and
    returns `ACCEPTED_SEALED`.
 
 The program does not search the agent's prose for “addressed,” “approved,” or a

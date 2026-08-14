@@ -457,7 +457,7 @@ abstract class BaseTestCiAutofixCoordinator
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,
@@ -490,7 +490,7 @@ abstract class BaseTestCiAutofixCoordinator
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,
@@ -717,7 +717,7 @@ abstract class BaseTestCiAutofixCoordinator
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             sealed.countDown();
                             awaitLatch(release);
                             return new InProcessWriterAgentSupervisor

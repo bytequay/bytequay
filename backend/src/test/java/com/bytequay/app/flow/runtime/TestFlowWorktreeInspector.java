@@ -57,6 +57,30 @@ final class TestFlowWorktreeInspector
     }
 
     @Test
+    void publicationCheckRejectsConflictMarkersButNotWhitespace(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        commit(fixture.worktree(), "whitespace.txt", "trailing   \n",
+                "ordinary whitespace");
+        String whitespaceHead = revParse(fixture.worktree(), "HEAD");
+
+        inspector.assertNoConflictMarkers(
+                fixture.worktree(), fixture.base(), whitespaceHead);
+
+        commit(fixture.worktree(), "broken.txt",
+                "<<<<<<< ours\nleft\n=======\nright\n>>>>>>> theirs\n",
+                "leftover marker");
+        String brokenHead = revParse(fixture.worktree(), "HEAD");
+
+        assertFailure(
+                FailureCode.CONFLICT_MARKERS,
+                () -> inspector.assertNoConflictMarkers(
+                        fixture.worktree(), fixture.base(), brokenHead));
+    }
+
+    @Test
     void rejectsCleanStateAndSealsStableTrackedContent(
             @TempDir Path temporaryDirectory)
             throws Exception

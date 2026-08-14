@@ -3535,6 +3535,78 @@ public final class FlowRuntime
         return adoptPreparedChangeSet(claim, fence, prepared);
     }
 
+    /**
+     * Proves the final worktree and adopts it only when this turn committed a
+     * new head. A no-op review response must not manufacture a ChangeSet.
+     */
+    public ChangeSetRevision settleTaskReviewHead(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        PreparedChangeSet prepared = prepareChangeSet(
+                claim,
+                fence,
+                programOwnedRepositoryRoot,
+                expectedChangeSetRevisionId);
+        ChangeSetRevision current;
+        synchronized (this) {
+            assertFenceRow(claim, fence);
+            current = currentChangeSet(fence.taskId()).orElseThrow(() ->
+                    new MutationRejectedException(
+                            "review continuation has no current change set"));
+            if (!current.changeSetRevisionId().equals(
+                        expectedChangeSetRevisionId)) {
+                throw new StaleOwnerRevisionException(
+                        "review continuation change set changed");
+            }
+        }
+        if (prepared.headSha().equals(current.headSha())) {
+            return current;
+        }
+        return adoptPreparedChangeSet(claim, fence, prepared);
+    }
+
+    /** Mechanical publication check over the current immutable candidate. */
+    public void assertNoConflictMarkers(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        String baseSha;
+        String headSha;
+        synchronized (this) {
+            assertFenceRow(claim, fence);
+            Task task = requireTask(fence.taskId());
+            ChangeSetRevision current = currentChangeSet(task.taskId())
+                    .orElseThrow(() -> new MutationRejectedException(
+                            "publication candidate has no change set"));
+            if (!current.changeSetRevisionId().equals(
+                        expectedChangeSetRevisionId)
+                    || !current.headSha().equals(task.currentHeadSha())) {
+                throw new StaleOwnerRevisionException(
+                        "publication candidate changed before marker check");
+            }
+            baseSha = current.baseSha();
+            headSha = current.headSha();
+        }
+        worktreeInspector.assertNoConflictMarkers(
+                programOwnedRepositoryRoot, baseSha, headSha);
+        synchronized (this) {
+            assertFenceRow(claim, fence);
+            ChangeSetRevision current = currentChangeSet(fence.taskId())
+                    .orElseThrow();
+            if (!current.changeSetRevisionId().equals(
+                        expectedChangeSetRevisionId)
+                    || !current.headSha().equals(headSha)) {
+                throw new StaleOwnerRevisionException(
+                        "publication candidate changed during marker check");
+            }
+        }
+    }
+
     /** Adopts one clean deterministic upstream step without an AgentRun. */
     public ChangeSetRevision adoptUpstreamChangeSet(
             Claim claim,
@@ -5999,9 +6071,9 @@ public final class FlowRuntime
      * attempts, so a total derived by summing attempts on demand would shrink
      * as old ones are pruned — a budget that forgets spending is not a budget.
      *
-     * <p>Set-once per attempt. A redelivered completion must not be counted
-     * twice, and the attempt's own snapshot is what makes that checkable rather
-     * than assumed.
+     * <p>An attempt may contain the bounded post-review repair turns. Each
+     * completed turn is added once by the owned execution thread; recovery
+     * never re-enters an activated attempt's body.
      *
      * @param providerSessionId the vendor's handle for resuming this role's
      *         next turn, or null for a transport that has none
@@ -6041,22 +6113,27 @@ public final class FlowRuntime
             int attemptUpdated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
-                    SET attempt_provider_session_id = ?, attempt_tokens_in = ?,
-                        attempt_tokens_out = ?, attempt_cost_milli_usd = ?
+                    SET attempt_provider_session_id = COALESCE(
+                            attempt_provider_session_id, ?),
+                        attempt_tokens_in = COALESCE(attempt_tokens_in, 0) + ?,
+                        attempt_tokens_out = COALESCE(attempt_tokens_out, 0) + ?,
+                        attempt_cost_milli_usd = COALESCE(
+                            attempt_cost_milli_usd, 0) + ?
                     WHERE process_attempt_id = ?
-                        AND attempt_tokens_in IS NULL
+                      AND state = 'ACTIVATED'
+                      AND (? IS NULL OR attempt_provider_session_id IS NULL
+                           OR attempt_provider_session_id = ?)
                     """,
                     providerSessionId,
                     tokensIn,
                     tokensOut,
                     costMilliUsd,
-                    processAttemptId);
+                    processAttemptId,
+                    providerSessionId,
+                    providerSessionId);
             if (attemptUpdated != 1) {
-                // Already counted. Silence here would double the session totals
-                // on any redelivery, which is exactly what the budget stops on.
                 throw new StaleOwnerRevisionException(
-                        "agent turn usage was already recorded for this"
-                                + " attempt");
+                        "agent turn usage changed provider or attempt state");
             }
             int sessionUpdated = jdbc.update(
                     """
@@ -6642,10 +6719,6 @@ public final class FlowRuntime
                 throw new MutationRejectedException(
                         "ready-for-review run requires its gate finalizer");
             }
-            boolean continueUpstream = terminalRequest
-                    .filter(request -> request.kind()
-                            == TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC)
-                    .isPresent();
             Optional<ReviewerRequest> request =
                     reviewerRequestForParentRun(runId);
             Optional<AgentResult> existing = resultForRun(runId);
@@ -6680,18 +6753,13 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "Task review parent is no longer current");
             }
-            if (continueUpstream
-                    && (terminalOutcome != TerminalOutcome.COMPLETED
-                        || request.isPresent()
-                        || !terminalRequest.orElseThrow().requestId().equals(
-                                upstreamSyncContinuationId(
-                                        run, operation, input, task)))) {
-                throw new StaleOwnerRevisionException(
-                        "upstream continuation changed before parent stop");
-            }
             AgentProcessAttempt stopped = requireExactStoppedCompletion(
                     runId, claim.generation(), terminalOutcome,
                     finalContent, errorRef);
+            boolean completedUpstreamConflict = request.isEmpty()
+                    && terminalOutcome == TerminalOutcome.COMPLETED
+                    && completedUpstreamConflict(
+                            run, operation, input, task, true);
             boolean consumeReviewedResult = request.isEmpty()
                     && run.wakeKind() == WakeKind.AGENT_RESULT_READY
                     && run.intendedGateKind() == GateIntent.CI_UPDATE
@@ -6800,7 +6868,7 @@ public final class FlowRuntime
                             "reviewer eligibility changed before parent stop");
                 }
             }
-            else if (continueUpstream) {
+            else if (completedUpstreamConflict) {
                 int inputHandled = jdbc.update(
                         """
                         UPDATE flow_runtime_inbox
@@ -6812,7 +6880,7 @@ public final class FlowRuntime
                         operation.operationId());
                 if (inputHandled != 1) {
                     throw new StaleOwnerRevisionException(
-                            "upstream continuation lost its input");
+                            "resolved upstream conflict lost its input");
                 }
                 appendNextInitialTask(task, now);
             }
@@ -7116,6 +7184,9 @@ public final class FlowRuntime
     /** Advances an optional upstream owner only with its exact opened gate. */
     private void handOffUpstreamReviewToGate(Task task, Instant now)
     {
+        if (!dispatches.upstreamSyncTablePresent()) {
+            return;
+        }
         Integer owners = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flow_upstream_sync_run WHERE task_id = ?",
                 Integer.class, task.taskId());
@@ -8715,70 +8786,53 @@ public final class FlowRuntime
         }
     }
 
-    /** Terminally hands one repaired conflict back to its program operation. */
-    public synchronized TaskTerminalRequest reserveUpstreamSyncContinuation(
-            String runId,
-            Claim claim,
-            WriterFence fence,
-            String processAttemptId,
-            String capabilityId)
+    private boolean completedUpstreamConflict(
+            AgentRun run,
+            Operation operation,
+            PendingWork input,
+            Task task,
+            boolean requireCurrent)
     {
-        requireText(runId, "runId");
-        requireNonNull(claim, "claim is null");
-        requireNonNull(fence, "fence is null");
-        requireText(processAttemptId, "processAttemptId");
-        requireText(capabilityId, "capabilityId");
-        return inTransaction(() -> {
-            assertInProcessWriterToolCapability(
-                    runId, claim, fence, capabilityId);
-            AgentProcessAttempt process = requireProcessAttempt(
-                    processAttemptId);
-            AgentRun run = requireRun(runId);
-            Operation operation = requireOperation(claim.operationId());
-            Task task = requireTask(claim.taskId());
-            PendingWork input = selectedInput(operation);
-            Integer upstreamOwner = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM flow_upstream_sync_run "
-                            + "WHERE task_id = ? AND state = 'PICKING'",
-                    Integer.class, task.taskId());
-            if (!process.runId().equals(runId)
-                    || !process.capabilityId().equals(capabilityId)
-                    || !run.operationId().equals(operation.operationId())
-                    || run.role() != AgentRole.TASK_AGENT
-                    || run.state() != RunState.RUNNING
-                    || run.wakeKind() != WakeKind.INITIAL_TASK
-                    || operation.kind() != OperationKind.RUN_TASK_TURN
-                    || !operation.ownerKind().equals("TASK")
-                    || !operation.ownerId().equals(task.taskId())
-                    || input.kind() != PendingKind.INITIAL_TASK
-                    || input.intendedGateKind()
-                            != GateIntent.INITIAL_PUBLISH
-                    || !input.subjectHead().equals(run.headSha())
-                    || task.status() != TaskStatus.ACTIVE
-                    || task.prId() != null
-                    || requireNonNull(
-                            upstreamOwner, "upstream owner count is null") != 1) {
-                throw new StaleCapabilityException(
-                        "upstream continuation requires one repaired conflict");
-            }
-            String requestId = upstreamSyncContinuationId(
-                    run, operation, input, task);
-            return reserveTaskTerminalRequest(
-                    runId, TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC,
-                    requestId, clock.instant());
-        });
-    }
-
-    private static String upstreamSyncContinuationId(
-            AgentRun run, Operation operation, PendingWork input, Task task)
-    {
-        return stableId(
-                "upstream-sync-continuation:v1",
+        if (!dispatches.upstreamSyncTablePresent()
+                || run.role() != AgentRole.TASK_AGENT
+                || run.wakeKind() != WakeKind.INITIAL_TASK
+                || run.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || operation.kind() != OperationKind.RUN_TASK_TURN
+                || !operation.ownerKind().equals("TASK")
+                || !operation.ownerId().equals(task.taskId())
+                || input.kind() != PendingKind.INITIAL_TASK
+                || input.intendedGateKind() != GateIntent.INITIAL_PUBLISH) {
+            return false;
+        }
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_upstream_sync_run u
+                JOIN flow_upstream_pick p ON p.run_id = u.run_id
+                JOIN flow_runtime_change_set_revision c
+                  ON c.change_set_revision_id = p.change_set_revision_id
+                WHERE u.task_id = ?
+                  AND p.state = 'RESOLVED'
+                  AND p.result_head = c.head_sha
+                  AND p.result_commit_sha = c.head_sha
+                  AND c.source = 'TASK_AGENT'
+                  AND c.source_run_id = ?
+                  AND c.source_operation_id = ?
+                  AND (? = 0 OR (
+                        u.state = 'PICKING'
+                    AND u.current_head = c.head_sha
+                    AND c.change_set_revision_id = ?
+                    AND c.head_sha = ?))
+                """,
+                Integer.class,
+                task.taskId(),
                 run.runId(),
                 operation.operationId(),
-                input.pendingId(),
-                task.currentHeadSha(),
-                nullableId(task.currentChangeSetRevisionId()));
+                requireCurrent ? 1 : 0,
+                task.currentChangeSetRevisionId(),
+                task.currentHeadSha());
+        return requireNonNull(
+                count, "resolved upstream conflict count is null") == 1;
     }
 
     /** Narrow capability-validated reservation for the terminal ready tool. */
@@ -11067,8 +11121,8 @@ public final class FlowRuntime
     private void assertTaskReviewFinalState(
             AgentRun run, Optional<ReviewerRequest> request)
     {
-        Task task = requireTask(
-                requireOperation(run.operationId()).taskId());
+        Operation operation = requireOperation(run.operationId());
+        Task task = requireTask(operation.taskId());
         if (request.isPresent()) {
             ReviewerRequest reviewer = request.orElseThrow();
             Operation reviewerOperation = requireOperation(
@@ -11085,10 +11139,10 @@ public final class FlowRuntime
             PendingWork input = inbox(requireTextResult(
                     run.inputRef(), "inbox:")).orElseThrow();
             AgentResult result = resultForRun(run.runId()).orElseThrow();
-            boolean continued = taskTerminalRequest(run.runId())
-                    .filter(terminal -> terminal.kind()
-                            == TaskTerminalRequestKind.CONTINUE_UPSTREAM_SYNC)
-                    .isPresent();
+            boolean completedUpstreamConflict =
+                    result.terminalOutcome() == TerminalOutcome.COMPLETED
+                    && completedUpstreamConflict(
+                            run, operation, input, task, false);
             boolean consumedReviewerResult =
                     run.wakeKind() == WakeKind.AGENT_RESULT_READY
                     && run.intendedGateKind() == GateIntent.CI_UPDATE
@@ -11116,10 +11170,7 @@ public final class FlowRuntime
                     requiredAttentionReason,
                     requiredAttentionReason);
             if (!run.operationId().equals(input.handledByOperationId())
-                    || (continued
-                        && result.terminalOutcome()
-                                != TerminalOutcome.COMPLETED)
-                    || (!continued && !consumedReviewerResult
+                    || (!completedUpstreamConflict && !consumedReviewerResult
                         && requireNonNull(
                                 attention, "attention count is null") != 1)) {
                 throw new IllegalStateException(

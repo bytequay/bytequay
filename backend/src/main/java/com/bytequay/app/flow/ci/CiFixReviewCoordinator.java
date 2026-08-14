@@ -70,9 +70,14 @@ import static java.util.Objects.requireNonNull;
 /** Exact CI-fix inspection and fresh adversarial-review round trip. */
 public final class CiFixReviewCoordinator
 {
-    private static final String TASK_PROMPT = "task-ci-inspection-prompt:v3";
-    private static final String TASK_CAPABILITIES =
+    private static final String TASK_FIX_PROMPT =
+            "task-ci-inspection-prompt:v3";
+    private static final String TASK_FIX_CAPABILITIES =
             "task-ci-inspection-capabilities:v3";
+    private static final String TASK_REVIEW_PROMPT =
+            "task-ci-inspection-prompt:v4";
+    private static final String TASK_REVIEW_CAPABILITIES =
+            "task-ci-inspection-capabilities:v4";
     private static final String REVIEWER_PROMPT =
             NewFlowAgentLaunches.currentReviewerPromptManifestRef();
     private static final String REVIEWER_CAPABILITIES =
@@ -309,13 +314,18 @@ public final class CiFixReviewCoordinator
                             intendedGateKind));
         }
 
-        /** Terminal zero-argument declaration over program-owned evidence. */
-        public ReadyForReviewAcceptance readyForReview()
+        /** Program-owned publication preparation after the agent has stopped. */
+        public ReadyForReviewAcceptance completeReview()
         {
             if (completedReviewerRequest == null
                     || completedReviewerResult == null) {
                 throw UserGates.missingExactReview();
             }
+            ChangeSetRevision settled = writer.settleTaskReviewHead(
+                    repositoryRoot, changeSetRevisionId);
+            changeSetRevisionId = settled.changeSetRevisionId();
+            writer.assertNoConflictMarkers(
+                    repositoryRoot, changeSetRevisionId);
             return writer.readyForReview(
                     userGates,
                     repositoryRoot,
@@ -513,8 +523,8 @@ public final class CiFixReviewCoordinator
                 claim,
                 prepared,
                 leaseTtl,
-                TASK_PROMPT,
-                TASK_CAPABILITIES);
+                TASK_FIX_PROMPT,
+                TASK_FIX_CAPABILITIES);
         if (!start.run().headSha().equals(projection.output().headSha())
                 || !start.run().inputRemoteHeadSha().equals(
                         projection.inputRemoteHead())) {
@@ -666,8 +676,8 @@ public final class CiFixReviewCoordinator
                 claim,
                 prepared,
                 leaseTtl,
-                TASK_PROMPT,
-                TASK_CAPABILITIES);
+                TASK_REVIEW_PROMPT,
+                TASK_REVIEW_CAPABILITIES);
         AgentRun parent = runtime.run(request.parentRunId()).orElseThrow();
         if (!start.run().sessionId().equals(parent.sessionId())
                 || start.run().intendedGateKind()

@@ -104,6 +104,10 @@ public final class InitialTaskCoordinator
                     .orElse(null);
         }
 
+        /**
+         * Runs program code under the current fenced writer capability. This
+         * is not an agent-visible tool and accepts no state-transition input.
+         */
         public <T> T callTool(Supplier<T> action)
         {
             return writer.callTool(action);
@@ -238,12 +242,21 @@ public final class InitialTaskCoordinator
                     evidence);
         }
 
-        public ReadyForReviewAcceptance readyForInitialPublish()
+        /** Program-owned publication preparation after the agent has stopped. */
+        public ReadyForReviewAcceptance completeReview(
+                Runnable beforePublication)
         {
+            requireNonNull(beforePublication, "beforePublication is null");
             if (!binding.reviewContinuation()) {
                 throw new IllegalStateException(
                         "initial ready requires an exact reviewer result");
             }
+            ChangeSetRevision settled = writer.settleTaskReviewHead(
+                    binding.repositoryRoot(), changeSetRevisionId);
+            changeSetRevisionId = settled.changeSetRevisionId();
+            writer.assertNoConflictMarkers(
+                    binding.repositoryRoot(), changeSetRevisionId);
+            beforePublication.run();
             Task task = requireCurrentTask(binding);
             ChangeSetRevision current = runtime.currentChangeSet(task.taskId())
                     .orElseThrow(() -> new IllegalStateException(
@@ -268,12 +281,6 @@ public final class InitialTaskCoordinator
             return writer.runChecks(
                     localChecks, binding.repositoryRoot(), command,
                     workingDirectory);
-        }
-
-        /** Terminal handoff from one conflict to deterministic picking. */
-        public void continueUpstreamSync()
-        {
-            writer.continueUpstreamSync();
         }
 
         @Override

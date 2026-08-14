@@ -18,7 +18,6 @@ import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
 import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
-import com.bytequay.app.flow.gate.UserGates.ReadyRejectedException;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
@@ -203,19 +202,21 @@ final class TestNewFlowAgentRuntimeBoundaries
         String prompt = launches.systemPrompt(UPSTREAM_PICK_REPAIR);
 
         // The manifest supports distinct conflict and final-review turns. The
-        // coordinator exposes only the tools for the current state, and a
-        // repaired conflict terminally schedules deterministic picking before
-        // another agent turn can start.
+        // coordinator exposes only the tools for the current state. Conflict
+        // turns can edit, but only program code can commit and advance them.
         assertThat(tools)
-                .contains("read_pick_conflict_context", "commit_pick_repair",
-                        "replace_file_lines", "decline_pick_repair",
+                .contains("read_pick_conflict_context",
+                        "replace_file_lines",
                         "read_upstream_review_context",
                         "read_candidate_diff", "run_checks",
                         "commit_initial_change",
                         "request_initial_review")
-                .doesNotContain("read_initial_task_context");
+                .doesNotContain("read_initial_task_context",
+                        "commit_pick_repair", "decline_pick_repair");
         assertThat(prompt).contains(
-                "only that exact pick", "new turn", "request exact review");
+                "only that exact pick", "finish normally",
+                "the program verifies the files",
+                "request exact review");
         assertThat(toolNames(launches.tools(REVIEWER, ANTHROPIC)))
                 .contains("read_commit_history", "save_report");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
@@ -477,8 +478,8 @@ final class TestNewFlowAgentRuntimeBoundaries
                 "initial-first", "task-initial-prompt:v2",
                 "task-initial-capabilities:v2");
         AgentRun reviewRun = initialRun(
-                "initial-review", "task-initial-review-prompt:v4",
-                "task-initial-review-capabilities:v4");
+                "initial-review", "task-initial-review-prompt:v5",
+                "task-initial-review-capabilities:v5");
         when(runtime.run(firstRun.runId())).thenReturn(Optional.of(firstRun));
         when(runtime.run(reviewRun.runId())).thenReturn(Optional.of(reviewRun));
         when(credentials.find(CredentialType.AI, "anthropic", "ci"))
@@ -492,7 +493,7 @@ final class TestNewFlowAgentRuntimeBoundaries
 
         assertThat(first.promptRevision()).isEqualTo("task-initial-turn:v2");
         assertThat(review.promptRevision())
-                .isEqualTo("task-initial-review-turn:v4");
+                .isEqualTo("task-initial-review-turn:v5");
         assertThat(first.promptDigest()).isNotEqualTo(review.promptDigest());
         assertThat(first.toolManifestDigest())
                 .isNotEqualTo(review.toolManifestDigest());
@@ -511,7 +512,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                         "ask_report", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "commit_initial_change",
-                        "run_checks", "ready_for_initial_publish")
+                        "run_checks")
                 .doesNotContain(
                         "read_initial_task_context", "request_user_input",
                         "shell", "git", "run_id", "claim_id");
@@ -569,11 +570,10 @@ final class TestNewFlowAgentRuntimeBoundaries
         TurnRunner readyRunner = mock(TurnRunner.class);
         InitialToolCapability readyCapability = mock(
                 InitialToolCapability.class);
-        ReadyRejectedException blocked = mock(ReadyRejectedException.class);
-        when(blocked.blockerCodes()).thenReturn(
-                List.of("LOCAL_CHECK_FAILED:compile"));
-        when(readyCapability.readyForInitialPublish())
-                .thenThrow(blocked)
+        ReviewReportFile.PendingReportException pending = mock(
+                ReviewReportFile.PendingReportException.class);
+        when(readyCapability.completeReview(any(Runnable.class)))
+                .thenThrow(pending)
                 .thenReturn(null);
         when(mockedLaunches.resolveSecret(review)).thenReturn("secret");
         when(mockedLaunches.systemPrompt(TASK_INITIAL_REVIEW_RESULT))
@@ -582,26 +582,11 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .thenReturn(actual.tools(
                         TASK_INITIAL_REVIEW_RESULT, ANTHROPIC));
         when(readyRunner.runTurn(any(), any(), any())).thenAnswer(invocation -> {
-            ToolExecutor executor = invocation.getArgument(1);
             TurnHooks hooks = invocation.getArgument(2);
-            assertThat(executor.execute(call(
-                    "ready_for_initial_publish", "{", "{}"))
-                    .isError()).isTrue();
             assertThat(hooks.interrupted()).isFalse();
-            ToolExecutor.ToolCallResult rejected = executor.execute(call(
-                    "ready_for_initial_publish", "{}", "{}"));
-            assertThat(rejected.isError()).isTrue();
-            assertThat(rejected.text()).isEqualTo(
-                    "initial publication blocked: "
-                            + "LOCAL_CHECK_FAILED:compile");
-            assertThat(hooks.interrupted()).isFalse();
-            assertThat(executor.execute(call(
-                    "ready_for_initial_publish", "{}", "{}"))
-                    .isError()).isFalse();
-            assertThat(hooks.interrupted()).isTrue();
             return new TurnResult(
-                    "opaque interruption", 1, 1, 0, 1,
-                    TurnResult.End.INTERRUPTED);
+                    "opaque completion", 1, 1, 0, 1,
+                    TurnResult.End.COMPLETED);
         });
         NewFlowAgentBodies readyBodies = new NewFlowAgentBodies(
                 mockedLaunches, readyRunner, MAPPER, mock(LocalChecks.class), null);
@@ -609,7 +594,9 @@ final class TestNewFlowAgentRuntimeBoundaries
         var readyCompletion = readyBodies.initialTask(
                 review, temporaryDirectory, readyCapability, true);
 
-        verify(readyCapability, times(2)).readyForInitialPublish();
+        verify(readyRunner, times(2)).runTurn(any(), any(), any());
+        verify(readyCapability, times(2))
+                .completeReview(any(Runnable.class));
         assertThat(readyCompletion.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
         assertThat(readyCompletion.errorRef()).isNull();
@@ -656,6 +643,36 @@ final class TestNewFlowAgentRuntimeBoundaries
         verify(capability).saveCiLesson("Bounded", "Lesson");
         assertThat(completion.terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
+    }
+
+    @Test
+    void publicationRepairStopsAfterFiveResumedTurns()
+    {
+        NewFlowAgentLaunches launches = mock(NewFlowAgentLaunches.class);
+        TurnRunner runner = mock(TurnRunner.class);
+        InitialToolCapability capability = mock(InitialToolCapability.class);
+        NewFlowAgentLaunches.Binding binding = binding();
+        when(launches.resolveSecret(binding)).thenReturn("secret");
+        when(launches.systemPrompt(TASK_INITIAL_REVIEW_RESULT))
+                .thenReturn("system");
+        when(launches.tools(TASK_INITIAL_REVIEW_RESULT, ANTHROPIC))
+                .thenReturn(MAPPER.createArrayNode());
+        when(runner.runTurn(any(), any(), any())).thenReturn(new TurnResult(
+                "opaque", 1, 1, 0, 1, TurnResult.End.COMPLETED));
+        when(capability.completeReview(any(Runnable.class))).thenThrow(
+                mock(ReviewReportFile.PendingReportException.class));
+        NewFlowAgentBodies bodies = new NewFlowAgentBodies(
+                launches, runner, MAPPER, mock(LocalChecks.class), null);
+
+        var completion = bodies.initialTask(
+                binding, temporaryDirectory, capability, true);
+
+        verify(runner, times(6)).runTurn(any(), any(), any());
+        verify(capability, times(6)).completeReview(any(Runnable.class));
+        assertThat(completion.terminalOutcome())
+                .isEqualTo(TerminalOutcome.FAILED);
+        assertThat(completion.errorRef())
+                .isEqualTo("PUBLICATION_REPAIR_LIMIT_REACHED");
     }
 
     @Test
@@ -950,7 +967,7 @@ final class TestNewFlowAgentRuntimeBoundaries
     private static AgentRun initialRun(
             String runId, String prompt, String capabilities)
     {
-        boolean review = prompt.equals("task-initial-review-prompt:v4");
+        boolean review = prompt.equals("task-initial-review-prompt:v5");
         return new AgentRun(
                 runId,
                 "operation-" + runId,

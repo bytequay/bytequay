@@ -662,7 +662,7 @@ final class TestUpstreamSyncEndToEnd
                 prompt=$(cat)
                 args="$*"
                 case "$args $prompt" in
-                  *read_pick_conflict_context*|*"Repair each conflicted cherry-pick"*) role=upstream ;;
+                  *read_pick_conflict_context*|*"Handle the current upstream-sync state"*) role=upstream ;;
                   *read_initial_review_context*|*"Inspect the exact initial adversarial review"*) role=initial-review ;;
                   *read_ci_failure_context*|*"Repair the observed CI failures"*) role=ci-fixer ;;
                   *ready_for_review*|*"Inspect the exact adversarial review continuation"*) role=ci-ready ;;
@@ -721,35 +721,45 @@ final class TestUpstreamSyncEndToEnd
                 }
                 case "$role" in
                   upstream)
-                    rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
-                    if [ "@VENDOR@" = codex ]; then
-                      test -n "$(cat contested-two.txt)"
-                      printf 'merged rewrite two\n' > contested-two.txt
-                    else
-                      rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
-                      rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
-                    fi
-                    rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
-                    if [ "@VENDOR@" = codex ]; then
-                      test -n "$(cat contested.txt)"
-                      printf 'merged rewrite\n' > contested.txt
-                    else
-                      rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
-                      rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
-                    fi
-                    rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_upstream_review_context","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    if [ "@VENDOR@" = codex ]; then
-                      printf 'ready\n' > local-check-ready
-                      test -f local-check-ready
-                    else
-                      rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
-                    fi
-                    rpc '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"commit_initial_change","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f @POLICY_READY@"],"working_directory":"."}}}'
-                    rpc '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
+                    conflict=$(git diff --name-only --diff-filter=U)
+                    case "$conflict" in
+                      contested-two.txt)
+                        rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                        if [ "@VENDOR@" = codex ]; then
+                          test -n "$(cat contested-two.txt)"
+                          printf 'merged rewrite two\n' > contested-two.txt
+                        else
+                          rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested-two.txt"}}}'
+                          rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested-two.txt","content":"merged rewrite two\\n"}}}'
+                        fi
+                        rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                        ;;
+                      contested.txt)
+                        rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
+                        if [ "@VENDOR@" = codex ]; then
+                          test -n "$(cat contested.txt)"
+                          printf 'merged rewrite\n' > contested.txt
+                        else
+                          rpc '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"contested.txt"}}}'
+                          rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"contested.txt","content":"merged rewrite\\n"}}}'
+                        fi
+                        rpc '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
+                        ;;
+                      '')
+                        rpc '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_upstream_review_context","arguments":{}}}'
+                        rpc '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                        if [ "@VENDOR@" = codex ]; then
+                          printf 'ready\n' > local-check-ready
+                          test -f local-check-ready
+                        else
+                          rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
+                        fi
+                        rpc '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"commit_initial_change","arguments":{}}}'
+                        rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f @POLICY_READY@"],"working_directory":"."}}}'
+                        rpc '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
+                        ;;
+                      *) exit 48 ;;
+                    esac
                     ;;
                   initial-review)
                     rpc '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"read_initial_review_context","arguments":{}}}'
@@ -862,7 +872,10 @@ final class TestUpstreamSyncEndToEnd
                 .filter(line -> line.matches("[a-z-]+\\|.*"))
                 .toList();
         assertThat(phases).filteredOn(line -> line.startsWith("upstream|"))
-                .containsExactly("upstream|none|writer-session");
+                .containsExactly(
+                        "upstream|none|writer-session",
+                        "upstream|writer-session|writer-session",
+                        "upstream|writer-session|writer-session");
         assertThat(phases).filteredOn(line ->
                 line.startsWith("initial-review|"))
                 .containsExactly(

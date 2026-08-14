@@ -484,8 +484,7 @@ CREATE TABLE flow_runtime_agent_run (
                 (intended_gate_kind = 'INITIAL_PUBLISH'
                     AND input_remote_head_sha IS NULL
                     AND (
-                        (wake_kind = 'INITIAL_TASK'
-                            AND input_change_set_revision_id IS NULL)
+                        wake_kind = 'INITIAL_TASK'
                         OR (wake_kind = 'AGENT_RESULT_READY'
                             AND input_change_set_revision_id IS NOT NULL)
                     ))
@@ -841,7 +840,7 @@ CREATE TABLE flow_runtime_reviewer_request (
 CREATE TABLE flow_runtime_task_terminal_request (
     run_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (
-        kind IN ('REVIEWER', 'READY_FOR_REVIEW')
+        kind IN ('REVIEWER', 'CONTINUE_TASK', 'READY_FOR_REVIEW')
     ),
     request_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,

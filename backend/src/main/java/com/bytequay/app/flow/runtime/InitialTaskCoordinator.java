@@ -55,10 +55,9 @@ public final class InitialTaskCoordinator
     private static final String TASK_PROMPT = "task-initial-prompt:v2";
     private static final String TASK_CAPABILITIES =
             "task-initial-capabilities:v2";
-    /** An upstream range's first turn constructs and finalizes the range, so it
-     *  is stamped with its own sealed identity. */
+    /** Upstream conflict and final-review turns use their own sealed identity. */
     private static final String PICK_REPAIR_PROMPT =
-            "upstream-pick-repair-prompt:v4";
+            "upstream-pick-repair-prompt:v5";
     private static final String PICK_REPAIR_CAPABILITIES =
             "upstream-pick-repair-capabilities:v4";
     private static final String TASK_REVIEW_PROMPT =
@@ -273,6 +272,12 @@ public final class InitialTaskCoordinator
             return writer.runChecks(
                     localChecks, binding.repositoryRoot(), command,
                     workingDirectory);
+        }
+
+        /** Terminal handoff from one upstream conflict to deterministic picking. */
+        public void continueTask()
+        {
+            writer.continueTask();
         }
 
         @Override

@@ -228,10 +228,10 @@ final class TestNewFlowAgentRuntimeBoundaries
                 launches.tools(UPSTREAM_PICK_REPAIR, ANTHROPIC));
         String prompt = launches.systemPrompt(UPSTREAM_PICK_REPAIR);
 
-        // The coordinator rejects final-review tools until the selected range
-        // is complete. One manifest then lets the same persistent Task Agent
-        // move from conflict repair into exact final review without acquiring
-        // ordinary initial-task authority.
+        // The manifest supports distinct conflict and final-review turns. The
+        // coordinator exposes only the tools for the current state, and a
+        // repaired conflict terminally schedules deterministic picking before
+        // another agent turn can start.
         assertThat(tools)
                 .contains("read_pick_conflict_context", "commit_pick_repair",
                         "replace_file_lines", "decline_pick_repair",
@@ -241,7 +241,7 @@ final class TestNewFlowAgentRuntimeBoundaries
                         "request_initial_review")
                 .doesNotContain("read_initial_task_context");
         assertThat(prompt).contains(
-                "replace_file_lines", "range is complete", "request exact review");
+                "only that exact pick", "new turn", "request exact review");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
                 "only a fork-authored commit with a fixup! subject",
                 "if none exist, return no findings immediately",

@@ -68,7 +68,11 @@ public final class UpstreamSyncViews
                           FROM flow_runtime_task_lifecycle_revision l
                          WHERE l.task_id = t.task_id) AS created_at
                 FROM flow_runtime_task t
-                WHERE t.request_key LIKE 'upstream-sync-command:%'
+                WHERE EXISTS (
+                    SELECT 1 FROM flow_upstream_sync_run sr
+                    WHERE sr.task_id = t.task_id
+                )
+                   OR t.request_key LIKE 'upstream-sync-command:%'
             ),
             numbered AS (
                 SELECT task_id,

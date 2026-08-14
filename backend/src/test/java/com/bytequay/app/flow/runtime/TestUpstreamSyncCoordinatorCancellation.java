@@ -36,13 +36,11 @@ final class TestUpstreamSyncCoordinatorCancellation
     }
 
     @Test
-    void aCompletedRangeCannotBeReportedAsAnUnresolvedConflict()
+    void anUnfinishedConflictHasOnlyResolvedOrDeclinedOutcomes()
     {
-        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true, false))
-                .isEqualTo("FINAL_REVIEW_UNRESOLVED");
-        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(false, false))
+        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(false))
                 .isEqualTo("CONFLICT_UNRESOLVED");
-        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true, true))
+        assertThat(UpstreamSyncCoordinator.unfinishedRepairReason(true))
                 .isEqualTo("CONFLICT_DECLINED");
     }
 }

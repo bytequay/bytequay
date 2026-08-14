@@ -51,9 +51,14 @@ import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
 import com.bytequay.app.flow.timeline.PrTimelineProjection.EventKind;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -93,6 +98,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestCiAutofixCoordinatorInitialPublish
         extends BaseTestCiAutofixCoordinator
 {
+    @BeforeEach
+    void installUpstreamSchema()
+    {
+        new ResourceDatabasePopulator(new ClassPathResource(
+                "db/new-flow/upstream-sync.sql")).execute(dataSource);
+    }
+
     @Test
     void initialPublishManualAuthorizationIsExactAndReplaySafe()
     {
@@ -443,6 +455,69 @@ class TestCiAutofixCoordinatorInitialPublish
                 execution.prClaim()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("receipt graph");
+    }
+
+    @Test
+    void successfulInitialPublishHandsOffItsExactUpstreamRun()
+    {
+        FlowRuntimeTestSupport.InitialPublishLineage lineage =
+                FlowRuntimeTestSupport.seedInitialPublishLineage(
+                        runtime, pr.prId());
+        GateRevision opened = openInitialPublish(
+                runtime, userGates, lineage.parentRunId());
+        var authorized = userGates.authorizeInitialPublish(
+                opened.gateId(), opened.revision(), opened.subjectDigest(),
+                opened.actionDigest(), "upstream-handoff");
+        var plan = githubEffects.initialPublishPlan(authorized.planId())
+                .orElseThrow();
+        insertUpstreamRun("WAITING_INITIAL_PUBLISH", plan.proposedHead());
+        Claim claim = runtime.claimNextPublish("upstream-handoff", TTL)
+                .orElseThrow();
+
+        executeInitialApplied(
+                runtime, userGates, githubEffects, claim, plan,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM flow_upstream_sync_run WHERE task_id = ?",
+                String.class, task.taskId())).isEqualTo("HANDED_OFF");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void mismatchedUpstreamRunRollsBackInitialSettlement(boolean wrongState)
+    {
+        FlowRuntimeTestSupport.InitialPublishLineage lineage =
+                FlowRuntimeTestSupport.seedInitialPublishLineage(
+                        runtime, pr.prId());
+        GateRevision opened = openInitialPublish(
+                runtime, userGates, lineage.parentRunId());
+        var authorized = userGates.authorizeInitialPublish(
+                opened.gateId(), opened.revision(), opened.subjectDigest(),
+                opened.actionDigest(), "upstream-handoff-mismatch");
+        var plan = githubEffects.initialPublishPlan(authorized.planId())
+                .orElseThrow();
+        insertUpstreamRun(
+                wrongState ? "FINAL_REVIEW" : "WAITING_INITIAL_PUBLISH",
+                wrongState ? plan.proposedHead() : "different-head");
+        Claim claim = runtime.claimNextPublish(
+                "upstream-handoff-mismatch", TTL).orElseThrow();
+
+        var interrupted = executeInitialInterrupted(
+                runtime, userGates, githubEffects, claim, plan,
+                Clock.fixed(NOW, ZoneOffset.UTC), () -> {});
+
+        assertThat(interrupted.failure())
+                .hasMessageContaining("not awaiting this initial publication");
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM flow_upstream_sync_run WHERE task_id = ?",
+                String.class, task.taskId()))
+                .isEqualTo(wrongState
+                        ? "FINAL_REVIEW" : "WAITING_INITIAL_PUBLISH");
+        assertThat(count("flow_github_initial_publish_receipt", "1 = 1"))
+                .isZero();
+        assertThat(runtime.operation(plan.operationId()).orElseThrow().state())
+                .isEqualTo(OperationState.CLAIMED);
     }
 
     @Test
@@ -2442,5 +2517,33 @@ class TestCiAutofixCoordinatorInitialPublish
                 "flow_runtime_agent_process_attempt",
                 "operation_id = '" + recovered.operationId() + "'"))
                 .isZero();
+    }
+
+    private void insertUpstreamRun(String state, String currentHead)
+    {
+        String requestId = "upstream:" + fixtureRequestId;
+        jdbc.update(
+                """
+                INSERT INTO flow_upstream_sync_request (
+                    request_id, request_key, repository_id, goal_text,
+                    source_remote, source_from_ref, source_to_ref, target_ref,
+                    selected_upstream_shas_json, selected_subjects_json,
+                    state, created_at
+                ) VALUES (?, ?, ?, 'Sync upstream', 'upstream', 'from', 'to',
+                          'main', '["commit"]', '["subject"]', 'STARTED', ?)
+                """,
+                requestId, requestId, task.repositoryId(), NOW.toEpochMilli());
+        jdbc.update(
+                """
+                INSERT INTO flow_upstream_sync_run (
+                    run_id, request_id, task_id, repair_placement, state,
+                    repair_turn_budget, remaining_repair_turns,
+                    current_index, current_head, verification_ref,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'ATTRIBUTED_FIXUP', ?, 0, 0, 1, ?,
+                          'verification', ?, ?)
+                """,
+                "run:" + fixtureRequestId, requestId, task.taskId(), state,
+                currentHead, NOW.toEpochMilli(), NOW.toEpochMilli());
     }
 }

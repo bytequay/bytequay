@@ -216,10 +216,15 @@ final class TestNewFlowAgentRuntimeBoundaries
                 .doesNotContain("read_initial_task_context");
         assertThat(prompt).contains(
                 "only that exact pick", "new turn", "request exact review");
+        assertThat(toolNames(launches.tools(REVIEWER, ANTHROPIC)))
+                .contains("read_commit_history");
         assertThat(launches.systemPrompt(REVIEWER)).contains(
-                "only a fork-authored commit with a fixup! subject",
-                "if none exist, return no findings immediately",
-                "do not re-review picked commits or their conflict resolutions");
+                "review every conflict resolution",
+                "fork correction need not have a fixup! subject",
+                "Ignore only mechanically clean cherry-picks",
+                "inspect it conservatively",
+                "Never return no findings merely because no fixup! commit exists")
+                .doesNotContain("do not re-review picked commits or their conflict resolutions");
     }
 
     @Test

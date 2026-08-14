@@ -72,10 +72,17 @@ class TestImmutableGitObjectReader
                         ImmutableGitObjectReader.TreeEntry::path)
                 .containsExactly("added.txt", "same.txt");
         assertThat(reader.readDiff()).isNotEmpty();
+        assertThat(text(reader.readCommitHistory()))
+                .contains("commit " + reviewed, "reviewed")
+                .doesNotContain("commit " + base);
 
         Files.writeString(repository.resolve("same.txt"), "uncommitted\n");
+        git("commit", "--allow-empty", "-m", "later");
         assertThat(text(reader.readReviewedBlob("same.txt")))
                 .isEqualTo("reviewed\n");
+        assertThat(text(reader.readCommitHistory()))
+                .contains("commit " + reviewed)
+                .doesNotContain("later");
         assertThatThrownBy(() -> reader.readReviewedBlob("removed.txt"))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> reader.readBaseBlob("added.txt"))

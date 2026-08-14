@@ -494,7 +494,7 @@ final class TestUpstreamSyncEndToEnd
 
                         assertThat(upstreamSync.run(started.run().runId())
                                 .orElseThrow().state())
-                                .isEqualTo(RunState.WAITING_INITIAL_PUBLISH);
+                                .isEqualTo(RunState.HANDED_OFF);
                         assertThat(upstreamSync.run(started.run().runId())
                                 .orElseThrow().remainingRepairTurns())
                                 .isEqualTo(
@@ -796,6 +796,7 @@ final class TestUpstreamSyncEndToEnd
                     rpc '{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"ready_for_review","arguments":{}}}'
                     ;;
                   reviewer)
+                    rpc '{"jsonrpc":"2.0","id":59,"method":"tools/call","params":{"name":"read_commit_history","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"read_diff","arguments":{}}}'
                     if [ "$reviewer_number" = 1 ]; then
                       : > "@REVIEWER_ENTERED@"

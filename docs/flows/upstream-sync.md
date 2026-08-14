@@ -578,9 +578,9 @@ execute a program-chosen check.
 - Clean picks do not run full CI locally one by one.
 - A conflict/fixup should run the narrow useful check when available.
 - The final candidate runs the broadest practical local validation.
-- A program-captured `UNAVAILABLE` result for a required local profile is shown
-  prominently and makes the initial gate manual-only; a missing attempt or
-  `FAILED` result blocks.
+- A completed `FAILED` or `UNAVAILABLE` result for a required local profile is
+  shown prominently but does not block the exact manual initial-publication
+  gate. A missing or stale attempt still blocks.
 - Missing validation never causes a hidden early push.
 - Remote CI after draft publication is the final provider authority and uses
   [ci-autofix.md](./ci-autofix.md).

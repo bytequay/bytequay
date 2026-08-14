@@ -3192,15 +3192,6 @@ public final class UserGates
                 GateIntent.INITIAL_PUBLISH);
         reservation.assertCurrentForReservation();
         LocalCheckEvidence checks = reservation.evidence();
-        List<String> blockers = new ArrayList<>();
-        for (LocalCheckRun check : checks.runs()) {
-            if (check.conclusion() == LocalCheckConclusion.FAILED) {
-                blockers.add("LOCAL_CHECK_FAILED:" + check.profileId());
-            }
-        }
-        if (!blockers.isEmpty()) {
-            throw new ReadyRejectedException(blockers);
-        }
         RequiredCiPolicyRevision policy = autofix.currentPolicy(
                 task.repositoryId(), pr.scopeKey()).orElseThrow(() ->
                         rejected("REQUIRED_CI_POLICY_MISSING"));
@@ -4797,9 +4788,7 @@ public final class UserGates
                             check.profileId(), check.conclusion())).toList();
             if (!checks.evidence().policyRevisionId().equals(
                     subject.localCheckPolicyRevisionId())
-                    || !bindings.equals(subject.localChecks())
-                    || bindings.stream().anyMatch(check -> check.conclusion()
-                            == LocalCheckConclusion.FAILED)) {
+                    || !bindings.equals(subject.localChecks())) {
                 return "LOCAL_CHECK_EVIDENCE_STALE";
             }
             Optional<RequiredCiPolicyRevision> currentPolicy = autofix.currentPolicy(

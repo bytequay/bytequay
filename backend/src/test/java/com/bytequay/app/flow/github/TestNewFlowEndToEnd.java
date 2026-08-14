@@ -223,6 +223,12 @@ final class TestNewFlowEndToEnd
                             PolicyResolution.RESOLVED, null,
                             List.of("GITHUB_CHECK:7:build"),
                             List.of("SUCCESS"));
+                    assertThat(jdbc.update(
+                            "UPDATE flow_runtime_local_check_run "
+                                    + "SET conclusion = 'FAILED', exit_code = 1 "
+                                    + "WHERE task_id = ? "
+                                    + "AND conclusion = 'PASSED'",
+                            task.taskId())).isEqualTo(1);
                     policyReady.countDown();
 
                     UserGates gates = context.getBean(UserGates.class);
@@ -230,6 +236,19 @@ final class TestNewFlowEndToEnd
                             gates.initialGate(localPr.prId()));
                     DisplayedGate initialDisplay = displayed(
                             jdbc, initialGate);
+                    assertThat(jdbc.queryForList(
+                            """
+                            SELECT c.conclusion
+                            FROM flow_user_gate_revision r
+                            JOIN flow_user_gate_initial_publish_subject_local_check c
+                              ON c.subject_id = r.subject_manifest_ref
+                            WHERE r.gate_id = ? AND r.revision = ?
+                            ORDER BY c.ordinal
+                            """,
+                            String.class,
+                            initialGate.gateId(),
+                            initialGate.currentRevision()))
+                            .containsExactly("FAILED");
                     var initialAuthorization = gates.authorizeInitialPublish(
                             initialGate.gateId(), initialDisplay.revision(),
                             initialDisplay.subjectDigest(),

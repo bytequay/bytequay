@@ -380,6 +380,8 @@
 .wu-upstream-cherry__filters > label { color: #57606a; display: grid; font-size: 10.5px; gap: 4px; min-width: 0; }
 .wu-upstream-cherry__filters input { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px ui-monospace, monospace; min-width: 0; padding: 7px 11px; width: 100%; }
 .wu-upstream-cherry__filters input:focus { border-color: #0969da; outline: none; }
+.wu-upstream-cherry__add-rule { background: #fff; border: 1px dashed #d5dbe1; border-radius: 8px; color: #57606a; cursor: pointer; font-size: 12px; justify-self: start; line-height: 1; padding: 5px 10px; }
+.wu-upstream-cherry__add-rule:hover { border-color: #0969da; color: #0969da; }
 .wu-upstream-cherry__dryrun { display: grid; gap: 8px; }
 .wu-upstream-cherry__dryrun > button { background: #fff; border: 1px solid #d5dbe1; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 600; justify-self: start; padding: 6px 13px; }
 .wu-upstream-cherry__dryrun > button:disabled { color: #8b949e; cursor: default; }

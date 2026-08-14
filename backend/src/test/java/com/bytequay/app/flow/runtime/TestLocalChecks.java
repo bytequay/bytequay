@@ -203,7 +203,7 @@ final class TestLocalChecks
                     "."))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining(
-                            "executable is not allowed by the local-check policy");
+                            "validation executable must be /usr/bin/true");
             return true;
         });
 

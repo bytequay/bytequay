@@ -170,10 +170,10 @@ public final class UpstreamSyncCoordinator
     /**
      * Runs one INITIAL Task turn for an upstream sync Task.
      *
-     * <p>The first turn picks the confirmed range and requests review; the
-     * continuation turn resumes the ordinary review-result program. Both are
-     * the ordinary INITIAL contract — this component only replaces range
-     * construction and refreshes its mechanical proof after a correction.
+     * <p>Each range turn advances deterministic picks to one semantic boundary.
+     * A conflict turn resolves one pick and terminally schedules the next turn;
+     * a range-complete turn performs final local review. The reviewer-result
+     * continuation resumes the ordinary review program.
      */
     public AgentCompletion runTurn(
             NewFlowAgentLaunches.Binding binding,

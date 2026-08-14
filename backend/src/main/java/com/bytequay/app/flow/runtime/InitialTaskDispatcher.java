@@ -228,16 +228,6 @@ public final class InitialTaskDispatcher
             dispatch(claim.orElseThrow());
         }
         catch (RuntimeException failure) {
-            try {
-                if (runtime.recoverClaimedBeforeProcessLaunch(
-                        claim.orElseThrow())) {
-                    runtime.redriveRetryable(
-                            claim.orElseThrow().operationId());
-                }
-            }
-            catch (RuntimeException recoveryFailure) {
-                failure.addSuppressed(recoveryFailure);
-            }
             log.warn("INITIAL Task owner failed; durable recovery owns retry",
                     failure);
         }

@@ -68,9 +68,14 @@ by an agent or the user.
 8. Program code interprets typed tool calls and objective records, never agent
    prose. A malformed tool call fails immediately as a tool error; malformed
    final prose remains ordinary stored prose.
-9. Only proven effects advance objective state. “I pushed” in an agent message is
+9. After an agent run stops, program code selects each successor from durable
+   current state. Agent-facing tools may append bounded commands, facts, or
+   artifacts, but cannot accept a target lifecycle state or serve as a
+   `ready`, `done`, `proceed`, or `advance` signal. Calling or omitting such a
+   tool is never a substitute for program evaluation.
+10. Only proven effects advance objective state. “I pushed” in an agent message is
    not evidence of a push.
-10. Every idempotency key is derived from stable owner identity plus the frozen
+11. Every idempotency key is derived from stable owner identity plus the frozen
     subject, never from wall-clock time.
 
 ## 4. Minimal data model
@@ -107,7 +112,7 @@ but their ownership and constraints must remain intact.
 | `last_reconciled_work_watermark` | Highest pending-work watermark covered by a completed reconciliation pass; it is not proof that every older cause completed. |
 | `reconciliation_sequence` | Monotonic generation for successive reconciliation operations. |
 | `selected_writer_operation_id` | Nullable pointer to the one directly claimable writer operation authorized under the Task lock. Normal selection sets it from a pending cause; the mandatory CI cleanup handoff may atomically swap it from a stopped predecessor to its exact cleanup successor. |
-| `reserved_mutation_operation_id` | Nullable parked semantic successor for a user answer or upstream-history command. It is not directly claimable and allows higher-priority terminal/effect/recovery reconciliation to run first. CI dirty cleanup does not use this field. |
+| `reserved_mutation_operation_id` | Nullable parked semantic successor for the deferred user-answer path. It is not directly claimable and allows higher-priority terminal/effect/recovery reconciliation to run first. Upstream conflict repair and CI dirty cleanup do not use this field. |
 | `waiting_mutation_state_ref` | Nullable pointer to an unresolved sealed mutation state: a Task question or a terminal CI-cleanup attention completion. While present, no writer may run and ordinary lifecycle commands may not change status. Only the typed owner that resolves/proves that exact state may clear the barrier; answering a question creates and reserves its exact successor first. |
 
 `status` is intentionally coarse. Detailed UI state comes from the current
@@ -597,7 +602,7 @@ shapes.
 | `WriterLeases.acquire(taskId, operationId, holderKind)` | writer operation | Call `MutationAdmission.evaluate`, then issue the next fencing token only for an allowed holder kind and when no live lease exists. No caller may bypass the canonical predicate. |
 | `WriterLeases.assertValid(fence)` | every mutating adapter | Fail closed before mutation if owner, epoch, token, or expiry differs. |
 | `WriterLeases.renew(fence)` / `release(fence)` | operation runner | Renew only the same token; release idempotently. |
-| `MutationAdmission.reserveSuccessor(taskId, predecessorOperationId, successorOperationId, sealedStateRef, fence)` | terminal upstream history/question tool | In the same transaction as the immutable semantic command and successor operation/nonclaimable ticket, set the Task reservation after verifying the current fence. No unrelated writer may acquire after the predecessor releases. Runtime admission makes this existing ticket directly claimable only after the predecessor `AgentResult` is durable, its selected-writer pointer/lease are cleared, and no terminal/effect/recovery fact outranks it; `WorkSelector` never enables it. CI cleanup uses its dedicated atomic selected-pointer handoff instead. |
+| `MutationAdmission.reserveSuccessor(taskId, predecessorOperationId, successorOperationId, sealedStateRef, fence)` | deferred Task-question path only | In the same transaction as the immutable question and answer-bound successor operation/nonclaimable ticket, set the Task reservation after verifying the current fence. Upstream conflict repair does not use this API: program code continues the pick under the existing fenced operation, and later scheduling is derived from the resolved-pick records. CI cleanup uses its dedicated atomic selected-pointer handoff instead. |
 | `MutationAdmission.finish(taskId, successorOperationId, outcomeRef)` | reserved successor/recovery operation | Clear the reservation only after success or a proven clean restore and release any exact reconciliation wait on this reservation. On dirty/uncertain failure, atomically transfer both reservation/wait to one typed recovery operation or quarantine the Task without admitting another writer. |
 | `AgentSessions.createIdle(role, sessionManifest)` | provisioning only | Create one persistent `IDLE` session without an `AgentRun` or model call. This is the only Task-Agent provisioning path. |
 | `AgentSessions.startFresh(operationId, claimToken, role, promptManifest, capabilities)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise create a fresh session plus its first run before process start and bind the owning request once. Use this for a reviewer and for a CI Fixer only when that Task has no CI session yet. Claim redelivery or a crash after commit must reuse the same session/run. |
@@ -610,7 +615,7 @@ shapes.
 | `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
-| `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | On the implemented `AGENT_RESULT_READY` CI-review continuation, atomically store a capability-validated `ReadyForReviewRequest` and the run's mutually exclusive terminal seal, then revoke further tools. Gate construction runs only after exact thread stop; it never trusts terminal prose. |
+| `AgentRuns.sealForReview(runId)` | successful program preflight after a review-result Task turn stops | Atomically store the program-derived `ReadyForReviewRequest` and the run's mutually exclusive terminal seal, then revoke further tools. Despite the internal record name, this is not an agent request: the agent exposes no readiness tool or verdict. Gate construction runs only after exact thread stop. |
 | `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewers and the isolated CI learner use their implemented role-specific no-fence finalizers. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
@@ -697,15 +702,17 @@ agent-selected validation tools, read-only reviewer lineage, and a private
 stopped finalizer.
 Its terminal reviewer-request tool only consumes already-recorded validation
 evidence; it does not execute a program-chosen check.
-An INITIAL review-result run with no accepted fresh-review or ready command
-settles typed `MISSING_INITIAL_TERMINAL_REQUEST` attention without Git inspection.
+An INITIAL review-result run needs no fresh-review or readiness command.
+Program preflight consumes no agent result content; it requires the report file
+absent and Git mechanically publishable.
 Feedback, local-review, and Task-question bindings remain deferred;
 the generic Task finalizer rejects every Task Agent run.
 
-`ready_for_review()` remains the CI-fix `AGENT_RESULT_READY` declaration.
-Ordinary INITIAL uses the distinct zero-argument
-`ready_for_initial_publish()` declaration. Its live tool consumes a fresh
-authenticated repository observation into an immutable publication
+Both CI and INITIAL reviewer-result turns finish normally. Program preflight
+checks the report file, clean committed state, Git operation state, and
+introduced conflict markers. A mechanical failure resumes the same provider
+session up to five times. On success, INITIAL consumes a fresh authenticated
+repository observation into an immutable publication
 target/subject/action plus ReadyRequest seal, but opens no gate. After exact
 STOPPED proof, the INITIAL finalizer revalidates the successor input, predecessor
 reviewer request/result, draft/check/current-change-set graph, opens the manual
@@ -719,12 +726,11 @@ that Task turn commits any accepted corrections or ignores them, the normal
 stopped finalizer opens the exact manual initial gate and hands the deterministic
 upstream owner to `WAITING_INITIAL_PUBLISH`. No reviewer prose selects a state.
 
-The CI `ready_for_review()` tool is a zero-argument semantic
-declaration, not approval. Preflight derives the current clean change set,
-complete current Local Checks evidence, completed same-head reviewer request and
-result, current PR remote/branch, and current actionable CI round/policy. A
-rejected call returns typed blockers and leaves tools live. An accepted call
-stores the immutable request and revokes tools. After exact thread stop, the
+CI program preflight derives the current clean change set, complete current
+Local Checks evidence, the completed reviewer request/result plus any
+mechanically proved Task correction descendant, current PR remote/branch, and
+the current actionable CI round/policy. It stores the immutable request and
+revokes tools. After exact thread stop, the
 specialized finalizer revalidates and locks every mutable owner, opens/revises
 the local `CI_UPDATE` gate with one deterministic User Gates-owned
 complete-empty local-review binding for the exact PR/change set, and settles

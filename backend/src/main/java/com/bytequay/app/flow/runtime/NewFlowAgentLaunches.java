@@ -87,9 +87,9 @@ public final class NewFlowAgentLaunches
                         "request_initial_review")),
         TASK_INITIAL_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-initial-review-prompt:v4",
-                "task-initial-review-capabilities:v4",
-                "task-initial-review-turn:v4",
+                "task-initial-review-prompt:v5",
+                "task-initial-review-capabilities:v5",
+                "task-initial-review-turn:v5",
                 "Call ask_report to read and remove the exact local review "
                         + "report, then judge every "
                         + "observation yourself; the report gives the program "
@@ -99,13 +99,18 @@ public final class NewFlowAgentLaunches
                         + "run_checks. You may repair and retry FAILED checks "
                         + "within the tool bound, but do not retry an "
                         + "UNAVAILABLE environment result. Whether you fix "
-                        + "or ignore the comments, finish this one review "
-                        + "round with the terminal publish-readiness request. "
+                        + "or ignore the comments, finish the turn normally. "
+                        + "The program then checks for a consumed report, a "
+                        + "clean committed worktree, and conflict markers. "
+                        + "If one of those checks fails, it resumes you with "
+                        + "the same tools, up to five repair turns. On a "
+                        + "resumed turn, resolve unfinished Git state, remove "
+                        + "conflict markers, and commit through the fixed tool. "
                         + "Final prose is opaque.",
                 List.of("ask_report", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "commit_initial_change",
-                        "run_checks", "ready_for_initial_publish")),
+                        "run_checks")),
         // A conflicted pick is not the initial-task job wearing a different hat.
         // Reusing TASK_INITIAL for it told the agent to implement a Task goal
         // that does not exist here, and to finish by requesting review — which
@@ -114,14 +119,16 @@ public final class NewFlowAgentLaunches
         // program identity rather than a substituted prompt.
         UPSTREAM_PICK_REPAIR(
                 AgentRole.TASK_AGENT,
-                "upstream-pick-repair-prompt:v5",
-                "upstream-pick-repair-capabilities:v4",
-                "upstream-pick-repair-turn:v7",
+                "upstream-pick-repair-prompt:v6",
+                "upstream-pick-repair-capabilities:v5",
+                "upstream-pick-repair-turn:v8",
                 "Handle the current upstream-sync state in the worktree. "
                         + "If a conflicted cherry-pick is open, read its conflict "
-                        + "context first, resolve only that exact pick, then call "
-                        + "the terminal repair tool. The program schedules later "
-                        + "commits in a new turn. "
+                        + "context first, resolve only that exact pick, then finish "
+                        + "normally. Do not stage or commit it. After your process "
+                        + "stops, the program verifies the files, continues the "
+                        + "cherry-pick, records its state, and schedules later "
+                        + "commits. "
                         + "Use replace_file_lines for line-range conflict edits "
                         + "or the supplied write_file tool for whole files; do "
                         + "not invoke shell text processors for worktree edits. "
@@ -138,12 +145,13 @@ public final class NewFlowAgentLaunches
                         + "run_checks. You may repair and retry FAILED checks "
                         + "within the tool bound, but do not retry an "
                         + "UNAVAILABLE environment result. "
-                        + "Decline if a conflict needs a decision you cannot make. "
+                        + "If a conflict needs a decision you cannot make, leave "
+                        + "the unresolved files for deterministic program handling. "
                         + "Final prose is opaque.",
                 List.of("read_pick_conflict_context", "list_repository",
                         "read_file", "search_repository", "write_file",
-                        "replace_file_lines", "delete_file", "commit_pick_repair",
-                        "decline_pick_repair", "read_upstream_review_context",
+                        "replace_file_lines", "delete_file",
+                        "read_upstream_review_context",
                         "read_candidate_diff", "run_checks",
                         "commit_initial_change",
                         "request_initial_review")),
@@ -203,9 +211,9 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer")),
         TASK_CI_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-ci-inspection-prompt:v3",
-                "task-ci-inspection-capabilities:v3",
-                "task-ci-result-turn:v3",
+                "task-ci-inspection-prompt:v4",
+                "task-ci-inspection-capabilities:v4",
+                "task-ci-result-turn:v4",
                 "Inspect the exact adversarial review continuation. Call "
                         + "ask_report to read and remove its local report; "
                         + "judge the prose yourself. Commit any "
@@ -217,14 +225,18 @@ public final class NewFlowAgentLaunches
                         + "executes it and records the evidence. Do not retry "
                         + "an UNAVAILABLE result caused by the environment; "
                         + "FAILED checks may be repaired and retried within "
-                        + "the tool bound. "
-                        + "Use a terminal typed tool; final prose is not authority.",
+                        + "the tool bound. Finish normally. The program then "
+                        + "checks for a consumed report, a clean committed "
+                        + "worktree, and conflict markers. If one check fails, "
+                        + "it resumes you with the same tools, up to five "
+                        + "repair turns. On a resumed turn, resolve unfinished "
+                        + "Git state, remove conflict markers, and commit "
+                        + "through the fixed tool. Final prose is not authority.",
                 List.of("read_ci_fix_context", "ask_report",
                         "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "run_checks",
-                        "commit_task_change",
-                        "spawn_adversarial_reviewer", "ready_for_review")),
+                        "commit_task_change")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
                 "adversarial-reviewer-prompt:v6",
@@ -1017,19 +1029,15 @@ public final class NewFlowAgentLaunches
             case "commit_initial_change" -> "Commit and mechanically adopt the INITIAL Task change.";
             case "read_initial_task_context" -> "Read the exact Task goal and immutable initial base.";
             case "read_pick_conflict_context" -> "Read the conflicted pick, its target subject, and its conflicted paths.";
-            case "commit_pick_repair" -> "Verify and continue the currently resolved cherry-pick.";
-            case "decline_pick_repair" -> "Decline this conflict and park the run for the user.";
             case "ask_report" -> "Read and remove the exact subagent-review.txt handoff for this Task.";
             case "read_upstream_review_context" -> "Read the confirmed upstream range and its current mechanical verification.";
             case "request_initial_review" -> "Save the local PR draft and request exact review using already-recorded validation evidence.";
-            case "ready_for_initial_publish" -> "Finish processing the exact review report and request a manual publication gate.";
             case "inspect_cleanup" -> "Read the sealed cleanup state.";
             case "finish_cleanup" -> "Finish deterministic cleanup inspection.";
             case "read_ci_failure_context" -> "Read exact failing-check summaries.";
             case "read_ci_fix_context" -> "Read the exact fixer or reviewer result.";
             case "read_candidate_diff" -> "Read the immutable candidate diff.";
             case "spawn_adversarial_reviewer" -> "Seal checks and request exact adversarial review.";
-            case "ready_for_review" -> "Accept the exact completed review result.";
             case "list_tree" -> "List the immutable reviewed tree.";
             case "read_diff" -> "Read the immutable base-to-reviewed diff.";
             case "read_commit_history" -> "Read the immutable base-to-reviewed commit history and full commit messages.";

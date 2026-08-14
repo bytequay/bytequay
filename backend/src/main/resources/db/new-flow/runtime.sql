@@ -841,7 +841,7 @@ CREATE TABLE flow_runtime_reviewer_request (
 CREATE TABLE flow_runtime_task_terminal_request (
     run_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (
-        kind IN ('REVIEWER', 'CONTINUE_UPSTREAM_SYNC', 'READY_FOR_REVIEW')
+        kind IN ('REVIEWER', 'READY_FOR_REVIEW')
     ),
     request_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,

@@ -17,7 +17,6 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskInspectionToolCapability;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator.TaskToolContext;
 import com.bytequay.app.flow.ci.CiRepairCoordinator.RepairToolContext;
-import com.bytequay.app.flow.gate.UserGates.ReadyRejectedException;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
@@ -67,6 +66,7 @@ final class NewFlowAgentBodies
      *  repository check, so the only turn this ends is one that is looping.
      *  Package-visible for the boundary test. */
     static final int MAX_CHECK_ATTEMPTS = 25;
+    static final int MAX_PUBLICATION_REPAIR_TURNS = 5;
     private static final int MAX_TOOL_RESULT_CHARS = 256 * 1024;
     private static final int MAX_CHECK_OUTPUT_CHARS = 32 * 1024;
 
@@ -179,7 +179,7 @@ final class NewFlowAgentBodies
     {
         return initialTask(
                 binding, worktree, capability, reviewContinuation,
-                ignored -> {});
+                ignored -> {}, () -> {});
     }
 
     InProcessWriterAgentSupervisor.AgentCompletion initialTask(
@@ -188,6 +188,19 @@ final class NewFlowAgentBodies
             InitialToolCapability capability,
             boolean reviewContinuation,
             Consumer<StreamEvent> activity)
+    {
+        return initialTask(
+                binding, worktree, capability, reviewContinuation,
+                activity, () -> {});
+    }
+
+    InProcessWriterAgentSupervisor.AgentCompletion initialTask(
+            NewFlowAgentLaunches.Binding binding,
+            Path worktree,
+            InitialToolCapability capability,
+            boolean reviewContinuation,
+            Consumer<StreamEvent> activity,
+            Runnable beforePublication)
     {
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         AtomicBoolean terminal = new AtomicBoolean();
@@ -244,40 +257,20 @@ final class NewFlowAgentBodies
                     return "initial review requested";
                 });
             }
-            case "ready_for_initial_publish" -> {
-                if (!reviewContinuation) {
-                    yield ToolCallResult.error("tool is not available");
-                }
-                yield readyForInitialPublish(capability, terminal);
-            }
             default -> ToolCallResult.error("tool is not available");
         });
-        return sealedWriterCompletion(
-                run(binding, program, executor, terminal, worktree,
-                        journal(
-                                capability::recordAgentGroup,
-                                capability::recordAgentTurnUsage,
-                                activity)),
-                terminal.get());
-    }
-
-    /** A typed gate blocker is safe and necessary for the agent to repair. */
-    private static ToolCallResult readyForInitialPublish(
-            InitialToolCapability capability, AtomicBoolean terminal)
-    {
-        try {
-            capability.readyForInitialPublish();
-            terminal.set(true);
-            return ToolCallResult.ok("manual initial publication requested");
+        Supplier<TurnResult> turn = () -> run(
+                binding, program, executor, terminal, worktree,
+                journal(
+                        capability::recordAgentGroup,
+                        capability::recordAgentTurnUsage,
+                        activity));
+        if (reviewContinuation) {
+            return finishReviewTurns(
+                    turn,
+                    () -> capability.completeReview(beforePublication));
         }
-        catch (ReadyRejectedException blocked) {
-            return ToolCallResult.error(
-                    "initial publication blocked: "
-                            + String.join(",", blocked.blockerCodes()));
-        }
-        catch (RuntimeException failure) {
-            return ToolCallResult.error("tool failed closed");
-        }
+        return sealedWriterCompletion(turn.get(), terminal.get());
     }
 
     NewFlowAgentLaunches.Binding bindCleanup(AgentRun run)
@@ -461,26 +454,24 @@ final class NewFlowAgentBodies
                 return "Task change committed and inspected";
             });
             case "spawn_adversarial_reviewer" -> safe(() -> {
+                if (reviewerResultContinuation) {
+                    throw new IllegalStateException(
+                            "a completed review is not reviewed again");
+                }
                 capability.spawnAdversarialReviewer();
                 terminal.set(true);
                 return "review requested";
             });
-            case "ready_for_review" -> {
-                if (!reviewerResultContinuation) {
-                    yield ToolCallResult.error("tool is not available");
-                }
-                yield safe(() -> {
-                    capability.readyForReview();
-                    terminal.set(true);
-                    return "review accepted";
-                });
-            }
             default -> ToolCallResult.error("tool is not available");
         });
-        return sealedWriterCompletion(
-                run(binding, program, executor, terminal, worktree,
-                        journal(capability::recordAgentGroup, capability::recordAgentTurnUsage)),
-                terminal.get());
+        Supplier<TurnResult> turn = () -> run(
+                binding, program, executor, terminal, worktree,
+                journal(capability::recordAgentGroup,
+                        capability::recordAgentTurnUsage));
+        if (reviewerResultContinuation) {
+            return finishReviewTurns(turn, capability::completeReview);
+        }
+        return sealedWriterCompletion(turn.get(), terminal.get());
     }
 
     InProcessReviewerAgentSupervisor.AgentCompletion reviewer(
@@ -739,6 +730,7 @@ final class NewFlowAgentBodies
             case "read_candidate_lesson" -> Set.of("index");
             case "commit_repair" -> Set.of("target_commit");
             case "save_ci_lesson" -> Set.of("title", "markdown");
+            case "save_report" -> Set.of("report");
             case "request_initial_review" -> Set.of("title", "body");
             default -> Set.of();
         };
@@ -905,6 +897,58 @@ final class NewFlowAgentBodies
         catch (RuntimeException failure) {
             return ToolCallResult.error("tool failed closed");
         }
+    }
+
+    /**
+     * The agent ends each turn normally. The program alone decides whether
+     * the report is consumed and Git is publishable, resuming the same Task
+     * session at most five times when those mechanical conditions are false.
+     */
+    private InProcessWriterAgentSupervisor.AgentCompletion finishReviewTurns(
+            Supplier<TurnResult> turn,
+            Runnable completeReview)
+    {
+        TurnResult result = null;
+        for (int repair = 0; repair <= MAX_PUBLICATION_REPAIR_TURNS; repair++) {
+            result = turn.get();
+            try {
+                completeReview.run();
+                return new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.COMPLETED, result.finalText(), null);
+            }
+            catch (RuntimeException failure) {
+                if (!repairablePublicationState(failure)) {
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.FAILED,
+                            result.finalText(),
+                            "AUTO_PUBLICATION_PREPARATION_FAILED");
+                }
+                if (repair == MAX_PUBLICATION_REPAIR_TURNS) {
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.FAILED,
+                            result.finalText(),
+                            "PUBLICATION_REPAIR_LIMIT_REACHED");
+                }
+            }
+        }
+        throw new AssertionError("bounded review loop did not return");
+    }
+
+    private static boolean repairablePublicationState(
+            RuntimeException failure)
+    {
+        if (failure instanceof ReviewReportFile.PendingReportException) {
+            return true;
+        }
+        if (!(failure instanceof FlowWorktreeInspector.InspectionFailure
+                inspection)) {
+            return false;
+        }
+        return inspection.code() == FlowWorktreeInspector.FailureCode.DIRTY
+                || inspection.code()
+                    == FlowWorktreeInspector.FailureCode.GIT_OPERATION_IN_PROGRESS
+                || inspection.code()
+                    == FlowWorktreeInspector.FailureCode.CONFLICT_MARKERS;
     }
 
     private InProcessWriterAgentSupervisor.AgentCompletion sealedWriterCompletion(

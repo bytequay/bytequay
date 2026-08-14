@@ -29,7 +29,6 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
-import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskTerminalRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import org.slf4j.Logger;
@@ -230,6 +229,26 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId);
         }
 
+        /** Program-only final adoption; a no-op turn keeps the same revision. */
+        public ChangeSetRevision settleTaskReviewHead(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            return execution.settleTaskReviewHead(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId);
+        }
+
+        /** Program-only check for conflict markers in the candidate diff. */
+        public void assertNoConflictMarkers(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            execution.assertNoConflictMarkers(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId);
+        }
+
         /** Program-only first INITIAL adoption; the model supplies no IDs. */
         public ChangeSetRevision adoptInitialChangeSet(
                 Path programOwnedRepositoryRoot)
@@ -307,12 +326,6 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId,
                     localCheckPolicyRevisionId,
                     checkRunRefs);
-        }
-
-        /** Ends this conflict turn and schedules the upstream program. */
-        public TaskTerminalRequest continueUpstreamSync()
-        {
-            return execution.continueUpstreamSync();
         }
 
         /** Terminal ready command over one program-derived immutable subject. */
@@ -1178,6 +1191,39 @@ public final class InProcessWriterAgentSupervisor
                     expectedChangeSetRevisionId));
         }
 
+        private ChangeSetRevision settleTaskReviewHead(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            requireNonNull(programOwnedRepositoryRoot,
+                    "programOwnedRepositoryRoot is null");
+            requireText(expectedChangeSetRevisionId,
+                    "expectedChangeSetRevisionId");
+            return callTool(() -> runtime.settleTaskReviewHead(
+                    claim,
+                    fence,
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId));
+        }
+
+        private void assertNoConflictMarkers(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            requireNonNull(programOwnedRepositoryRoot,
+                    "programOwnedRepositoryRoot is null");
+            requireText(expectedChangeSetRevisionId,
+                    "expectedChangeSetRevisionId");
+            callTool(() -> {
+                runtime.assertNoConflictMarkers(
+                        claim,
+                        fence,
+                        programOwnedRepositoryRoot,
+                        expectedChangeSetRevisionId);
+                return null;
+            });
+        }
+
         private ChangeSetRevision adoptInitialChangeSet(
                 Path programOwnedRepositoryRoot)
         {
@@ -1338,19 +1384,6 @@ public final class InProcessWriterAgentSupervisor
                         expectedChangeSetRevisionId,
                         localCheckPolicyRevisionId, checkRunRefs);
             });
-        }
-
-        private TaskTerminalRequest continueUpstreamSync()
-        {
-            synchronized (this) {
-                if (Thread.currentThread() != thread) {
-                    throw new FlowRuntime.StaleCapabilityException(
-                            "terminal tool requires the owned writer thread");
-                }
-            }
-            return callTerminalTool(() -> runtime.reserveUpstreamSyncContinuation(
-                    runId, claim, fence, attempt.processAttemptId(),
-                    attempt.capabilityId()));
         }
 
         private ReadyForReviewAcceptance readyForReview(

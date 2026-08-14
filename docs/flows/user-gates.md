@@ -51,9 +51,9 @@ subjects and action manifests.
    remains agent-driven.
 2. Approval means “perform this action manifest on this frozen subject,” never
    “continue generally.”
-3. The program builds subjects from program-observed records. The agent only
-   calls `ready_for_review()`; it does not provide head SHAs, check IDs, thread
-   lists, or gate JSON.
+3. The program builds subjects from program-observed records after the Task
+   Agent stops. The agent does not provide head SHAs, check IDs, thread lists,
+   a readiness verdict, or gate JSON.
 4. Objective readiness is program-owned. Semantic adequacy is user-owned.
 5. Any relevant subject change makes the revision stale before execution.
 6. Authorization and effect execution are separate durable facts. A user click
@@ -118,7 +118,7 @@ historical replay returns the revision created by that run.
 | `action_manifest_ref` | Reference to the program-generated, user-visible ordered action intent owned by this gate revision. It contains domain actions and exact targets, not provider calls. |
 | `action_digest` | Program hash over action kind, target references, order, and dependencies. |
 | `readiness_evidence_ref` | Exact objective evidence used to open the gate. |
-| `created_by_run_id` | Task Agent run that called `ready_for_review`, when applicable. |
+| `created_by_run_id` | Task Agent run whose stopped turn caused program preflight, when applicable. |
 | `created_at` | Revision time. |
 
 The manifests may use application-generated JSON serialization. They are never
@@ -219,7 +219,7 @@ NEEDS_ATTENTION -> CONSUMED | AUTHORIZED | STALE | CANCELED
 ```
 
 - `CHANGES_REQUESTED`, `CONSUMED`, `STALE`, and `CANCELED` are terminal for that
-  revision. A later `ready_for_review()` appends a new revision.
+  revision. A later mechanically successful program preflight appends a new revision.
 - `EXECUTING -> STALE` is valid when a partial plan's remaining effects lose
   freshness, such as red CI after an approved feedback push. Proven receipts
   remain facts; unexecuted steps lose eligibility and the barrier is released.
@@ -487,25 +487,21 @@ exact subject. The Task Agent and user interpret the prose. There is no
 
 ## 8. APIs and tool boundary
 
-### Agent tool
+### Program preflight
 
-```text
-ready_for_review()
-```
-
-The tool has no model-supplied gate document. The program identifies the Task,
-current pending work, current head, and relevant owner revisions from the
-authenticated session. Before accepting the call it performs a synchronous
-read-only preflight under the current fence. Missing known facts such as a clean
-commit, current checks, or exact-head reviewer return typed blockers while the
+There is no Task Agent readiness tool. After the review-result turn stops, the
+program identifies the Task, current pending work, current head, and relevant
+owner revisions from the authenticated session. It verifies that
+`subagent-review.txt` was consumed, adopts only a clean committed head, and
+rejects introduced conflict markers. Missing mechanical facts resume the same
+Task session at most five times; other blockers fail closed while the
 run remains active.
 
-An accepted call is terminal for the active writer run. The runtime immediately
-seals its mutating tool capability, asks the model to finish, stores its opaque
-result, adopts the clean committed head as the final `ChangeSetRevision` under
-the still-valid writer fence, and releases the writer lease. Only after those
-facts are durable does the post-run readiness operation run any required
-objective producer finalization and then execute:
+A successful preflight is terminal for the active writer run. The runtime
+seals its mutating capability and reserves the exact candidate. After the
+supervisor proves the agent process stopped, it stores the opaque technical
+result and releases the writer lease. Only after those facts are durable does
+the finalizer execute:
 
 ```text
 GateSubjects.buildCurrent(taskId)
@@ -805,13 +801,12 @@ Insert a process restart after every numbered step in test variants.
 
 ### A. Local review before first push
 
-1. Task Agent calls `ready_for_review()` for local head `H1`.
+1. Task Agent stops on local head `H1`; program preflight proves it publishable.
 2. Program opens `INITIAL_PUBLISH` revision 1; no Git remote is touched.
 3. User adds inline revision `L1`; `requestChanges` atomically creates local
    batch `B1`, marks gate revision 1 `CHANGES_REQUESTED`, and enqueues Task work.
 4. Task Agent lists/reads `B1`, commits `H2`, replies and resolves through typed
-   tools, checks it, receives a fresh adversarial review, and calls
-   `ready_for_review()`.
+   tools, and checks it. Program preflight proves the new exact candidate.
 5. Revision 2 freezes `H2`, current threads, draft metadata, and ready policy.
 6. User authorizes revision 2. Only then may the program push/open the draft PR.
 
@@ -879,16 +874,16 @@ Insert a process restart after every numbered step in test variants.
 3. Observe head `H6` before claim; mark the `H5` gate stale.
 4. Merge only after a new `H6` revision re-proves every readiness fact.
 
-### I. Review declaration seals the writer
+### I. Program preflight seals the writer
 
-1. Task Agent holds the writer lease on clean committed `H7` and successfully
-   calls `ready_for_review()`.
-2. A subsequent edit/commit tool call in that run fails
-   `RUN_SEALED_FOR_REVIEW`.
-3. Runtime stores the opaque run result, measures `H7`, and releases the lease.
-4. Only then does it build/open the gate revision for `H7`.
-5. A malformed/rejected `ready_for_review()` variant leaves the run unsealed so
-   the agent can fix the reported objective blocker.
+1. Task Agent stops while holding the writer lease.
+2. Program preflight checks the pending report, clean committed Git state, and
+   introduced conflict markers under the exact fence.
+3. A failed mechanical check resumes the same Task session; no more than five
+   repair turns are allowed.
+4. A successful check seals `H7` and revokes further tools.
+5. Runtime stores the opaque run result and releases the lease; only then does
+   it build/open the gate revision for `H7`.
 
 ### J. Local checks unavailable
 
@@ -975,7 +970,7 @@ Insert a process restart after every numbered step in test variants.
 
 | Question | Decision | Why | Trade-off |
 |---|---|---|---|
-| Why not trust `ready_for_review()` as approval? | It only requests a candidate gate. | The agent cannot authorize the user's public/irreversible action. | One explicit user step at important boundaries. |
+| Why is there no agent readiness verdict? | Readiness is derived from program-owned Git, report-file, check, and identity records. | The agent cannot authorize or advance the state machine with prose or a tool choice. | One explicit user step still controls the public effect. |
 | Why freeze many revisions instead of only `head`? | Comments, metadata, CI and action drafts can change without a new local head. | The user must approve what was displayed, not merely the same commit. | More digest inputs and more honest reapprovals. |
 | Why bind private local review to CI/feedback code pushes too? | A push is irreversible regardless of why the code changed. | The exact user-visible comments and closures must match every published code candidate. | More gate staleness when the user comments late. |
 | Why not parse reviewer “passed”? | Require exact-head completion, then let Task Agent/user judge prose. | Model wording is probabilistic and cannot be a safety interlock. | Less automatic semantic gating. |

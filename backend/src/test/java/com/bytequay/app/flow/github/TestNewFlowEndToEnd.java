@@ -407,8 +407,7 @@ final class TestNewFlowEndToEnd
             case 3 -> {
                 call(tools, "ask_report", "{}");
                 call(tools, "read_candidate_diff", "{}");
-                call(tools, "ready_for_initial_publish", "{}");
-                return result(TurnResult.End.INTERRUPTED);
+                return result(TurnResult.End.COMPLETED);
             }
             case 4 -> {
                 call(tools, "read_ci_failure_context", "{}");
@@ -438,8 +437,7 @@ final class TestNewFlowEndToEnd
                 call(tools, "read_ci_fix_context", "{}");
                 call(tools, "ask_report", "{}");
                 call(tools, "read_candidate_diff", "{}");
-                call(tools, "ready_for_review", "{}");
-                return result(TurnResult.End.INTERRUPTED);
+                return result(TurnResult.End.COMPLETED);
             }
             case 8 -> {
                 call(tools, "read_repair_evidence", "{}");

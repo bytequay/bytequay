@@ -378,7 +378,7 @@ class TestCiBoundaryCompileProof
                 ready.claim(),
                 capability -> {
                     try {
-                        capability.readyForReview();
+                        capability.completeReview();
                     }
                     catch (RuntimeException rejected) {
                         // The tool error the Task Agent would actually see.

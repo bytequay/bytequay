@@ -284,7 +284,7 @@ class TestInitialTaskCoordinator
                     capability.adoptCommittedHead(head);
                     capability.adoptCommittedHead(head);
                     capability.runChecks(List.of("/usr/bin/true"), ".");
-                    capability.readyForInitialPublish();
+                    capability.completeReview(() -> {});
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.CANCELED,
                             "opaque cancellation after accepted readiness",
@@ -434,8 +434,7 @@ class TestInitialTaskCoordinator
             if (turn == 3) {
                 assertTool(tools, "ask_report", "{}");
                 assertTool(tools, "read_candidate_diff", "{}");
-                assertTool(tools, "ready_for_initial_publish", "{}");
-                return turnResult(TurnResult.End.INTERRUPTED);
+                return turnResult(TurnResult.End.COMPLETED);
             }
             throw new AssertionError("unexpected model turn " + turn);
         });
@@ -470,7 +469,10 @@ class TestInitialTaskCoordinator
             Task task = commands.startTask(
                     "command-request", "octocat/bytequay",
                     "Implement through TaskCommands");
-            assertThat(reviewerEntered.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(reviewerEntered.await(10, TimeUnit.SECONDS))
+                    .as("model turns=%s task=%s", turns.get(),
+                            runtime.task(task.taskId()).orElseThrow())
+                    .isTrue();
             Task reviewedTask = runtime.task(task.taskId()).orElseThrow();
             PullRequestSubject pr = runtime.pullRequest(reviewedTask.prId())
                     .orElseThrow();

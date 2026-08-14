@@ -2861,6 +2861,17 @@ public final class UserGates
         AgentRun reviewerRun = runtime.run(reviewerResult.runId())
                 .orElseThrow(() -> rejected("REVIEWER_RUN_MISSING"));
         List<String> blockers = new ArrayList<>();
+        boolean reviewAncestor;
+        try {
+            runtime.assertTaskTurnDescendant(
+                    reviewerRequest.changeSetRevisionId(),
+                    changeSet.changeSetRevisionId(),
+                    runId);
+            reviewAncestor = true;
+        }
+        catch (RuntimeException stale) {
+            reviewAncestor = false;
+        }
         if (task.status() != TaskStatus.ACTIVE
                 || run.state() != RunState.RUNNING
                 || run.wakeKind() != WakeKind.AGENT_RESULT_READY
@@ -2879,15 +2890,8 @@ public final class UserGates
                 || !runtime.reviewerRequestForReviewerRun(
                         reviewerRun.runId()).orElseThrow()
                         .equals(reviewerRequest)
-                || !reviewerRequest.reviewedHeadSha().equals(
-                        changeSet.headSha())
-                || !reviewerRequest.changeSetRevisionId().equals(
-                        changeSet.changeSetRevisionId())
+                || !reviewAncestor
                 || !reviewerRequest.baseHeadSha().equals(base.baseSha())
-                || !reviewerRequest.headTreeDigest().equals(
-                        changeSet.headTreeDigest())
-                || !reviewerRequest.diffDigest().equals(
-                        changeSet.diffDigest())
                 || !base.baseRevisionId().equals(
                         changeSet.baseRevisionId())
                 || !base.baseSha().equals(changeSet.baseSha())
@@ -2923,13 +2927,6 @@ public final class UserGates
         }
         catch (IllegalStateException staleChecks) {
             throw rejected("LOCAL_CHECK_EVIDENCE_STALE");
-        }
-        if (!Objects.equals(
-                    checks.policyRevisionId(),
-                    reviewerRequest.localCheckPolicyRevisionId())
-                || !checks.checkRunRefs().equals(
-                    reviewerRequest.checkRunRefs())) {
-            blockers.add("REVIEW_CHECK_EVIDENCE_CHANGED");
         }
         List<String> warnings = new ArrayList<>();
         for (LocalCheckRun check : checks.runs()) {

@@ -35,6 +35,17 @@ final class ReviewReportFile
 
     private ReviewReportFile() {}
 
+    static final class PendingReportException
+            extends IllegalStateException
+    {
+        private static final long serialVersionUID = 1L;
+
+        private PendingReportException()
+        {
+            super("ask_report must consume the waiting review report first");
+        }
+    }
+
     static void save(Task task, String report)
     {
         requireNonNull(task, "task is null");
@@ -102,8 +113,7 @@ final class ReviewReportFile
     static void requireAbsent(Task task)
     {
         if (Files.exists(path(requireNonNull(task, "task is null")))) {
-            throw new IllegalStateException(
-                    "ask_report must consume the waiting review report first");
+            throw new PendingReportException();
         }
     }
 

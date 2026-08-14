@@ -92,15 +92,13 @@ fallback.
 - Fetch before comparing upstream, target, or remote tracking state.
 - The Task Agent and program never mutate concurrently; every Git mutation uses
   the Task's fenced writer lease.
-- A history-intent tool is terminal for the current Agent run. It seals/parks the
-  agent and creates a separate runtime `UPSTREAM_SYNC` operation; that operation
-  can claim its own writer lease only after the Agent run has released its lease.
-  A Task-scoped mutation reservation admits only that exact successor while the
-  sealed sequencer/dirty state exists.
+- A conflict turn has edit capabilities but no history-intent or state-transition
+  tool. Once the process stops, program code uses the still-current exact writer
+  fence to validate and continue the pick before finalization releases ownership.
 - The Task Agent cannot push. Draft publication uses the ordinary exact
   `INITIAL_PUBLISH` user gate and GitHub executor.
-- No agent final response is parsed. Conflict completion, park, and fixup
-  ownership are tool calls.
+- No agent final response is parsed. Conflict completion and parking come only
+  from program-owned Git inspection and durable records.
 
 ## First-principles correction to the previous history model
 
@@ -180,20 +178,19 @@ createdAt, updatedAt
 ```
 
 States are `READY`, `PICKING`, `WAITING_CONFLICT_REPAIR`, `WAITING_USER`,
-`NORMALIZING_HISTORY`, `FINAL_REVIEW`, `WAITING_INITIAL_PUBLISH`, `HANDED_OFF`,
-`CANCELED`, and `NEEDS_ATTENTION`.
+`FINAL_REVIEW`, `WAITING_INITIAL_PUBLISH`, `HANDED_OFF`, `CANCELED`, and
+`NEEDS_ATTENTION`.
 
 ### `UpstreamPickRecord`
 
 ```text
 pickId, runId, ordinal, upstreamSha, preHead,
 resultHead?, resultCommitSha?, state,
-conflictedPaths[], conflictEvidenceRef?, provenanceVerified,
-agentRunId?, localCheckRunIds[]
+conflictedPaths[], provenanceVerified, changeSetRevisionId?, recordedAt
 ```
 
-States are `PENDING`, `APPLYING`, `CLEAN`, `CONFLICTED`, `RESOLVED`,
-`SKIPPED_PRESENT`, `SKIPPED_EMPTY`, and `NEEDS_ATTENTION`.
+States are `CLEAN`, `CONFLICTED`, `RESOLVED`, `SKIPPED_EMPTY`, and
+`NEEDS_ATTENTION`.
 
 ### `UpstreamFixupRecord`
 
@@ -214,19 +211,18 @@ backupRef, affectedRange, expectedTreeDigest,
 actualTreeDigest, mappingEvidenceRef, completedAt
 ```
 
-### `UpstreamHistoryCommand`
+### Conflict completion evidence
 
-One terminal Task Agent tool call creates an immutable semantic command:
+There is no agent-authored history command. A conflict turn may only read and
+edit the current worktree. After that process stops, program code mechanically
+requires the recorded conflicted pick, exact pre-head and sequencer, no conflict
+markers, no unmerged entries, and the current writer fence. It then stages the
+files, runs `cherry-pick --continue`, verifies `-x` provenance, adopts the new
+head, and records the pick as `RESOLVED`.
 
-```text
-commandId, runId, agentRunId, operationId,
-kind = CONTINUE_PICK | PLACE_FIXUP | APPEND_STANDALONE,
-pickId?, ownerPickId?, paths?, message?, expectedHead,
-sealedWorktreeDigest, createdAt
-```
-
-The command records the agent's semantic choice. It is not proof that Git ran.
-Its separate runtime `Operation(kind=UPSTREAM_SYNC)` owns execution/claim state.
+The durable `RESOLVED` pick and its exact change-set revision are the completion
+evidence. The runtime derives the next `PICKING` operation from those records;
+no tool call or final response asks it to advance.
 
 ### `UpstreamVerification`
 
@@ -298,8 +294,8 @@ UpstreamSync.verifyHistory(runId, expectedHead) -> upstreamVerificationRef
 UpstreamSync.handoffAfterDraftPublish(runId, consumedInitialPublicationResultRef)
 ```
 
-After Task provisioning, and after every accepted history command, the runtime
-owns a separate `Operation(kind=UPSTREAM_SYNC)`. The dispatcher claims that
+After Task provisioning, and after every program-recorded resolved conflict,
+the runtime owns a separate `Operation(kind=UPSTREAM_SYNC)`. The dispatcher claims that
 operation and its writer lease, then `UpstreamSyncRunner` verifies expected
 head/worktree evidence and performs the next deterministic action. It may run
 successive clean `git cherry-pick -x <sha>` steps inside the same claimed
@@ -332,64 +328,43 @@ code alone.
 ## Task Agent tools in upstream-sync mode
 
 ```text
-read_upstream_pick(pick_id)
-read_upstream_diff(upstream_sha, path?, range?)
-read_conflict_file(pick_id, path, range?)
-read_fork_context(query, paths?)
-run_checks(command[], working_directory) -> LocalCheckRunRef[]
-continue_upstream_pick(pick_id) -> ACCEPTED_SEALED or actionable tool error
-commit_upstream_fixup(pick_id, paths) -> ACCEPTED_SEALED or actionable tool error
-commit_upstream_standalone(paths, message) -> ACCEPTED_SEALED or actionable tool error
-request_user_input(question) -> userRequestId
-spawn_agent(role="adversarial_reviewer") -> reviewRequestId
-ready_for_review() -> ACCEPTED_SEALED or actionable tool error
+read_pick_conflict_context()
+list_repository(path?)
+read_file(path)
+search_repository(query)
+write_file(path, content)
+replace_file_lines(path, start_line, end_line, content)
+delete_file(path)
 ```
+
+Those are the complete conflict-turn capabilities. There is no
+`commit_pick_repair`, `decline_pick_repair`, `ready`, or `continue` tool.
+Final-review turns separately expose candidate reads, bounded checks, local
+commit support, and `request_initial_review`; those capabilities do not let a
+conflict agent select the next pick state.
 
 The optional Trunk/UI tool
 `request_upstream_sync_preview(...) -> ACCEPTED(requestId)` is only a thin call
 to `requestPreview`; it persists asynchronous work and returns. It does not
 start a Task or execute Git.
 
-The Task Agent edits with its normal code tools. Each specialized mutation tool
-makes history intent explicit and is terminal for that Agent run:
-
-The `UPSTREAM_SYNC` capability policy permits file edits but denies direct
-commit, cherry-pick, rebase, reset, and history-rewrite commands. Only the
-terminal tools below can request those mutations from the later fenced program
-operation.
-
-- `continue_upstream_pick` records the selected current pick; the later
-  operation verifies the resolved index, runs `cherry-pick --continue`, and
-  verifies `-x` provenance.
-- `commit_upstream_fixup` records changed paths and an owner pick; the later
-  operation creates the path-scoped commit and safely places/combines the one
-  logical fixup adjacent to its owner.
-- `commit_upstream_standalone` records the explicit judgment that no one pick
-  owns the change; the later operation appends it at the current tip.
-
-On acceptance, the handler binds the authenticated Task/run/head/fence, records
-the `UpstreamHistoryCommand`, seals the worktree digest, and atomically creates
-the separate `UPSTREAM_SYNC` operation/nonclaimable ticket **and** sets
-`Task.reserved_mutation_operation_id` to that successor. It then seals the
-Agent run and disables further tools. `AgentRuns.finish` alone persists the run
-result, releases its fence/selected pointer, and returns the persistent session
-to `IDLE` while preserving the reservation. The reservation is a durable
-admission barrier: after the Agent lease is released, no Task, CI, or recovery
-writer except the named successor can acquire. Only after the opaque Agent
-result is durable, the predecessor selected-writer pointer is cleared, and its
-lease is released does the runtime make that successor ticket eligible to claim
-a fresh writer lease. The runner
-rechecks the sealed digest before Git. There is never a nested operation or two
-valid writer leases.
+The conflict agent does not stage, commit, cherry-pick, rebase, reset, or
+rewrite history. It finishes normally after editing. While the same fenced
+Task operation still owns the worktree, the coordinator performs the mechanical
+Git continuation and persists the result. Task finalization then reads that
+durable result, consumes the current input, and schedules deterministic picking.
+If the mechanical checks fail, the program aborts the sequencer to the recorded
+head and parks with objective evidence; agent prose cannot override that result.
 
 For a material question the agent uses the one shared terminal
 `request_user_input` contract. It stores the question and a program-measured
 sealed worktree/sequencer state; the runtime blocks every writer until the exact
-answer-bound successor resumes it. `ready_for_review()` similarly seals the
-final candidate; `ACCEPTED_SEALED` is not a gate ID or authority.
+answer-bound successor resumes it. Program preflight similarly seals the final
+candidate without consuming agent prose or a readiness verdict.
 
-The agent supplies semantic owner/path/message choices, not expected heads,
-lease fences, Task IDs, or a JSON result. Those come from the authenticated run.
+The agent supplies file edits, not expected heads, lease fences, Task IDs,
+state names, or a JSON result. Those come from the authenticated run and
+program-owned Git inspection.
 
 ### Conflict launch envelope
 
@@ -459,40 +434,27 @@ create hundreds of model turns.
    Project Intelligence projection; the Task Agent queries Project Intelligence
    itself when useful.
 2. The agent reads both upstream intent and fork context, edits the conflict,
-   and runs useful local checks.
-3. It calls terminal `continue_upstream_pick(pickId)`. The handler records the
-   command and separate operation/ticket, seals the Agent run, and returns
-   `ACCEPTED_SEALED`; it runs no Git.
-4. After the Agent result is durable and its lease is released, the dispatcher
-   claims the separate `UPSTREAM_SYNC` operation and writer lease. The runner
-   verifies the sealed resolved index, continues the pick, checks `-x`
-   provenance, captures the resulting head, and records execution evidence.
-5. If further fork adaptation is necessary, the Task Agent edits and calls
-   `commit_upstream_fixup` for the honest semantic owner, or
-   `commit_upstream_standalone` when no owner exists.
-6. Program picking resumes at the next selected commit.
+   then finishes normally without staging or committing.
+3. After the agent process stops, the coordinator still owns the same exact
+   writer fence. Program code verifies the resolved index, stages the files,
+   runs `cherry-pick --continue`, checks `-x` provenance, adopts the resulting
+   head, and records the pick as `RESOLVED` with its change-set revision.
+4. Task finalization stores only the technical agent completion, proves the
+   resolved-pick records belong to this exact run and operation, consumes the
+   current input, and schedules deterministic picking.
+5. Program picking resumes at the next selected commit.
 
-If the agent cannot make a sound decision, it calls `request_user_input`. It
-does not hide a marker in final prose or use an upstream-specific waiting path.
+If the agent leaves markers, unmerged entries, or an otherwise unresolved
+index, the program does not infer intent from its response. It aborts the
+sequencer back to the recorded head and parks with objective evidence.
 
-### 4. Keep fixups reviewable
+### 4. Keep fork corrections reviewable
 
-For an owner that already has a logical fixup, a later
-`commit_upstream_fixup`:
-
-1. terminally seals/parks the Agent run and persists its semantic command plus a
-   separate `UPSTREAM_SYNC` operation;
-2. after lease handoff, the operation creates a backup at the exact current tip;
-3. creates the new path-scoped repair commit;
-4. combines old and new repair content into one logical fixup;
-5. places it directly after the mapped picked commit using a tight internal
-   range;
-6. updates all affected logical-to-current SHA mappings;
-7. proves the final tree equals the pre-rewrite intended tree; and
-8. records a `HistorySafetyReceipt` before dropping the temporary backup.
-
-An attribution-only rewrite with a changed final tree is failure and restores
-the backup.
+Conflict-resolution commits retain exact `-x` provenance. Any later fork
+correction made during final review is committed at the current tip and adopted
+as a Task change-set revision; it is not hidden by a history-control tool. The
+reviewer receives immutable commit-history reads and must inspect every
+conflict resolution and fork-authored correction, regardless of commit subject.
 
 ### 5. Target branch moves
 
@@ -502,9 +464,9 @@ the target's resolved SHA.
 - If unchanged, continue.
 - If moved, persist a base-integration intent and stop normal picking.
 - Integrating the new base is a deliberate semantic rebase, distinct from
-  fixup placement. A separate `UPSTREAM_SYNC` operation claims the writer lease
-  and begins it under backup; conflicts return to the Task Agent using the same
-  terminal-command handoff.
+  ordinary picking. A separate `UPSTREAM_SYNC` operation claims the writer
+  lease and begins it under backup; conflicts return to the Task Agent using
+  the same edit-only handoff and program-owned continuation.
 - After the integrated tree/head is proven, that operation calls
   `TaskBases.advance(...)` with the integration receipt, then
   `ChangeSets.adopt(...)`. The resulting change set freezes the new exact
@@ -532,8 +494,8 @@ After the last pick:
    instruction or reports that there are no comments. The Task Agent judges
    every observation; no program branch interprets prose.
 6. If code changes, Task commits and validates the exact Task-turn descendant.
-   Whether it fixes or ignores comments, it then calls
-   `ready_for_initial_publish()`. It does not request another initial review.
+   Whether it fixes or ignores comments, it finishes normally. It does not
+   request another initial review.
 7. The stopped Task finalizer mechanically validates the consumed handoff,
    verification, draft, checks, and repository observation. It atomically opens
    the `INITIAL_PUBLISH` gate, marks the report input handled, transitions the
@@ -657,12 +619,11 @@ execute a program-chosen check.
   produce a new preview.
 - **Crash during preview:** reclaim the same `PREVIEW_UPSTREAM_SYNC` ticket and
   store one idempotent preview; no partial Task exists.
-- **Crash after a terminal history tool:** do not claim its `UPSTREAM_SYNC`
-  ticket until the Agent result is finalized, the old lease is released, and
-  the sealed worktree digest still matches. Its mutation-admission reservation
-  blocks every unrelated writer. Clear the reservation only after success or a
-  proven clean restore; otherwise transfer it to a typed recovery operation or
-  quarantine the Task.
+- **Crash after conflict editing:** do not inspect or continue Git until the old
+  process is proven stopped and its capability is revoked. Recover under the
+  exact Task operation and fence, then either finish the program-owned
+  continuation or restore the recorded pre-head and park. No agent tool call is
+  replayed as transition authority.
 - **Target moves repeatedly:** finish or restore the active internal operation,
   then enqueue one latest-base integration. Do not stack rebases.
 - **Budget exhausted/agent parks:** the conflict-repair turn budget is an

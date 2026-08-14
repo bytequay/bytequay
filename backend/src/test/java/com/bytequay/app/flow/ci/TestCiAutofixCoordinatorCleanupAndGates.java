@@ -1094,7 +1094,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                 ready.binding(),
                 ready.claim(),
                 capability -> {
-                    assertThatThrownBy(capability::readyForReview)
+                    assertThatThrownBy(capability::completeReview)
                             .isInstanceOf(IllegalStateException.class)
                             .hasMessageContaining("forced terminal");
                     try {
@@ -1150,8 +1150,8 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.claim(),
                         capability -> {
                             acceptance.set(
-                                    capability.readyForReview().status());
-                            assertThatThrownBy(capability::readyForReview)
+                                    capability.completeReview().status());
+                            assertThatThrownBy(capability::completeReview)
                                     .isInstanceOf(FlowRuntime
                                             .StaleCapabilityException.class);
                             assertThatThrownBy(
@@ -1263,7 +1263,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            assertThatThrownBy(capability::readyForReview)
+                            assertThatThrownBy(capability::completeReview)
                                     .isInstanceOf(RuntimeException.class)
                                     .hasMessageContaining(
                                             "forced ready subject failure");
@@ -1453,7 +1453,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.CANCELED,
@@ -1488,7 +1488,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,
@@ -1523,7 +1523,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                 ready.claim(),
                 capability -> {
                     capability.runChecks();
-                    assertThatThrownBy(capability::readyForReview)
+                    assertThatThrownBy(capability::completeReview)
                             .isInstanceOf(UserGates
                                     .ReadyRejectedException.class)
                             .hasMessageContaining(
@@ -1558,7 +1558,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            assertThat(capability.readyForReview().status())
+                            assertThat(capability.completeReview().status())
                                     .isEqualTo("ACCEPTED_SEALED");
                             sealed.countDown();
                             awaitLatch(release);
@@ -1646,7 +1646,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             sealed.countDown();
                             awaitLatch(finishBody);
                             return new InProcessWriterAgentSupervisor
@@ -1726,7 +1726,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            assertThatThrownBy(capability::readyForReview)
+                            assertThatThrownBy(capability::completeReview)
                                     .isInstanceOf(UserGates
                                             .ReadyRejectedException.class)
                                     .hasMessageContaining(
@@ -1766,7 +1766,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,
@@ -1810,7 +1810,7 @@ class TestCiAutofixCoordinatorCleanupAndGates
                         capability -> {
                             successor.set(
                                     capability.spawnAdversarialReviewer());
-                            assertThatThrownBy(capability::readyForReview)
+                            assertThatThrownBy(capability::completeReview)
                                     .isInstanceOf(FlowRuntime
                                             .StaleCapabilityException.class);
                             return new InProcessWriterAgentSupervisor

@@ -228,15 +228,17 @@ public final class UpstreamSyncCoordinator
         }
         AgentCompletion completion = bodies.initialTask(
                 binding, worktree, capability, true,
-                agentActivity(run.runId(), false));
+                agentActivity(run.runId(), false),
+                () -> preparePublication(worktree, taskId, run));
         if (upstreamSync.closeRequested(run.runId())) {
             return closeAtBoundary(run.runId());
         }
-        if (completion.terminalOutcome() != TerminalOutcome.COMPLETED
-                || runtime.readyForReviewRequestForRun(binding.runId())
-                        .isPresent()) {
-            return completion;
-        }
+        return completion;
+    }
+
+    private void preparePublication(
+            Path worktree, String taskId, UpstreamSyncRun run)
+    {
         UpstreamSyncRequest request = upstreamSync.request(run.requestId())
                 .orElseThrow();
         UpstreamPicker picker = new UpstreamPicker(worktree);
@@ -248,7 +250,6 @@ public final class UpstreamSyncCoordinator
         Task task = runtime.task(taskId).orElseThrow();
         String targetBaseRef = provisioning.targetBaseRef(taskId);
         publishPolicies(task, targetBaseRef, picker);
-        return completion;
     }
 
     private AgentCompletion conflictTurn(
@@ -356,8 +357,9 @@ public final class UpstreamSyncCoordinator
     /**
      * Resumes the Task Agent for the one semantic part of a pick.
      *
-     * <p>The agent deterministically reopens the recorded conflict, edits it,
-     * and commits exactly that pick before handing control back to the program.
+     * <p>Program code deterministically reopens the recorded conflict. The
+     * agent edits it and stops; program code then commits exactly that pick
+     * before the state machine can advance.
      */
     private String repairRange(
             NewFlowAgentLaunches.Binding binding,
@@ -375,7 +377,6 @@ public final class UpstreamSyncCoordinator
         upstreamSync.spendRepairTurn(runId);
         String targetSubject = capability.callTool(() ->
                 picker.subject(conflict.upstreamSha()));
-        AtomicBoolean declined = new AtomicBoolean();
         AtomicBoolean terminal = new AtomicBoolean();
         NewFlowWorkspaceTools workspace = new NewFlowWorkspaceTools(worktree);
         ToolExecutor executor = bodies.bounded(terminal, call ->
@@ -412,38 +413,6 @@ public final class UpstreamSyncCoordinator
                                 NewFlowAgentBodies.text(call, "path"));
                         return "deleted";
                     });
-                    case "commit_pick_repair" -> NewFlowAgentBodies.safe(() -> {
-                        PickResult continued = capability.callTool(() ->
-                                picker.continuePick(
-                                        conflict.preHead(),
-                                        conflict.upstreamSha(),
-                                        conflict.conflictedPaths()));
-                        if (!continued.provenanceVerified()) {
-                            throw new UnresolvedRepairException(
-                                    "continued pick carries no -x provenance");
-                        }
-                        String revision = adopt(
-                                capability, taskId, continued.head());
-                        upstreamSync.resolvePick(
-                                conflict.pickId(), continued.head(),
-                                continued.commitSha(),
-                                continued.provenanceVerified(), revision);
-                        capability.continueUpstreamSync();
-                        terminal.set(true);
-                        return "conflicted pick continued; the program will "
-                                + "pick the next commit in a new turn";
-                    });
-                    // An explicit decline, which parks the run for the user.
-                    // This used to be spelled `request_initial_review`, whose
-                    // own program prompt instructs the agent to call it — so a
-                    // declined conflict was one prompt-following away.
-                    case "decline_pick_repair" -> {
-                        declined.set(true);
-                        terminal.set(true);
-                        yield ToolCallResult.error(
-                                "the conflict was declined; the run parks for "
-                                        + "the user");
-                    }
                     default -> ToolCallResult.error("tool is not available");
                 });
         TurnResult turn = bodies.upstreamPickRepair(
@@ -453,14 +422,30 @@ public final class UpstreamSyncCoordinator
                 terminal, worktree, capability,
                 agentActivity(runId, !binding.isApi()));
         publishTurnEnd(runId, turn);
-        if (terminal.get() && !declined.get()) {
-            return null;
+        if (turn.end() != TurnResult.End.COMPLETED
+                && turn.end() != TurnResult.End.MAX_STEPS) {
+            return "CONFLICT_UNRESOLVED";
         }
-        String reason = declined.get()
-                ? "CONFLICT_DECLINED" : "CONFLICT_UNRESOLVED";
-        log.info("upstream sync turn parked after pick {} ({}, {})",
-                conflict.pickId(), turn.end(), reason);
-        return reason;
+        PickResult continued;
+        try {
+            continued = capability.callTool(() -> picker.continuePick(
+                    conflict.preHead(), conflict.upstreamSha(),
+                    conflict.conflictedPaths()));
+        }
+        catch (UnresolvedRepairException unresolved) {
+            log.info("upstream conflict {} remains unresolved after agent stop",
+                    conflict.pickId());
+            return "CONFLICT_UNRESOLVED";
+        }
+        if (!continued.provenanceVerified()) {
+            throw new UnresolvedRepairException(
+                    "continued pick carries no -x provenance");
+        }
+        String revision = adopt(capability, taskId, continued.head());
+        upstreamSync.resolvePick(
+                conflict.pickId(), continued.head(), continued.commitSha(),
+                continued.provenanceVerified(), revision);
+        return null;
     }
 
     private String finalReview(
@@ -854,9 +839,9 @@ public final class UpstreamSyncCoordinator
                 + picker.upstreamDiff(
                         pick.upstreamSha(), MAX_UPSTREAM_DIFF_CHARS)
                 + "\nThe conflicted index and cherry-pick sequencer are still"
-                + " open. Edit the conflicted paths, then call the repair"
-                + " tool; the program rejects markers or unmerged entries"
-                + " before running cherry-pick --continue.");
+                + " open. Edit the conflicted paths and finish normally. The"
+                + " program rejects markers or unmerged entries before"
+                + " running cherry-pick --continue.");
     }
 
     private String draftTitle(UpstreamSyncRequest request, int count)

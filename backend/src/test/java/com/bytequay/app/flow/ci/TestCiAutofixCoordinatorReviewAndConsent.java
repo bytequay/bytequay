@@ -92,7 +92,7 @@ class TestCiAutofixCoordinatorReviewAndConsent
                         second.claim(),
                         capability -> {
                             bodies.incrementAndGet();
-                            capability.readyForReview();
+                            capability.completeReview();
                             sealed.countDown();
                             awaitLatch(release);
                             return new InProcessWriterAgentSupervisor
@@ -409,7 +409,7 @@ class TestCiAutofixCoordinatorReviewAndConsent
                         continuationBinding,
                         continuation,
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,
@@ -646,8 +646,8 @@ class TestCiAutofixCoordinatorReviewAndConsent
         var start = runtime.startReviewerAgent(
                 reviewer.request().requestId(),
                 redriven,
-                "adversarial-reviewer-prompt:v4",
-                "immutable-git-object-reader:v2");
+                "adversarial-reviewer-prompt:v6",
+                "immutable-git-object-reader:v4");
         assertThat(start.run().runId()).isEqualTo(reviewer.start().run().runId());
         assertThat(redriven.generation())
                 .isEqualTo(reviewer.claim().generation() + 1);
@@ -1064,7 +1064,7 @@ class TestCiAutofixCoordinatorReviewAndConsent
                         ready.binding(),
                         ready.claim(),
                         capability -> {
-                            capability.readyForReview();
+                            capability.completeReview();
                             return new InProcessWriterAgentSupervisor
                                     .AgentCompletion(
                                             TerminalOutcome.COMPLETED,

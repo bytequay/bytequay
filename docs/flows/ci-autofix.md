@@ -783,8 +783,10 @@ The Task Agent:
 3. runs checks on the final committed candidate;
 4. spawns a fresh read-only adversarial reviewer for that exact head;
 5. acts on the review prose; and
-6. calls `ready_for_review()`, which returns `ACCEPTED_SEALED` or an actionable
-   tool error.
+6. finishes normally. Program preflight then verifies the report was consumed,
+   Git is clean and committed, no Git operation remains, and the candidate diff
+   introduces no conflict markers. It resumes the same Task session at most
+   five times for mechanical repair.
 
 The reviewer request is a zero-argument terminal Task tool: the program freezes
 the current revision, exact head/tree/diff, the Task turn's frozen remote input,

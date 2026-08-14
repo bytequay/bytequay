@@ -41,7 +41,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -758,7 +757,6 @@ final class TestNewFlowCliTurn
 
         UpstreamPicker picker = new UpstreamPicker(range.worktree());
         ActiveConflict active = conflict(conflictedCommit, picker);
-        AtomicInteger repaired = new AtomicInteger();
         ToolExecutor executor = call -> {
             try {
                 return switch (call.name()) {
@@ -783,15 +781,6 @@ final class TestNewFlowCliTurn
                                 text(call, "content"),
                                 StandardCharsets.UTF_8);
                         yield ToolExecutor.ToolCallResult.ok("written");
-                    }
-                    case "commit_pick_repair" -> {
-                        PickResult continued = picker.continuePick(
-                                active.result().head(), active.sha(),
-                                active.result().conflictedPaths());
-                        assertThat(continued.provenanceVerified()).isTrue();
-                        repaired.incrementAndGet();
-                        yield ToolExecutor.ToolCallResult.ok(
-                                "conflict repaired");
                     }
                     default -> ToolExecutor.ToolCallResult.error(
                             "tool is not available");
@@ -876,7 +865,10 @@ final class TestNewFlowCliTurn
                             StreamEvent.ToolCallDone.class,
                             done -> assertThat(done.outputJson())
                                     .contains("native contents")));
-            assertThat(repaired).hasValue(1);
+            PickResult continued = picker.continuePick(
+                    active.result().head(), active.sha(),
+                    active.result().conflictedPaths());
+            assertThat(continued.provenanceVerified()).isTrue();
             assertThat(picker.clean()).isTrue();
             String history = ConflictRange.git(
                     range.worktree(), "log", "-1", "--format=%B");
@@ -910,8 +902,7 @@ final class TestNewFlowCliTurn
     {
         var tools = MAPPER.createArrayNode();
         for (String name : List.of(
-                "read_pick_conflict_context", "read_file", "write_file",
-                "commit_pick_repair")) {
+                "read_pick_conflict_context", "read_file", "write_file")) {
             tools.addObject().put("name", name)
                     .putObject("inputSchema").put("type", "object");
         }
@@ -945,8 +936,7 @@ final class TestNewFlowCliTurn
                 rpc '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_pick_conflict_context","arguments":{}}}'
                 rpc '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"one.txt"}}}'
                 rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"one.txt","content":"resolved one\\n"}}}'
-                rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"commit_pick_repair","arguments":{}}}'
-                echo '{"type":"result","subtype":"success","result":"conflict repaired"}'
+                echo '{"type":"result","subtype":"success","result":"conflict edited"}'
                 """, StandardCharsets.UTF_8);
         Files.setPosixFilePermissions(executable,
                 PosixFilePermissions.fromString("rwxr-xr-x"));

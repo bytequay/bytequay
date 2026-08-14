@@ -774,7 +774,8 @@ public final class TaskProvisioning
                         COMMAND_FAILED, INTERRUPTED -> ObservedState.UNKNOWN;
                 case NOT_WORKTREE, WRONG_REPOSITORY, DETACHED_HEAD,
                         WRONG_BRANCH, BRANCH_HEAD_MISMATCH, DIRTY,
-                        GIT_OPERATION_IN_PROGRESS, BASE_NOT_FOUND,
+                        GIT_OPERATION_IN_PROGRESS, CONFLICT_MARKERS,
+                        BASE_NOT_FOUND,
                         PREDECESSOR_NOT_FOUND, BASE_NOT_ANCESTOR,
                         PREDECESSOR_NOT_ANCESTOR, CLEAN,
                         UNTRUSTED_REPOSITORY_STATE, OUTPUT_LIMIT ->

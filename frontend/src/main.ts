@@ -634,6 +634,14 @@ function registerIpc(): void {
 
   ipcMain.handle('pat:has', async () => {
     try {
+      // This answer decides whether onboarding shows at all, so it must not
+      // fire against a backend that is still booting (dev mode, where nothing
+      // waits on it). A "no" from an unreachable backend drops the user on
+      // onboarding, where the gh and OAuth probes race the same booting
+      // backend, lose, and latch "gh isn't installed" for the session.
+      // Returns fast once a start failure is recorded, so a genuinely dead
+      // backend still falls through rather than hanging the splash.
+      if (!await waitForBackendReady()) return false;
       const res = await fetch(`${BACKEND_BASE}/api/credentials/account/exists`);
       if (!res.ok) return false;
       const body = await res.json() as { configured?: boolean };

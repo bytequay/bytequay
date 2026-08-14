@@ -123,6 +123,8 @@ public final class FlowRuntimeRecords
     public enum TaskTerminalRequestKind
     {
         REVIEWER,
+        /** Installed databases may still contain this ignored legacy value. */
+        CONTINUE_UPSTREAM_SYNC,
         READY_FOR_REVIEW
     }
 

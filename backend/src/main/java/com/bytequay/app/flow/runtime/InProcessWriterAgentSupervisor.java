@@ -250,6 +250,12 @@ public final class InProcessWriterAgentSupervisor
                     prId, changeSetRevisionId, headSha, title, body);
         }
 
+        /** Reads and removes this Task's sole waiting reviewer report. */
+        public String askReviewReport()
+        {
+            return execution.askReviewReport();
+        }
+
         /** Terminal Task tool; its immutable request durably seals all tools. */
         public ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
@@ -1193,6 +1199,19 @@ public final class InProcessWriterAgentSupervisor
                     changeSetRevisionId, headSha, runId, title, body));
         }
 
+        private String askReviewReport()
+        {
+            return callTool(() -> {
+                String report = ReviewReportFile.ask(currentTask());
+                if (report.isBlank()) {
+                    return "No review comments were left by the subagent.";
+                }
+                return "Review comments from a subagent follow. Fix the "
+                        + "reasonable comments and ignore the unreasonable "
+                        + "ones.\n\n" + report;
+            });
+        }
+
         private void renewFor(Duration requiredTtl)
         {
             Claim previousClaim;
@@ -1229,6 +1248,7 @@ public final class InProcessWriterAgentSupervisor
                 }
             }
             return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
                 FlowRuntime.PreparedReviewerRequest prepared =
                         runtime.prepareReviewerRequest(
                                 runId,
@@ -1261,13 +1281,16 @@ public final class InProcessWriterAgentSupervisor
                             "terminal tool requires the owned writer thread");
                 }
             }
-            return callTerminalTool(() -> runtime.replayReviewerRequest(
-                    runId,
-                    programOwnedRepositoryRoot,
-                    expectedChangeSetRevisionId,
-                    origin,
-                    localCheckPolicyRevisionId,
-                    checkRunRefs));
+            return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
+                return runtime.replayReviewerRequest(
+                        runId,
+                        programOwnedRepositoryRoot,
+                        expectedChangeSetRevisionId,
+                        origin,
+                        localCheckPolicyRevisionId,
+                        checkRunRefs);
+            });
         }
 
         private ReviewerRequest spawnInitialAdversarialReviewer(
@@ -1282,6 +1305,7 @@ public final class InProcessWriterAgentSupervisor
                 }
             }
             return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
                 FlowRuntime.PreparedReviewerRequest prepared =
                         runtime.prepareInitialReviewerRequest(
                                 runId, claim, fence,
@@ -1307,11 +1331,13 @@ public final class InProcessWriterAgentSupervisor
                             "terminal tool requires the owned writer thread");
                 }
             }
-            return callTerminalTool(() ->
-                    runtime.replayInitialReviewerRequest(
-                            runId, programOwnedRepositoryRoot,
-                            expectedChangeSetRevisionId,
-                            localCheckPolicyRevisionId, checkRunRefs));
+            return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
+                return runtime.replayInitialReviewerRequest(
+                        runId, programOwnedRepositoryRoot,
+                        expectedChangeSetRevisionId,
+                        localCheckPolicyRevisionId, checkRunRefs);
+            });
         }
 
         private TaskTerminalRequest continueUpstreamSync()
@@ -1342,10 +1368,13 @@ public final class InProcessWriterAgentSupervisor
                 }
             }
             if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
-                return callTerminalTool(
-                        () -> userGates.replayReadyRequest(runId));
+                return callTerminalTool(() -> {
+                    ReviewReportFile.requireAbsent(currentTask());
+                    return userGates.replayReadyRequest(runId);
+                });
             }
             return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
                 PreparedReadyRequest prepared = userGates.prepareReadyRequest(
                         runId,
                         claim,
@@ -1380,10 +1409,13 @@ public final class InProcessWriterAgentSupervisor
                 }
             }
             if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
-                return callTerminalTool(
-                        () -> userGates.replayInitialReadyRequest(runId));
+                return callTerminalTool(() -> {
+                    ReviewReportFile.requireAbsent(currentTask());
+                    return userGates.replayInitialReadyRequest(runId);
+                });
             }
             return callTerminalTool(() -> {
+                ReviewReportFile.requireAbsent(currentTask());
                 PreparedInitialReadyRequest prepared =
                         userGates.prepareInitialReadyRequest(
                                 runId, claim, fence, repositoryRoot,
@@ -1393,6 +1425,20 @@ public final class InProcessWriterAgentSupervisor
                         attempt.processAttemptId(), attempt.capabilityId(),
                         prepared);
             });
+        }
+
+        private FlowRuntimeRecords.Task currentTask()
+        {
+            FlowRuntimeRecords.AgentRun run = runtime.run(runId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "writer run disappeared during execution"));
+            FlowRuntimeRecords.Operation operation = runtime.operation(
+                    run.operationId()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "writer operation disappeared during execution"));
+            return runtime.task(operation.taskId()).orElseThrow(() ->
+                    new IllegalStateException(
+                            "writer Task disappeared during execution"));
         }
 
         private synchronized void adoptCurrentOwner(

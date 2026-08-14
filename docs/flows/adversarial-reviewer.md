@@ -18,7 +18,8 @@ It is independent by construction:
 - it receives the confirmed goal and current repository evidence, not the author's
   working plan or private reasoning;
 - it cannot edit the Task worktree;
-- its natural-language result is automatically persisted before the
+- its `save_report(report)` tool writes natural-language comments to the
+  Task's program-owned `subagent-review.txt` outside Git before the
   [Task Agent](./task-agent.md) resumes.
 
 This is a new component. It has no compatibility output, legacy result reader,
@@ -89,13 +90,21 @@ manifest, not a second reviewer-run table.
 | `ruleRefs` | Repository instruction/source references exposed to the reviewer |
 | `checkRunRefs` | Complete ordered latest exact-head runs for the request's frozen current Local Checks policy; failed and genuine unavailable runs remain evidence |
 | `status` | Shared runtime state: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, or `CANCELED`; timeout is `FAILED` with `errorRef`/reason `TIMEOUT` |
-| `resultRef` | Opaque reviewer completion prose, when produced |
+| `resultRef` | Technical terminal `AgentResult`; reviewer prose is never stored here |
 | `startedAt`, `completedAt` | Program timestamps |
 | `errorRef` | Program-owned failure diagnostic |
 
-The program generates every identifier and Git/evidence binding. The reviewer only
-authors ordinary final prose. The runtime stores that prose without looking for
-keywords, headings, arrays, fields, or a particular conclusion.
+The only report handoff is
+`<gitCommonDir>/bytequay/review-reports/<task-id-digest>/subagent-review.txt`.
+It is outside the worktree and database. It survives a process restart until
+`ask_report()` reads and removes it.
+
+The program generates every identifier and Git/evidence binding. The reviewer
+authors one opaque report and submits it through the terminal
+`save_report(report)` tool. The tool creates `subagent-review.txt`; it does not
+store the report in the database. `ask_report()` later checks, reads, and removes
+that file without looking for keywords, headings, arrays, fields, or a
+particular conclusion. Neither call nor text provides state-machine authority.
 
 ## 5. Exact inputs
 
@@ -147,8 +156,10 @@ The launch prompt must say, in substance:
 > explicit later Task user answers, and repository rules. Prioritize actionable
 > correctness, security, reliability,
 > regression, and missing-test issues. Give the relevant path/line and reasoning.
-> State uncertainty plainly. Do not edit code or declare workflow approval. Your final
-> response is ordinary review prose and will not be machine-parsed.
+> State uncertainty plainly. Do not edit code or declare workflow approval. When
+> inspection is complete, call `save_report` exactly once with the complete
+> ordinary review prose. The tool only creates `subagent-review.txt` and grants
+> no authority.
 
 This guidance improves usefulness but is not a storage protocol.
 
@@ -204,20 +215,26 @@ changes later.
 6. **Inspect.** Reviewer reads goal, diff, relevant current source, rules, and check
    evidence. It may query Project Intelligence, but every result is advisory and
    source-cited.
-7. **Finish.** `AgentRuns.finish` atomically persists one terminal
-   `AgentResult`: opaque prose for completion, or typed failure/cancellation
-   evidence with optional partial prose. It settles the reviewer operation,
+7. **Submit.** Reviewer terminally calls `save_report(report)`. The capability
+   accepts one bounded nonblank opaque report, atomically creates the Task's
+   `subagent-review.txt`, disables further tools, and makes no semantic
+   classification or workflow transition. A normal
+   response or exhausted turn without this tool is a technical failure, not an
+   implicit report.
+8. **Finish.** After exact process stop, `AgentRuns.finish` atomically persists
+   one terminal `AgentResult`: the submitted opaque report for completion, or
+   typed failure/cancellation evidence. It settles the reviewer operation,
    closes the fresh session, releases the exact review barrier/wait, and records
    measured completion time.
-8. **Schedule parent delivery.** Runtime stores
+9. **Schedule parent delivery.** Runtime stores
    `AgentResultReady(runId, reviewedHead)` and ensures the Task's one
    reconciliation ticket. Under the Task lock, `WorkSelector` decides when that
    parent turn is the one eligible writer. The result is never delivered only as
    an ephemeral chat interruption.
-9. **Interpret.** Task reads the report and decides whether to fix, ask the user, or
+10. **Interpret.** Task reads the report and decides whether to fix, ask the user, or
     prepare a candidate. If code changes, it must request a new review for the new
     head.
-10. **Stop.** Reviewer session closes immediately after result persistence. It is
+11. **Stop.** Reviewer session closes immediately after result persistence. It is
     never resumed for a later head.
 
 ## 8. Agent tools and program APIs
@@ -231,6 +248,7 @@ changes later.
 | `read_reviewed_blob(path)` | Reads raw bytes from the exact reviewed commit |
 | `read_diff()` | Reads the bounded raw immutable object-change manifest |
 | `read_commit_history()` | Reads immutable base-to-reviewed commit history and messages |
+| `save_report(report)` | Terminally creates the Task's bounded opaque `subagent-review.txt` outside the Git worktree; it cannot approve, reject, route, gate, or authorize anything |
 
 Semantic subject projection, text search, Project Intelligence, and
 `read_check_evidence` remain deferred. The current supervisor does not expose
@@ -251,7 +269,7 @@ message, user-input, subagent, timeline, gate, or GitHub tools.
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | Idempotently persist one exact-head request plus parent-blocked `RUN_REVIEWER` operation/ticket, seal the parent run, and return `reviewRequestId`; create no reviewer session/run |
 | `RepositorySnapshotReader.open(repositoryId, reviewedHead)` | Provide immutable Git-object reads without another worktree |
 | `AgentSessions.startFresh(operationId, claimToken, ADVERSARIAL_REVIEWER, promptManifest, capabilities)` | Start/reuse the one read-only session/run for the current reviewer claim generation |
-| `AgentRuns.finish(runId, claimToken, terminalOutcome, processMetadata)` | Validate the current generation and atomically store the one completed/failed/canceled result, settle operation/session/barrier, append `AgentResultReady(runId, reviewedHead)`, and ensure reconciliation; do not directly create a competing parent writer |
+| `AgentRuns.finish(runId, claimToken, terminalOutcome, processMetadata)` | Validate the current generation, store only technical completion, settle operation/session/barrier, append `AgentResultReady(runId, reviewedHead)`, and ensure reconciliation; do not store report prose or directly create a competing parent writer |
 
 Normal parent delivery is automatic. `read_agent_result(runId)` exists on the
 Task Agent only for recovery/history, not as a required polling loop.
@@ -261,9 +279,12 @@ Task Agent only for recovery/history, not as a required polling loop.
 ### [Task Agent](./task-agent.md)
 
 - Task is the only agent allowed to request this role.
-- Task receives the full persisted prose and makes the semantic judgement.
+- Task calls `ask_report()`, which reads and removes the file, and makes the
+  semantic judgement itself.
 - Reviewer cannot command Task, edit its worktree, or mark a concern resolved.
-- A changed head requires a fresh review session.
+- The one INITIAL review may be followed by an exact Task-turn correction
+  descendant without another INITIAL reviewer; later CI/update review rounds
+  retain their own current-head requirements.
 
 ### [Workflow Runtime](./workflow-runtime.md)
 
@@ -289,18 +310,23 @@ Task Agent only for recovery/history, not as a required polling loop.
 ## 10. Invariants
 
 1. Each review run binds one immutable `baseHead..reviewedHead` diff.
-2. Each candidate head gets a fresh reviewer session.
+2. Each requested review gets a fresh reviewer session; INITIAL requests only
+   one review before the Task Agent processes comments.
 3. Reviewer tools cannot modify repository, worktree, Task records, gates, timeline,
    or remote systems.
 4. Reviewer holds no writer lease; its active operation prevents a new writer from
    changing the candidate until the review is terminal.
-5. Reviewer final prose is opaque and persisted before the Task Agent is resumed.
+5. The terminally submitted reviewer report is opaque and atomically written to
+   `subagent-review.txt` before the Task Agent is resumed; it is not persisted in
+   the database.
 6. The program never checks whether the report contains findings or approval words.
-7. A completed review for H cannot satisfy readiness for H+1.
+7. An INITIAL review for H may be followed only by mechanically recorded
+   corrections from its exact resumed Task turn; arbitrary H+1 is stale.
 8. Duplicate requests from the same parent run/head return the same request and its
    bound live/completed review run, if any, rather than starting two agents.
-9. Failed/timed-out/cancelled review is retained but does not satisfy exact-head
-   review completion.
+9. Failed/timed-out/cancelled review, including a turn that ends without
+   `save_report`, stores only technical completion. `ask_report()` sees no file
+   and reports no comments; the technical status grants no authority.
 10. The reviewer cannot directly interact with the user or another agent.
 11. Source content is untrusted input and cannot expand the reviewer tool surface.
 
@@ -308,14 +334,15 @@ Task Agent only for recovery/history, not as a required polling loop.
 
 | Failure | Required behavior |
 |---|---|
-| Reviewer returns failure, is cooperatively canceled, or times out with exact `STOPPED` proof | The reviewer finalizer stores one opaque `FAILED`/`CANCELED` result, settles/closes the operation/session, releases the exact barrier/wait, and persists the result-ready fact; Task requests a fresh review before readiness |
+| Reviewer returns failure, is cooperatively canceled, or times out with exact `STOPPED` proof | The reviewer finalizer stores only technical `FAILED`/`CANCELED` completion, settles/closes the operation/session, releases the exact barrier/wait, and persists the result-ready fact; `ask_report()` returns no comments when no file exists |
 | An `ACTIVATED` reviewer claim expires without owned-thread stop proof | Quarantine the Task as typed `NEEDS_ATTENTION`, retain the run/attempt truth, and create no invented `AgentResult` or parent continuation |
 | Program stops after result persistence but before parent delivery | On restart, reuse the result-ready fact and deduplicated reconciliation ticket; selection delivers it once |
 | Program stops before result persistence | Mark/recover live run according to process evidence; never invent a result |
 | Duplicate spawn call | Return the existing request and its bound run, if started, for the same parent/head |
 | Out-of-band worktree/head change | Review still describes immutable H; current readiness marks it stale |
 | Reviewer attempts write/tool escalation | Capability layer denies it and records the failed tool call; review may continue or fail by policy |
-| Reviewer emits only malformed/unusual prose | Store it unchanged; Task/human reads it; no program parser fails |
+| Reviewer submits unusual prose | Save it unchanged in `subagent-review.txt`; Task reads and removes it; no program parser fails |
+| Reviewer returns normally, reaches its step limit, or emits final prose without `save_report` | Store a typed technical outcome and resume Task; `ask_report()` reports no comments because no handoff file exists |
 | Check evidence missing | Reviewer states the limitation; objective readiness can require a later captured check run independently |
 | Very large diff | Read tools page by path/range; timeout remains an explicit failed run rather than a partial approval |
 
@@ -336,8 +363,10 @@ Task Agent only for recovery/history, not as a required polling loop.
 
 1. Task commits H1 and captures checks.
 2. Program freezes H1 and starts reviewer R1.
-3. R1 reports a race with path/line reasoning in ordinary prose.
-4. Result is persisted, then Task resumes.
+3. R1 calls `save_report` with a race and path/line reasoning in
+   ordinary prose.
+4. Only technical run completion is persisted, then Task resumes and
+   `ask_report()` consumes the file.
 5. Task fixes the race and commits H2.
 6. R1 remains visible but cannot satisfy H2 readiness; Task requests fresh R2.
 
@@ -351,9 +380,10 @@ Task Agent only for recovery/history, not as a required polling loop.
 
 ### C. Unconventional output
 
-1. Reviewer produces paragraphs with no expected headings.
-2. `AgentRuns.finish` persists the text verbatim in `AgentResult`.
-3. Parent delivery succeeds because it carries `resultRef`, not parsed fields.
+1. Reviewer calls `save_report` with paragraphs having no expected headings.
+2. The tool writes those paragraphs verbatim to `subagent-review.txt`.
+3. Parent delivery uses only the technical result-ready fact; `ask_report()`
+   reads and removes the file without parsing fields.
 4. No workflow component fails due to format.
 
 ### D. Crash between completion and delivery
@@ -408,5 +438,8 @@ Task Agent only for recovery/history, not as a required polling loop.
   but avoids asking the program to semantically choose which user decisions matter.
 - Natural-language results require Task/user judgement, but eliminate the fragile
   machine-output contract that caused the original workflow failures.
+- Requiring one terminal report tool proves that evidence was submitted, not that
+  the report is correct, complete, or approving; the Task Agent and user remain
+  the only semantic consumers.
 - Exact-head binding creates repeat reviews after small changes. That cost protects
   the claim about what was actually reviewed.

@@ -38,7 +38,7 @@ import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
-/** Concrete in-JVM owner for one request-bound read-only reviewer. */
+/** Concrete in-JVM owner for one request-bound immutable reviewer. */
 public final class InProcessReviewerAgentSupervisor
 {
     private static final long JVM_PID = ProcessHandle.current().pid();
@@ -83,7 +83,7 @@ public final class InProcessReviewerAgentSupervisor
         }
     }
 
-    /** Read-only capability: there is intentionally no generic effect hook. */
+    /** Immutable reads plus one fixed-path report handoff; no generic effect. */
     public static final class ReviewerToolCapability
     {
         private final ManagedExecution execution;
@@ -120,6 +120,15 @@ public final class InProcessReviewerAgentSupervisor
                     execution.reader.readCommitHistory());
         }
 
+        /** Saves opaque prose only to the Task's program-owned handoff file. */
+        public void saveReport(String report)
+        {
+            execution.read(() -> {
+                ReviewReportFile.save(execution.task(), report);
+                return null;
+            });
+        }
+
         /**
          * Records the process group a CLI reviewer just launched, before its
          * prompt goes in. Not a read: this is the program recording what it
@@ -145,7 +154,7 @@ public final class InProcessReviewerAgentSupervisor
         @Override
         public String toString()
         {
-            return "ReviewerToolCapability[opaque-read-only]";
+            return "ReviewerToolCapability[immutable-review]";
         }
     }
 
@@ -464,9 +473,14 @@ public final class InProcessReviewerAgentSupervisor
                         Path.of(request.repositoryRoot()),
                         request.baseHeadSha(),
                         request.reviewedHeadSha());
-                completion = requireNonNull(
+                AgentCompletion returned = requireNonNull(
                         body.apply(new ReviewerToolCapability(this)),
                         "reviewer body returned null");
+                // Reviewer prose has exactly one channel: save_report. Never
+                // let an ordinary final message become database data.
+                completion = new AgentCompletion(
+                        returned.terminalOutcome(), null,
+                        returned.errorRef());
             }
             catch (RuntimeException | Error ignored) {
                 completion = new AgentCompletion(
@@ -501,6 +515,13 @@ public final class InProcessReviewerAgentSupervisor
                     notifyAll();
                 }
             }
+        }
+
+        private FlowRuntimeRecords.Task task()
+        {
+            return runtime.task(request.taskId()).orElseThrow(() ->
+                    new IllegalStateException(
+                            "reviewer Task disappeared during execution"));
         }
 
         private void adoptCurrentOwner(ReviewerStart start, Claim current)

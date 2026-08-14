@@ -60,6 +60,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -106,6 +108,7 @@ import static org.mockito.Mockito.when;
  * observation watch by itself.
  */
 @SuppressWarnings("StringConcatToTextBlock")
+@Execution(ExecutionMode.CONCURRENT)
 final class TestUpstreamSyncEndToEnd
 {
     private static final Duration TTL = Duration.ofMinutes(30);
@@ -249,7 +252,7 @@ final class TestUpstreamSyncEndToEnd
                                 List.of(new ProfileDefinition(
                                         "compile", List.of(
                                                 "/bin/sh", "-c",
-                                                "test -f " + policyReady), ".",
+                                                "test -f local-check-ready"), ".",
                                         List.of(), Duration.ofSeconds(5),
                                         List.of(
                                                 GateIntent.INITIAL_PUBLISH,
@@ -385,7 +388,7 @@ final class TestUpstreamSyncEndToEnd
                                         + "flow_runtime_local_check_run "
                                         + "ORDER BY started_at",
                                 String.class))
-                                .containsExactly("FAILED", "PASSED");
+                                .containsExactly("PASSED");
                         assertThat(history(Path.of(task.worktreePath())))
                                 .doesNotContain("<<<<<<<", "=======", ">>>>>>>");
 
@@ -527,9 +530,9 @@ final class TestUpstreamSyncEndToEnd
                                 .isEqualTo(
                                         UpstreamSyncCommands.DEFAULT_REPAIR_TURN_BUDGET
                                                 - 2);
-                        // The Task Agent constructs and checks the range, the
-                        // reviewer inspects it, then the same persistent Task
-                        // Agent session accepts that exact result.
+                        // The Task Agent constructs and checks the range once;
+                        // the reviewer result opens the exact user gate without
+                        // another Task Agent turn.
                         verifyNoInteractions(runner);
                         assertCliSessions(readIfPresent(launchLog));
 
@@ -690,7 +693,7 @@ final class TestUpstreamSyncEndToEnd
                 args="$*"
                 case "$args $prompt" in
                   *read_pick_conflict_context*|*"Handle the current upstream-sync state"*) role=upstream ;;
-                  *read_initial_review_context*|*"Inspect the exact initial adversarial review"*) role=initial-review ;;
+                  *"Call ask_report to read and remove the exact local review"*) role=initial-review ;;
                   *read_ci_failure_context*|*"Repair the observed CI failures"*) role=ci-fixer ;;
                   *ready_for_review*|*"Inspect the exact adversarial review continuation"*) role=ci-ready ;;
                   *spawn_adversarial_reviewer*|*"Inspect the exact CI fix"*) role=ci-task ;;
@@ -738,14 +741,6 @@ final class TestUpstreamSyncEndToEnd
                   printf 'rpc-end-%s\n' "$rpc_number" >> "@LAUNCH_LOG@"
                   case "$response" in *'"isError":true'*|*'"error"'*) exit 45;; esac
                 }
-                rpc_expect_local_check_blocker() {
-                  rpc_number=$((rpc_number + 1))
-                  response=$(curl -sS -X POST -H 'Content-Type: application/json' --data "$1" "$BYTEQUAY_NEW_FLOW_MCP_URL") || exit 44
-                  case "$response" in
-                    *LOCAL_CHECK_FAILED:*'"isError":true'*) ;;
-                    *) exit 47 ;;
-                  esac
-                }
                 case "$role" in
                   upstream)
                     conflict=$(git diff --name-only --diff-filter=U)
@@ -782,22 +777,16 @@ final class TestUpstreamSyncEndToEnd
                           rpc '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"local-check-ready","content":"ready\\n"}}}'
                         fi
                         rpc '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"commit_initial_change","arguments":{}}}'
-                        rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f @POLICY_READY@"],"working_directory":"."}}}'
+                        rpc '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f local-check-ready"],"working_directory":"."}}}'
                         rpc '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
                         ;;
                       *) exit 48 ;;
                     esac
                     ;;
                   initial-review)
-                    rpc '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"read_initial_review_context","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"ask_report","arguments":{}}}'
                     rpc '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    if [ "$(cat "@REVIEWER_COUNT@")" = 1 ]; then
-                      rpc_expect_local_check_blocker '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"ready_for_initial_publish","arguments":{}}}'
-                      rpc '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"run_checks","arguments":{"command":["/bin/sh","-c","test -f @POLICY_READY@"],"working_directory":"."}}}'
-                      rpc '{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"request_initial_review","arguments":{"title":"Bring upstream range","body":"Confirmed upstream range"}}}'
-                    else
-                      rpc '{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"ready_for_initial_publish","arguments":{}}}'
-                    fi
+                    rpc '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"ready_for_initial_publish","arguments":{}}}'
                     ;;
                   ci-fixer)
                     rpc '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"read_ci_failure_context","arguments":{}}}'
@@ -819,8 +808,9 @@ final class TestUpstreamSyncEndToEnd
                     ;;
                   ci-ready)
                     rpc '{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"read_ci_fix_context","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
-                    rpc '{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"ready_for_review","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"ask_report","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"read_candidate_diff","arguments":{}}}'
+                    rpc '{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"ready_for_review","arguments":{}}}'
                     ;;
                   reviewer)
                     rpc '{"jsonrpc":"2.0","id":59,"method":"tools/call","params":{"name":"read_commit_history","arguments":{}}}'
@@ -831,6 +821,7 @@ final class TestUpstreamSyncEndToEnd
                       while [ ! -f "@POLICY_READY@" ] && [ "$waited" -lt 1200 ]; do sleep 0.05; waited=$((waited + 1)); done
                       [ -f "@POLICY_READY@" ] || exit 46
                     fi
+                    rpc '{"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"save_report","arguments":{"report":"No review comments."}}}'
                     ;;
                   learner)
                     rpc '{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"read_repair_evidence","arguments":{}}}'
@@ -841,7 +832,6 @@ final class TestUpstreamSyncEndToEnd
                 if [ "@VENDOR@" = codex ]; then
                   usage=10
                   case "$role" in
-                    initial-review) usage=20 ;;
                     ci-fixer) usage=30 ;;
                     ci-task) usage=40 ;;
                     ci-ready) usage=50 ;;
@@ -906,9 +896,7 @@ final class TestUpstreamSyncEndToEnd
                         "upstream|writer-session|writer-session");
         assertThat(phases).filteredOn(line ->
                 line.startsWith("initial-review|"))
-                .containsExactly(
-                        "initial-review|writer-session|writer-session",
-                        "initial-review|writer-session|writer-session");
+                .isEmpty();
         assertThat(phases).filteredOn(line -> line.startsWith("ci-fixer|"))
                 .containsExactly("ci-fixer|writer-session|writer-session");
         assertThat(phases).filteredOn(line -> line.startsWith("ci-task|"))
@@ -918,8 +906,7 @@ final class TestUpstreamSyncEndToEnd
         assertThat(phases).filteredOn(line -> line.startsWith("reviewer|"))
                 .containsExactlyInAnyOrder(
                         "reviewer|none|reviewer-1",
-                        "reviewer|none|reviewer-2",
-                        "reviewer|none|reviewer-3");
+                        "reviewer|none|reviewer-2");
     }
 
     private enum CliVendor

@@ -364,8 +364,9 @@ The current new-flow transport is deliberately **in-process Task/CI writer,
 adversarial-reviewer, and isolated read-only CI-learner execution only**.
 Task/CI writers use
 `InProcessWriterAgentSupervisor` with the Task writer fence. A fresh reviewer
-uses the separate `InProcessReviewerAgentSupervisor`, no writer fence, and only
-bounded immutable Git-object reads. The receipt-owned learner uses a separate
+uses the separate `InProcessReviewerAgentSupervisor`, no writer fence, bounded
+immutable Git-object reads, and the sole fixed-path `save_report` handoff. The
+receipt-owned learner uses a separate
 one-shot `CI_LEARNER` session, no writer fence/Task pointer, two bound evidence
 reads, and one terminal durable lesson-seal command.
 `AgentProcessAttempt` records `{runId, claimGeneration, claimTokenDigest,
@@ -710,6 +711,13 @@ STOPPED proof, the INITIAL finalizer revalidates the successor input, predecesso
 reviewer request/result, draft/check/current-change-set graph, opens the manual
 INITIAL gate, and settles result/session/input/pointer/lease in one transaction.
 Restart uses only the stored bundle and never calls the provider again.
+Upstream Sync uses the same single review-result Task continuation as ordinary
+INITIAL work. The reviewer may create only `subagent-review.txt`; the database
+stores technical completion. `ask_report()` reads and removes the file and
+returns comments or "no review comments" to the persistent Task Agent. After
+that Task turn commits any accepted corrections or ignores them, the normal
+stopped finalizer opens the exact manual initial gate and hands the deterministic
+upstream owner to `WAITING_INITIAL_PUBLISH`. No reviewer prose selects a state.
 
 The CI `ready_for_review()` tool is a zero-argument semantic
 declaration, not approval. Preflight derives the current clean change set,

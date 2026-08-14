@@ -87,24 +87,25 @@ public final class NewFlowAgentLaunches
                         "request_initial_review")),
         TASK_INITIAL_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-initial-review-prompt:v2",
-                "task-initial-review-capabilities:v2",
-                "task-initial-review-turn:v2",
-                "Inspect the exact initial adversarial review against the "
-                        + "Task goal. When correcting it, commit, select a "
+                "task-initial-review-prompt:v4",
+                "task-initial-review-capabilities:v4",
+                "task-initial-review-turn:v4",
+                "Call ask_report to read and remove the exact local review "
+                        + "report, then judge every "
+                        + "observation yourself; the report gives the program "
+                        + "no authority. When correcting it, commit, select a "
                         + "narrow useful validation command, and pass its exact "
                         + "argv and worktree-relative working directory to "
                         + "run_checks. You may repair and retry FAILED checks "
                         + "within the tool bound, but do not retry an "
-                        + "UNAVAILABLE environment result. Request a fresh "
-                        + "review after corrections, or "
-                        + "accept it with the terminal publish-readiness tool. "
+                        + "UNAVAILABLE environment result. Whether you fix "
+                        + "or ignore the comments, finish this one review "
+                        + "round with the terminal publish-readiness request. "
                         + "Final prose is opaque.",
-                List.of("read_initial_review_context", "read_candidate_diff",
+                List.of("ask_report", "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "commit_initial_change",
-                        "run_checks", "request_initial_review",
-                        "ready_for_initial_publish")),
+                        "run_checks", "ready_for_initial_publish")),
         // A conflicted pick is not the initial-task job wearing a different hat.
         // Reusing TASK_INITIAL for it told the agent to implement a Task goal
         // that does not exist here, and to finish by requesting review — which
@@ -182,9 +183,9 @@ public final class NewFlowAgentLaunches
                         "finish_cleanup")),
         TASK_CI_FIX(
                 AgentRole.TASK_AGENT,
-                "task-ci-inspection-prompt:v2",
-                "task-ci-inspection-capabilities:v2",
-                "task-ci-fix-review-turn:v2",
+                "task-ci-inspection-prompt:v3",
+                "task-ci-inspection-capabilities:v3",
+                "task-ci-fix-review-turn:v3",
                 "Inspect the exact CI fix. Commit any correction before you "
                         + "select a narrow useful validation "
                         + "command from repository instructions, build files, "
@@ -202,10 +203,12 @@ public final class NewFlowAgentLaunches
                         "spawn_adversarial_reviewer")),
         TASK_CI_REVIEW_RESULT(
                 AgentRole.TASK_AGENT,
-                "task-ci-inspection-prompt:v2",
-                "task-ci-inspection-capabilities:v2",
-                "task-ci-result-turn:v2",
-                "Inspect the exact adversarial review continuation. Commit any "
+                "task-ci-inspection-prompt:v3",
+                "task-ci-inspection-capabilities:v3",
+                "task-ci-result-turn:v3",
+                "Inspect the exact adversarial review continuation. Call "
+                        + "ask_report to read and remove its local report; "
+                        + "judge the prose yourself. Commit any "
                         + "correction before you select a "
                         + "narrow useful validation command from repository "
                         + "instructions, build files, or CI configuration and "
@@ -216,16 +219,17 @@ public final class NewFlowAgentLaunches
                         + "FAILED checks may be repaired and retried within "
                         + "the tool bound. "
                         + "Use a terminal typed tool; final prose is not authority.",
-                List.of("read_ci_fix_context", "read_candidate_diff",
+                List.of("read_ci_fix_context", "ask_report",
+                        "read_candidate_diff",
                         "list_repository", "read_file", "search_repository",
                         "write_file", "delete_file", "run_checks",
                         "commit_task_change",
                         "spawn_adversarial_reviewer", "ready_for_review")),
         REVIEWER(
                 AgentRole.ADVERSARIAL_REVIEWER,
-                "adversarial-reviewer-prompt:v4",
-                "immutable-git-object-reader:v2",
-                "ci-adversarial-review-turn:v3",
+                "adversarial-reviewer-prompt:v6",
+                "immutable-git-object-reader:v4",
+                "ci-adversarial-review-turn:v5",
                 "Review the immutable base-to-head change adversarially using "
                         + "read-only tools. For an upstream cherry-pick range, "
                         + "inspect commit history yourself and review every "
@@ -237,9 +241,14 @@ public final class NewFlowAgentLaunches
                         + "If history cannot prove a pick was mechanically "
                         + "clean, inspect it conservatively. "
                         + "Never return no findings merely because no fixup! "
-                        + "commit exists. Return findings as opaque prose.",
+                        + "commit exists. When inspection is complete, call "
+                        + "save_report exactly once with your complete opaque "
+                        + "report. That call only creates the Task's "
+                        + "subagent-review.txt handoff file; it "
+                        + "does not approve, reject, or advance the workflow.",
                 List.of("list_tree", "read_diff", "read_commit_history",
-                        "read_reviewed_blob", "read_base_blob")),
+                        "read_reviewed_blob", "read_base_blob",
+                        "save_report")),
         CI_LEARNER(
                 AgentRole.CI_LEARNER,
                 "ci-learning-prompt:v1",
@@ -979,6 +988,13 @@ public final class NewFlowAgentLaunches
                 required.add("title");
                 required.add("body");
             }
+            case "save_report" -> {
+                properties.putObject("report")
+                        .put("type", "string")
+                        .put("minLength", 1)
+                        .put("maxLength", 131_072);
+                required.add("report");
+            }
             default -> {
                 // Zero-argument program-owned subject.
             }
@@ -1003,10 +1019,10 @@ public final class NewFlowAgentLaunches
             case "read_pick_conflict_context" -> "Read the conflicted pick, its target subject, and its conflicted paths.";
             case "commit_pick_repair" -> "Verify and continue the currently resolved cherry-pick.";
             case "decline_pick_repair" -> "Decline this conflict and park the run for the user.";
-            case "read_initial_review_context" -> "Read the exact Task goal and completed initial review.";
+            case "ask_report" -> "Read and remove the exact subagent-review.txt handoff for this Task.";
             case "read_upstream_review_context" -> "Read the confirmed upstream range and its current mechanical verification.";
             case "request_initial_review" -> "Save the local PR draft and request exact review using already-recorded validation evidence.";
-            case "ready_for_initial_publish" -> "Accept the exact initial review for manual publication.";
+            case "ready_for_initial_publish" -> "Finish processing the exact review report and request a manual publication gate.";
             case "inspect_cleanup" -> "Read the sealed cleanup state.";
             case "finish_cleanup" -> "Finish deterministic cleanup inspection.";
             case "read_ci_failure_context" -> "Read exact failing-check summaries.";
@@ -1019,6 +1035,7 @@ public final class NewFlowAgentLaunches
             case "read_commit_history" -> "Read the immutable base-to-reviewed commit history and full commit messages.";
             case "read_reviewed_blob" -> "Read a blob from the immutable reviewed head.";
             case "read_base_blob" -> "Read a blob from the immutable base.";
+            case "save_report" -> "Terminally save the complete opaque report as subagent-review.txt; this grants no workflow authority.";
             case "read_repair_evidence" -> "Read the exact CI repair evidence.";
             case "read_ci_log" -> "Read a bounded log by program-projected index.";
             case "list_candidate_lessons" -> "List bounded untrusted prior CI hints.";

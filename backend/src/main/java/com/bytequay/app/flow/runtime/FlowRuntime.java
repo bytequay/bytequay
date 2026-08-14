@@ -1100,6 +1100,9 @@ public final class FlowRuntime
     /** Completes only the exact upstream run whose initial draft is now live. */
     private void handOffUpstreamSync(String taskId, String proposedHead)
     {
+        if (!dispatches.upstreamSyncTablePresent()) {
+            return;
+        }
         Integer owners = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flow_upstream_sync_run WHERE task_id = ?",
                 Integer.class, taskId);
@@ -5470,7 +5473,7 @@ public final class FlowRuntime
         });
     }
 
-    /** Atomically stores one opaque reviewer result and resumes its parent. */
+    /** Stores only reviewer process truth and resumes its parent. */
     public synchronized AgentResult finishReviewerAgentRun(
             String runId,
             Claim claim,
@@ -5481,6 +5484,10 @@ public final class FlowRuntime
         requireText(runId, "runId");
         requireNonNull(claim, "claim is null");
         requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (finalContent != null) {
+            throw new IllegalArgumentException(
+                    "reviewer final content belongs only in save_report");
+        }
         if (terminalOutcome != TerminalOutcome.COMPLETED) {
             requireText(errorRef, "errorRef");
         }
@@ -7049,6 +7056,11 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "ready Task run lost its selected input");
             }
+            if (gateRevisionRef != null
+                    && run.intendedGateKind()
+                        == GateIntent.INITIAL_PUBLISH) {
+                handOffUpstreamReviewToGate(task, now);
+            }
             if (readinessFailureCode != null) {
                 TaskLifecycleRevision attention = appendLifecycle(
                         task,
@@ -7099,6 +7111,33 @@ public final class FlowRuntime
             ensureReconciliationIfPending(task.taskId());
             return requireResult(resultId);
         });
+    }
+
+    /** Advances an optional upstream owner only with its exact opened gate. */
+    private void handOffUpstreamReviewToGate(Task task, Instant now)
+    {
+        Integer owners = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_upstream_sync_run WHERE task_id = ?",
+                Integer.class, task.taskId());
+        int ownerCount = requireNonNull(
+                owners, "upstream sync owner count is null");
+        if (ownerCount == 0) {
+            return;
+        }
+        if (ownerCount != 1) {
+            throw new StaleOwnerRevisionException(
+                    "Task owns more than one upstream sync run");
+        }
+        int advanced = jdbc.update(
+                "UPDATE flow_upstream_sync_run "
+                        + "SET state = 'WAITING_INITIAL_PUBLISH', updated_at = ? "
+                        + "WHERE task_id = ? AND state = 'FINAL_REVIEW' "
+                        + "AND current_head = ?",
+                now.toEpochMilli(), task.taskId(), task.currentHeadSha());
+        if (advanced != 1) {
+            throw new StaleOwnerRevisionException(
+                    "upstream sync is not awaiting this reviewed head");
+        }
     }
 
     private void assertReadyGateRevision(
@@ -9067,19 +9106,22 @@ public final class FlowRuntime
             Task task = requireTask(operation.taskId());
             String state = (String) run.get("state");
             String currentHead = (String) run.get("current_head");
+            PendingWork input = selectedInput(operation);
             boolean schedulesAgent = state.equals("WAITING_CONFLICT_REPAIR")
                     || state.equals("FINAL_REVIEW");
+            boolean waitingForInitialPublish = state.equals(
+                    "WAITING_INITIAL_PUBLISH");
             boolean parked = state.equals("WAITING_USER")
                     || state.equals("NEEDS_ATTENTION");
             boolean canceled = state.equals("CANCELED");
             if (!task.taskId().equals(run.get("task_id"))
-                    || !(schedulesAgent || parked || canceled)
+                    || !(schedulesAgent || waitingForInitialPublish
+                        || parked || canceled)
                     || currentHead != null
                         && !currentHead.equals(task.currentHeadSha())) {
                 throw new StaleOwnerRevisionException(
                         "upstream program stopped outside a durable boundary");
             }
-            PendingWork input = selectedInput(operation);
             int leaseReleased = jdbc.update(
                     "DELETE FROM flow_runtime_writer_lease "
                             + "WHERE task_id = ? AND operation_id = ? "
@@ -10953,6 +10995,35 @@ public final class FlowRuntime
             cursor = requireChangeSetRevision(
                     cursor.previousChangeSetRevisionId());
         }
+    }
+
+    /** Proves that any post-review corrections came from this exact Task turn. */
+    public synchronized void assertTaskTurnDescendant(
+            String reviewedChangeSetRevisionId,
+            String currentChangeSetRevisionId,
+            String runId)
+    {
+        requireText(reviewedChangeSetRevisionId,
+                "reviewedChangeSetRevisionId");
+        requireText(currentChangeSetRevisionId,
+                "currentChangeSetRevisionId");
+        requireText(runId, "runId");
+        AgentRun run = requireRun(runId);
+        Operation operation = requireOperation(run.operationId());
+        if (run.role() != AgentRole.TASK_AGENT) {
+            throw new MutationRejectedException(
+                    "review consumption requires the exact Task turn");
+        }
+        ChangeSetRevision reviewed = requireChangeSetRevision(
+                reviewedChangeSetRevisionId);
+        ChangeSetRevision current = requireChangeSetRevision(
+                currentChangeSetRevisionId);
+        if (!reviewed.taskId().equals(current.taskId())
+                || !current.taskId().equals(operation.taskId())) {
+            throw new MutationRejectedException(
+                    "review correction changed Task identity");
+        }
+        requireTaskTurnDescendant(reviewed, current, operation, run);
     }
 
     private void assertExactReviewerRequest(

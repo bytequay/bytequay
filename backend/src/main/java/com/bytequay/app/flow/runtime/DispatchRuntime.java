@@ -35,6 +35,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.ResultSet;
@@ -66,6 +67,26 @@ final class DispatchRuntime
     private static final int CI_FIX_PRIORITY = 800;
     private static final int UPSTREAM_SYNC_PRIORITY = 750;
     private static final int TASK_TURN_PRIORITY = 700;
+    private static final String UPSTREAM_INITIAL_CLAIM = """
+            OR (o.kind = 'UPSTREAM_SYNC'
+                AND o.owner_kind = 'UPSTREAM_RUN'
+                AND t.selected_writer_operation_id = o.operation_id
+                AND ts.state = 'IDLE'
+                AND EXISTS (
+                    SELECT 1
+                    FROM flow_runtime_inbox i
+                    JOIN flow_upstream_sync_run u
+                      ON u.run_id = o.owner_id AND u.task_id = t.task_id
+                    WHERE i.selected_by_operation_id = o.operation_id
+                      AND i.handled_by_operation_id IS NULL
+                      AND i.terminal_reason IS NULL
+                      AND o.input_ref = 'inbox:' || i.inbox_id
+                      AND i.task_id = t.task_id
+                      AND i.intended_gate_kind = 'INITIAL_PUBLISH'
+                      AND i.kind = 'INITIAL_TASK'
+                      AND u.state IN ('READY', 'PICKING')
+                ))
+            """;
 
     private final FlowRuntime runtime;
     private final JdbcTemplate jdbc;
@@ -399,24 +420,7 @@ final class DispatchRuntime
                                             ))
                                     )
                               ))
-                          OR (o.kind = 'UPSTREAM_SYNC'
-                              AND o.owner_kind = 'UPSTREAM_RUN'
-                              AND t.selected_writer_operation_id =
-                                    o.operation_id
-                              AND ts.state = 'IDLE'
-                              AND EXISTS (
-                                  SELECT 1
-                                  FROM flow_runtime_inbox i
-                                  WHERE i.selected_by_operation_id =
-                                            o.operation_id
-                                    AND i.handled_by_operation_id IS NULL
-                                    AND i.terminal_reason IS NULL
-                                    AND o.input_ref = 'inbox:' || i.inbox_id
-                                    AND i.task_id = t.task_id
-                                    AND i.kind = 'INITIAL_TASK'
-                                    AND i.intended_gate_kind =
-                                        'INITIAL_PUBLISH'
-                              ))
+                          %s
                           OR (o.kind = 'RUN_REVIEWER'
                               AND o.owner_kind = 'REVIEW_REQUEST'
                               AND t.selected_writer_operation_id IS NULL
@@ -446,7 +450,8 @@ final class DispatchRuntime
                       )
                     ORDER BY d.priority DESC, d.not_before, o.operation_id
                     LIMIT 32
-                    """,
+                    """.formatted(upstreamSyncTablePresent()
+                            ? UPSTREAM_INITIAL_CLAIM : ""),
                     (result, row) -> new ClaimCandidate(
                             result.getString("operation_id"),
                             result.getString("task_id"),
@@ -1117,7 +1122,7 @@ final class DispatchRuntime
         if (item.kind() != PendingKind.INITIAL_TASK) {
             return OperationKind.RUN_TASK_TURN;
         }
-        if (!upstreamSchemaInstalled()) {
+        if (!upstreamSyncTablePresent()) {
             return OperationKind.RUN_TASK_TURN;
         }
         List<String> states = jdbc.queryForList(
@@ -1140,21 +1145,28 @@ final class DispatchRuntime
         };
     }
 
-    private boolean upstreamSchemaInstalled()
-    {
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM sqlite_master "
-                        + "WHERE type = 'table' "
-                        + "AND name = 'flow_upstream_sync_run'",
-                Integer.class);
-        return requireNonNull(count, "schema count is null") == 1;
-    }
-
     private String upstreamRunId(String taskId)
     {
         return jdbc.queryForObject(
                 "SELECT run_id FROM flow_upstream_sync_run WHERE task_id = ?",
                 String.class, taskId);
+    }
+
+    boolean upstreamSyncTablePresent()
+    {
+        Boolean present = jdbc.execute((ConnectionCallback<Boolean>) connection -> {
+            try (ResultSet tables = connection.getMetaData().getTables(
+                    null, null, null, new String[] {"TABLE"})) {
+                while (tables.next()) {
+                    if ("flow_upstream_sync_run".equalsIgnoreCase(
+                            tables.getString("TABLE_NAME"))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+        return Boolean.TRUE.equals(present);
     }
 
     boolean ownsCurrentInitialDispatch(Operation operation)
@@ -1188,12 +1200,14 @@ final class DispatchRuntime
                                     == PendingKind.AGENT_RESULT_READY));
             case UPSTREAM_SYNC -> operation.ownerKind()
                         .equals("UPSTREAM_RUN")
+                    && upstreamSyncTablePresent()
                     && runtime.pendingWork(task.taskId()).stream()
                             .filter(input -> Objects.equals(
                                     input.selectedByOperationId(),
                                     operation.operationId()))
                             .filter(input -> input.handledByOperationId() == null
                                     && input.terminalReason() == null
+                                    && isInitialPending(input)
                                     && input.kind() == PendingKind.INITIAL_TASK
                                     && operation.inputRef().equals(
                                             "inbox:" + input.pendingId()))

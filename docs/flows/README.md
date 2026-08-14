@@ -59,10 +59,14 @@ observations and repair work can preempt it. All other lanes share the runtime's
 global capacity predicate. Agent
 runs freeze the exact provider transport/model/limits, prompt content, tool
 manifest, and AI credential revision before the first request; secrets remain
-ephemeral. One disjoint INITIAL Task lane claims only the provisioned first
-turn and its exact initial-review continuations. It owns bounded workspace
+ephemeral. One disjoint INITIAL Task lane claims the provisioned first turn and
+ordinary INITIAL review continuations. It owns bounded workspace
 editing, fixed commit/adoption, local PR/draft/check evidence, fresh read-only
 reviewer lineage, and the stopped-finalizer request for a manual initial gate.
+For an Upstream Sync Task, the deterministic upstream owner stops after
+construction and verification. The single final reviewer report returns to the
+persistent Task Agent, which judges it and requests either a fresh exact-head
+review after corrections or the manual initial gate.
 The GitHub lanes
 read the configured `REPO` credential for the frozen canonical owner/name when
 one exists, and otherwise the app's `ACCOUNT` GitHub token,
@@ -119,7 +123,21 @@ Git operations; it does not introduce another agent role.
 
 ## Overall principles
 
-### 1. Agents own meaning; the program owns facts
+### 1. Agents never provide authority to the state machine
+
+No agent response, tool argument, classification, confidence, verdict, or
+claimed completion authorizes a state transition or external effect. Agent
+output is untrusted evidence. A tool call may request local work, persist an
+artifact, or ask the program to evaluate objective prerequisites, but the call
+does not make its semantic claim true.
+
+Only explicit user authority and program-owned facts—durable identities,
+exact-head observations, validated local state, provider observations, leases,
+receipts, and policy—can authorize or satisfy a transition. Every component
+contract and implementation follows this rule; adding structured model output
+does not create an exception.
+
+### 2. Agents own meaning; the program owns facts
 
 Agents decide what the user means, what code should change, whether review
 feedback is actionable, and how a failure should be fixed.
@@ -128,18 +146,23 @@ The program owns identities, revisions, heads, fingerprints, persistence,
 leases, retries, scheduling, staleness, Git and GitHub effects, and completion.
 It never infers semantic workflow state from agent prose.
 
-### 2. Tool calls are commands, final prose is evidence
+### 3. Tool calls request commands; agent output is evidence
 
-An agent makes a durable semantic decision through a small tool call such as
+An agent requests a durable local action through a small tool call such as
 `start_task(goal)`, `spawn_agent(role)`, or `ready_for_review()`. Tool arguments
 are validated while the agent is still running, so an invalid call can be
-corrected immediately.
+corrected immediately. Acceptance records only the request; program facts and,
+where required, user authority determine what may happen next.
 
-An agent's final response is ordinary text. The runtime stores it unchanged
-under an `AgentResult` and never parses it for `APPROVED`, `CONFLICT`, JSON
-fields, XML blocks, headings, or magic words.
+The adversarial reviewer terminally calls `save_report(report)`. The tool writes
+the opaque prose to the Task-local, program-owned `subagent-review.txt` outside
+the Git worktree. `AgentResult` stores only technical run completion, never the
+report. `ask_report()` checks for that file, reads and removes it, and returns
+either the unchanged prose with a "fix or ignore" instruction or "no review
+comments". No parser looks for `APPROVED`, `CONFLICT`, JSON fields, headings,
+findings, or magic words.
 
-### 3. Communication is persisted, never interrupt-driven
+### 4. Communication is persisted, never interrupt-driven
 
 Every delegated run receives immutable input references. The runtime stores
 the child's result and produced-file manifest before it resumes the consumer.
@@ -149,7 +172,7 @@ If a deterministic external event arrives while an agent is active, the
 program records it and queues the appropriate next turn. It does not interrupt
 the active turn or ask an agent to relay the event to another agent.
 
-### 4. One Task worktree, one writer
+### 5. One Task worktree, one writer
 
 A Task owns one branch and one worktree. The Task Agent and CI Fixer may each
 write it; optional deterministic Upstream Sync operations may also mutate it.
@@ -160,7 +183,7 @@ writes.
 An agent is not a workspace. Per-agent worktrees would create merge and context
 transfer work that the product does not need.
 
-### 5. External effects require exact authority
+### 6. External effects require exact authority
 
 Agents cannot push, post GitHub replies, resolve GitHub threads, request
 reviewers, mark ready, or merge. They only prepare local state.
@@ -195,14 +218,14 @@ implemented PR timeline is one read-only, schema-free projection of twelve
 immutable greenfield owner facts; an event-count/version cursor forces a full
 restart after any late insert.
 
-### 6. Record a fact once
+### 7. Record a fact once
 
 Each durable fact is stored in the component that owns it. The PR timeline is a
 stable projection of those facts, not a second workflow ledger. Agent activity
 and raw tool output live in execution records and do not flood the durable PR
 timeline.
 
-### 7. GitHub proves remote outcomes
+### 8. GitHub proves remote outcomes
 
 A successful local command or agent claim does not prove a remote result.
 Remote head, CI, comments, thread state, readiness, and merge completion are
@@ -248,11 +271,17 @@ effects, feedback, merge, frontend exposure, and cutover remain deferred.
    and saves the PR title/body draft.
 6. The Task Agent calls `spawn_agent(role="adversarial_reviewer")` for the exact
    committed head.
-7. The runtime parks the Task Agent, runs a fresh read-only reviewer, stores its
-   opaque result, records a result-ready fact, and lets the one Task selector
-   resume the Task Agent with that reference.
-8. The Task Agent fixes actionable findings and repeats review as needed, then
-   calls `ready_for_review()`.
+7. The runtime parks the Task Agent and runs one fresh immutable reviewer. The
+   reviewer calls `save_report(report)` to create `subagent-review.txt`. After
+   exact process stop the runtime records only a technical result-ready fact and
+   lets the one Task selector resume the Task Agent.
+8. The Task Agent calls `ask_report()`. The program reads and removes the file,
+   returns comments if nonempty, and otherwise reports that there are none. The
+   Task Agent judges every observation itself and fixes what
+   it accepts or ignores what it rejects. It commits and validates accepted
+   corrections, then calls the terminal readiness-request tool. This is the
+   same single review round; it does not request another initial review.
+   Settlement marks the report input handled; no report wording selects a path.
 9. The program opens the exact initial-publish gate. The user can add local
    comments, return them to the same Task Agent, or approve the exact candidate.
 10. After approval, the program pushes the exact branch head and opens the
@@ -288,9 +317,10 @@ the program create a Task based on the resolved target commit. That Task joins
 the upstream component's deterministic clean-pick loop first; its persistent
 Task Agent stays idle until conflict or final semantic review. It then joins the
 common checks/review/initial-gate path and uses the same GitHub, CI, feedback,
-and merge contracts. Its fresh reviewer stays bound to the exact final head and
-is instructed to find and review only conflict resolutions and fork fixups,
-without re-reviewing mechanically clean cherry-picks.
+and merge contracts. Its one reviewer stays bound to the exact last-picked head
+and is instructed to find and review only conflict resolutions and fork fixups,
+without re-reviewing mechanically clean cherry-picks. The final gate may include
+only mechanically recorded corrections made by the resumed Task turn.
 
 ## Cross-component contracts
 
@@ -301,9 +331,9 @@ without re-reviewing mechanically clean cherry-picks.
 | Trunk/UI | Upstream Sync | `request_upstream_sync_preview(...)` | Optional structured refs create only a durable preview operation; no Task or Git work runs in the handler. |
 | Upstream Sync | Flow Runtime / User Gate | user-confirmed preview plus `UpstreamVerification` | Confirmation creates one Task at the resolved base; exact final verification is mandatory evidence for its initial gate. |
 | Flow Runtime | Task Agent | immutable `TaskLaunch` | Contains exact goal plus program-owned repository, worktree, base/head, and policy facts. Task reads repository instructions and queries Project Intelligence itself. |
-| Agent | Flow Runtime | tool calls plus opaque final response | Only tool calls create domain commands. Final prose is stored, not decoded. |
+| Agent | Flow Runtime | tool calls plus program facts | Tool calls request bounded domain commands. Neither their arguments nor final prose grant authority. |
 | Task Agent | Adversarial Reviewer | `spawn_agent` command bound by the runtime | Program supplies exact head/diff/check evidence; parent does not compose a hidden protocol payload. |
-| Adversarial Reviewer | Task Agent | `AgentResultRef` | Result is persisted before parent resume. Program proves completion, not semantic approval. |
+| Adversarial Reviewer | Task Agent | `save_report(report)` then `ask_report()` | One program-owned `subagent-review.txt` handoff outside Git. `ask_report()` reads and removes it; report text is never stored in the database and never grants authority. |
 | GitHub Observer | Flow Runtime | immutable `RemoteObservation` revisions | Provider identity and head bind every event; delivery is deduplicated. |
 | Flow Runtime | CI Fixer | immutable `CiFixLaunch` | One finalized CI round, exact head, bounded logs and candidate lessons. |
 | CI Autofix | User Gates / GitHub Executor | `RequiredCiPolicyRevision` plus exact-head `AcceptedCiEvidence` | Requiredness is program-owned and revisioned; callers never supply or infer it. |
@@ -443,8 +473,10 @@ An implementation is not complete until these traces pass end to end:
 3. **Later-gate local review:** a local comment added to a CI-update or
    code-changing feedback gate stales that exact gate; no push occurs until the
    same Task Agent addresses it and a new exact gate is authorized.
-4. **Opaque reviewer result:** free-form reviewer prose is stored and shown;
-   no parser or normalization run is invoked.
+4. **Opaque reviewer result:** `save_report` writes free-form prose only to
+   `subagent-review.txt`; `ask_report` reads and removes it. Missing/empty means
+   no comments. No parser or normalization run is invoked and no content can
+   select a transition.
 5. **Child crash:** a pre-result process crash reuses the same run only after
    old-process proof; a terminal failed run remains readable and any deliberate
    semantic retry is a linked new operation/run. The parent resumes only from a

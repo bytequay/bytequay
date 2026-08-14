@@ -1,7 +1,7 @@
 {
   "name": "bytequay",
   "productName": "ByteQuay",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "My Electron application description",
   "main": ".vite/build/main.js",
   "private": true,

@@ -31,7 +31,11 @@ export type PullRow = {
   time: string;
   kind: 'open' | 'merged' | 'closed';
   labels: string[];
+  labelColors: Record<string, string> | null;
   status: 'passing' | 'failing' | 'pending' | null;
+  additions: number;
+  deletions: number;
+  comments: number;
 };
 
 function toRow(pr: PullRequestDto): PullRow {
@@ -44,9 +48,13 @@ function toRow(pr: PullRequestDto): PullRow {
     time: relativeTime(pr.updatedAt),
     kind: pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : 'open',
     labels: pr.labels,
+    labelColors: pr.labelColors,
     status: pr.ciStatus === 'PASSING' ? 'passing'
       : pr.ciStatus === 'FAILING' ? 'failing'
         : pr.ciStatus === 'PENDING' ? 'pending' : null,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    comments: pr.commentCount,
   };
 }
 

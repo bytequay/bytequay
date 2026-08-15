@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import AppSidebar, { type AppPage } from './AppSidebar';
 import HomePage from './home/HomePage';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -20,11 +21,10 @@ import PullsScreen from './pulls/PullsScreen';
 import SettingsShell from './settings/SettingsShell';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
-type Page = 'home' | 'pulls' | 'settings';
 
 export default function App() {
   const [status, setStatus] = useState<Status>('checking');
-  const [page, setPage] = useState<Page>('home');
+  const [page, setPage] = useState<AppPage>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
@@ -51,27 +51,9 @@ export default function App() {
   };
 
   return (
-    <div className="app-clean">
-      <header className="app-clean__topbar">
-        <div className="app-clean__traffic" aria-label="Window controls">
-          <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }} />
-          <button type="button" aria-label="Minimize" onClick={() => { void window.bridge.controlWindow('minimize'); }} />
-          <button type="button" aria-label="Toggle fullscreen" onClick={() => { void window.bridge.controlWindow('zoom'); }} />
-        </div>
-        <strong>ByteQuay</strong>
-        <nav>
-          <button className={page === 'home' ? 'is-active' : ''} type="button" onClick={() => setPage('home')}>
-            Home
-          </button>
-          <button className={page === 'pulls' ? 'is-active' : ''} type="button" onClick={() => setPage('pulls')}>
-            Pull requests
-          </button>
-          <button className={page === 'settings' ? 'is-active' : ''} type="button" onClick={() => setPage('settings')}>
-            Settings
-          </button>
-        </nav>
-      </header>
-      <div className="app-clean__content">
+    <div className="app-shell">
+      <AppSidebar page={page} onNavigate={setPage} />
+      <main className="app-content">
         {page === 'home' && (
           <HomePage
             onSelectRepo={openPr}
@@ -83,7 +65,7 @@ export default function App() {
         )}
         {page === 'pulls' && <PullsScreen initialPr={initialPr} />}
         {page === 'settings' && <SettingsShell />}
-      </div>
+      </main>
       {browserUrl !== null && (
         <InAppBrowser url={browserUrl} fullScreen={fullScreen} onClose={() => setBrowserUrl(null)} />
       )}

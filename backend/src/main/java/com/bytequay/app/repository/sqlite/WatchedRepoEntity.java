@@ -37,15 +37,6 @@ class WatchedRepoEntity
     @Column(nullable = false)
     private int displayOrder;
 
-    @Column(name = "local_clone_path")
-    private String localClonePath;
-
-    @Column(name = "upstream_remote_name")
-    private String upstreamRemoteName;
-
-    @Column(name = "view_focus")
-    private String viewFocus;
-
     protected WatchedRepoEntity() {}
 
     WatchedRepoEntity(String owner, String repo, int displayOrder)
@@ -63,13 +54,4 @@ class WatchedRepoEntity
 
     int getDisplayOrder() { return displayOrder; }
     void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
-
-    String getLocalClonePath() { return localClonePath; }
-    void setLocalClonePath(String localClonePath) { this.localClonePath = localClonePath; }
-
-    String getUpstreamRemoteName() { return upstreamRemoteName; }
-    void setUpstreamRemoteName(String upstreamRemoteName) { this.upstreamRemoteName = upstreamRemoteName; }
-
-    String getViewFocus() { return viewFocus; }
-    void setViewFocus(String viewFocus) { this.viewFocus = viewFocus; }
 }

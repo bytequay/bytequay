@@ -16,7 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.sqlite.RepoWriteCollaboratorStore;
 import org.springframework.stereotype.Service;
 
@@ -40,9 +40,9 @@ public class CollaboratorPermissionService
     private static final Duration TTL = Duration.ofDays(7);
 
     private final RepoWriteCollaboratorStore store;
-    private final GitHubAccountRepository gitHub;
+    private final GitHubAccountClient gitHub;
 
-    public CollaboratorPermissionService(RepoWriteCollaboratorStore store, GitHubAccountRepository gitHub)
+    public CollaboratorPermissionService(RepoWriteCollaboratorStore store, GitHubAccountClient gitHub)
     {
         this.store = requireNonNull(store, "store is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");

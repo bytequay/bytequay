@@ -15,27 +15,14 @@ package com.bytequay.app.domain;
 
 import java.time.Instant;
 
-/**
- * A safe-to-display view of a stored credential. The raw secret never leaves
- * the backend; this is what the Settings UI shows. Identified by the triple
- * (type, name, instanceName) — see {@link CredentialType} for the conventions
- * on {@code name}. {@code instanceName} lets multiple keys coexist for the
- * same provider (for example, personal and work GitHub accounts);
- * defaults to {@code "default api"} for callers that don't pick.
- */
+/** A safe-to-display view of a stored credential. */
 public record Credential(
         long id,
         CredentialType type,
         String name,
-        String instanceName,
         String label,
         String preview,
         String notes,
-        /** True when this is the resolved default for its
-         *  (type, name) group. Exactly one row per group carries
-         *  this; an unnamed scope resolves to it. */
-        boolean isDefault,
-        /** Optional source metadata as raw JSON, or null. */
         String configJson,
         Instant createdAt,
         Instant updatedAt,

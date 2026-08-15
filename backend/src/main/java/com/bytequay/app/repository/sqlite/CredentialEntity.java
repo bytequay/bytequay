@@ -102,7 +102,6 @@ class CredentialEntity
     String getName() { return name; }
     void setName(String name) { this.name = name; }
 
-    String getInstanceName() { return instanceName; }
     void setInstanceName(String instanceName) { this.instanceName = instanceName; }
 
     String getLabel() { return label; }
@@ -117,7 +116,6 @@ class CredentialEntity
     String getNotes() { return notes; }
     void setNotes(String notes) { this.notes = notes; }
 
-    boolean isDefault() { return isDefault != 0; }
     void setDefault(boolean value) { this.isDefault = value ? 1 : 0; }
 
     String getConfigJson() { return configJson; }

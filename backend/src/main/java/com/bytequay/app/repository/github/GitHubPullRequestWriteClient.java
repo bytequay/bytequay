@@ -24,7 +24,6 @@ import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
-import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,7 +52,7 @@ import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubPullRequestWriteClient
-        implements GitHubPullRequestWriteRepository {
+{
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
 
@@ -65,7 +64,6 @@ public class GitHubPullRequestWriteClient
                 requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
     }
 
-    @Override
     public String commitFileText(
             String pat,
             RepoRef repo,
@@ -145,7 +143,6 @@ public class GitHubPullRequestWriteClient
                 r.eyes());
     }
 
-    @Override
     public PullRequest createPullRequest(
             String pat, RepoRef repo, CreatePullRequestCommand command) {
         Map<String, Object> body = Maps.newHashMap();
@@ -245,7 +242,6 @@ public class GitHubPullRequestWriteClient
                         .orElse(null));
     }
 
-    @Override
     public PullRequest updatePullRequest(
             String pat, PullRequestRef pr, UpdatePullRequestCommand command) {
         Map<String, Object> body = Maps.newHashMap();
@@ -273,7 +269,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body) {
         try {
             GitHubIssueComment posted =
@@ -301,7 +296,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public PullRequest requestReviewers(
             String pat, PullRequestRef pr, RequestReviewersCommand command) {
         Map<String, Object> payload = Maps.newHashMap();
@@ -335,7 +329,6 @@ public class GitHubPullRequestWriteClient
      * GitHub's purpose-built fix for a flaky failure. Returns the number of runs re-triggered (0
      * when nothing on the head failed, so the caller can say "nothing to re-run").
      */
-    @Override
     public void removeRequestedReviewers(
             String pat, PullRequestRef pr, RequestReviewersCommand command) {
         Map<String, Object> payload = Maps.newHashMap();
@@ -363,7 +356,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void setPullRequestAssignee(
             String pat, PullRequestRef pr, String login, boolean selected) {
         try {
@@ -401,7 +393,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void setPullRequestLabel(String pat, PullRequestRef pr, String label, boolean selected) {
         try {
             if (selected) {
@@ -437,7 +428,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void createInlineReviewComment(
             String pat,
             PullRequestRef pr,
@@ -482,7 +472,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public PrReviewThreadMessage replyToReviewComment(
             String pat, PullRequestRef pr, long rootCommentId, String body) {
         try {
@@ -511,7 +500,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void editIssueComment(
             String pat, String owner, String repo, long commentId, String body) {
         try {
@@ -533,7 +521,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void editReviewComment(
             String pat, String owner, String repo, long commentId, String body) {
         try {
@@ -551,7 +538,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void deleteIssueComment(String pat, String owner, String repo, long commentId) {
         try {
             gitHubRestClient
@@ -570,7 +556,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void deleteReviewComment(String pat, String owner, String repo, long commentId) {
         try {
             gitHubRestClient
@@ -585,7 +570,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void addPullRequestReaction(String pat, PullRequestRef ref, String content) {
         try {
             gitHubRestClient
@@ -607,7 +591,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void addIssueCommentReaction(
             String pat, String owner, String repo, long commentId, String content) {
         try {
@@ -630,7 +613,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void addReviewCommentReaction(
             String pat, String owner, String repo, long commentId, String content) {
         try {
@@ -660,12 +642,10 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public void resolveReviewThread(String pat, String threadNodeId) {
         runResolveMutation(pat, threadNodeId, true);
     }
 
-    @Override
     public void unresolveReviewThread(String pat, String threadNodeId) {
         runResolveMutation(pat, threadNodeId, false);
     }
@@ -700,7 +680,6 @@ public class GitHubPullRequestWriteClient
     // that hand-rolled records are simpler than a generic walker.
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    @Override
     public void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft) {
         // Two-step GraphQL: REST exposes neither toggle, so first fetch
         // the PR's opaque GraphQL node id, then run the appropriate
@@ -818,7 +797,6 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @Override
     public PullRequestReview createReview(
             String pat, PullRequestRef pr, CreateReviewCommand command) {
         Map<String, Object> body = Maps.newHashMap();

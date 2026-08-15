@@ -17,7 +17,6 @@ import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.repository.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.springframework.stereotype.Repository;
@@ -38,7 +37,6 @@ import static java.util.Objects.requireNonNull;
 
 @Repository
 public class SqlitePullRequestStore
-        implements PullRequestStore
 {
     // How long a recently-handled PR stays in the list after it falls out of
     // the GitHub search results. GitHub removes a PR from the
@@ -56,7 +54,6 @@ public class SqlitePullRequestStore
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
     }
 
-    @Override
     public List<PullRequest> findAll()
     {
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
@@ -65,7 +62,6 @@ public class SqlitePullRequestStore
                 .collect(toImmutableList());
     }
 
-    @Override
     @Transactional
     public void replaceAll(List<PullRequest> pullRequests)
     {
@@ -145,20 +141,12 @@ public class SqlitePullRequestStore
                 .collect(toImmutableSet());
     }
 
-    @Override
-    public Optional<Instant> lastSyncedAt()
-    {
-        return jpaRepository.findMaxSyncedAt();
-    }
-
-    @Override
     public Map<Long, Instant> findUpdatedAtMap()
     {
         return jpaRepository.findAll().stream()
                 .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
     }
 
-    @Override
     public Set<Long> findIdsMissingEnrichment()
     {
         // Treat both null AND an empty map as "not yet synced". The empty
@@ -180,13 +168,11 @@ public class SqlitePullRequestStore
                 .collect(Collectors.toUnmodifiableSet());
     }
 
-    @Override
     public Optional<Long> findIdByRepoAndNumber(String repo, int number)
     {
         return jpaRepository.findIdByRepoAndNumber(repo, number);
     }
 
-    @Override
     public Optional<PullRequest> findById(long prId)
     {
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
@@ -194,7 +180,6 @@ public class SqlitePullRequestStore
                 .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())));
     }
 
-    @Override
     @Transactional
     public void updateEnrichment(
             long prId,
@@ -230,7 +215,6 @@ public class SqlitePullRequestStore
         });
     }
 
-    @Override
     @Transactional
     public void updateCiStatus(long prId, PullRequestDetail.CiStatus ciStatus)
     {

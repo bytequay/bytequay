@@ -15,7 +15,6 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.GitHubRepoRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.core.ParameterizedTypeReference;
@@ -34,7 +33,6 @@ import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubRepoClient
-        implements GitHubRepoRepository
 {
     private final RestClient gitHubRestClient;
 
@@ -43,7 +41,6 @@ public class GitHubRepoClient
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
     }
 
-    @Override
     public RepoMeta fetchRepoMeta(String pat, RepoRef repo)
     {
         try {

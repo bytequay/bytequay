@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import LogoOnboarding from './LogoOnboarding';
+import LogoLoading from './LogoLoading';
 
 type Props = {
   /** Called once auth (PAT or OAuth) successfully stores a token, so App
@@ -174,7 +174,7 @@ export default function OnboardingScreen({ onSaved }: Props) {
   return (
     <div className="onboarding">
       <main className="onboarding__card" role="main" aria-labelledby="onboarding-title">
-        <LogoOnboarding size={130} />
+        <LogoLoading size={130} label="ByteQuay" variant="onboarding" />
         <h1 id="onboarding-title" className="onboarding__title">Welcome to ByteQuay</h1>
         <p className="onboarding__lede">
           Connect your GitHub account to start. We'll surface mentions, reviews,

@@ -21,7 +21,6 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
-import com.bytequay.app.repository.PrDetailStore;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +39,6 @@ import static java.util.Objects.requireNonNull;
 
 @Repository
 public class SqlitePrDetailStore
-        implements PrDetailStore
 {
     private final PrDetailJpaRepository detailRepo;
     private final PrReviewJpaRepository reviewRepo;
@@ -71,14 +69,12 @@ public class SqlitePrDetailStore
         this.pullRequestRepo = requireNonNull(pullRequestRepo, "pullRequestRepo is null");
     }
 
-    @Override
     public Optional<Instant> findSyncedAt(String repo, int number)
     {
         return pullRequestRepo.findIdByRepoAndNumber(repo, number)
                 .flatMap(detailRepo::findSyncedAtByPrId);
     }
 
-    @Override
     public Optional<StoredPrDetail> find(long prId)
     {
         Optional<PrDetailEntity> entityOpt = detailRepo.findById(prId);
@@ -103,9 +99,7 @@ public class SqlitePrDetailStore
                 d.getBaseRef(),
                 d.getBaseRepo(),
                 d.getState(),
-                d.isMerged(),
-                d.getBaseSha(),
-                d.getMergeCommitSha());
+                d.isMerged());
 
         List<PrReviewState> reviews = reviewRepo.findByPrId(prId).stream()
                 .map(r -> new PrReviewState(r.getLogin(), r.getState(), r.getSubmittedAt()))
@@ -203,7 +197,6 @@ public class SqlitePrDetailStore
                 Boolean.TRUE.equals(d.getMergeQueueEnabled())));
     }
 
-    @Override
     @Transactional
     public void save(long prId, StoredPrDetail detail)
     {
@@ -244,7 +237,6 @@ public class SqlitePrDetailStore
      * replace because GitHub doesn't expose an incremental endpoint for
      * them.
      */
-    @Override
     @Transactional
     public void saveIncremental(long prId, StoredPrDetail detail)
     {
@@ -328,8 +320,6 @@ public class SqlitePrDetailStore
         entity.setRequestedReviewerCount(raw.requestedReviewerCount());
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
-        entity.setBaseSha(raw.baseSha());
-        entity.setMergeCommitSha(raw.mergeCommitSha());
         entity.setHeadRef(raw.headRef());
         entity.setHeadRepo(raw.headRepo());
         entity.setBaseRef(raw.baseRef());
@@ -459,7 +449,6 @@ public class SqlitePrDetailStore
         return e;
     }
 
-    @Override
     @Transactional
     public void deleteByPrIds(Set<Long> prIds)
     {
@@ -477,19 +466,16 @@ public class SqlitePrDetailStore
         }
     }
 
-    @Override
     public Optional<Long> findPrIdByIssueCommentId(long commentId)
     {
         return timelineRepo.findPrIdsByCommentedEventGithubId(commentId).stream().findFirst();
     }
 
-    @Override
     public Optional<Long> findPrIdByReviewCommentId(long commentId)
     {
         return reviewCommentRepo.findPrIdsByGithubId(commentId).stream().findFirst();
     }
 
-    @Override
     public List<Long> findPrIdsMissingReviewTimestamps(int limit)
     {
         if (limit <= 0) {

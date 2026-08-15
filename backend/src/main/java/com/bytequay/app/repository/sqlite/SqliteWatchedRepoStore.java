@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.WatchedRepoStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Repository;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,7 +26,6 @@ import static java.util.Objects.requireNonNull;
 
 @Repository
 public class SqliteWatchedRepoStore
-        implements WatchedRepoStore
 {
     private final WatchedRepoJpaRepository jpaRepository;
 
@@ -36,7 +34,6 @@ public class SqliteWatchedRepoStore
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    @Override
     public List<WatchedRepo> findAll()
     {
         return jpaRepository.findAllByOrderByDisplayOrderAsc().stream()
@@ -44,13 +41,11 @@ public class SqliteWatchedRepoStore
                 .collect(toImmutableList());
     }
 
-    @Override
     public Optional<WatchedRepo> find(String owner, String repo)
     {
         return jpaRepository.findByOwnerAndRepo(owner, repo).map(SqliteWatchedRepoStore::toDomain);
     }
 
-    @Override
     public WatchedRepo add(String owner, String repo)
     {
         if (jpaRepository.findByOwnerAndRepo(owner, repo).isPresent()) {
@@ -64,64 +59,14 @@ public class SqliteWatchedRepoStore
         return toDomain(saved);
     }
 
-    @Override
     public void remove(String owner, String repo)
     {
         jpaRepository.findByOwnerAndRepo(owner, repo)
                 .ifPresent(e -> jpaRepository.deleteById(e.getId()));
     }
 
-    @Override
-    public void setLocalClonePath(String owner, String repo, String localClonePath)
-    {
-        if (localClonePath == null || localClonePath.isBlank()) {
-            throw new IllegalArgumentException("localClonePath is required");
-        }
-        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
-                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
-        entity.setLocalClonePath(localClonePath);
-        jpaRepository.save(entity);
-    }
-
-    @Override
-    public void setUpstreamRemoteName(String owner, String repo, String upstreamRemoteName)
-    {
-        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
-                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
-        entity.setUpstreamRemoteName(upstreamRemoteName);
-        jpaRepository.save(entity);
-    }
-
-    @Override
-    public void replaceClone(
-            String owner,
-            String repo,
-            String localClonePath,
-            String upstreamRemoteName)
-    {
-        if (localClonePath == null || localClonePath.isBlank()) {
-            throw new IllegalArgumentException("localClonePath is required");
-        }
-        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
-                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
-        entity.setLocalClonePath(localClonePath);
-        entity.setUpstreamRemoteName(upstreamRemoteName);
-        jpaRepository.save(entity);
-    }
-
-    @Override
-    public void setViewFocus(String owner, String repo, String viewFocus)
-    {
-        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
-                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
-        entity.setViewFocus(viewFocus);
-        jpaRepository.save(entity);
-    }
-
     private static WatchedRepo toDomain(WatchedRepoEntity e)
     {
-        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(),
-                e.getDisplayOrder(), e.getLocalClonePath(), e.getUpstreamRemoteName(),
-                e.getViewFocus());
+        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(), e.getDisplayOrder());
     }
 }

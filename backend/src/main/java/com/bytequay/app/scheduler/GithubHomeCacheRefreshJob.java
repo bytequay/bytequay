@@ -14,7 +14,7 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.service.CredentialService;
@@ -56,7 +56,7 @@ public class GithubHomeCacheRefreshJob
     private static final Duration EVENTS_TTL = Duration.ofMinutes(2);
 
     private final CredentialService credentialService;
-    private final AppSettingsStore settingsStore;
+    private final SqliteAppSettingsStore settingsStore;
     private final SqliteGithubHomeCacheStore homeCache;
     private final RepoService repoService;
     private final QuietHoursPolicy quietHours;
@@ -65,7 +65,7 @@ public class GithubHomeCacheRefreshJob
 
     public GithubHomeCacheRefreshJob(
             CredentialService credentialService,
-            AppSettingsStore settingsStore,
+            SqliteAppSettingsStore settingsStore,
             SqliteGithubHomeCacheStore homeCache,
             RepoService repoService,
             QuietHoursPolicy quietHours)
@@ -112,7 +112,7 @@ public class GithubHomeCacheRefreshJob
         // Profile refresh sets GITHUB_LOGIN as a side-effect, so other feeds
         // can rely on it being populated after a successful first run.
         String login = refreshProfileIfStale(now)
-                .orElseGet(() -> settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN).orElse(null));
+                .orElseGet(() -> settingsStore.get(SqliteAppSettingsStore.GITHUB_LOGIN).orElse(null));
         if (login == null) {
             return;
         }
@@ -124,7 +124,7 @@ public class GithubHomeCacheRefreshJob
     /** Returns the freshly-fetched login when it ran, empty otherwise. */
     private Optional<String> refreshProfileIfStale(Instant now)
     {
-        Optional<String> existingLogin = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
+        Optional<String> existingLogin = settingsStore.get(SqliteAppSettingsStore.GITHUB_LOGIN);
         Optional<Instant> fetchedAt = existingLogin
                 .flatMap(homeCache::findProfile)
                 .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt);

@@ -13,9 +13,15 @@
  */
 import { useId } from 'react';
 
-/** Inline so the loading animation reliably restarts on every mount. */
-export default function LogoLoading({ size = 80, label = 'Loading' }: { size?: number; label?: string }) {
-  const gradientId = `bq-load-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+type Props = {
+  size?: number;
+  label?: string;
+  variant?: 'loading' | 'onboarding';
+};
+
+/** Inline so the logo animation reliably restarts on every mount. */
+export default function LogoLoading({ size = 80, label = 'Loading', variant = 'loading' }: Props) {
+  const gradientId = `bq-logo-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
 
   return (
     <svg
@@ -23,6 +29,7 @@ export default function LogoLoading({ size = 80, label = 'Loading' }: { size?: n
       viewBox="0 0 100 100"
       width={size}
       height={size}
+      className={variant === 'onboarding' ? 'bq-onboarding' : undefined}
       role="img"
       aria-label={label}
     >
@@ -34,8 +41,12 @@ export default function LogoLoading({ size = 80, label = 'Loading' }: { size?: n
         </linearGradient>
       </defs>
       <rect width="100" height="100" rx="12.121" fill={`url(#${gradientId})`} />
-      <circle cx="50" cy="50" r="31.818" fill="none" stroke="#FFFFFF" strokeOpacity="0.22" strokeWidth="3.03" />
-      <circle className="bq-sweep" cx="50" cy="50" r="31.818" fill="none" stroke="#FFFFFF" strokeWidth="3.03" strokeLinecap="round" strokeDasharray="55.98 143.94" />
+      {variant === 'onboarding'
+        ? <circle className="bq-ring" cx="50" cy="50" r="31.818" fill="none" stroke="#FFFFFF" strokeWidth="3.03" strokeLinecap="round" transform="rotate(-90 50 50)" />
+        : <>
+            <circle cx="50" cy="50" r="31.818" fill="none" stroke="#FFFFFF" strokeOpacity="0.22" strokeWidth="3.03" />
+            <circle className="bq-sweep" cx="50" cy="50" r="31.818" fill="none" stroke="#FFFFFF" strokeWidth="3.03" strokeLinecap="round" strokeDasharray="55.98 143.94" />
+          </>}
       <line className="bq-slash bq-slash-1" x1="37.121" y1="37.879" x2="43.182" y2="62.121" stroke="#FFFFFF" strokeWidth="3.788" strokeLinecap="round" />
       <line className="bq-slash bq-slash-2" x1="46.97" y1="37.879" x2="53.03" y2="62.121" stroke="#FACC15" strokeWidth="3.788" strokeLinecap="round" />
       <line className="bq-slash bq-slash-3" x1="56.818" y1="37.879" x2="62.879" y2="62.121" stroke="#FFFFFF" strokeWidth="3.788" strokeLinecap="round" />

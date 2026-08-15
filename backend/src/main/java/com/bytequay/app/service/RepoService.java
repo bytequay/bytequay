@@ -25,15 +25,15 @@ import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GitHubAccountRepository;
-import com.bytequay.app.repository.GitHubPullRequestReadRepository;
-import com.bytequay.app.repository.GitHubRepoRepository;
-import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
+import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
+import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -68,28 +68,28 @@ public class RepoService
     private static final Duration CONTRIBUTION_CALENDAR_TTL = Duration.ofHours(8);
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
-    private final WatchedRepoStore watchedRepoStore;
-    private final GitHubPullRequestReadRepository pullRequests;
-    private final GitHubRepoRepository repos;
-    private final GitHubAccountRepository accounts;
+    private final SqliteWatchedRepoStore watchedRepoStore;
+    private final GitHubPullRequestReadClient pullRequests;
+    private final GitHubRepoClient repos;
+    private final GitHubAccountClient accounts;
     private final PrViewStateStore viewStateStore;
     private final RepoMetaStore repoMetaStore;
     private final SqliteGithubHomeCacheStore homeCache;
-    private final AppSettingsStore settingsStore;
+    private final SqliteAppSettingsStore settingsStore;
     private final PatResolver patResolver;
     private final Executor ioExecutor;
     private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
     @Autowired
     public RepoService(
-            WatchedRepoStore watchedRepoStore,
-            GitHubPullRequestReadRepository pullRequests,
-            GitHubRepoRepository repos,
-            GitHubAccountRepository accounts,
+            SqliteWatchedRepoStore watchedRepoStore,
+            GitHubPullRequestReadClient pullRequests,
+            GitHubRepoClient repos,
+            GitHubAccountClient accounts,
             PrViewStateStore viewStateStore,
             RepoMetaStore repoMetaStore,
             SqliteGithubHomeCacheStore homeCache,
-            AppSettingsStore settingsStore,
+            SqliteAppSettingsStore settingsStore,
             PatResolver patResolver,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -152,7 +152,7 @@ public class RepoService
 
     public UserProfile getUserProfile()
     {
-        Optional<String> login = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
+        Optional<String> login = settingsStore.get(SqliteAppSettingsStore.GITHUB_LOGIN);
         if (login.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached");
         }
@@ -170,7 +170,7 @@ public class RepoService
                 profile.publicRepos(), profile.followers(), profile.following(), profile.bio(),
                 profile.location(), profile.company(), profile.email(), accounts.fetchHasSponsorsListing(pat));
         homeCache.putProfile(fresh.login(), fresh, Instant.now());
-        settingsStore.set(AppSettingsStore.Key.GITHUB_LOGIN, fresh.login());
+        settingsStore.set(SqliteAppSettingsStore.GITHUB_LOGIN, fresh.login());
         return fresh;
     }
 

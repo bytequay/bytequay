@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.AppSettingsStore;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -22,8 +21,9 @@ import static java.util.Objects.requireNonNull;
 
 @Repository
 public class SqliteAppSettingsStore
-        implements AppSettingsStore
 {
+    public static final String GITHUB_LOGIN = "github.login";
+
     private final AppSettingJpaRepository jpaRepository;
 
     public SqliteAppSettingsStore(AppSettingJpaRepository jpaRepository)
@@ -31,13 +31,11 @@ public class SqliteAppSettingsStore
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    @Override
     public Optional<String> get(String key)
     {
         return jpaRepository.findById(key).map(AppSettingEntity::getValue);
     }
 
-    @Override
     public void set(String key, String value)
     {
         AppSettingEntity entity = jpaRepository.findById(key)

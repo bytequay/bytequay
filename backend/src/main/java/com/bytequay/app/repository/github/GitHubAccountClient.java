@@ -21,7 +21,6 @@ import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
-import com.bytequay.app.repository.GitHubAccountRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -52,7 +51,7 @@ import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubAccountClient
-        implements GitHubAccountRepository {
+{
     private static final Logger log = LoggerFactory.getLogger(GitHubAccountClient.class);
 
     private final RestClient gitHubRestClient;
@@ -66,7 +65,6 @@ public class GitHubAccountClient
                 requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
     }
 
-    @Override
     public UserProfile fetchUserProfile(String pat) {
         try {
             GitHubUserProfileResponse response =
@@ -87,7 +85,6 @@ public class GitHubAccountClient
         }
     }
 
-    @Override
     public UserProfile updateUserProfile(String pat, String name, String bio, String location) {
         Map<String, Object> body = Maps.newHashMap();
         if (name != null) {
@@ -140,7 +137,6 @@ public class GitHubAccountClient
                 false);
     }
 
-    @Override
     public ContributionCalendar fetchContributionCalendar(String pat, String login) {
         // contributionsCollection without from/to defaults to the trailing
         // 12 months — exactly what the home-page card claims in its
@@ -258,7 +254,6 @@ public class GitHubAccountClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlDay(String date, Integer contributionCount, String color) {}
 
-    @Override
     public List<UserCommitSummary> fetchUserCommitsOnDate(
             String pat, String login, String isoDate) {
         // GitHub's /search/commits backs the heatmap-cube popover: list
@@ -350,7 +345,6 @@ public class GitHubAccountClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchRepo(@JsonProperty("full_name") String fullName) {}
 
-    @Override
     public List<UserRepo> fetchUserRepos(String pat) {
         // Page through /user/repos until GitHub returns fewer than PER_PAGE
         // items (or we hit MAX_PAGES as a safety net). Users at big companies
@@ -409,7 +403,6 @@ public class GitHubAccountClient
                 item.stargazersCount());
     }
 
-    @Override
     public boolean fetchHasSponsorsListing(String pat) {
         // The REST API doesn't expose Sponsors enrolment, so we fall back to
         // a single-field GraphQL query. Any error (network, scope, GitHub
@@ -436,7 +429,6 @@ public class GitHubAccountClient
         }
     }
 
-    @Override
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
         // /repos/{owner}/{repo} returns a `permissions` block when called
         // with an authenticated PAT; `permissions.push` is true for users
@@ -463,7 +455,6 @@ public class GitHubAccountClient
         }
     }
 
-    @Override
     public boolean fetchCollaboratorCanWrite(String pat, RepoRef repo, String login) {
         // /repos/{owner}/{repo}/collaborators/{login}/permission returns the
         // collaborator's permission ("admin" | "write" | "read" | "none";
@@ -504,7 +495,6 @@ public class GitHubAccountClient
     record GitHubRepoPermissions(
             Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
 
-    @Override
     public List<UserOrg> fetchUserOrgs(String pat) {
         try {
             List<GitHubUserOrgItem> items =
@@ -533,7 +523,6 @@ public class GitHubAccountClient
         }
     }
 
-    @Override
     public List<UserRepo> searchRepositories(String pat, String query) {
         try {
             GitHubRepoSearchResponse response =
@@ -560,7 +549,6 @@ public class GitHubAccountClient
         }
     }
 
-    @Override
     public Optional<UserRepo> fetchRepository(String pat, String owner, String repo) {
         try {
             GitHubUserRepoItem item =
@@ -592,7 +580,6 @@ public class GitHubAccountClient
                 item.stargazersCount());
     }
 
-    @Override
     public List<GitHubUserMatch> searchUsers(String pat, String query) {
         // `in:login` scopes the match to the login text rather than name /
         // bio / email; `type:user` filters out organisations so the team
@@ -631,12 +618,10 @@ public class GitHubAccountClient
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    @Override
     public List<RecentEvent> fetchUserEvents(String pat, String login, int limit) {
         return fetchEventList("/users/{login}/events", pat, login, limit);
     }
 
-    @Override
     public List<RecentEvent> fetchReceivedEvents(String pat, String login, int limit) {
         return fetchEventList("/users/{login}/received_events", pat, login, limit);
     }

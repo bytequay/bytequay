@@ -13,29 +13,11 @@
  */
 package com.bytequay.app.domain;
 
-/**
- * @param upstreamRemoteName  Name of the git remote in the local clone
- *                            that points at github.com/{owner}/{repo}
- *                            when the user is using a fork-based
- *                            workflow. Null for direct clones (origin
- *                            already points at the watched repo) and
- *                            for repos without a managed clone.
- * @param viewFocus           Persisted choice for the repo detail
- *                            page's commits-tab focus: {@code "fork"}
- *                            or {@code "upstream"}. Null when the user
- *                            has not toggled it yet — callers resolve
- *                            null to {@code "upstream"} when an
- *                            upstream remote is configured, else to
- *                            {@code "fork"}.
- */
 public record WatchedRepo(
         long id,
         String owner,
         String repo,
-        int displayOrder,
-        String localClonePath,
-        String upstreamRemoteName,
-        String viewFocus)
+        int displayOrder)
 {
     public String fullName()
     {

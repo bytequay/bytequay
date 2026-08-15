@@ -30,7 +30,6 @@ import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.SuggestedReviewer;
-import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -67,7 +66,15 @@ import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubPullRequestReadClient
-        implements GitHubPullRequestReadRepository {
+{
+    public record ProbeResult(boolean changed, String newEtag) {}
+
+    public record ReviewThreadMeta(
+            long rootCommentDatabaseId,
+            String graphqlNodeId,
+            boolean resolved,
+            String resolvedBy) {}
+
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
     private final GitHubPaginator paginator;
@@ -86,7 +93,6 @@ public class GitHubPullRequestReadClient
     private static final Set<String> ATTENTION_REASONS =
             ImmutableSet.of("review_requested", "mention");
 
-    @Override
     public List<PullRequest> searchPullRequests(String pat, String query) {
         requirePat(pat);
         try {
@@ -116,7 +122,11 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
+    public PullRequestHistoryPage searchPullRequestsPaged(
+            String pat, String query, int page, int perPage) {
+        return searchPullRequestsPaged(pat, query, page, perPage, null, null);
+    }
+
     public PullRequestHistoryPage searchPullRequestsPaged(
             String pat, String query, int page, int perPage, String sort, String order) {
         requirePat(pat);
@@ -170,7 +180,6 @@ public class GitHubPullRequestReadClient
 
     // ── Pull request detail ───────────────────────────────────────────────────
 
-    @Override
     public ProbeResult probeChangedSinceEtag(String pat, PullRequestRef pr, String etag) {
         try {
             ResponseEntity<Void> resp =
@@ -208,7 +217,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr) {
         try {
             GitHubPullRequestDetailResponse r =
@@ -252,10 +260,6 @@ public class GitHubPullRequestReadClient
                     Optional.ofNullable(r.base())
                             .map(GitHubPullRequestDetailResponse.Base::ref)
                             .orElse(null);
-            String baseSha =
-                    Optional.ofNullable(r.base())
-                            .map(GitHubPullRequestDetailResponse.Base::sha)
-                            .orElse(null);
             String baseRepo =
                     Optional.ofNullable(r.base())
                             .map(GitHubPullRequestDetailResponse.Base::repo)
@@ -278,16 +282,13 @@ public class GitHubPullRequestReadClient
                     baseRef,
                     baseRepo,
                     r.state(),
-                    Boolean.TRUE.equals(r.merged()),
-                    baseSha,
-                    r.mergeCommitSha());
+                    Boolean.TRUE.equals(r.merged()));
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
     }
 
-    @Override
     public String fetchPrTitle(String pat, PullRequestRef pr) {
         try {
             GitHubPullRequestDetailResponse r =
@@ -308,7 +309,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public List<PrReviewState> fetchPrReviews(String pat, PullRequestRef pr) {
         try {
             List<GitHubReview> reviews =
@@ -335,24 +335,13 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    // ── Exhaustive paged evidence (archival, learning-owned) ────────────────
-
-    /** Page cap for archival walks: 20 * 100 = 2,000 rows, far past any real PR. */
-    private static final int EVIDENCE_MAX_PAGES = 20;
-
-    /**
-     * Walks a paginated GitHub list endpoint to exhaustion, reporting whether the walk reached the
-     * natural end. A short/empty page means complete; a mid-walk error or hitting {@link
-     * #EVIDENCE_MAX_PAGES} with full pages the whole way means the tail was dropped, so the result
-     * is marked partial.
-     */
-    private <R> Paged<R> walkEvidencePages(
+    private <R> List<R> fetchPages(
             String pat,
             String pathTemplate,
             ParameterizedTypeReference<List<R>> typeRef,
             Object... uriVars) {
         ImmutableList.Builder<R> out = ImmutableList.builder();
-        for (int page = 1; page <= EVIDENCE_MAX_PAGES; page++) {
+        for (int page = 1; page <= 20; page++) {
             final int current = page;
             List<R> rows;
             try {
@@ -370,110 +359,18 @@ public class GitHubPullRequestReadClient
                                 .body(typeRef);
             }
             catch (RestClientResponseException e) {
-                return Paged.partial(out.build());
+                throw toReadableException(e);
             }
             if (rows == null || rows.isEmpty()) {
-                return Paged.complete(out.build());
+                return out.build();
             }
             out.addAll(rows);
             if (rows.size() < 100) {
-                return Paged.complete(out.build());
+                return out.build();
             }
         }
-        // Every fetched page was full up to the cap — more rows exist unread.
-        return Paged.partial(out.build());
-    }
-
-    @Override
-    public Paged<PrReviewState> fetchAllPrReviews(String pat, PullRequestRef pr) {
-        Paged<GitHubReview> raw =
-                walkEvidencePages(
-                        pat,
-                        "/repos/{owner}/{repo}/pulls/{number}/reviews",
-                        new ParameterizedTypeReference<>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number());
-        List<PrReviewState> items =
-                raw.items().stream()
-                        .filter(r -> r.user() != null)
-                        .map(r -> new PrReviewState(r.user().login(), r.state(), r.submittedAt()))
-                        .collect(toImmutableList());
-        return new Paged<>(items, raw.complete());
-    }
-
-    @Override
-    public Paged<PullRequestDetail.ChangedFile> fetchAllPrFiles(String pat, PullRequestRef pr) {
-        Paged<GitHubPullRequestFile> raw =
-                walkEvidencePages(
-                        pat,
-                        "/repos/{owner}/{repo}/pulls/{number}/files",
-                        new ParameterizedTypeReference<>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number());
-        List<PullRequestDetail.ChangedFile> items =
-                raw.items().stream()
-                        .map(
-                                f ->
-                                        new PullRequestDetail.ChangedFile(
-                                                f.filename(),
-                                                f.additions(),
-                                                f.deletions(),
-                                                f.status()))
-                        .collect(toImmutableList());
-        return new Paged<>(items, raw.complete());
-    }
-
-    @Override
-    public Paged<PullRequestCommit> fetchAllPrCommits(String pat, PullRequestRef pr) {
-        Paged<GitHubPullRequestCommit> raw =
-                walkEvidencePages(
-                        pat,
-                        "/repos/{owner}/{repo}/pulls/{number}/commits",
-                        new ParameterizedTypeReference<>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number());
-        List<PullRequestCommit> items =
-                raw.items().stream()
-                        .map(GitHubPullRequestReadClient::toPullRequestCommit)
-                        .collect(toImmutableList());
-        return new Paged<>(items, raw.complete());
-    }
-
-    @Override
-    public Paged<PrReviewThreadMessage> fetchAllPrReviewComments(String pat, PullRequestRef pr) {
-        Paged<GitHubReviewComment> raw =
-                walkEvidencePages(
-                        pat,
-                        "/repos/{owner}/{repo}/pulls/{number}/comments",
-                        new ParameterizedTypeReference<>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number());
-        List<PrReviewThreadMessage> items =
-                raw.items().stream()
-                        .map(GitHubPullRequestReadClient::toReviewThreadMessage)
-                        .collect(toImmutableList());
-        return new Paged<>(items, raw.complete());
-    }
-
-    @Override
-    public Paged<PrTimelineEvent> fetchAllPrTimeline(String pat, PullRequestRef pr) {
-        Paged<GitHubTimelineEvent> raw =
-                walkEvidencePages(
-                        pat,
-                        "/repos/{owner}/{repo}/issues/{number}/timeline",
-                        new ParameterizedTypeReference<>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number());
-        List<PrTimelineEvent> items =
-                raw.items().stream()
-                        .map(GitHubPullRequestReadClient::toTimelineEvent)
-                        .collect(toImmutableList());
-        return new Paged<>(items, raw.complete());
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(502), "GitHub pagination exceeded 2,000 rows");
     }
 
     private static PullRequestCommit toPullRequestCommit(GitHubPullRequestCommit commit) {
@@ -499,29 +396,6 @@ public class GitHubPullRequestReadClient
                         .orElse(null));
     }
 
-    @Override
-    public String fetchPrDiff(String pat, PullRequestRef pr) {
-        try {
-            String diff =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    "/repos/{owner}/{repo}/pulls/{number}",
-                                    pr.owner(),
-                                    pr.repo(),
-                                    pr.number())
-                            .header("Authorization", authorization(pat))
-                            .header("Accept", "application/vnd.github.diff")
-                            .retrieve()
-                            .body(String.class);
-            return diff != null ? diff : "";
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
-
-    @Override
     public List<PullRequestDetail.ChangedFile> fetchPrFiles(String pat, PullRequestRef pr) {
         try {
             List<GitHubPullRequestFile> files =
@@ -551,7 +425,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr) {
         try {
             List<GitHubPullRequestFileWithPatch> files =
@@ -585,7 +458,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public List<String> fetchFileBlobLines(String pat, RepoRef repo, String path, String sha) {
         try {
             GitHubFileContent content =
@@ -621,36 +493,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
-    public Optional<FileBlob> fetchFileBlob(String pat, RepoRef repo, String path, String ref) {
-        try {
-            GitHubFileContent content =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    builder ->
-                                            builder.path("/repos/{owner}/{repo}/contents/{+path}")
-                                                    .queryParam("ref", ref)
-                                                    .build(repo.owner(), repo.repo(), path))
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubFileContent.class);
-            if (content == null || content.content() == null || content.sha() == null) {
-                return Optional.empty();
-            }
-            String cleaned = content.content().replace("\n", "").replace("\r", "");
-            byte[] decoded = Base64.getDecoder().decode(cleaned);
-            return Optional.of(
-                    new FileBlob(content.sha(), new String(decoded, StandardCharsets.UTF_8)));
-        }
-        catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 404) {
-                return Optional.empty();
-            }
-            throw toReadableException(e);
-        }
-    }
-
     record GitHubContentCommitResponse(GitHubContentCommit commit) {
         @JsonIgnoreProperties(ignoreUnknown = true)
         record GitHubContentCommit(String sha) {}
@@ -675,7 +517,6 @@ public class GitHubPullRequestReadClient
         return out.build();
     }
 
-    @Override
     public List<DiffFile> fetchCommitDiffFiles(String pat, PullRequestRef pr, String sha) {
         try {
             GitHubCommitDetail detail =
@@ -707,7 +548,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public List<PullRequestCommit> fetchPrCommits(String pat, PullRequestRef pr) {
         try {
             List<GitHubPullRequestCommit> commits =
@@ -759,7 +599,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, Instant since) {
         // GitHub returns timeline events oldest-first, capped at per_page=100
         // per request. Long-lived PRs blow past 100 events easily (force
@@ -786,7 +625,6 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    @Override
     public List<PrTimelineEvent> fetchPrIssueComments(
             String pat, PullRequestRef pr, Instant since) {
         return paginator
@@ -834,7 +672,6 @@ public class GitHubPullRequestReadClient
                 r.eyes());
     }
 
-    @Override
     public List<PrReviewThreadMessage> fetchPrReviewComments(
             String pat, PullRequestRef pr, Instant since) {
         return paginator
@@ -898,7 +735,6 @@ public class GitHubPullRequestReadClient
                 r.eyes());
     }
 
-    @Override
     public Optional<PullRequestDetail.LinkedIssue> fetchIssue(
             String pat, RepoRef repo, int number) {
         try {
@@ -927,7 +763,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public PullRequestMetadata fetchPullRequestMetadata(String pat, PullRequestRef pr)
     {
         try {
@@ -1055,7 +890,6 @@ public class GitHubPullRequestReadClient
 
     // ── Pulls API ─────────────────────────────────────────────────────────────
 
-    @Override
     public List<PullRequest> listPullRequests(
             String pat, RepoRef repo, ListPullRequestsQuery query) {
         String fullName = repo.fullName();
@@ -1084,7 +918,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    @Override
     public PullRequest getPullRequest(String pat, PullRequestRef pr) {
         String fullName = pr.owner() + "/" + pr.repo();
         try {
@@ -1119,7 +952,6 @@ public class GitHubPullRequestReadClient
      * user-review-requested:@me}), so the dashboard uses this to catch what search drops. {@code
      * all=true} so an item already read but not yet acted on still comes back.
      */
-    @Override
     public List<PullRequestRef> fetchAttentionPrRefs(String pat) {
         requirePat(pat);
         try {
@@ -1275,7 +1107,6 @@ public class GitHubPullRequestReadClient
      */
     private static final int MAX_REVIEW_THREAD_PAGES = 20;
 
-    @Override
     public List<ReviewThreadMeta> fetchReviewThreadResolution(String pat, PullRequestRef pr) {
         List<ReviewThreadMeta> out = Lists.newArrayList();
         String cursor = null;
@@ -1372,7 +1203,6 @@ public class GitHubPullRequestReadClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlCommentNode(Long databaseId) {}
 
-    @Override
     public List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr) {
         // GitHub caps suggestedReviewers at 5 today; first(10) is generous
         // headroom in case that ever changes. avatarUrl(size:40) keeps the
@@ -1454,22 +1284,16 @@ public class GitHubPullRequestReadClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlActor(String login, String name, String avatarUrl) {}
 
-    @Override
     public List<PullRequestReview> listReviews(String pat, PullRequestRef pr) {
-        Paged<GitHubReview> reviews =
-                walkEvidencePages(
+        List<GitHubReview> reviews =
+                fetchPages(
                         pat,
                         "/repos/{owner}/{repo}/pulls/{number}/reviews",
                         new ParameterizedTypeReference<>() {},
                         pr.owner(),
                         pr.repo(),
                         pr.number());
-        if (!reviews.complete()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "GitHub review history could not be read exhaustively");
-        }
-        return reviews.items().stream()
+        return reviews.stream()
                 .map(GitHubPullRequestReadClient::toPullRequestReview)
                 .toList();
     }
@@ -1488,7 +1312,6 @@ public class GitHubPullRequestReadClient
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    @Override
     public List<GitHubUserMatch> fetchAssignableUsers(String pat, RepoRef repo) {
         return paginator
                 .paginate(
@@ -1503,7 +1326,6 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    @Override
     public List<PullRequestMetadata.Label> fetchRepoLabels(String pat, RepoRef repo) {
         return paginator
                 .paginate(

@@ -18,17 +18,12 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
 {
-    /** Returns the most recent {@code syncedAt} across all rows. */
-    @Query("SELECT MAX(e.syncedAt) FROM PullRequestEntity e")
-    Optional<Instant> findMaxSyncedAt();
-
     /** Deletes all rows whose id is not in the given set. */
     @Modifying
     @Query("DELETE FROM PullRequestEntity e WHERE e.id NOT IN :ids")

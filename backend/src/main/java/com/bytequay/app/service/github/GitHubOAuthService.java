@@ -45,7 +45,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.bytequay.app.repository.CredentialStore.DEFAULT_INSTANCE_NAME;
 import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
@@ -217,7 +216,6 @@ public class GitHubOAuthService
         credentialService.upsert(
                 CredentialType.ACCOUNT,
                 GITHUB_ACCOUNT_NAME,
-                DEFAULT_INSTANCE_NAME,
                 accessToken,
                 login,
                 "Acquired via GitHub OAuth on " + Instant.now(clock));
@@ -236,7 +234,7 @@ public class GitHubOAuthService
     /** Drops the stored token. Idempotent. */
     public void disconnect()
     {
-        credentialService.delete(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME, DEFAULT_INSTANCE_NAME);
+        credentialService.delete(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME);
     }
 
     private Optional<String> resolveClientId()

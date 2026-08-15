@@ -14,14 +14,14 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.domain.ContributionCalendar;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GitHubAccountRepository;
-import com.bytequay.app.repository.GitHubPullRequestReadRepository;
-import com.bytequay.app.repository.GitHubRepoRepository;
-import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
+import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
+import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -42,7 +42,7 @@ class TestRepoServiceContributionCalendar
     @Test
     void cachesContributionCalendarForRepeatedHomeLoads()
     {
-        GitHubAccountRepository gitHub = mock(GitHubAccountRepository.class);
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         PatResolver patResolver = mock(PatResolver.class);
         ContributionCalendar calendar = calendar();
         when(patResolver.resolve()).thenReturn("pat");
@@ -60,7 +60,7 @@ class TestRepoServiceContributionCalendar
     @Test
     void graphQlResourceLimitBecomesTemporaryUnavailable()
     {
-        GitHubAccountRepository gitHub = mock(GitHubAccountRepository.class);
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         PatResolver patResolver = mock(PatResolver.class);
         when(patResolver.resolve()).thenReturn("pat");
         when(gitHub.fetchContributionCalendar("pat", "chenjian2664"))
@@ -75,17 +75,17 @@ class TestRepoServiceContributionCalendar
                 });
     }
 
-    private static RepoService service(GitHubAccountRepository gitHub, PatResolver patResolver)
+    private static RepoService service(GitHubAccountClient gitHub, PatResolver patResolver)
     {
         return new RepoService(
-                mock(WatchedRepoStore.class),
-                mock(GitHubPullRequestReadRepository.class),
-                mock(GitHubRepoRepository.class),
+                mock(SqliteWatchedRepoStore.class),
+                mock(GitHubPullRequestReadClient.class),
+                mock(GitHubRepoClient.class),
                 gitHub,
                 mock(PrViewStateStore.class),
                 mock(RepoMetaStore.class),
                 mock(SqliteGithubHomeCacheStore.class),
-                mock(AppSettingsStore.class),
+                mock(SqliteAppSettingsStore.class),
                 patResolver,
                 Runnable::run);
     }

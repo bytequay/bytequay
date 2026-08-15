@@ -13,47 +13,24 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
-import com.bytequay.app.service.SyncSettingsService;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
 @RequestMapping("/api/settings")
 public class SettingsController
 {
-    private final SyncSettingsService syncSettings;
     private final PullRequestSyncJob syncJob;
 
-    public SettingsController(
-            SyncSettingsService syncSettings,
-            PullRequestSyncJob syncJob)
+    public SettingsController(PullRequestSyncJob syncJob)
     {
-        this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
         this.syncJob = requireNonNull(syncJob, "syncJob is null");
-    }
-
-    @GetMapping("/sync")
-    public SyncSettings getSyncSettings()
-    {
-        return syncSettings.getSettings();
-    }
-
-    @PutMapping("/sync")
-    public SyncSettings updateSyncSettings(@RequestBody SyncSettings settings)
-    {
-        settings = requireBody(settings);
-        return syncSettings.updateSettings(settings);
     }
 
     @PostMapping("/sync/trigger")

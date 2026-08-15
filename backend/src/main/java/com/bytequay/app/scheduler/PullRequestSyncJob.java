@@ -14,9 +14,7 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.SyncSettingsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,8 +22,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,11 +34,6 @@ import static java.util.Objects.requireNonNull;
  * Background job that periodically fetches pull requests from GitHub and writes
  * them to the local database.
  *
- * <p>The scheduler ticks every 10 seconds. Inside each tick it checks whether
- * the configured sync interval has elapsed before actually hitting the GitHub API.
- * This allows the interval to be changed at runtime without restarting — the new
- * value takes effect within one tick (≤ 10 seconds).
- *
  * <p>{@link #requestImmediateSync()} submits the sync to the shared application executor
  * right away rather than waiting for the next tick, which is used at startup so the PR list
  * is populated as soon as the PAT is registered.
@@ -53,8 +44,6 @@ public class PullRequestSyncJob
     private static final Logger log = LoggerFactory.getLogger(PullRequestSyncJob.class);
 
     private final PullRequestService pullRequestService;
-    private final PullRequestStore store;
-    private final SyncSettingsService syncSettings;
     private final CredentialService credentialService;
     private final Executor executor;
     private final QuietHoursPolicy quietHours;
@@ -64,15 +53,11 @@ public class PullRequestSyncJob
 
     public PullRequestSyncJob(
             PullRequestService pullRequestService,
-            PullRequestStore store,
-            SyncSettingsService syncSettings,
             CredentialService credentialService,
             QuietHoursPolicy quietHours,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
-        this.store = requireNonNull(store, "store is null");
-        this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.quietHours = requireNonNull(quietHours, "quietHours is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -94,9 +79,6 @@ public class PullRequestSyncJob
         // the timer is gated — requestImmediateSync() and every other
         // user-initiated GitHub call run regardless of the hour.
         if (quietHours.isQuietNow()) {
-            return;
-        }
-        if (!isIntervalElapsed()) {
             return;
         }
         doSync();
@@ -128,14 +110,6 @@ public class PullRequestSyncJob
         finally {
             syncing.set(false);
         }
-    }
-
-    private boolean isIntervalElapsed()
-    {
-        int intervalSeconds = syncSettings.getSettings().intervalSeconds();
-        return store.lastSyncedAt()
-                .map(lastSync -> Duration.between(lastSync, Instant.now()).toSeconds() >= intervalSeconds)
-                .orElse(true);
     }
 
     private Optional<String> accountPat()

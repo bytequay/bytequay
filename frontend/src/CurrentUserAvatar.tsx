@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
+import Avatar from './Avatar';
 import { getCached, setCached } from './dataCache';
 import type { UserProfileDto } from './types';
 
@@ -25,8 +26,6 @@ export default function CurrentUserAvatar({ size, className }: Props) {
   const [profile, setProfile] = useState<UserProfileDto | null>(
     () => getCached<UserProfileDto>('home:profile') ?? null,
   );
-  const [failed, setFailed] = useState(false);
-
   useEffect(() => {
     const bridge = typeof window === 'undefined' ? undefined : window.bridge;
     if (bridge?.getUserProfile === undefined) return;
@@ -41,21 +40,16 @@ export default function CurrentUserAvatar({ size, className }: Props) {
     return () => { cancelled = true; };
   }, []);
 
-  const url = profile?.avatarUrl.trim()
-    || (profile ? `https://github.com/${encodeURIComponent(profile.login)}.png?size=${size * 2}` : '');
-  const style = { ...avatarStyle, width: size, height: size, flexBasis: size };
-  if (url !== '' && !failed) {
-    return <img
-      className={className}
-      src={url}
-      alt={profile?.login ?? 'GitHub user'}
-      title={profile?.login}
-      style={style}
-      onError={() => setFailed(true)}
-    />;
+  if (profile) {
+    return <Avatar login={profile.login} avatarUrl={profile.avatarUrl} size={size} className={className} />;
   }
   return (
-    <span className={className} style={{ ...style, ...fallbackStyle }} role="img" aria-label="GitHub user">
+    <span
+      className={`avatar avatar--fallback ${className ?? ''}`}
+      style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.5)) }}
+      role="img"
+      aria-label="GitHub user"
+    >
       <svg width="60%" height="60%" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <circle cx="12" cy="8" r="3.5" />
@@ -64,18 +58,3 @@ export default function CurrentUserAvatar({ size, className }: Props) {
     </span>
   );
 }
-
-const avatarStyle: CSSProperties = {
-  display: 'inline-flex',
-  flexGrow: 0,
-  flexShrink: 0,
-  borderRadius: '50%',
-  objectFit: 'cover',
-};
-
-const fallbackStyle: CSSProperties = {
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#eef1f4',
-  color: '#57606a',
-};

@@ -14,8 +14,8 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
+import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
@@ -30,8 +30,8 @@ class TestPullRequestDetailInvalidator
     @Test
     void testInvalidateClearsSqliteAndResponseCaches()
     {
-        PullRequestStore store = mock(PullRequestStore.class);
-        PrDetailStore detailStore = mock(PrDetailStore.class);
+        SqlitePullRequestStore store = mock(SqlitePullRequestStore.class);
+        SqlitePrDetailStore detailStore = mock(SqlitePrDetailStore.class);
         GitHubResponseCache responseCache = mock(GitHubResponseCache.class);
         PullRequestDetailInvalidator invalidator = new PullRequestDetailInvalidator(
                 store,

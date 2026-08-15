@@ -37,23 +37,10 @@ public class WebConfig
     private static final String GITHUB_API_VERSION = "2022-11-28";
     private static final String USER_AGENT = "bytequay -app";
 
-    private static final String ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
-    private static final String ANTHROPIC_VERSION = "2023-06-01";
-    private static final String DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
-    // The default local-server endpoint matches ds4-server's
-    // out-of-the-box port. Override per environment by changing the
-    // ds4.port setting; for the singleton RestClient bean we ship the
-    // default and let a future config-aware variant land if needed
-    // (the lifecycle service tracks the live port in its config).
-    private static final String DEEPSEEK_LOCAL_BASE_URL = "http://127.0.0.1:8000";
-    private static final String OPENAI_API_BASE_URL = "https://api.openai.com/v1";
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 
-    // Outbound-HTTP timeouts. Without these a stuck GitHub call (rate-limited,
-    // TCP dead connection, network blip) ties up a Tomcat worker until Node's
-    // undici kills the frontend fetch with HeadersTimeoutError after 5 min.
-    // 15s connect + 45s read means a PR-detail orchestration (5 parallel GH
-    // calls) has a bounded worst case of ~45s, well under the fetch ceiling.
+    // Bound stuck GitHub calls caused by rate limits, dead connections, or
+    // network blips. This stays below the frontend's one-minute request timeout.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(45);
 
@@ -108,50 +95,6 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient anthropicRestClient()
-    {
-        // Anthropic streams back model output; allow a longer read timeout.
-        return RestClient.builder()
-                .baseUrl(ANTHROPIC_API_BASE_URL)
-                .defaultHeader("Content-Type", "application/json")
-                .defaultHeader("anthropic-version", ANTHROPIC_VERSION)
-                .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
-                .build();
-    }
-
-    @Bean
-    public RestClient deepseekRestClient()
-    {
-        // DeepSeek's cloud REST surface is OpenAI-compatible (chat
-        // completions). Same long read window as Anthropic — model
-        // responses regularly run past the 45s GitHub-side default.
-        return RestClient.builder()
-                .baseUrl(DEEPSEEK_API_BASE_URL)
-                .defaultHeader("Content-Type", "application/json")
-                .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
-                .build();
-    }
-
-    @Bean
-    public RestClient deepseekLocalRestClient()
-    {
-        // Locally-served DeepSeek model variant routed through the
-        // ds4 subprocess. Same Chat-Completions request shape as the
-        // cloud client; only the base URL and credential strategy
-        // differ. Read timeout is longer than the cloud window because
-        // local inference on a cold KV cache regularly runs 60+ s for
-        // the first token.
-        return RestClient.builder()
-                .baseUrl(DEEPSEEK_LOCAL_BASE_URL)
-                .defaultHeader("Content-Type", "application/json")
-                .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(5)))
-                .build();
-    }
-
-    @Bean
     public RestClient gitHubGraphQLRestClient(
             GitHubRateLimitInterceptor rateLimitInterceptor,
             GitHubOrgAccessInterceptor orgAccessInterceptor)
@@ -170,20 +113,6 @@ public class WebConfig
                 .requestInterceptor(rateLimitInterceptor)
                 .requestInterceptor(orgAccessInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
-                .build();
-    }
-
-    @Bean
-    public RestClient openAiRestClient()
-    {
-        // OpenAI chat-completions API — request shape matches DeepSeek
-        // (DeepSeek's surface was modelled after OpenAI's), so the
-        // OpenAiReviewer can reuse the same DTOs.
-        return RestClient.builder()
-                .baseUrl(OPENAI_API_BASE_URL)
-                .defaultHeader("Content-Type", "application/json")
-                .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
                 .build();
     }
 

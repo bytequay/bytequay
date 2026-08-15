@@ -31,7 +31,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
-import static com.bytequay.app.repository.CredentialStore.DEFAULT_INSTANCE_NAME;
 import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
@@ -127,7 +126,6 @@ public class GhCliService
         credentialService.upsert(
                 CredentialType.ACCOUNT,
                 GITHUB_ACCOUNT_NAME,
-                DEFAULT_INSTANCE_NAME,
                 token,
                 login,
                 "Imported from the GitHub CLI on " + Instant.now(),

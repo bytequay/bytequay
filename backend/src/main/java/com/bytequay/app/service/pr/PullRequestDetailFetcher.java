@@ -22,11 +22,11 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
-import com.bytequay.app.repository.GitHubActionsRepository;
-import com.bytequay.app.repository.GitHubMergeRepository;
-import com.bytequay.app.repository.GitHubPullRequestReadRepository;
-import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.slf4j.Logger;
@@ -51,17 +51,17 @@ final class PullRequestDetailFetcher
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestDetailFetcher.class);
 
-    private final GitHubPullRequestReadRepository gitHub;
-    private final GitHubMergeRepository merges;
-    private final GitHubActionsRepository actions;
-    private final PrDetailStore detailStore;
+    private final GitHubPullRequestReadClient gitHub;
+    private final GitHubMergeClient merges;
+    private final GitHubActionsClient actions;
+    private final SqlitePrDetailStore detailStore;
     private final Executor ioExecutor;
 
     PullRequestDetailFetcher(
-            GitHubPullRequestReadRepository gitHub,
-            GitHubMergeRepository merges,
-            GitHubActionsRepository actions,
-            PrDetailStore detailStore,
+            GitHubPullRequestReadClient gitHub,
+            GitHubMergeClient merges,
+            GitHubActionsClient actions,
+            SqlitePrDetailStore detailStore,
             Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -95,9 +95,9 @@ final class PullRequestDetailFetcher
         List<PullRequestDetail.LinkedIssue> linkedIssues = emptyIfNull(result.linkedIssues());
 
         List<PrTimelineEvent> mergedTimeline = PullRequestTimelineUtil.mergeIssueComments(timeline, issueComments);
-        GitHubMergeRepository.MergeQueueInfo info = result.mergeQueueInfo();
+        GitHubMergeClient.MergeQueueInfo info = result.mergeQueueInfo();
         if (info == null) {
-            info = new GitHubMergeRepository.MergeQueueInfo(false, null);
+            info = new GitHubMergeClient.MergeQueueInfo(false, null);
         }
         logDetailFetchDone(ref, t0, timeline, reviewComments, files, checkRuns, issueComments);
 
@@ -177,7 +177,7 @@ final class PullRequestDetailFetcher
         });
     }
 
-    private List<GitHubPullRequestReadRepository.ReviewThreadMeta> fetchReviewThreadResolutionBestEffort(
+    private List<GitHubPullRequestReadClient.ReviewThreadMeta> fetchReviewThreadResolutionBestEffort(
             String pat,
             PullRequestRef ref)
     {
@@ -193,7 +193,7 @@ final class PullRequestDetailFetcher
         }
     }
 
-    private GitHubMergeRepository.MergeQueueInfo fetchMergeQueueInfoBestEffort(String pat, PullRequestRef ref)
+    private GitHubMergeClient.MergeQueueInfo fetchMergeQueueInfoBestEffort(String pat, PullRequestRef ref)
     {
         // GraphQL fetch: REST does not expose the per-PR merge-queue entry.
         try {
@@ -201,7 +201,7 @@ final class PullRequestDetailFetcher
         }
         catch (RuntimeException e) {
             logBestEffortFailure("GraphQL merge-queue info fetch failed", e);
-            return new GitHubMergeRepository.MergeQueueInfo(false, null);
+            return new GitHubMergeClient.MergeQueueInfo(false, null);
         }
     }
 
@@ -242,7 +242,7 @@ final class PullRequestDetailFetcher
 
     private static List<PrReviewThreadMessage> attachReviewThreadResolution(
             List<PrReviewThreadMessage> reviewComments,
-            List<GitHubPullRequestReadRepository.ReviewThreadMeta> threadResolution)
+            List<GitHubPullRequestReadClient.ReviewThreadMeta> threadResolution)
     {
         // Stitch the GraphQL metadata onto the REST messages. Only the
         // thread root (inReplyTo == null) carries graphqlNodeId +
@@ -251,8 +251,8 @@ final class PullRequestDetailFetcher
             return reviewComments;
         }
 
-        Map<Long, GitHubPullRequestReadRepository.ReviewThreadMeta> metaByRootId = new HashMap<>();
-        for (GitHubPullRequestReadRepository.ReviewThreadMeta meta : threadResolution) {
+        Map<Long, GitHubPullRequestReadClient.ReviewThreadMeta> metaByRootId = new HashMap<>();
+        for (GitHubPullRequestReadClient.ReviewThreadMeta meta : threadResolution) {
             metaByRootId.put(meta.rootCommentDatabaseId(), meta);
         }
         return reviewComments.stream()
@@ -262,12 +262,12 @@ final class PullRequestDetailFetcher
 
     private static PrReviewThreadMessage attachReviewThreadResolution(
             PrReviewThreadMessage message,
-            Map<Long, GitHubPullRequestReadRepository.ReviewThreadMeta> metaByRootId)
+            Map<Long, GitHubPullRequestReadClient.ReviewThreadMeta> metaByRootId)
     {
         if (message.inReplyTo() != null) {
             return message;
         }
-        GitHubPullRequestReadRepository.ReviewThreadMeta meta = metaByRootId.get(message.githubId());
+        GitHubPullRequestReadClient.ReviewThreadMeta meta = metaByRootId.get(message.githubId());
         if (meta == null) {
             return message;
         }
@@ -369,8 +369,8 @@ final class PullRequestDetailFetcher
             CompletableFuture<List<PrTimelineEvent>> timeline,
             CompletableFuture<List<PrReviewThreadMessage>> reviewComments,
             CompletableFuture<List<PrTimelineEvent>> issueComments,
-            CompletableFuture<List<GitHubPullRequestReadRepository.ReviewThreadMeta>> threadResolution,
-            CompletableFuture<GitHubMergeRepository.MergeQueueInfo> mergeQueueInfo,
+            CompletableFuture<List<GitHubPullRequestReadClient.ReviewThreadMeta>> threadResolution,
+            CompletableFuture<GitHubMergeClient.MergeQueueInfo> mergeQueueInfo,
             CompletableFuture<List<PrCheckRunState>> checkRuns,
             CompletableFuture<List<PullRequestDetail.LinkedIssue>> linkedIssues)
     {
@@ -383,8 +383,8 @@ final class PullRequestDetailFetcher
             List<PrTimelineEvent> timeline,
             List<PrReviewThreadMessage> reviewComments,
             List<PrTimelineEvent> issueComments,
-            List<GitHubPullRequestReadRepository.ReviewThreadMeta> threadResolution,
-            GitHubMergeRepository.MergeQueueInfo mergeQueueInfo,
+            List<GitHubPullRequestReadClient.ReviewThreadMeta> threadResolution,
+            GitHubMergeClient.MergeQueueInfo mergeQueueInfo,
             List<PrCheckRunState> checkRuns,
             List<PullRequestDetail.LinkedIssue> linkedIssues)
     {

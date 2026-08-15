@@ -39,16 +39,15 @@ import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GitHubAccountRepository;
-import com.bytequay.app.repository.GitHubActionsRepository;
-import com.bytequay.app.repository.GitHubMergeRepository;
-import com.bytequay.app.repository.GitHubPullRequestReadRepository;
-import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
-import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
+import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
+import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
 import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.annotations.VisibleForTesting;
@@ -126,15 +125,14 @@ public class PullRequestService
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final int MAX_SEARCH_PAGES = 6;
 
-    private final GitHubPullRequestReadRepository gitHub;
-    private final GitHubPullRequestWriteRepository pullRequestWrites;
-    private final GitHubMergeRepository merges;
-    private final GitHubActionsRepository actions;
-    private final GitHubAccountRepository accounts;
-    private final PullRequestStore store;
-    private final PrDetailStore detailStore;
+    private final GitHubPullRequestReadClient gitHub;
+    private final GitHubPullRequestWriteClient pullRequestWrites;
+    private final GitHubMergeClient merges;
+    private final GitHubActionsClient actions;
+    private final GitHubAccountClient accounts;
+    private final SqlitePullRequestStore store;
+    private final SqlitePrDetailStore detailStore;
     private final PrViewStateStore viewStateStore;
-    private final AppSettingsStore settingsStore;
     private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
     private final SqliteRepoMetadataCacheStore repoMetadataCache;
@@ -172,15 +170,14 @@ public class PullRequestService
 
     @Autowired
     public PullRequestService(
-            GitHubPullRequestReadRepository gitHub,
-            GitHubPullRequestWriteRepository pullRequestWrites,
-            GitHubMergeRepository merges,
-            GitHubActionsRepository actions,
-            GitHubAccountRepository accounts,
-            PullRequestStore store,
-            PrDetailStore detailStore,
+            GitHubPullRequestReadClient gitHub,
+            GitHubPullRequestWriteClient pullRequestWrites,
+            GitHubMergeClient merges,
+            GitHubActionsClient actions,
+            GitHubAccountClient accounts,
+            SqlitePullRequestStore store,
+            SqlitePrDetailStore detailStore,
             PrViewStateStore viewStateStore,
-            AppSettingsStore settingsStore,
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
             SqliteRepoMetadataCacheStore repoMetadataCache,
@@ -197,7 +194,6 @@ public class PullRequestService
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
-        this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.repoMetadataCache = requireNonNull(repoMetadataCache, "repoMetadataCache is null");
@@ -217,13 +213,9 @@ public class PullRequestService
         return accountPat;
     }
 
-    /**
-     * Returns all pull requests from the local database, sorted by the user's configured order.
-     */
     public List<PullRequest> listPullRequests()
     {
-        return PullRequestOrder.fromKey(settingsStore.get(AppSettingsStore.Key.PR_SORT_ORDER).orElse(""))
-                .sort(store.findAll());
+        return store.findAll();
     }
 
     /**
@@ -471,7 +463,7 @@ public class PullRequestService
                 PullRequestRef ref = parseRef(repo, number);
                 EtagEntry cachedEntry = detailEtags.get(prId.get());
                 String cachedEtag = cachedEntry != null ? cachedEntry.etag() : null;
-                GitHubPullRequestReadRepository.ProbeResult probe =
+                GitHubPullRequestReadClient.ProbeResult probe =
                         gitHub.probeChangedSinceEtag(pat, ref, cachedEtag);
                 Instant now = Instant.now();
                 // Always capture the latest ETag — including the
@@ -636,14 +628,14 @@ public class PullRequestService
      *                    is empty so a check with real annotations costs no
      *                    extra GitHub round-trip
      */
-    public record CheckRunFailure(List<GitHubActionsRepository.CheckRunAnnotation> annotations, String log) {}
+    public record CheckRunFailure(List<GitHubActionsClient.CheckRunAnnotation> annotations, String log) {}
 
     public CheckRunFailure getCheckRunFailure(String repo, long checkRunId)
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
         RepoRef repoRef = RepoRef.of(refOrNull.owner(), refOrNull.repo());
-        List<GitHubActionsRepository.CheckRunAnnotation> annotations =
+        List<GitHubActionsClient.CheckRunAnnotation> annotations =
                 actions.fetchCheckRunAnnotations(pat, repoRef, checkRunId);
         if (!annotations.isEmpty()) {
             return new CheckRunFailure(annotations, "");
@@ -1010,7 +1002,7 @@ public class PullRequestService
             // The thread was not cached with a node id; resolve it live.
             nodeId = gitHub.fetchReviewThreadResolution(pat, parseRef(repo, number)).stream()
                     .filter(m -> m.rootCommentDatabaseId() == rootCommentId)
-                    .map(GitHubPullRequestReadRepository.ReviewThreadMeta::graphqlNodeId)
+                    .map(GitHubPullRequestReadClient.ReviewThreadMeta::graphqlNodeId)
                     .filter(id -> id != null && !id.isBlank())
                     .findFirst()
                     .orElse(null);
@@ -1314,7 +1306,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        Optional<GitHubMergeRepository.MergeQueueProbe> probe;
+        Optional<GitHubMergeClient.MergeQueueProbe> probe;
         try {
             probe = merges.probeMergeQueue(pat, ref);
         }

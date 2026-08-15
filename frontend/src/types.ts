@@ -146,7 +146,6 @@ export type WatchedRepoDto = {
   owner: string;
   repo: string;
   displayOrder: number;
-  localClonePath: string | null;
 };
 
 export type RepoMetaDto = {

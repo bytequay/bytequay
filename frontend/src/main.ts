@@ -14,7 +14,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Agent, setGlobalDispatcher } from 'undici';
 import {
   BACKEND_BASE,
   killBackend,
@@ -23,7 +22,6 @@ import {
   waitForBackendReady,
 } from './backendProcess';
 
-setGlobalDispatcher(new Agent({ headersTimeout: 30_000, bodyTimeout: 60_000 }));
 app.setName('ByteQuay');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 
@@ -198,7 +196,7 @@ function extractMessage(body: string): string {
 }
 
 async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(extractMessage(body)
@@ -208,7 +206,7 @@ async function backendJson<T = unknown>(input: string | URL, init?: RequestInit)
 }
 
 async function backendVoid(input: string | URL, init?: RequestInit): Promise<void> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(extractMessage(body)

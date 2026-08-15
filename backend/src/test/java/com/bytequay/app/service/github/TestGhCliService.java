@@ -20,7 +20,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
-import static com.bytequay.app.repository.CredentialStore.DEFAULT_INSTANCE_NAME;
 import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,7 +56,6 @@ class TestGhCliService
         verify(credentials).upsert(
                 eq(CredentialType.ACCOUNT),
                 eq(GITHUB_ACCOUNT_NAME),
-                eq(DEFAULT_INSTANCE_NAME),
                 eq("gho_secret"),
                 eq("octocat"),
                 any(),

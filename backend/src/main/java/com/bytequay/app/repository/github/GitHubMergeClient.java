@@ -16,7 +16,6 @@ package com.bytequay.app.repository.github;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.repository.GitHubMergeRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableMap;
@@ -47,7 +46,13 @@ import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubMergeClient
-        implements GitHubMergeRepository {
+{
+    public record MergeQueueInfo(boolean queueConfigured, String entryState) {}
+
+    public record MergeQueueProbe(String pullRequestNodeId) {}
+
+    public record AutoMergeStatus(String mergeMethod, String enabledByLogin) {}
+
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
 
@@ -64,7 +69,6 @@ public class GitHubMergeClient
     private static final Pattern LINK_HEADER =
             Pattern.compile("\\s*<([^<>]+)>\\s*;\\s*rel=\"(next|prev|first|last)\"\\s*");
 
-    @Override
     public MergeResult mergePullRequest(
             String pat, PullRequestRef pr, MergePullRequestCommand command) {
         Map<String, Object> body = Maps.newHashMap();
@@ -91,7 +95,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public void deleteBranch(String pat, PullRequestRef pr, String branchName) {
         try {
             gitHubRestClient
@@ -114,7 +117,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public Optional<String> fetchBranchHeadSha(
             String pat, PullRequestRef repository, String branchName) {
         try {
@@ -172,7 +174,6 @@ public class GitHubMergeClient
             }
             """;
 
-    @Override
     public MergeQueueInfo fetchMergeQueueInfo(String pat, PullRequestRef pr) {
         Map<String, Object> body =
                 ImmutableMap.of(
@@ -427,7 +428,6 @@ public class GitHubMergeClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PullRequestIdGqlPr(String id) {}
 
-    @Override
     public void enableAutoMerge(String pat, PullRequestRef pr, String mergeMethod) {
         String nodeId = fetchPullRequestNodeId(pat, pr);
         String mutation =
@@ -453,7 +453,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public void disableAutoMerge(String pat, PullRequestRef pr) {
         String nodeId = fetchPullRequestNodeId(pat, pr);
         String mutation =
@@ -476,7 +475,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public Optional<AutoMergeStatus> fetchAutoMergeStatus(String pat, PullRequestRef pr) {
         String query =
                 "query($owner: String!, $name: String!, $number: Int!) {"
@@ -538,7 +536,6 @@ public class GitHubMergeClient
 
     // ── GraphQL: merge queue probe + enqueue ─────────────────────────────
 
-    @Override
     public Optional<MergeQueueProbe> probeMergeQueue(String pat, PullRequestRef pr) {
         String query =
                 "query($owner: String!, $name: String!, $number: Int!) {"
@@ -587,7 +584,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr) {
         // Same shape as the merge-queue probe but without the mergeQueue
         // gate — used when a direct merge is rejected because a ruleset
@@ -630,7 +626,6 @@ public class GitHubMergeClient
         }
     }
 
-    @Override
     public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId) {
         String mutation =
                 "mutation($id: ID!) {"
@@ -643,7 +638,6 @@ public class GitHubMergeClient
         return enqueuePullRequest(pat, body);
     }
 
-    @Override
     public MergeResult enqueuePullRequest(
             String pat, String pullRequestNodeId, String expectedHeadOid) {
         if (expectedHeadOid == null || expectedHeadOid.isBlank()) {
@@ -768,7 +762,6 @@ public class GitHubMergeClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record EnqueueGqlEntry(String id, Integer position, String state) {}
 
-    @Override
     public void dequeuePullRequest(String pat, PullRequestRef pr) {
         // dequeuePullRequest takes the merge queue ENTRY id, not the PR id —
         // fetch it via a small GraphQL probe first. If the PR isn't currently

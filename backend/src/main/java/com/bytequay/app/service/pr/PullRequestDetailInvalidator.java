@@ -14,8 +14,8 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
+import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
@@ -28,13 +28,13 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class PullRequestDetailInvalidator
 {
-    private final PullRequestStore store;
-    private final PrDetailStore detailStore;
+    private final SqlitePullRequestStore store;
+    private final SqlitePrDetailStore detailStore;
     private final GitHubResponseCache responseCache;
 
     public PullRequestDetailInvalidator(
-            PullRequestStore store,
-            PrDetailStore detailStore,
+            SqlitePullRequestStore store,
+            SqlitePrDetailStore detailStore,
             GitHubResponseCache responseCache)
     {
         this.store = requireNonNull(store, "store is null");

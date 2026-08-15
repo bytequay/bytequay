@@ -214,24 +214,6 @@ public class PullRequestService
         CompletableFuture.allOf(detailFutures.toArray(CompletableFuture[]::new)).join();
     }
 
-    /** The dashboard's relevant-PR sweep (open authored + review-requested +
-     *  reviewed-by + recently-closed-authored), for the unified {@code
-     *  PRSyncService.syncList} to upsert into the {@code pr} table. Pure
-     *  GitHub search — no storage side effects, same as every other caller
-     *  of {@link #fetchRelevant}. */
-    public List<PullRequest> searchRelevantForDashboard()
-    {
-        return fetchRelevant(credentialService.resolveGitHubToken());
-    }
-
-    /** The authenticated GitHub login, for the unified dashboard sync's
-     *  attention-reason / mention detection — same resolution {@link
-     *  #syncFromGitHub} uses for its own reconciliation pass. */
-    public String resolveCurrentDashboardLogin()
-    {
-        return resolveCurrentLogin(credentialService.resolveGitHubToken());
-    }
-
     /** True when an under-enriched PR is due for a forced backfill sync:
      *  either we've never re-checked it or the last attempt is older than
      *  {@link #BACKFILL_RECHECK_INTERVAL}. */
@@ -336,61 +318,17 @@ public class PullRequestService
         viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         invalidatePullRequestCaches(repo, number);
     }
-    /**
-     * Merges the given pull request on GitHub using the requested strategy
-     * and records a local reviewed state. {@code strategy} is one of
-     * {@code "rebase"}, {@code "squash"}, or {@code "merge"}; null /
-     * unknown values fall back to {@code "rebase"} (the historical
-     * default).
-     *
-     * <p>Dispatches based on whether the target branch has merge queue
-     * enabled (one GraphQL probe per call):
-     * <ul>
-     *   <li>Queue absent → REST {@code PUT .../merge} as before.</li>
-     *   <li>Queue present → GraphQL {@code enqueuePullRequest}. The
-     *       caller's strategy is ignored — the queue's configured method
-     *       wins. The PR isn't merged yet, so we don't mark it reviewed
-     *       (a queue entry can still fail required checks and bounce);
-     *       the next background sync will pick up the actual merge when
-     *       it lands.</li>
-     * </ul>
-     *
-     * <p>If the probe itself fails (network blip, GraphQL outage) we
-     * fall through to the direct REST merge — that's the historical
-     * behavior and worst-case the user just gets the underlying error
-     * back instead of an unrelated probe-failure error.
-     */
+    /** Merges directly, falling back to GitHub's merge queue when required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
-        Optional<GitHubMergeClient.MergeQueueProbe> probe;
-        try {
-            probe = merges.probeMergeQueue(pat, ref);
-        }
-        catch (Exception e) {
-            log.debug("Merge queue probe failed for {}#{}, falling back to direct merge: {}",
-                    repo, number, e.getMessage());
-            probe = Optional.empty();
-        }
-        if (probe.isPresent()) {
-            MergeResult queued = merges.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
-            // Drop the cached detail so the next /prs/detail call reflects
-            // the new "queued" state without waiting for the background
-            // sync. Don't markReviewed — the merge hasn't actually happened.
-            invalidatePullRequestCaches(repo, number);
-            return queued;
-        }
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result;
         try {
             result = merges.mergePullRequest(pat, ref, command);
         }
         catch (ResponseStatusException e) {
-            // Rulesets can require the merge queue without exposing it to the
-            // probe above (GraphQL's pullRequest.mergeQueue is null for
-            // ruleset-driven queues). GitHub then 405s the direct merge —
-            // recover by enqueueing instead.
             if (requiresMergeQueue(e)) {
                 Optional<String> nodeId = merges.pullRequestNodeId(pat, ref);
                 if (nodeId.isPresent()) {

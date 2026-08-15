@@ -14,12 +14,10 @@
 package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubRepoSearchResponse(
-        @JsonProperty("total_count") int totalCount,
         List<GitHubUserRepoItem> items)
 {}

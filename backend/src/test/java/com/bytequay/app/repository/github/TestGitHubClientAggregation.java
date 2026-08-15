@@ -29,7 +29,7 @@ class TestGitHubClientAggregation
 
     private static GitHubNotification notification(String reason, String type, String repo, String url)
     {
-        return new GitHubNotification(reason, new Subject("title", url, type), new NotificationRepo(repo));
+        return new GitHubNotification(reason, new Subject(url, type), new NotificationRepo(repo));
     }
 
     @Test

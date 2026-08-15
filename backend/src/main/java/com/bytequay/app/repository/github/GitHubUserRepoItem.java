@@ -16,19 +16,12 @@ package com.bytequay.app.repository.github;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.Instant;
-
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubUserRepoItem(
-        long id,
         String name,
         @JsonProperty("full_name") String fullName,
         Owner owner,
-        String description,
-        String language,
-        @JsonProperty("stargazers_count") int stargazersCount,
-        @JsonProperty("pushed_at") Instant pushedAt,
-        @JsonProperty("private") boolean privateRepo)
+        String description)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Owner(String login) {}

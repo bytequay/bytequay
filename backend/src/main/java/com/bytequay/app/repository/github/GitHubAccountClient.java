@@ -80,10 +80,6 @@ public class GitHubAccountClient
     }
 
     private static UserProfile toUserProfile(GitHubUserProfileResponse response) {
-        // hasSponsors defaults to false here — RepoService overlays the value
-        // from the separate GraphQL `viewer.hasSponsorsListing` call. Keeping
-        // the GraphQL out of the REST mapper avoids dragging a separate
-        // request through every code path that just wants the basics.
         return new UserProfile(
                 response.login(),
                 response.name(),
@@ -95,8 +91,7 @@ public class GitHubAccountClient
                 response.bio(),
                 response.location(),
                 response.company(),
-                response.email(),
-                false);
+                response.email());
     }
 
     public ContributionCalendar fetchContributionCalendar(String pat, String login) {
@@ -286,8 +281,7 @@ public class GitHubAccountClient
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CommitSearchResponse(
-            @JsonProperty("total_count") Integer totalCount, List<CommitSearchItem> items) {}
+    record CommitSearchResponse(List<CommitSearchItem> items) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchItem(
@@ -300,7 +294,7 @@ public class GitHubAccountClient
     record CommitSearchCommit(String message, CommitSearchAuthor author) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CommitSearchAuthor(String name, String email, String date) {}
+    record CommitSearchAuthor(String date) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchRepo(@JsonProperty("full_name") String fullName) {}
@@ -358,35 +352,7 @@ public class GitHubAccountClient
                 owner,
                 item.name(),
                 item.fullName(),
-                item.description(),
-                item.language(),
-                item.stargazersCount());
-    }
-
-    public boolean fetchHasSponsorsListing(String pat) {
-        // The REST API doesn't expose Sponsors enrolment, so we fall back to
-        // a single-field GraphQL query. Any error (network, scope, GitHub
-        // unauthenticated) is swallowed so a flaky GraphQL endpoint can't
-        // break the rest of the profile load — we just hide the row.
-        try {
-            String query = "{\"query\":\"query { viewer { hasSponsorsListing } }\"}";
-            GitHubViewerSponsorsResponse response =
-                    gitHubRestClient
-                            .post()
-                            .uri("/graphql")
-                            .header("Authorization", authorization(pat))
-                            .header("Content-Type", "application/json")
-                            .body(query)
-                            .retrieve()
-                            .body(GitHubViewerSponsorsResponse.class);
-            return response != null
-                    && response.data() != null
-                    && response.data().viewer() != null
-                    && response.data().viewer().hasSponsorsListing();
-        }
-        catch (Exception e) {
-            return false;
-        }
+                item.description());
     }
 
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
@@ -419,8 +385,7 @@ public class GitHubAccountClient
     record GitHubRepoPermissionsResponse(GitHubRepoPermissions permissions) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record GitHubRepoPermissions(
-            Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
+    record GitHubRepoPermissions(Boolean push) {}
 
     public List<UserRepo> searchRepositories(String pat, String query) {
         try {
@@ -474,9 +439,7 @@ public class GitHubAccountClient
                 owner,
                 item.name(),
                 item.fullName(),
-                item.description(),
-                item.language(),
-                item.stargazersCount());
+                item.description());
     }
 
     // ── Events ────────────────────────────────────────────────────────────────

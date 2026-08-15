@@ -38,8 +38,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubMergeClient
 {
-    public record MergeQueueProbe(String pullRequestNodeId) {}
-
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
 
@@ -74,28 +72,15 @@ public class GitHubMergeClient
         }
     }
 
-    public Optional<MergeQueueProbe> probeMergeQueue(String pat, PullRequestRef pr)
-    {
-        ProbeResponse response = fetchProbe(pat, pr, true);
-        ProbePullRequest pullRequest = requirePullRequest(response, "probeMergeQueue");
-        if (pullRequest.mergeQueue() == null || pullRequest.mergeQueue().id() == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(pullRequest.id()).map(MergeQueueProbe::new);
-    }
-
     public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
     {
-        return Optional.ofNullable(requirePullRequest(fetchProbe(pat, pr, false), "pullRequestNodeId").id());
+        return Optional.ofNullable(requirePullRequest(fetchProbe(pat, pr), "pullRequestNodeId").id());
     }
 
-    private ProbeResponse fetchProbe(String pat, PullRequestRef pr, boolean includeQueue)
+    private ProbeResponse fetchProbe(String pat, PullRequestRef pr)
     {
-        String fields = includeQueue ? "id mergeQueue { id }" : "id";
         String query = "query($owner: String!, $name: String!, $number: Int!) {"
-                + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { "
-                + fields
-                + " } } }";
+                + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
         Map<String, Object> body = Map.of(
                 "query", query,
                 "variables", Map.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()));
@@ -186,10 +171,7 @@ public class GitHubMergeClient
     record ProbeRepository(ProbePullRequest pullRequest) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProbePullRequest(String id, ProbeQueue mergeQueue) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProbeQueue(String id) {}
+    record ProbePullRequest(String id) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GraphQlError(String type, String message) {}

@@ -41,9 +41,9 @@ class TestGhCliService
     {
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), eq(List.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
-                .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
+                .thenReturn(new BoundedProcessRunner.Result(0, "gho_secret\n"));
         when(runner.run(any(), eq(List.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
-                .thenReturn(new BoundedProcessRunner.Result(true, 0, "octocat\n", false, null));
+                .thenReturn(new BoundedProcessRunner.Result(0, "octocat\n"));
 
         var credential = new GhCliService(runner).readCredential("/fake/gh");
 
@@ -57,7 +57,7 @@ class TestGhCliService
     {
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
-                .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
+                .thenReturn(new BoundedProcessRunner.Result(0, "gho_secret\n"));
         GhCliService service = new GhCliService(runner);
 
         assertThat(service.currentToken("/fake/gh")).hasValue("gho_secret");
@@ -72,7 +72,7 @@ class TestGhCliService
     {
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
-                .thenReturn(new BoundedProcessRunner.Result(true, 1, "gh auth login", false, null));
+                .thenReturn(new BoundedProcessRunner.Result(1, "gh auth login"));
         GhCliService service = new GhCliService(runner);
 
         assertThat(service.currentToken("/fake/gh")).isEmpty();
@@ -85,7 +85,7 @@ class TestGhCliService
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(
-                        true, 1, "To get started with GitHub CLI, please run: gh auth login", false, null));
+                        1, "To get started with GitHub CLI, please run: gh auth login"));
 
         assertThatThrownBy(() -> new GhCliService(runner).readCredential("/fake/gh"))
                 .isInstanceOf(ResponseStatusException.class)

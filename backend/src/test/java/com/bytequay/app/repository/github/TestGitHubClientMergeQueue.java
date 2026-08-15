@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.MergeResult;
-import com.bytequay.app.domain.PullRequestRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -26,33 +25,6 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubClientMergeQueue
 {
-    @Test
-    void detectsConfiguredQueue()
-    {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"repository":{"pullRequest":{"id":"PR_1","mergeQueue":{"id":"MQ_1"}}}}}
-                        """, MediaType.APPLICATION_JSON));
-
-        assertThat(fixture.client().probeMergeQueue(
-                "pat", PullRequestRef.of("owner", "repo", 7)))
-                .contains(new GitHubMergeClient.MergeQueueProbe("PR_1"));
-    }
-
-    @Test
-    void returnsEmptyWhenQueueIsAbsent()
-    {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"repository":{"pullRequest":{"id":"PR_1","mergeQueue":null}}}}
-                        """, MediaType.APPLICATION_JSON));
-
-        assertThat(fixture.client().probeMergeQueue(
-                "pat", PullRequestRef.of("owner", "repo", 7))).isEmpty();
-    }
-
     @Test
     void enqueuesPullRequest()
     {

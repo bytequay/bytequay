@@ -13,10 +13,6 @@
  */
 
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
-export type HandledAction =
-  | 'APPROVED' | 'MERGED' | 'COMMENTED' | 'CHANGES_REQUESTED'
-  | 'DISMISSED' | 'MANUAL';
-
 export type PullRequestDto = {
   id: number;
   repo: string;
@@ -30,9 +26,6 @@ export type PullRequestDto = {
   labels: string[];
   labelColors: Record<string, string> | null;
   draft: boolean;
-  viewedAt: string | null;
-  reviewedAt: string | null;
-  handledAction: HandledAction | null;
   requestedReviewers: string[];
   ciStatus: CiStatus | null;
   additions: number;
@@ -40,12 +33,8 @@ export type PullRequestDto = {
   commentCount: number;
   attentionReason: string | null;
   state: string | null;
-  closedAt: string | null;
-  mergedAt: string | null;
   mergeable: boolean | null;
   mergeableState: string | null;
-  headPushedAt: string | null;
-  reviewerVerdicts: Record<string, string> | null;
   headRef: string | null;
 };
 
@@ -122,7 +111,6 @@ export type UserProfileDto = {
   location: string | null;
   company: string | null;
   email: string | null;
-  hasSponsors: boolean;
 };
 
 export type ContributionDayDto = { date: string; contributionCount: number; color: string };
@@ -143,8 +131,6 @@ export type UserRepoDto = {
   name: string;
   fullName: string;
   description: string | null;
-  language: string | null;
-  stars: number;
 };
 
 export type RecentEventDto = {

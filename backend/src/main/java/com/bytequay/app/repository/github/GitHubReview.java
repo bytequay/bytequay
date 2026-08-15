@@ -20,13 +20,9 @@ import java.time.Instant;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubReview(
-        long id,
         User user,
-        String body,
         String state,
-        @JsonProperty("commit_id") String commitId,
-        @JsonProperty("submitted_at") Instant submittedAt,
-        @JsonProperty("html_url") String htmlUrl)
+        @JsonProperty("submitted_at") Instant submittedAt)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login) {}

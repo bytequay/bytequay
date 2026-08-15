@@ -18,7 +18,6 @@ package com.bytequay.app.domain;
  *
  * @param company free-form text from GitHub's Company field.
  * @param email public email from GitHub, or null if hidden.
- * @param hasSponsors true iff the user has set up GitHub Sponsors.
  */
 public record UserProfile(
         String login,
@@ -31,6 +30,5 @@ public record UserProfile(
         String bio,
         String location,
         String company,
-        String email,
-        boolean hasSponsors)
+        String email)
 {}

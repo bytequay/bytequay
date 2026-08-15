@@ -44,7 +44,6 @@ record GitHubRepoResponse(
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record License(
-            String key,
             String name,
             @JsonProperty("spdx_id") String spdxId) {}
 

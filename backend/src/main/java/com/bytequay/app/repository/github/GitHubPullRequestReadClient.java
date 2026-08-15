@@ -14,25 +14,20 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.DiffFile;
-import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -64,32 +59,7 @@ public class GitHubPullRequestReadClient
             Set.of("review_requested", "mention");
 
     public List<PullRequest> searchPullRequests(String pat, String query) {
-        requirePat(pat);
-        try {
-            GitHubSearchResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    uri ->
-                                            uri.path("/search/issues")
-                                                    .queryParam("q", query)
-                                                    .queryParam("per_page", PER_PAGE)
-                                                    .build())
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubSearchResponse.class);
-            if (response == null || response.items() == null) {
-                return List.of();
-            }
-            PullRequest.Origin origin =
-                    query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
-            return response.items().stream()
-                    .map(item -> toPullRequest(item, origin))
-                    .toList();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
     }
 
     public PullRequestHistoryPage searchPullRequestsPaged(
@@ -229,44 +199,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    private <R> List<R> fetchPages(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<R>> typeRef,
-            Object... uriVars) {
-        List<R> out = new ArrayList<>();
-        for (int page = 1; page <= 20; page++) {
-            final int current = page;
-            List<R> rows;
-            try {
-                rows =
-                        gitHubRestClient
-                                .get()
-                                .uri(
-                                        u ->
-                                                u.path(pathTemplate)
-                                                        .queryParam("per_page", 100)
-                                                        .queryParam("page", current)
-                                                        .build(uriVars))
-                                .header("Authorization", authorization(pat))
-                                .retrieve()
-                                .body(typeRef);
-            }
-            catch (RestClientResponseException e) {
-                throw toReadableException(e);
-            }
-            if (rows == null || rows.isEmpty()) {
-                return List.copyOf(out);
-            }
-            out.addAll(rows);
-            if (rows.size() < 100) {
-                return List.copyOf(out);
-            }
-        }
-        throw new ResponseStatusException(
-                HttpStatusCode.valueOf(502), "GitHub pagination exceeded 2,000 rows");
-    }
-
     public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr) {
         try {
             List<GitHubPullRequestFileWithPatch> files =
@@ -380,34 +312,6 @@ public class GitHubPullRequestReadClient
                 actor,
                 timestamp,
                 event.body());
-    }
-
-    public List<PullRequest> listPullRequests(
-            String pat, RepoRef repo, ListPullRequestsQuery query) {
-        String fullName = repo.fullName();
-        try {
-            List<GitHubRepoPullRequestItem> items =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path("/repos/{owner}/{repo}/pulls")
-                                                    .queryParam("state", "open")
-                                                    .queryParam("per_page", PER_PAGE)
-                                                    .build(repo.owner(), repo.repo()))
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(new ParameterizedTypeReference<>() {});
-            if (items == null) {
-                return List.of();
-            }
-            return items.stream()
-                    .map(item -> toPullRequest(item, fullName))
-                    .toList();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
     }
 
     public PullRequest getPullRequest(String pat, PullRequestRef pr) {
@@ -559,7 +463,7 @@ public class GitHubPullRequestReadClient
 
     record GitHubNotification(String reason, Subject subject, NotificationRepo repository) {
         @JsonIgnoreProperties(ignoreUnknown = true)
-        record Subject(String title, String url, String type) {}
+        record Subject(String url, String type) {}
 
         @JsonIgnoreProperties(ignoreUnknown = true)
         record NotificationRepo(@JsonProperty("full_name") String fullName) {}

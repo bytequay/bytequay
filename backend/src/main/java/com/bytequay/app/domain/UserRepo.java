@@ -17,7 +17,5 @@ public record UserRepo(
         String owner,
         String name,
         String fullName,
-        String description,
-        String language,
-        int stars)
+        String description)
 {}

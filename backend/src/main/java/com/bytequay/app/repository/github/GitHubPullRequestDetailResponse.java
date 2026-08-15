@@ -20,7 +20,6 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestDetailResponse(
-        String title,
         String body,
         List<Label> labels,
         boolean draft,
@@ -33,17 +32,11 @@ public record GitHubPullRequestDetailResponse(
         @JsonProperty("mergeable_state") String mergeableState)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Label(String name, String color) {}
+    public record Label(String name) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RequestedReviewer(String login) {}
 
-    /**
-     * The PR's source side. {@code ref} is the branch name (e.g.
-     * "feat/foo"); {@code repo.fullName} is the source repo's
-     * "owner/repo" — present even on same-repo PRs but most useful
-     * for cross-fork PRs where it differs from the base.
-     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Head(String sha, String ref) {}
 }

@@ -24,7 +24,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runs one argv-based subprocess with a timeout and bounded combined output. */
 @Component
@@ -50,9 +49,8 @@ public class BoundedProcessRunner
         }
 
         StringBuffer output = new StringBuffer();
-        AtomicBoolean truncated = new AtomicBoolean(false);
         Thread drain = new Thread(
-                () -> drain(process, arguments, output, truncated, maxOutputBytes),
+                () -> drain(process, arguments, output, maxOutputBytes),
                 "github-cli-output");
         drain.setDaemon(true);
         drain.start();
@@ -64,8 +62,7 @@ public class BoundedProcessRunner
                     process.destroyForcibly();
                 }
                 drain.join(1_000L);
-                return new Result(false, -1, output.toString(), true,
-                        "timed out after " + timeoutSeconds + "s");
+                return Result.failed(output, "timed out after " + timeoutSeconds + "s");
             }
         }
         catch (InterruptedException e) {
@@ -74,14 +71,13 @@ public class BoundedProcessRunner
         }
 
         drain.join(2_000L);
-        return new Result(true, process.exitValue(), output.toString(), truncated.get(), null);
+        return new Result(process.exitValue(), output.toString());
     }
 
     private static void drain(
             Process process,
             List<String> arguments,
             StringBuffer output,
-            AtomicBoolean truncated,
             int maxOutputBytes)
     {
         try (BufferedReader reader = new BufferedReader(
@@ -93,7 +89,6 @@ public class BoundedProcessRunner
                 if (read >= room) {
                     output.append(buffer, 0, Math.max(0, room));
                     output.append("\n…[truncated]\n");
-                    truncated.set(true);
                     return;
                 }
                 output.append(buffer, 0, read);
@@ -104,11 +99,16 @@ public class BoundedProcessRunner
         }
     }
 
-    public record Result(boolean ran, int exitCode, String output, boolean truncated, String error)
+    public record Result(int exitCode, String output)
     {
         private static Result failed(String reason)
         {
-            return new Result(false, -1, "", false, reason);
+            return new Result(-1, reason);
+        }
+
+        private static Result failed(StringBuffer output, String reason)
+        {
+            return new Result(-1, output.isEmpty() ? reason : output + "\n" + reason);
         }
     }
 }

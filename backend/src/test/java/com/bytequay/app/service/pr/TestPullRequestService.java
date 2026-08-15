@@ -40,6 +40,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -163,7 +164,6 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(merges.probeMergeQueue("pat", ref)).thenReturn(Optional.empty());
         when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
 
@@ -171,6 +171,24 @@ class TestPullRequestService
 
         assertThat(result.merged()).isTrue();
         verify(viewStateStore).markReviewed(12L, HandledAction.MERGED);
+        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
+    }
+
+    @Test
+    void enqueuesWhenGitHubRequiresMergeQueue()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
+                .thenThrow(new ResponseStatusException(
+                        HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
+        when(merges.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(merges.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
+
+        assertThat(result.queued()).isTrue();
+        verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
         verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
     }
 

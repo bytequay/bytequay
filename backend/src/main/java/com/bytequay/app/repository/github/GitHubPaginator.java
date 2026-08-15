@@ -16,9 +16,7 @@ package com.bytequay.app.repository.github;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.util.UriBuilder;
 
-import java.net.URI;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,23 +43,6 @@ final class GitHubPaginator
     }
 
     /**
-     * Fetches every page of a paginated GitHub list endpoint, concatenating
-     * the results in order. Stops as soon as a response has fewer than
-     * {@code per_page=100} rows or after {@link #MAX_PAGES} pages.
-     *
-     * <p>Errors are swallowed so callers can fall back to a partial result
-     * rather than losing already-fetched timeline/comment rows.
-     */
-    <T> List<T> paginate(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
-            Object... uriVariables)
-    {
-        return paginateSince(pat, pathTemplate, typeRef, null, uriVariables);
-    }
-
-    /**
      * Fetches every page from endpoints that support GitHub's {@code since}
      * query parameter.
      */
@@ -82,8 +63,9 @@ final class GitHubPaginator
                 break;
             }
 
-            int added = addRows(seen, rows);
-            if (shouldStop(rows, added)) {
+            int size = seen.size();
+            seen.addAll(rows);
+            if (rows.size() < PAGE_SIZE || seen.size() == size) {
                 break;
             }
         }
@@ -100,7 +82,15 @@ final class GitHubPaginator
     {
         try {
             List<T> rows = gitHubRestClient.get()
-                    .uri(u -> buildPageUri(u, pathTemplate, since, page, uriVariables))
+                    .uri(u -> {
+                        u.path(pathTemplate)
+                                .queryParam("per_page", PAGE_SIZE)
+                                .queryParam("page", page);
+                        if (since != null) {
+                            u.queryParam("since", since.toString());
+                        }
+                        return u.build(uriVariables);
+                    })
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(typeRef);
@@ -109,33 +99,5 @@ final class GitHubPaginator
         catch (RestClientResponseException e) {
             return List.of();
         }
-    }
-
-    private static URI buildPageUri(
-            UriBuilder uriBuilder,
-            String pathTemplate,
-            Instant since,
-            int page,
-            Object... uriVariables)
-    {
-        UriBuilder builder = uriBuilder.path(pathTemplate)
-                .queryParam("per_page", PAGE_SIZE)
-                .queryParam("page", page);
-        if (since != null) {
-            builder = builder.queryParam("since", since.toString());
-        }
-        return builder.build(uriVariables);
-    }
-
-    private static <T> int addRows(Set<T> seen, List<T> rows)
-    {
-        int beforeAdd = seen.size();
-        seen.addAll(rows);
-        return seen.size() - beforeAdd;
-    }
-
-    private static boolean shouldStop(List<?> rows, int added)
-    {
-        return rows.size() < PAGE_SIZE || added == 0;
     }
 }

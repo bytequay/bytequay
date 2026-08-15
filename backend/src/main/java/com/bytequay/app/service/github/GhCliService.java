@@ -158,10 +158,10 @@ public class GhCliService
             throw new ResponseStatusException(HttpStatusCode.valueOf(503), "gh invocation interrupted", e);
         }
         String output = result.output() == null ? "" : result.output().strip();
-        if (!result.ran() || result.exitCode() != 0) {
+        if (result.exitCode() != 0) {
             // The runner folds stderr into stdout, so `output` carries gh's own
             // guidance ("To get started with GitHub CLI, please run: gh auth login").
-            String detail = !output.isEmpty() ? output : result.error();
+            String detail = !output.isEmpty() ? output : "exit code " + result.exitCode();
             log.warn("gh {} failed: {}", argv.subList(1, argv.size()), detail);
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(502),

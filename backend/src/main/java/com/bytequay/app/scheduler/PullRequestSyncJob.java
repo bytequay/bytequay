@@ -13,8 +13,7 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +21,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -86,10 +83,8 @@ public class PullRequestSyncJob
 
     private void doSync()
     {
-        // Sync uses the account-level credential. Per-PR detail fetches inside
-        // PullRequestService consult the per-repo override on top of this.
-        Optional<String> pat = accountPat();
-        if (pat.isEmpty()) {
+        // Sync uses the account-level GitHub credential.
+        if (!credentialService.isGitHubAccountConfigured()) {
             log.debug("Sync skipped: no GitHub PAT registered");
             return;
         }
@@ -110,11 +105,5 @@ public class PullRequestSyncJob
         finally {
             syncing.set(false);
         }
-    }
-
-    private Optional<String> accountPat()
-    {
-        return credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .filter(secret -> !secret.isBlank());
     }
 }

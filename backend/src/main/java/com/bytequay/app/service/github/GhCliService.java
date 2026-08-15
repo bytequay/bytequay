@@ -13,9 +13,7 @@
  */
 package com.bytequay.app.service.github;
 
-import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -31,7 +29,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -40,23 +37,13 @@ import static java.util.Objects.requireNonNull;
  * fine-grained PATs but has approved the GitHub CLI OAuth app — the
  * user's {@code gh} works, so the app can work off the same bearer.
  *
- * <p>Like {@link GitHubOAuthService}, the token lands in
- * {@code (ACCOUNT, "github")}, so {@code PatResolver} and every REST /
- * GraphQL call downstream are unchanged — no separate "shell out to gh
- * for each API call" transport exists or is needed.
- *
- * <p>The import is a snapshot, not a live binding: {@code gh auth token}
- * runs once per click. If the user re-runs {@code gh auth login} and the
- * token rotates, they re-import.
+ * Credential persistence and source selection belong to
+ * {@link CredentialService}; this class only finds
+ * and invokes the CLI.
  */
 @Service
 public class GhCliService
 {
-    /** Written to the account credential's {@code configJson} so
-     *  {@code PatResolver} knows the stored token is a copy of gh's and can
-     *  prefer gh's live one. ACCOUNT rows otherwise ignore that column. */
-    public static final String SOURCE_MARKER = "{\"source\":\"gh-cli\"}";
-
     private static final Logger log = LoggerFactory.getLogger(GhCliService.class);
 
     /** How long a live token read is reused. Short enough that a
@@ -76,13 +63,11 @@ public class GhCliService
             Path.of("/opt/homebrew/bin/gh"),
             Path.of("/usr/local/bin/gh"));
 
-    private final CredentialService credentialService;
     private final BoundedProcessRunner processRunner;
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();
 
-    public GhCliService(CredentialService credentialService, BoundedProcessRunner processRunner)
+    public GhCliService(BoundedProcessRunner processRunner)
     {
-        this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.processRunner = requireNonNull(processRunner, "processRunner is null");
     }
 
@@ -105,39 +90,29 @@ public class GhCliService
     }
 
     /**
-     * Reads {@code gh}'s current token and stores it as the account
-     * credential. Throws 503 when {@code gh} isn't installed, 502 when
-     * {@code gh} is installed but not logged in (its own message is
-     * surfaced verbatim).
+     * Reads {@code gh}'s current token and login. Throws 503 when {@code gh}
+     * isn't installed, or 502 when it is installed but not logged in.
      */
-    public ConnectionInfo importToken()
+    public CliCredential readCredential()
     {
-        return importToken(findBinary().orElseThrow(() -> new ResponseStatusException(
+        return readCredential(findBinary().orElseThrow(() -> new ResponseStatusException(
                 HttpStatusCode.valueOf(503),
                 "The GitHub CLI (gh) isn't installed, or isn't in a location ByteQuay looks in "
                         + "(/opt/homebrew/bin, /usr/local/bin, or PATH).")));
     }
 
-    /** Binary-path seam so the import is testable without a real gh on disk. */
-    ConnectionInfo importToken(String gh)
+    /** Binary-path seam so the read is testable without a real gh on disk. */
+    CliCredential readCredential(String gh)
     {
         String token = run(List.of(gh, "auth", "token"));
         String login = run(List.of(gh, "api", "user", "--jq", ".login"));
-        credentialService.upsert(
-                CredentialType.ACCOUNT,
-                GITHUB_ACCOUNT_NAME,
-                token,
-                login,
-                "Imported from the GitHub CLI on " + Instant.now(),
-                SOURCE_MARKER);
         cached.set(new CachedToken(token, Instant.now()));
-        log.info("Imported GitHub CLI token for login={}", login);
-        return new ConnectionInfo(login);
+        return new CliCredential(token, login);
     }
 
     /**
      * gh's current token, or empty when gh is missing / logged out. Unlike
-     * {@link #importToken()} this never throws — it backs the resolution
+     * {@link #readCredential()} this never throws — it backs the resolution
      * fallback, where a dead gh should degrade to the stored copy rather
      * than fail the request.
      *
@@ -149,7 +124,7 @@ public class GhCliService
         return findBinary().flatMap(this::currentToken);
     }
 
-    /** Binary-path seam, as {@link #importToken(String)}. */
+    /** Binary-path seam, as {@link #readCredential(String)}. */
     Optional<String> currentToken(String gh)
     {
         CachedToken hit = cached.get();
@@ -199,6 +174,8 @@ public class GhCliService
         }
         return output;
     }
+
+    public record CliCredential(String token, String login) {}
 
     private record CachedToken(String token, Instant readAt) {}
 }

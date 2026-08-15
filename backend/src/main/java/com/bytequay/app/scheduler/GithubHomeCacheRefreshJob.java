@@ -13,12 +13,11 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
-import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,7 +28,6 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -99,12 +97,8 @@ public class GithubHomeCacheRefreshJob
     {
         // Early-exit when no GitHub PAT is configured — the downstream
         // services would each 401 anyway, but skipping here avoids four
-        // failed round-trips per tick. The services resolve their own
-        // PATs via PatResolver from here on.
-        boolean haveGitHubPat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .filter(s -> !s.isBlank())
-                .isPresent();
-        if (!haveGitHubPat) {
+        // failed round-trips per tick.
+        if (!credentialService.isGitHubAccountConfigured()) {
             return;
         }
         Instant now = Instant.now();

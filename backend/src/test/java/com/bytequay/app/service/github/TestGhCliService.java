@@ -13,14 +13,11 @@
  */
 package com.bytequay.app.service.github;
 
-import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.service.CredentialService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,33 +30,25 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The gh-CLI import is one subprocess pair away from a stored bearer, so
- * the checks that matter are: the trimmed token reaches the account slot,
- * and gh's own failure text survives to the user instead of a bare status.
+ * The gh-CLI adapter is one subprocess pair away from a bearer, so the
+ * checks that matter are the returned values and preserved failure text.
  */
 class TestGhCliService
 {
     @Test
-    void importStoresTheTrimmedTokenUnderTheAccountSlot()
+    void credentialReadReturnsTheTrimmedTokenAndLogin()
             throws Exception
     {
-        CredentialService credentials = mock(CredentialService.class);
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), eq(List.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
         when(runner.run(any(), eq(List.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(true, 0, "octocat\n", false, null));
 
-        var info = new GhCliService(credentials, runner).importToken("/fake/gh");
+        var credential = new GhCliService(runner).readCredential("/fake/gh");
 
-        assertThat(info.login()).isEqualTo("octocat");
-        verify(credentials).upsert(
-                eq(CredentialType.ACCOUNT),
-                eq(GITHUB_ACCOUNT_NAME),
-                eq("gho_secret"),
-                eq("octocat"),
-                any(),
-                eq(GhCliService.SOURCE_MARKER));
+        assertThat(credential.token()).isEqualTo("gho_secret");
+        assertThat(credential.login()).isEqualTo("octocat");
     }
 
     @Test
@@ -69,7 +58,7 @@ class TestGhCliService
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
-        GhCliService service = new GhCliService(mock(CredentialService.class), runner);
+        GhCliService service = new GhCliService(runner);
 
         assertThat(service.currentToken("/fake/gh")).hasValue("gho_secret");
         assertThat(service.currentToken("/fake/gh")).hasValue("gho_secret");
@@ -84,7 +73,7 @@ class TestGhCliService
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(true, 1, "gh auth login", false, null));
-        GhCliService service = new GhCliService(mock(CredentialService.class), runner);
+        GhCliService service = new GhCliService(runner);
 
         assertThat(service.currentToken("/fake/gh")).isEmpty();
     }
@@ -93,13 +82,12 @@ class TestGhCliService
     void aLoggedOutGhSurfacesItsOwnMessage()
             throws Exception
     {
-        CredentialService credentials = mock(CredentialService.class);
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
         when(runner.run(any(), any(), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(
                         true, 1, "To get started with GitHub CLI, please run: gh auth login", false, null));
 
-        assertThatThrownBy(() -> new GhCliService(credentials, runner).importToken("/fake/gh"))
+        assertThatThrownBy(() -> new GhCliService(runner).readCredential("/fake/gh"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("gh auth login");
     }

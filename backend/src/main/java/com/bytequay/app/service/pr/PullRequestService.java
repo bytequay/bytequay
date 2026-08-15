@@ -35,7 +35,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
-import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,7 +113,7 @@ public class PullRequestService
     private final PullRequestDetailInvalidator detailInvalidator;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
-    private final PatResolver patResolver;
+    private final CredentialService credentialService;
     /** prId → the last time we forced a backfill detail-sync for an
      *  unchanged-but-under-enriched PR. Gates the enrichment / review-
      *  timestamp re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
@@ -139,7 +139,7 @@ public class PullRequestService
             SqlitePrDetailStore detailStore,
             PrViewStateStore viewStateStore,
             PullRequestDetailInvalidator detailInvalidator,
-            PatResolver patResolver,
+            CredentialService credentialService,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -152,18 +152,13 @@ public class PullRequestService
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(
                 gitHub,
                 actions,
                 detailStore,
                 requireNonNull(ioExecutor, "ioExecutor is null"));
-    }
-
-    private String patForRepo(String accountPat, String ignoredRepo)
-    {
-        return accountPat;
     }
 
     public List<PullRequest> listPullRequests()
@@ -178,7 +173,7 @@ public class PullRequestService
      */
     public void syncFromGitHub()
     {
-        String pat = patResolver.resolve();
+        String pat = credentialService.resolveGitHubToken();
         Map<Long, Instant> existingUpdatedAt = store.findUpdatedAtMap();
         // Rows whose enrichment fields are still null get a forced detail
         // sync regardless of updatedAt.
@@ -241,7 +236,7 @@ public class PullRequestService
      *  of {@link #fetchRelevant}. */
     public List<PullRequest> searchRelevantForDashboard()
     {
-        return fetchRelevant(patResolver.resolve());
+        return fetchRelevant(credentialService.resolveGitHubToken());
     }
 
     /** The authenticated GitHub login, for the unified dashboard sync's
@@ -249,7 +244,7 @@ public class PullRequestService
      *  #syncFromGitHub} uses for its own reconciliation pass. */
     public String resolveCurrentDashboardLogin()
     {
-        return resolveCurrentLogin(patResolver.resolve());
+        return resolveCurrentLogin(credentialService.resolveGitHubToken());
     }
 
     /** True when an under-enriched PR is due for a forced backfill sync:
@@ -278,7 +273,7 @@ public class PullRequestService
      */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
-        String pat = patResolver.resolve(repo);
+        String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
         boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, repoRef);
@@ -323,14 +318,14 @@ public class PullRequestService
      */
     public List<DiffFile> getPullRequestDiffFiles(String repo, int number)
     {
-        String pat = patResolver.resolve(repo);
+        String pat = credentialService.resolveGitHubToken();
         return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number));
     }
 
     public void commentOnPullRequest(String repo, int number, String body)
     {
         requireNotBlank(body, "comment body must not be blank");
-        String pat = patResolver.resolve(repo);
+        String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
         if (created != null) {
@@ -344,7 +339,7 @@ public class PullRequestService
      */
     public void approvePullRequest(String repo, int number, long prId)
     {
-        String pat = patResolver.resolve(repo);
+        String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.approve(pat, parseRef(repo, number));
         viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         invalidatePullRequestCaches(repo, number);
@@ -375,7 +370,7 @@ public class PullRequestService
      */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {
-        String pat = patResolver.resolve(repo);
+        String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         Optional<GitHubMergeClient.MergeQueueProbe> probe;
         try {
@@ -595,14 +590,13 @@ public class PullRequestService
     {
         try {
             PullRequestRef ref = parseRef(pr.repo(), pr.number());
-            // Repo-scoped fetch: prefer a per-repo PAT if one is configured.
             // Existing detail in the store ⇒ this is an incremental refresh
             // (the detail fetcher sees the watermark and uses `since=`);
             // route through saveIncremental so old timeline/thread rows
             // survive and only the new ones get appended. First-time syncs
             // hit the regular wholesale save() path.
             boolean incremental = detailStore.findSyncedAt(pr.repo(), pr.number()).isPresent();
-            StoredPrDetail detail = detailFetcher.fetch(patForRepo(pat, pr.repo()), ref);
+            StoredPrDetail detail = detailFetcher.fetch(pat, ref);
             if (incremental) {
                 detailStore.saveIncremental(pr.id(), detail);
             }

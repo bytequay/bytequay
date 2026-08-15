@@ -15,7 +15,7 @@ package com.bytequay.app.service.github;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -44,14 +44,14 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
  * GitHub OAuth (Web Application Flow) with PKCE. The token lands in
  * the same credential slot ({@link CredentialService#GITHUB_ACCOUNT_NAME})
- * the user's PAT lives in, so {@code PatResolver.resolve()} (and the
- * rest of the app) doesn't care whether the bearer came from a PAT
+ * the user's PAT lives in, so {@link CredentialService#resolveGitHubToken()}
+ * (and the rest of the app) doesn't care whether the bearer came from a PAT
  * paste or an OAuth dance.
  *
  * <p>Lifecycle:
@@ -211,7 +211,7 @@ public class GitHubOAuthService
         String accessToken = exchanger.exchange(clientId, clientSecret, code, exchange.codeVerifier());
         String login = exchanger.fetchLogin(accessToken);
         // Token writes to the same slot the PAT path uses; downstream
-        // PatResolver and the GitHub API clients don't know or care about origin.
+        // CredentialService and the GitHub API clients don't know or care about origin.
         credentialService.upsert(
                 CredentialType.ACCOUNT,
                 GITHUB_ACCOUNT_NAME,

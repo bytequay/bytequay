@@ -15,7 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.security.CredentialCipher;
+import com.bytequay.app.service.credentials.CredentialCipher;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 

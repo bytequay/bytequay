@@ -34,7 +34,7 @@ import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,7 +74,7 @@ public class RepoService
     private final RepoMetaStore repoMetaStore;
     private final SqliteGithubHomeCacheStore homeCache;
     private final SqliteAppSettingsStore settingsStore;
-    private final PatResolver patResolver;
+    private final CredentialService credentialService;
     private final Executor ioExecutor;
     private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
@@ -88,7 +88,7 @@ public class RepoService
             RepoMetaStore repoMetaStore,
             SqliteGithubHomeCacheStore homeCache,
             SqliteAppSettingsStore settingsStore,
-            PatResolver patResolver,
+            CredentialService credentialService,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
@@ -99,7 +99,7 @@ public class RepoService
         this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
         this.homeCache = requireNonNull(homeCache, "homeCache is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -127,7 +127,7 @@ public class RepoService
         }
 
         try {
-            ContributionCalendar fresh = accounts.fetchContributionCalendar(patResolver.resolve(), login);
+            ContributionCalendar fresh = accounts.fetchContributionCalendar(credentialService.resolveGitHubToken(), login);
             contributionCalendarCache.put(login, new CachedContributionCalendar(fresh, Instant.now()));
             return fresh;
         }
@@ -145,7 +145,7 @@ public class RepoService
         if (isoDate == null || !ISO_DATE.matcher(isoDate).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be yyyy-MM-dd");
         }
-        return accounts.fetchUserCommitsOnDate(patResolver.resolve(), login, isoDate);
+        return accounts.fetchUserCommitsOnDate(credentialService.resolveGitHubToken(), login, isoDate);
     }
 
     public UserProfile getUserProfile()
@@ -161,7 +161,7 @@ public class RepoService
 
     public UserProfile refreshUserProfileFromGitHub()
     {
-        String pat = patResolver.resolve();
+        String pat = credentialService.resolveGitHubToken();
         UserProfile profile = accounts.fetchUserProfile(pat);
         UserProfile fresh = new UserProfile(
                 profile.login(), profile.name(), profile.avatarUrl(), profile.htmlUrl(),
@@ -174,7 +174,7 @@ public class RepoService
 
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
     {
-        String pat = patResolver.resolve(owner + "/" + repo);
+        String pat = credentialService.resolveGitHubToken();
         PullRequest fresh = pullRequests.getPullRequest(pat, PullRequestRef.of(owner, repo, number));
         return overlayViewState(fresh, viewStateStore.findAll().get(fresh.id()));
     }
@@ -202,7 +202,7 @@ public class RepoService
 
     private RepoMeta fetchRepoMeta(String owner, String repo)
     {
-        return repos.fetchRepoMeta(patResolver.resolve(owner + "/" + repo), RepoRef.of(owner, repo));
+        return repos.fetchRepoMeta(credentialService.resolveGitHubToken(), RepoRef.of(owner, repo));
     }
 
     private void refreshRepoMeta(String owner, String repo)
@@ -217,7 +217,7 @@ public class RepoService
 
     public List<UserRepo> getUserRepos()
     {
-        return accounts.fetchUserRepos(patResolver.resolve());
+        return accounts.fetchUserRepos(credentialService.resolveGitHubToken());
     }
 
     public List<UserRepo> searchRepos(String query)
@@ -226,7 +226,7 @@ public class RepoService
         if (trimmed.isEmpty()) {
             return List.of();
         }
-        String pat = patResolver.resolve();
+        String pat = credentialService.resolveGitHubToken();
         int slash = trimmed.indexOf('/');
         if (slash > 0 && slash == trimmed.lastIndexOf('/') && slash < trimmed.length() - 1) {
             String owner = trimmed.substring(0, slash).trim();
@@ -261,7 +261,7 @@ public class RepoService
     {
         Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        List<RecentEvent> fresh = accounts.fetchUserEvents(patResolver.resolve(), login, 100).stream()
+        List<RecentEvent> fresh = accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
                 .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
                 .toList();
         homeCache.putEvents(login, EventFeed.RECENT, fresh, Instant.now());
@@ -270,7 +270,7 @@ public class RepoService
 
     public List<RecentEvent> refreshFollowingEventsFromGitHub(String login)
     {
-        List<RecentEvent> all = accounts.fetchReceivedEvents(patResolver.resolve(), login, 30);
+        List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
         List<RecentEvent> fresh = List.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
         homeCache.putEvents(login, EventFeed.FOLLOWING, fresh, Instant.now());
         return fresh;

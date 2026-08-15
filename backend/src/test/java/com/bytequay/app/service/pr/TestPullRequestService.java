@@ -34,7 +34,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
-import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,7 +68,7 @@ class TestPullRequestService
     @Mock private SqlitePrDetailStore detailStore;
     @Mock private PrViewStateStore viewStateStore;
     @Mock private PullRequestDetailInvalidator invalidator;
-    @Mock private PatResolver patResolver;
+    @Mock private CredentialService credentialService;
 
     private PullRequestService service;
 
@@ -77,8 +77,8 @@ class TestPullRequestService
     {
         service = new PullRequestService(
                 gitHub, writes, merges, actions, accounts, store, detailStore, viewStateStore,
-                invalidator, patResolver, Runnable::run, Runnable::run);
-        org.mockito.Mockito.lenient().when(patResolver.resolve(anyString())).thenReturn("pat");
+                invalidator, credentialService, Runnable::run, Runnable::run);
+        org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
     }
 
     @Test

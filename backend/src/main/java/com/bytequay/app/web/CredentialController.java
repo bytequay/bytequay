@@ -15,7 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,7 +26,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Locale;
 import java.util.Map;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static java.util.Objects.requireNonNull;
 
@@ -52,8 +51,7 @@ public class CredentialController
     @GetMapping("/api/credentials/account/exists")
     public Map<String, Boolean> accountConfigured()
     {
-        boolean configured = credentialService.get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).isPresent();
-        return Map.of("configured", configured);
+        return Map.of("configured", credentialService.isGitHubAccountConfigured());
     }
 
     @PostMapping("/api/credentials")

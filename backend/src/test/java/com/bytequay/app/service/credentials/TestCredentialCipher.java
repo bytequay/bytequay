@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.security;
+package com.bytequay.app.service.credentials;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

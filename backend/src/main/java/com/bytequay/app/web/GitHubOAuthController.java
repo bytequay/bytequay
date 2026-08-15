@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.github.GitHubOAuthService;
 import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
@@ -42,11 +43,13 @@ public class GitHubOAuthController
 {
     private final GitHubOAuthService oauth;
     private final GhCliService ghCli;
+    private final CredentialService credentials;
 
-    public GitHubOAuthController(GitHubOAuthService oauth, GhCliService ghCli)
+    public GitHubOAuthController(GitHubOAuthService oauth, GhCliService ghCli, CredentialService credentials)
     {
         this.oauth = requireNonNull(oauth, "oauth is null");
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     public record CallbackRequest(String code, String state) {}
@@ -107,6 +110,6 @@ public class GitHubOAuthController
     @PostMapping("/cli/import")
     public ConnectionInfo importGhCliToken()
     {
-        return ghCli.importToken();
+        return credentials.importGitHubCliToken();
     }
 }

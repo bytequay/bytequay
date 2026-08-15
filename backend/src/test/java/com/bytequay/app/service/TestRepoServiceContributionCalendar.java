@@ -22,7 +22,7 @@ import com.bytequay.app.repository.sqlite.RepoMetaStore;
 import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.credentials.CredentialService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,17 +43,17 @@ class TestRepoServiceContributionCalendar
     void cachesContributionCalendarForRepeatedHomeLoads()
     {
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        PatResolver patResolver = mock(PatResolver.class);
+        CredentialService credentialService = mock(CredentialService.class);
         ContributionCalendar calendar = calendar();
-        when(patResolver.resolve()).thenReturn("pat");
+        when(credentialService.resolveGitHubToken()).thenReturn("pat");
         when(gitHub.fetchContributionCalendar("pat", "chenjian2664")).thenReturn(calendar);
 
-        RepoService service = service(gitHub, patResolver);
+        RepoService service = service(gitHub, credentialService);
 
         service.getContributionCalendar("chenjian2664");
         service.getContributionCalendar("chenjian2664");
 
-        verify(patResolver, times(1)).resolve();
+        verify(credentialService, times(1)).resolveGitHubToken();
         verify(gitHub, times(1)).fetchContributionCalendar("pat", "chenjian2664");
     }
 
@@ -61,12 +61,12 @@ class TestRepoServiceContributionCalendar
     void graphQlResourceLimitBecomesTemporaryUnavailable()
     {
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        PatResolver patResolver = mock(PatResolver.class);
-        when(patResolver.resolve()).thenReturn("pat");
+        CredentialService credentialService = mock(CredentialService.class);
+        when(credentialService.resolveGitHubToken()).thenReturn("pat");
         when(gitHub.fetchContributionCalendar("pat", "chenjian2664"))
                 .thenThrow(new IllegalStateException("RESOURCE_LIMITS_EXCEEDED"));
 
-        RepoService service = service(gitHub, patResolver);
+        RepoService service = service(gitHub, credentialService);
 
         assertThatThrownBy(() -> service.getContributionCalendar("chenjian2664"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
@@ -75,7 +75,7 @@ class TestRepoServiceContributionCalendar
                 });
     }
 
-    private static RepoService service(GitHubAccountClient gitHub, PatResolver patResolver)
+    private static RepoService service(GitHubAccountClient gitHub, CredentialService credentialService)
     {
         return new RepoService(
                 mock(SqliteWatchedRepoStore.class),
@@ -86,7 +86,7 @@ class TestRepoServiceContributionCalendar
                 mock(RepoMetaStore.class),
                 mock(SqliteGithubHomeCacheStore.class),
                 mock(SqliteAppSettingsStore.class),
-                patResolver,
+                credentialService,
                 Runnable::run);
     }
 

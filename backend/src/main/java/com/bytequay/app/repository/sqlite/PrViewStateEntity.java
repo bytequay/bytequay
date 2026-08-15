@@ -37,16 +37,6 @@ class PrViewStateEntity
     private Instant viewedAt;
 
     @Convert(converter = InstantToTextConverter.class)
-    private Instant snoozedUntil;
-
-    @Column(name = "snoozed_at")
-    @Convert(converter = InstantToTextConverter.class)
-    private Instant snoozedAt;
-
-    @Column(name = "snooze_wake_reason")
-    private String snoozeWakeReason;
-
-    @Convert(converter = InstantToTextConverter.class)
     private Instant reviewedAt;
 
     @Enumerated(EnumType.STRING)
@@ -82,15 +72,6 @@ class PrViewStateEntity
 
     Instant getViewedAt() { return viewedAt; }
     void setViewedAt(Instant viewedAt) { this.viewedAt = viewedAt; }
-
-    Instant getSnoozedUntil() { return snoozedUntil; }
-    void setSnoozedUntil(Instant snoozedUntil) { this.snoozedUntil = snoozedUntil; }
-
-    Instant getSnoozedAt() { return snoozedAt; }
-    void setSnoozedAt(Instant snoozedAt) { this.snoozedAt = snoozedAt; }
-
-    String getSnoozeWakeReason() { return snoozeWakeReason; }
-    void setSnoozeWakeReason(String snoozeWakeReason) { this.snoozeWakeReason = snoozeWakeReason; }
 
     Instant getReviewedAt() { return reviewedAt; }
     void setReviewedAt(Instant reviewedAt) { this.reviewedAt = reviewedAt; }

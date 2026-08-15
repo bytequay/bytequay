@@ -33,8 +33,6 @@ import java.util.Map;
  * @param headPushedAt timestamp of the most recent commit on the PR's head
  * branch.
  * @param reviewerVerdicts per-reviewer verdict map keyed by login.
- * @param snoozedUntil when the PR is snoozed until, or null when not snoozed.
- * @param snoozeWakeReason populated when an auto-wake fires.
  * @param headRef PR head branch name from GitHub's list response.
  */
 public record PullRequest(
@@ -67,9 +65,6 @@ public record PullRequest(
         String mergeableState,
         Instant headPushedAt,
         Map<String, String> reviewerVerdicts,
-        // Local view state, never sent to GitHub.
-        Instant snoozedUntil,
-        String snoozeWakeReason,
         String headRef)
 {
     public enum Origin

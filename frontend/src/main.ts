@@ -25,9 +25,6 @@ import {
 app.setName('ByteQuay');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 
-const APP_PROTOCOL = 'bytequay';
-app.setAsDefaultProtocolClient(APP_PROTOCOL);
-
 let mainWindow: BrowserWindow | null = null;
 let browserView: WebContentsView | null = null;
 let pendingWindow: Promise<void> | null = null;
@@ -351,8 +348,6 @@ function registerIpc(): void {
     return backendJson(url);
   });
 
-  ipcMain.handle('github:oauth-url', () =>
-    backendJson(`${BACKEND_BASE}/api/auth/github/authorize-url`));
   ipcMain.handle('github:cli-available', () =>
     backendJson(`${BACKEND_BASE}/api/auth/github/cli`));
   ipcMain.handle('github:cli-import', () =>
@@ -421,32 +416,6 @@ function registerIpc(): void {
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
 
-async function handleGitHubCallback(url: URL): Promise<void> {
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  let payload: { success: boolean; error?: string; login?: string };
-  if (!code || !state) {
-    payload = { success: false, error: 'Missing code or state in callback URL' };
-  }
-  else {
-    try {
-      const result = await backendJson<{ login?: string }>(
-        `${BACKEND_BASE}/api/auth/github/callback`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, state }),
-        },
-      );
-      payload = { success: true, login: result.login };
-    }
-    catch (error) {
-      payload = { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  mainWindow?.webContents.send('github:oauth-complete', payload);
-}
-
 app.on('ready', async () => {
   configureApplication();
   registerIpc();
@@ -454,13 +423,6 @@ app.on('ready', async () => {
   if (app.isPackaged && !await waitForBackendReady()) reportBackendFailure();
   await ensureWindow();
   void fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });
-});
-
-app.on('open-url', (event, value) => {
-  event.preventDefault();
-  if (!value.startsWith(`${APP_PROTOCOL}://`)) return;
-  const url = new URL(value);
-  if (url.host === 'github-oauth-callback') void handleGitHubCallback(url);
 });
 
 app.on('window-all-closed', () => {

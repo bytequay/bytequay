@@ -297,8 +297,6 @@ public class SqlitePullRequestStore
                 entity.getMergeableState(),
                 entity.getHeadPushedAt(),
                 entity.getReviewerVerdicts(),
-                Optional.ofNullable(state).map(PrViewState::snoozedUntil).orElse(null),
-                Optional.ofNullable(state).map(PrViewState::snoozeWakeReason).orElse(null),
                 entity.getHeadRef());
     }
 }

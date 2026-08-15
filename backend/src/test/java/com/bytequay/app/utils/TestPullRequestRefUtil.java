@@ -14,7 +14,6 @@
 package com.bytequay.app.utils;
 
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -51,46 +50,6 @@ class TestPullRequestRefUtil
     void testParseRefRejectsBlankRepo()
     {
         assertThatThrownBy(() -> PullRequestRefUtil.parseRef("owner/", 1))
-                .isInstanceOf(ResponseStatusException.class);
-    }
-
-    // parseRepoRef is the number-free variant used by reaction endpoints
-    // (those URLs target a comment id from the path, not a PR number).
-    // The 0-as-placeholder workaround used to trip parseRef's
-    // number-must-be-positive invariant — these tests pin the new
-    // helper's behaviour so that bug stays fixed.
-
-    @Test
-    void testParseRepoRefSplitsOwnerAndRepo()
-    {
-        RepoRef ref = PullRequestRefUtil.parseRepoRef("apache/trino");
-
-        assertThat(ref.owner()).isEqualTo("apache");
-        assertThat(ref.repo()).isEqualTo("trino");
-    }
-
-    @Test
-    void testParseRepoRefAcceptsRepoNamesWithDots()
-    {
-        RepoRef ref = PullRequestRefUtil.parseRepoRef("foo/bar.baz");
-
-        assertThat(ref.owner()).isEqualTo("foo");
-        assertThat(ref.repo()).isEqualTo("bar.baz");
-    }
-
-    @Test
-    void testParseRepoRefRejectsMissingSlash()
-    {
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRepoRef("trinodb"))
-                .isInstanceOf(ResponseStatusException.class);
-    }
-
-    @Test
-    void testParseRepoRefRejectsBlankSegments()
-    {
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRepoRef("/trino"))
-                .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRepoRef("trinodb/"))
                 .isInstanceOf(ResponseStatusException.class);
     }
 }

@@ -70,15 +70,6 @@
   border-color: var(--accent);
 }
 
-.modal__section-label {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0 22px 6px;
-}
-
 .modal__list {
   flex: 1;
   overflow-y: auto;
@@ -136,28 +127,6 @@
   max-width: 280px;
 }
 
-.modal-repo-row__meta {
-  display: flex;
-  gap: var(--space-2);
-  font-size: var(--font-size-xs);
-  color: var(--text-4);
-  margin-top: 2px;
-}
-
-.modal-repo-row__lang {
-  color: var(--accent);
-}
-
-.modal-repo-row__badge {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 2px 8px;
-  flex-shrink: 0;
-}
-
 .modal-repo-row__add-btn {
   background: var(--accent);
   color: #fff;
@@ -177,4 +146,3 @@
   opacity: 0.6;
   cursor: default;
 }
-

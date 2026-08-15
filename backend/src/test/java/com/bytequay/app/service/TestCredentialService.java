@@ -86,7 +86,7 @@ class TestCredentialService
 
         var result = new CredentialService(store, ghCli).importGitHubCliToken();
 
-        assertThat(result.login()).isEqualTo("octocat");
+        assertThat(result).isEqualTo("octocat");
         verify(store).upsert(
                 eq(CredentialType.ACCOUNT),
                 eq(GITHUB_ACCOUNT_NAME),

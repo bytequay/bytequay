@@ -67,7 +67,6 @@ class TestPullRequestService
     @Mock private SqlitePullRequestStore store;
     @Mock private SqlitePrDetailStore detailStore;
     @Mock private PrViewStateStore viewStateStore;
-    @Mock private PullRequestDetailInvalidator invalidator;
     @Mock private CredentialService credentialService;
 
     private PullRequestService service;
@@ -77,7 +76,7 @@ class TestPullRequestService
     {
         service = new PullRequestService(
                 gitHub, writes, merges, actions, accounts, store, detailStore, viewStateStore,
-                invalidator, credentialService, Runnable::run, Runnable::run);
+                credentialService, Runnable::run, Runnable::run);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
     }
 
@@ -129,7 +128,7 @@ class TestPullRequestService
 
         service.refreshPullRequestDetail("owner/repo", 7);
 
-        verify(invalidator).invalidate("owner/repo", 7);
+        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
     }
 
     @Test
@@ -153,17 +152,20 @@ class TestPullRequestService
     @Test
     void approvesAndMarksReviewed()
     {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
         service.approvePullRequest("owner/repo", 7, 12L);
 
         verify(writes).approve("pat", PullRequestRef.of("owner", "repo", 7));
         verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED);
-        verify(invalidator).invalidate("owner/repo", 7);
+        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
     }
 
     @Test
     void mergesDirectlyWhenNoQueueIsConfigured()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(merges.probeMergeQueue("pat", ref)).thenReturn(Optional.empty());
         when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
@@ -172,7 +174,7 @@ class TestPullRequestService
 
         assertThat(result.merged()).isTrue();
         verify(viewStateStore).markReviewed(12L, HandledAction.MERGED);
-        verify(invalidator).invalidate("owner/repo", 7);
+        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
     }
 
     @Test

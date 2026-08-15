@@ -42,59 +42,8 @@ public class PrViewStateStore
                         e -> new PrViewState(
                                 e.getPrId(),
                                 e.getViewedAt(),
-                                e.getSnoozedUntil(),
-                                e.getSnoozedAt(),
-                                e.getSnoozeWakeReason(),
                                 e.getReviewedAt(),
                                 e.getHandledAction())));
-    }
-
-    /** Park the PR until {@code until}. Replaces any existing snooze and
-    *  clears any pending wake reason. */
-    public void snooze(long prId, Instant until)
-    {
-        requireNonNull(until, "until is null");
-        PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
-        entity.setSnoozedUntil(until);
-        entity.setSnoozedAt(Instant.now());
-        // A fresh snooze clears any prior auto-wake reason — the user
-        // is parking the PR again on purpose.
-        entity.setSnoozeWakeReason(null);
-        jpaRepository.save(entity);
-    }
-
-    /** Wake a snoozed PR. {@code wakeReason} is recorded so the UI can
-    *  surface the just-woke alert; pass null on user-initiated wake
-    *  ("Wake now") to skip the alert. */
-    public void unsnooze(long prId, String wakeReason)
-    {
-        jpaRepository.findById(prId).ifPresent(entity -> {
-            entity.setSnoozedUntil(null);
-            entity.setSnoozedAt(null);
-            entity.setSnoozeWakeReason(wakeReason);
-            jpaRepository.save(entity);
-        });
-    }
-
-    /** Drop a stored wake reason once the user has acknowledged it. */
-    public void clearWakeReason(long prId)
-    {
-        jpaRepository.findById(prId).ifPresent(entity -> {
-            if (entity.getSnoozeWakeReason() != null) {
-                entity.setSnoozeWakeReason(null);
-                jpaRepository.save(entity);
-            }
-        });
-    }
-
-    /** Records that the user viewed this PR for the first time. Idempotent. */
-    public void markViewed(long prId)
-    {
-        PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
-        if (entity.getViewedAt() == null) {
-            entity.setViewedAt(Instant.now());
-            jpaRepository.save(entity);
-        }
     }
 
     /** Records that the user handled this PR with the given action. */
@@ -109,16 +58,6 @@ public class PrViewStateStore
         entity.setReviewedAt(now);
         entity.setHandledAction(action);
         jpaRepository.save(entity);
-    }
-
-    /** Clears the reviewed timestamp and action so the PR returns to the Inbox. */
-    public void reopen(long prId)
-    {
-        jpaRepository.findById(prId).ifPresent(entity -> {
-            entity.setReviewedAt(null);
-            entity.setHandledAction(null);
-            jpaRepository.save(entity);
-        });
     }
 
     private static PrViewStateEntity newEntity(long prId)

@@ -41,17 +41,8 @@ const bridge: Bridge = {
   getRecentActivity: login => ipcRenderer.invoke('repos:activity', login),
   getFollowingActivity: login => ipcRenderer.invoke('repos:following', login),
 
-  getGitHubOAuthAuthorizeUrl: () => ipcRenderer.invoke('github:oauth-url'),
   getGitHubCliAvailable: () => ipcRenderer.invoke('github:cli-available'),
   importGitHubCliToken: () => ipcRenderer.invoke('github:cli-import'),
-  onGitHubOauthComplete: callback => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      payload: { success: boolean; error?: string; login?: string },
-    ) => callback(payload);
-    ipcRenderer.on('github:oauth-complete', listener);
-    return () => ipcRenderer.removeListener('github:oauth-complete', listener);
-  },
 
   openInAppBrowser: url => ipcRenderer.invoke('inapp:open', url),
   openExternal: url => ipcRenderer.invoke('external:open', url),

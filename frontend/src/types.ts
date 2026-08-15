@@ -46,8 +46,6 @@ export type PullRequestDto = {
   mergeableState: string | null;
   headPushedAt: string | null;
   reviewerVerdicts: Record<string, string> | null;
-  snoozedUntil: string | null;
-  snoozeWakeReason: string | null;
   headRef: string | null;
 };
 
@@ -200,12 +198,8 @@ export type Bridge = {
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
 
-  getGitHubOAuthAuthorizeUrl: () => Promise<{ configured: boolean; url?: string }>;
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;
-  onGitHubOauthComplete: (
-    callback: (payload: { success: boolean; error?: string; login?: string }) => void,
-  ) => () => void;
 
   openInAppBrowser: (url: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;

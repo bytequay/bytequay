@@ -41,7 +41,7 @@ nvm install
 │       └── resources/application.properties
 ├── frontend/         # Electron + React + TypeScript
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
-├── docs/website/     # Public documentation
+├── docs/             # Design notes and screenshots
 └── dev.sh
 ```
 
@@ -54,7 +54,7 @@ cd backend
 mvn verify
 ```
 
-This checks license headers, Checkstyle, Error Prone, the retained unit tests,
+This checks license headers, Checkstyle, the retained unit tests,
 and a full Spring context boot. Hibernate creates or updates the current SQLite
 schema from the retained JPA entities. Since the app has no released user-data
 migration contract yet, there is no migration history to maintain.
@@ -71,8 +71,8 @@ npm run package
 
 ## Code style
 
-Backend Java follows the checked-in Trino-derived Checkstyle and Error Prone
-rules. Prefer records for DTOs and immutable values at boundaries.
+Backend Java follows the checked-in Trino-derived Checkstyle rules. Prefer
+records for DTOs and immutable values at boundaries.
 
 Frontend code uses React 19 function components and hooks, strict TypeScript,
 and plain CSS. Do not add a component library, state manager, or CSS framework

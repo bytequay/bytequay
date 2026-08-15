@@ -15,12 +15,10 @@ import { useEffect, useState } from 'react';
 import LogoLoading from './LogoLoading';
 
 type Props = {
-  /** Called once auth (PAT or OAuth) successfully stores a token, so App
+  /** Called once auth successfully stores a token, so App
    *  can flip into the ready state and route to the home view. */
   onSaved: () => void;
 };
-
-type OauthStatus = 'idle' | 'launching' | 'awaiting' | 'error';
 
 /** Only fine-grained tokens carry a repo-selection ceiling. Classic ones are
  *  `ghp_` or, pre-2021, bare 40-hex; gh's is `gho_` — none of those warrant
@@ -28,18 +26,9 @@ type OauthStatus = 'idle' | 'launching' | 'awaiting' | 'error';
 const FINE_GRAINED_PREFIX = 'github_pat_';
 
 /**
- * First-run onboarding. OAuth-first when the backend is configured with
- * a GitHub OAuth App (GITHUB_CLIENT_ID/SECRET); falls back to the PAT
- * field underneath. The PAT path is also kept as an opt-in escape
- * hatch for users who would rather not run an OAuth dance.
+ * First-run onboarding through an existing GitHub CLI login or a PAT.
  */
 export default function OnboardingScreen({ onSaved }: Props) {
-  const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
-  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-  const [oauthStatus, setOauthStatus] = useState<OauthStatus>('idle');
-  const [oauthError, setOauthError] = useState<string | null>(null);
-  const [showPat, setShowPat] = useState(false);
-
   const [token, setToken] = useState('');
   const [patState, setPatState] = useState<'idle' | 'saving' | 'error'>('idle');
   const [patError, setPatError] = useState<string | null>(null);
@@ -49,25 +38,6 @@ export default function OnboardingScreen({ onSaved }: Props) {
   const [ghAvailable, setGhAvailable] = useState<boolean | null>(null);
   const [ghState, setGhState] = useState<'idle' | 'importing' | 'error'>('idle');
   const [ghError, setGhError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await window.bridge.getGitHubOAuthAuthorizeUrl();
-        if (cancelled) return;
-        setOauthConfigured(res.configured);
-        setOauthUrl(res.url ?? null);
-        if (!res.configured) setShowPat(true);
-      }
-      catch {
-        if (cancelled) return;
-        setOauthConfigured(false);
-        setShowPat(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,43 +62,6 @@ export default function OnboardingScreen({ onSaved }: Props) {
     })();
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    const teardown = window.bridge.onGitHubOauthComplete((payload) => {
-      if (payload.success) {
-        setOauthStatus('idle');
-        setOauthError(null);
-        onSaved();
-      }
-      else {
-        setOauthStatus('error');
-        setOauthError(payload.error ?? 'GitHub sign-in failed');
-      }
-    });
-    return teardown;
-  }, [onSaved]);
-
-  const startOauth = async () => {
-    if (!oauthUrl) return;
-    setOauthStatus('launching');
-    setOauthError(null);
-    try {
-      // Re-fetch so a fresh state + verifier is minted on every click —
-      // a single authorize URL is good for one round trip.
-      const res = await window.bridge.getGitHubOAuthAuthorizeUrl();
-      if (!res.configured || !res.url) {
-        setOauthStatus('error');
-        setOauthError('OAuth is no longer configured on the backend.');
-        return;
-      }
-      await window.bridge.openExternal(res.url);
-      setOauthStatus('awaiting');
-    }
-    catch (e) {
-      setOauthStatus('error');
-      setOauthError(e instanceof Error ? e.message : String(e));
-    }
-  };
 
   const importGhCli = async () => {
     if (ghState === 'importing') return;
@@ -181,38 +114,6 @@ export default function OnboardingScreen({ onSaved }: Props) {
           and CI failures — never the noise.
         </p>
 
-        {oauthConfigured && (
-          <div className="onboarding__oauth">
-            <button
-              type="button"
-              className="onboarding__cta"
-              onClick={() => { void startOauth(); }}
-              disabled={oauthStatus === 'launching' || oauthStatus === 'awaiting'}
-            >
-              {oauthStatus === 'launching' && 'Opening browser…'}
-              {oauthStatus === 'awaiting' && 'Waiting for GitHub…'}
-              {(oauthStatus === 'idle' || oauthStatus === 'error') && 'Sign in with GitHub'}
-            </button>
-            {oauthStatus === 'awaiting' && (
-              <p className="onboarding__hint">
-                A new tab opened in your browser — finish the consent flow there.
-              </p>
-            )}
-            {oauthStatus === 'error' && oauthError && (
-              <div className="onboarding__error" role="alert">{oauthError}</div>
-            )}
-            {!showPat && (
-              <button
-                type="button"
-                className="onboarding__altlink"
-                onClick={() => setShowPat(true)}
-              >
-                Use a personal access token instead
-              </button>
-            )}
-          </div>
-        )}
-
         {ghAvailable === true && (
           <div className="onboarding__oauth">
             <button
@@ -257,46 +158,43 @@ export default function OnboardingScreen({ onSaved }: Props) {
           </div>
         )}
 
-        {showPat && (
-          <form className="onboarding__form" onSubmit={(e) => { void submitPat(e); }}>
-            <label className="onboarding__label" htmlFor="onboarding-pat">
-              GitHub personal access token
-            </label>
-            <input
-              id="onboarding-pat"
-              type="password"
-              className="onboarding__input"
-              placeholder="ghp_…"
-              value={token}
-              onChange={(e) => { setToken(e.target.value); if (patState === 'error') setPatState('idle'); }}
-              autoFocus={!oauthConfigured}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <p className="onboarding__hint">
-              Required scopes (classic PAT): <code>repo</code>, <code>read:user</code>.
-              Stored encrypted in your macOS Keychain.
+        <form className="onboarding__form" onSubmit={(e) => { void submitPat(e); }}>
+          <label className="onboarding__label" htmlFor="onboarding-pat">
+            GitHub personal access token
+          </label>
+          <input
+            id="onboarding-pat"
+            type="password"
+            className="onboarding__input"
+            placeholder="ghp_…"
+            value={token}
+            onChange={(e) => { setToken(e.target.value); if (patState === 'error') setPatState('idle'); }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p className="onboarding__hint">
+            Required scopes (classic PAT): <code>repo</code>, <code>read:user</code>.
+            Stored encrypted in your macOS Keychain.
+          </p>
+          {token.trim().startsWith(FINE_GRAINED_PREFIX) && (
+            <p className="onboarding__hint onboarding__hint--warn">
+              That's a fine-grained token. It can only reach the repositories it was
+              issued for — connecting or filing issues on anyone else's repository
+              will fail, even for public ones. A classic token with <code>repo</code>,
+              or a GitHub CLI login, avoids that.
             </p>
-            {token.trim().startsWith(FINE_GRAINED_PREFIX) && (
-              <p className="onboarding__hint onboarding__hint--warn">
-                That's a fine-grained token. It can only reach the repositories it was
-                issued for — connecting or filing issues on anyone else's repository
-                will fail, even for public ones. A classic token with <code>repo</code>,
-                or a GitHub CLI login, avoids that.
-              </p>
-            )}
-            {patState === 'error' && patError && (
-              <div className="onboarding__error" role="alert">{patError}</div>
-            )}
-            <button
-              type="submit"
-              className="onboarding__cta onboarding__cta--secondary"
-              disabled={patState === 'saving' || token.trim().length === 0}
-            >
-              {patState === 'saving' ? 'Connecting…' : 'Connect with token →'}
-            </button>
-          </form>
-        )}
+          )}
+          {patState === 'error' && patError && (
+            <div className="onboarding__error" role="alert">{patError}</div>
+          )}
+          <button
+            type="submit"
+            className="onboarding__cta onboarding__cta--secondary"
+            disabled={patState === 'saving' || token.trim().length === 0}
+          >
+            {patState === 'saving' ? 'Connecting…' : 'Connect with token →'}
+          </button>
+        </form>
       </main>
     </div>
   );

@@ -95,6 +95,6 @@ class TestPrAttention
         return new PullRequest(
                 1, "owner/repo", 7, "title", "alice", "url", null, NOW, origin,
                 List.of(), null, false, null, null, null, List.of(), null,
-                0, 0, 0, null, "open", null, null, null, null, null, null, null, null, null);
+                0, 0, 0, null, "open", null, null, null, null, null, null, null);
     }
 }

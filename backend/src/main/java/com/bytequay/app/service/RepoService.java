@@ -30,9 +30,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
-import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
-import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
-import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import org.slf4j.Logger;
@@ -48,9 +45,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
@@ -63,7 +58,6 @@ public class RepoService
 {
     private static final Logger log = LoggerFactory.getLogger(RepoService.class);
     private static final Duration REPO_META_TTL = Duration.ofHours(1);
-    private static final Duration CONTRIBUTION_CALENDAR_TTL = Duration.ofHours(8);
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
     private final SqliteWatchedRepoStore watchedRepoStore;
@@ -72,11 +66,8 @@ public class RepoService
     private final GitHubAccountClient accounts;
     private final PrViewStateStore viewStateStore;
     private final RepoMetaStore repoMetaStore;
-    private final SqliteGithubHomeCacheStore homeCache;
-    private final SqliteAppSettingsStore settingsStore;
     private final CredentialService credentialService;
     private final Executor ioExecutor;
-    private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
     @Autowired
     public RepoService(
@@ -86,8 +77,6 @@ public class RepoService
             GitHubAccountClient accounts,
             PrViewStateStore viewStateStore,
             RepoMetaStore repoMetaStore,
-            SqliteGithubHomeCacheStore homeCache,
-            SqliteAppSettingsStore settingsStore,
             CredentialService credentialService,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -97,8 +86,6 @@ public class RepoService
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
-        this.homeCache = requireNonNull(homeCache, "homeCache is null");
-        this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
@@ -121,15 +108,8 @@ public class RepoService
     public ContributionCalendar getContributionCalendar(String login)
     {
         requireNotBlank(login, "login must not be blank");
-        CachedContributionCalendar cached = contributionCalendarCache.get(login);
-        if (cached != null && cached.fetchedAt().plus(CONTRIBUTION_CALENDAR_TTL).isAfter(Instant.now())) {
-            return cached.value();
-        }
-
         try {
-            ContributionCalendar fresh = accounts.fetchContributionCalendar(credentialService.resolveGitHubToken(), login);
-            contributionCalendarCache.put(login, new CachedContributionCalendar(fresh, Instant.now()));
-            return fresh;
+            return accounts.fetchContributionCalendar(credentialService.resolveGitHubToken(), login);
         }
         catch (IllegalStateException e) {
             throw new ResponseStatusException(
@@ -150,26 +130,12 @@ public class RepoService
 
     public UserProfile getUserProfile()
     {
-        Optional<String> login = settingsStore.get(SqliteAppSettingsStore.GITHUB_LOGIN);
-        if (login.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached");
-        }
-        return homeCache.findProfile(login.orElseThrow())
-                .map(SqliteGithubHomeCacheStore.TimedValue::value)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached"));
-    }
-
-    public UserProfile refreshUserProfileFromGitHub()
-    {
         String pat = credentialService.resolveGitHubToken();
         UserProfile profile = accounts.fetchUserProfile(pat);
-        UserProfile fresh = new UserProfile(
+        return new UserProfile(
                 profile.login(), profile.name(), profile.avatarUrl(), profile.htmlUrl(),
                 profile.publicRepos(), profile.followers(), profile.following(), profile.bio(),
                 profile.location(), profile.company(), profile.email(), accounts.fetchHasSponsorsListing(pat));
-        homeCache.putProfile(fresh.login(), fresh, Instant.now());
-        settingsStore.set(SqliteAppSettingsStore.GITHUB_LOGIN, fresh.login());
-        return fresh;
     }
 
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
@@ -242,38 +208,19 @@ public class RepoService
 
     public List<RecentEvent> getRecentEvents(String login)
     {
-        return cachedEvents(login, EventFeed.RECENT);
+        requireNotBlank(login, "login must not be blank");
+        Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
+                .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
+                .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
+                .toList();
     }
 
     public List<RecentEvent> getFollowingEvents(String login)
     {
-        return cachedEvents(login, EventFeed.FOLLOWING);
-    }
-
-    private List<RecentEvent> cachedEvents(String login, EventFeed feed)
-    {
-        return homeCache.findEvents(login, feed)
-                .map(SqliteGithubHomeCacheStore.TimedValue::value)
-                .orElse(List.of());
-    }
-
-    public List<RecentEvent> refreshRecentEventsFromGitHub(String login)
-    {
-        Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
-                .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        List<RecentEvent> fresh = accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
-                .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
-                .toList();
-        homeCache.putEvents(login, EventFeed.RECENT, fresh, Instant.now());
-        return fresh;
-    }
-
-    public List<RecentEvent> refreshFollowingEventsFromGitHub(String login)
-    {
+        requireNotBlank(login, "login must not be blank");
         List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
-        List<RecentEvent> fresh = List.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
-        homeCache.putEvents(login, EventFeed.FOLLOWING, fresh, Instant.now());
-        return fresh;
+        return List.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
     }
 
     private static PullRequest overlayViewState(PullRequest pr, PrViewState state)
@@ -287,9 +234,6 @@ public class RepoService
                 state.viewedAt(), state.reviewedAt(), state.handledAction(), pr.requestedReviewers(),
                 pr.ciStatus(), pr.additions(), pr.deletions(), pr.commentCount(), pr.attentionReason(),
                 pr.state(), pr.closedAt(), pr.mergedAt(), pr.mergeable(), pr.mergeableState(),
-                pr.headPushedAt(), pr.reviewerVerdicts(), state.snoozedUntil(), state.snoozeWakeReason(),
-                pr.headRef());
+                pr.headPushedAt(), pr.reviewerVerdicts(), pr.headRef());
     }
-
-    private record CachedContributionCalendar(ContributionCalendar value, Instant fetchedAt) {}
 }

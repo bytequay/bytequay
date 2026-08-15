@@ -150,10 +150,6 @@
   text-transform: uppercase;
 }
 
-.avatar--repo {
-  border-radius: var(--radius-sm);
-}
-
 /* ── Base ────────────────────────────────────────────────── */
 
 :root {
@@ -274,17 +270,6 @@ samp {
 
 #root {
   height: 100%;
-}
-
-/* ── Loading / setup ─────────────────────────────────────── */
-
-.app-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  color: var(--text-3);
-  font-size: 0.95rem;
 }
 
 /* ── Brand motion ───────────────────────────────────────── */

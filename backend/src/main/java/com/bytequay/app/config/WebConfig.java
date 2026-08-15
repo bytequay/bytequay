@@ -13,10 +13,6 @@
  */
 package com.bytequay.app.config;
 
-import com.bytequay.app.repository.github.GitHubOrgAccess;
-import com.bytequay.app.repository.github.GitHubOrgAccessInterceptor;
-import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
-import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -42,49 +38,19 @@ public class WebConfig
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(45);
 
     @Bean
-    public GitHubRateLimitMonitor gitHubRateLimitMonitor()
-    {
-        return new GitHubRateLimitMonitor();
-    }
-
-    @Bean
-    public GitHubRateLimitInterceptor gitHubRateLimitInterceptor(GitHubRateLimitMonitor monitor)
-    {
-        return new GitHubRateLimitInterceptor(monitor);
-    }
-
-    @Bean
-    public GitHubOrgAccess gitHubOrgAccess()
-    {
-        return new GitHubOrgAccess();
-    }
-
-    @Bean
-    public GitHubOrgAccessInterceptor gitHubOrgAccessInterceptor(GitHubOrgAccess orgAccess)
-    {
-        return new GitHubOrgAccessInterceptor(orgAccess);
-    }
-
-    @Bean
-    public RestClient gitHubRestClient(
-            GitHubRateLimitInterceptor rateLimitInterceptor,
-            GitHubOrgAccessInterceptor orgAccessInterceptor)
+    public RestClient gitHubRestClient()
     {
         return RestClient.builder()
                 .baseUrl(GITHUB_API_BASE_URL)
                 .defaultHeader("Accept", GITHUB_ACCEPT)
                 .defaultHeader("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestInterceptor(rateLimitInterceptor)
-                .requestInterceptor(orgAccessInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }
 
     @Bean
-    public RestClient gitHubGraphQLRestClient(
-            GitHubRateLimitInterceptor rateLimitInterceptor,
-            GitHubOrgAccessInterceptor orgAccessInterceptor)
+    public RestClient gitHubGraphQLRestClient()
     {
         // GitHub's GraphQL endpoint takes a single POST with
         // { query, variables }. We use it for review-thread resolution
@@ -97,8 +63,6 @@ public class WebConfig
                 .defaultHeader("Accept", "application/json")
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestInterceptor(rateLimitInterceptor)
-                .requestInterceptor(orgAccessInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }

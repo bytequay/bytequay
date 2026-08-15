@@ -63,6 +63,18 @@ public class CredentialController
                 parseType(req.type()), req.name(), req.value(), req.label(), req.notes(), req.configJson());
     }
 
+    @GetMapping("/api/auth/github/cli")
+    public Map<String, Boolean> ghCliAvailable()
+    {
+        return Map.of("available", credentialService.isGitHubCliAvailable());
+    }
+
+    @PostMapping("/api/auth/github/cli/import")
+    public Map<String, String> importGhCliToken()
+    {
+        return Map.of("login", credentialService.importGitHubCliToken());
+    }
+
     private static CredentialType parseType(String value)
     {
         try {

@@ -168,7 +168,7 @@ function HomePage({
     let awaiting = 0;
     let flagged = 0;
     for (const pr of prs) {
-      if (pr.state !== 'open' || pr.snoozedUntil !== null) continue;
+      if (pr.state !== 'open') continue;
       if (pr.origin === 'AUTHORED') mine++;
       else if (pr.origin === 'REVIEW_REQUESTED') awaiting++;
       if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
@@ -235,7 +235,7 @@ function HomePage({
         </div>
         <div className="home-following-list">
           {(prs ?? [])
-            .filter(pr => pr.state === 'open' && pr.snoozedUntil === null)
+            .filter(pr => pr.state === 'open')
             .slice(0, 5)
             .map(pr => {
               const slash = pr.repo.indexOf('/');

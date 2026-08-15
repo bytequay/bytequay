@@ -19,8 +19,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
-import com.bytequay.app.repository.sqlite.SqliteAppSettingsStore;
-import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import org.junit.jupiter.api.Test;
@@ -33,30 +31,10 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestRepoServiceContributionCalendar
 {
-    @Test
-    void cachesContributionCalendarForRepeatedHomeLoads()
-    {
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        CredentialService credentialService = mock(CredentialService.class);
-        ContributionCalendar calendar = calendar();
-        when(credentialService.resolveGitHubToken()).thenReturn("pat");
-        when(gitHub.fetchContributionCalendar("pat", "chenjian2664")).thenReturn(calendar);
-
-        RepoService service = service(gitHub, credentialService);
-
-        service.getContributionCalendar("chenjian2664");
-        service.getContributionCalendar("chenjian2664");
-
-        verify(credentialService, times(1)).resolveGitHubToken();
-        verify(gitHub, times(1)).fetchContributionCalendar("pat", "chenjian2664");
-    }
-
     @Test
     void graphQlResourceLimitBecomesTemporaryUnavailable()
     {
@@ -84,8 +62,6 @@ class TestRepoServiceContributionCalendar
                 gitHub,
                 mock(PrViewStateStore.class),
                 mock(RepoMetaStore.class),
-                mock(SqliteGithubHomeCacheStore.class),
-                mock(SqliteAppSettingsStore.class),
                 credentialService,
                 Runnable::run);
     }

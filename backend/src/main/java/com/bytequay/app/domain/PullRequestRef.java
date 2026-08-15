@@ -78,12 +78,6 @@ public record PullRequestRef(String owner, String repo, int number)
                 repoFull.substring(0, slash), repoFull.substring(slash + 1), number));
     }
 
-    /** Returns the {@link RepoRef} for this pull request's repository. */
-    public RepoRef repoRef()
-    {
-        return new RepoRef(owner, repo);
-    }
-
     /** Returns the canonical {@code "owner/repo"} repository string. */
     public String repoFullName()
     {

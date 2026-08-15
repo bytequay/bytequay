@@ -60,14 +60,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Mockito 5 uses Byte Buddy's inline mock maker. Supplying the
-             agent at JVM startup keeps the suite working on JDK 25+, where
-             dynamic self-attachment is no longer reliable. -->
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy-agent</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -75,28 +67,8 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-test-agent</id>
-                        <phase>process-test-classes</phase>
-                        <goals>
-                            <goal>copy-dependencies</goal>
-                        </goals>
-                        <configuration>
-                            <includeArtifactIds>byte-buddy-agent</includeArtifactIds>
-                            <outputDirectory>${project.build.directory}/test-agents</outputDirectory>
-                            <stripVersion>true</stripVersion>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-javaagent:${project.build.directory}/test-agents/byte-buddy-agent.jar</argLine>
                     <!-- Four forks measured faster than either one fork or one
                          fork per core on the current test suite. -->
                     <forkCount>4</forkCount>
@@ -181,43 +153,4 @@
         </plugins>
     </build>
 
-    <profiles>
-        <!-- Error Prone — Google's static analyzer attached to the compiler.
-             Same .mvn/errorprone.config Trino uses (curated -Xep flags). The
-             JVM add-exports/add-opens args it needs on Java 16+ to reach
-             compiler internals live in .mvn/jvm.config.
-
-             Opt in with `-Perrorprone`. CI runs the analysis once in its
-             static-check job and leaves it out of the test job rather than
-             paying for it twice. -->
-        <profile>
-            <id>errorprone</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-compiler-plugin</artifactId>
-                        <configuration>
-                            <compilerArgs>
-                                <arg>-XDcompilePolicy=simple</arg>
-                                <arg>--should-stop=ifError=FLOW</arg>
-                                <!-- Required by Error Prone 2.31+ on JDK 21 to keep
-                                     type-annotation symbols around long enough for
-                                     its analyzers. Silently accepted on newer JDKs. -->
-                                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
-                                <arg>-Xplugin:ErrorProne @${project.basedir}/.mvn/errorprone.config -XepExcludedPaths:.*/target/generated-(|test-)sources/.*</arg>
-                            </compilerArgs>
-                            <annotationProcessorPaths>
-                                <path>
-                                    <groupId>com.google.errorprone</groupId>
-                                    <artifactId>error_prone_core</artifactId>
-                                    <version>2.49.0</version>
-                                </path>
-                            </annotationProcessorPaths>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

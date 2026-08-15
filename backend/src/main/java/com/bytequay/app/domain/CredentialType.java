@@ -14,20 +14,9 @@
 package com.bytequay.app.domain;
 
 /**
- * Coarse category for credentials stored in the vault. Each row in the
- * {@code credentials} table is uniquely identified by the pair (type, name),
- * letting the GitHub account token and optional OAuth App configuration share
- * the same encrypted store.
- *
- * <p>Conventions for the {@code name} component:
- * <ul>
- *   <li>{@link #ACCOUNT}     — singleton; name is always {@code "github"}.</li>
- *   <li>{@link #INTEGRATION} — name is the integration id
- *       (e.g., {@code "github-oauth-app"} for the OAuth app credentials).</li>
- * </ul>
+ * Category for the GitHub account credential stored in the local vault.
  */
 public enum CredentialType
 {
-    ACCOUNT,
-    INTEGRATION
+    ACCOUNT
 }

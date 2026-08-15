@@ -110,7 +110,6 @@ public class PullRequestService
     private final SqlitePullRequestStore store;
     private final SqlitePrDetailStore detailStore;
     private final PrViewStateStore viewStateStore;
-    private final PullRequestDetailInvalidator detailInvalidator;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final CredentialService credentialService;
@@ -138,7 +137,6 @@ public class PullRequestService
             SqlitePullRequestStore store,
             SqlitePrDetailStore detailStore,
             PrViewStateStore viewStateStore,
-            PullRequestDetailInvalidator detailInvalidator,
             CredentialService credentialService,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
@@ -151,7 +149,6 @@ public class PullRequestService
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
-        this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(
@@ -329,8 +326,15 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
         if (created != null) {
-            patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
-                    cached -> PullRequestDetailPatcher.withTimelineCommentAppended(cached, created));
+            patchCachedDetail(store.findIdByRepoAndNumber(repo, number), cached -> {
+                List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
+                timeline.removeIf(event -> event.githubId() != null
+                        && event.githubId().equals(created.githubId())
+                        && "commented".equals(event.event()));
+                timeline.add(created);
+                return new StoredPrDetail(
+                        cached.raw(), cached.reviews(), List.copyOf(timeline), cached.checkRuns());
+            });
         }
     }
 
@@ -682,7 +686,8 @@ public class PullRequestService
 
     private void invalidatePullRequestDetail(String repo, int number)
     {
-        detailInvalidator.invalidate(repo, number);
+        store.findIdByRepoAndNumber(repo, number)
+                .ifPresent(id -> detailStore.deleteByPrIds(Set.of(id)));
     }
 
     private void invalidatePullRequestCaches(String repo, int number)
@@ -729,8 +734,6 @@ public class PullRequestService
                 pr.mergeableState(),
                 pr.headPushedAt(),
                 pr.reviewerVerdicts(),
-                pr.snoozedUntil(),
-                pr.snoozeWakeReason(),
                 pr.headRef());
     }
 

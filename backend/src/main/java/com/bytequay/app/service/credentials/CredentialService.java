@@ -17,7 +17,6 @@ import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.sqlite.SqliteCredentialStore;
 import com.bytequay.app.service.github.GhCliService;
-import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -87,8 +86,7 @@ public class CredentialService
     /**
      * Returns the current GitHub account token. Credentials imported from
      * {@code gh} track its live token and fall back to the stored copy when
-     * the CLI is unavailable; pasted PATs and OAuth tokens always use the
-     * stored value.
+     * the CLI is unavailable; pasted PATs always use the stored value.
      */
     public String resolveGitHubToken()
     {
@@ -99,7 +97,7 @@ public class CredentialService
                         "GitHub PAT not configured. Add it in Settings → GitHub token."));
     }
 
-    public ConnectionInfo importGitHubCliToken()
+    public String importGitHubCliToken()
     {
         GhCliService.CliCredential credential = ghCli.readCredential();
         upsert(
@@ -109,7 +107,12 @@ public class CredentialService
                 credential.login(),
                 "Imported from the GitHub CLI on " + Instant.now(),
                 GITHUB_CLI_SOURCE_MARKER);
-        return new ConnectionInfo(credential.login());
+        return credential.login();
+    }
+
+    public boolean isGitHubCliAvailable()
+    {
+        return ghCli.isAvailable();
     }
 
     private Optional<String> liveGhCliToken()

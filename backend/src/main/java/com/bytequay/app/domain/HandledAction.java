@@ -15,16 +15,12 @@ package com.bytequay.app.domain;
 
 /**
  * How a pull request came to be marked as handled.
- * APPROVED / MERGED come from actions the user took via the app;
- * COMMENTED, CHANGES_REQUESTED, DISMISSED cover other review paths (future use);
- * MANUAL is set when the user hits the "Handled" button on a card without reviewing.
+ * APPROVED / MERGED come from actions in the app; CHANGES_REQUESTED is
+ * reconciled from reviews submitted elsewhere.
  */
 public enum HandledAction
 {
     APPROVED,
     MERGED,
-    COMMENTED,
-    CHANGES_REQUESTED,
-    DISMISSED,
-    MANUAL
+    CHANGES_REQUESTED
 }

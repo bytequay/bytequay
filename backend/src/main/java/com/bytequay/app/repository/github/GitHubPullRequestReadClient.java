@@ -613,9 +613,6 @@ public class GitHubPullRequestReadClient
                 null,
                 null,
                 null,
-                // Local view state is joined later by SqlitePullRequestStore.
-                null,
-                null,
                 // Head ref is available directly from the list response.
                 Optional.ofNullable(item.head())
                         .map(GitHubRepoPullRequestItem.Head::ref)
@@ -682,10 +679,7 @@ public class GitHubPullRequestReadClient
                 null,
                 null,
                 null,
-                // V37 snooze fields — local-state only.
-                null,
-                null,
-                // V42: search responses don't expose head.ref; the next
+                // Search responses don't expose head.ref; the next
                 // list-page sync will fill it in.
                 null);
     }

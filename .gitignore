@@ -106,7 +106,7 @@ target/
 .claude
 
 CLAUDE.md
+ByteQuay.md
 
-docs/mockups/
 .agents
 AGENTS.md

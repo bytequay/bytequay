@@ -21,7 +21,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Optional;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -38,7 +37,7 @@ public class SqliteWatchedRepoStore
     {
         return jpaRepository.findAllByOrderByDisplayOrderAsc().stream()
                 .map(SqliteWatchedRepoStore::toDomain)
-                .collect(toImmutableList());
+                .toList();
     }
 
     public Optional<WatchedRepo> find(String owner, String repo)

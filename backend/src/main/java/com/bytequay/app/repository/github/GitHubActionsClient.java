@@ -14,36 +14,22 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.PrCheckRunState;
-import com.bytequay.app.domain.RepoRef;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableList;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubActionsClient
 {
-    public record CheckRunAnnotation(String title, String message, String path, Integer startLine) {}
-
-    private static final Pattern ACTIONS_JOB_URL =
-            Pattern.compile("/actions/runs/\\d+/job/(\\d+)(?:[/?#]|$)");
-
     private final RestClient gitHubRestClient;
 
     public GitHubActionsClient(RestClient gitHubRestClient)
@@ -64,7 +50,7 @@ public class GitHubActionsClient
     private List<PrCheckRunState> fetchPrCheckRuns(
             String pat, String owner, String repo, String sha, boolean strict)
     {
-        ImmutableList.Builder<PrCheckRunState> result = ImmutableList.builder();
+        List<PrCheckRunState> result = new ArrayList<>();
         int collected = 0;
         Integer total = null;
         boolean complete = false;
@@ -95,9 +81,7 @@ public class GitHubActionsClient
                 }
                 for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
                     result.add(new PrCheckRunState(
-                            check.id(), check.name(), check.status(), check.conclusion(), check.htmlUrl(),
-                            check.output() == null ? null : check.output().title(),
-                            check.output() == null ? null : check.output().summary()));
+                            check.id(), check.name(), check.status(), check.conclusion()));
                 }
                 collected += response.checkRuns().size();
                 complete = strict && collected == total;
@@ -118,7 +102,7 @@ public class GitHubActionsClient
         if (strict && !complete) {
             throw incompleteCheckRunsResponse(collected, total);
         }
-        return result.build();
+        return List.copyOf(result);
     }
 
     private static ResponseStatusException incompleteCheckRunsResponse(int collected, Integer total)
@@ -127,168 +111,4 @@ public class GitHubActionsClient
                 HttpStatusCode.valueOf(502),
                 "GitHub check-runs pagination was incomplete: collected " + collected + " of " + total);
     }
-
-    public int rerunFailedChecks(String pat, RepoRef repo, String headSha)
-    {
-        if (headSha == null || headSha.isBlank()) {
-            return 0;
-        }
-        try {
-            GitHubWorkflowRunsResponse runs = gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
-                            .queryParam("head_sha", headSha)
-                            .queryParam("per_page", 30)
-                            .build(repo.owner(), repo.repo()))
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(GitHubWorkflowRunsResponse.class);
-            if (runs == null || runs.workflowRuns() == null) {
-                return 0;
-            }
-            int rerun = 0;
-            for (GitHubWorkflowRunsResponse.Run run : runs.workflowRuns()) {
-                if (!"completed".equals(run.status()) || !isFailedConclusion(run.conclusion())) {
-                    continue;
-                }
-                gitHubRestClient.post()
-                        .uri("/repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs",
-                                repo.owner(), repo.repo(), run.id())
-                        .header("Authorization", authorization(pat))
-                        .retrieve()
-                        .toBodilessEntity();
-                rerun++;
-            }
-            return rerun;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
-
-    private static boolean isFailedConclusion(String conclusion)
-    {
-        return "failure".equals(conclusion)
-                || "cancelled".equals(conclusion)
-                || "timed_out".equals(conclusion)
-                || "startup_failure".equals(conclusion);
-    }
-
-    public Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
-    {
-        Long jobId;
-        try {
-            GitHubCheckRunDetail detail = gitHubRestClient.get()
-                    .uri("/repos/{owner}/{repo}/check-runs/{id}", repo.owner(), repo.repo(), checkRunId)
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(GitHubCheckRunDetail.class);
-            jobId = detail == null ? null : extractActionsJobId(detail.detailsUrl());
-            if (jobId == null && detail != null) {
-                jobId = extractActionsJobId(detail.htmlUrl());
-            }
-        }
-        catch (RestClientResponseException e) {
-            int status = e.getStatusCode().value();
-            if (status == 403 || status == 404) {
-                return Optional.empty();
-            }
-            throw toReadableException(e);
-        }
-        if (jobId == null) {
-            return Optional.empty();
-        }
-
-        long resolvedJobId = jobId;
-        return gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/actions/jobs/{id}/logs", repo.owner(), repo.repo(), resolvedJobId)
-                .header("Authorization", authorization(pat))
-                .header("Accept", "text/plain, */*")
-                .exchange((request, response) -> {
-                    int status = response.getStatusCode().value();
-                    if (status == 401 || status == 403 || status == 404 || status == 410) {
-                        return Optional.empty();
-                    }
-                    if (!response.getStatusCode().is2xxSuccessful()) {
-                        throw new ResponseStatusException(
-                                response.getStatusCode(), "GitHub Actions job log request failed");
-                    }
-                    String text = new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8);
-                    return text.isBlank() ? Optional.empty() : Optional.of(text);
-                });
-    }
-
-    public List<CheckRunAnnotation> fetchCheckRunAnnotations(String pat, RepoRef repo, long checkRunId)
-    {
-        List<GitHubCheckRunAnnotation> body;
-        try {
-            body = gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/check-runs/{id}/annotations")
-                            .queryParam("per_page", 100)
-                            .build(repo.owner(), repo.repo(), checkRunId))
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<>() {});
-        }
-        catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 404) {
-                return List.of();
-            }
-            throw toReadableException(e);
-        }
-        if (body == null) {
-            return List.of();
-        }
-        return body.stream()
-                .filter(annotation -> "failure".equals(annotation.annotationLevel()))
-                .map(annotation -> new CheckRunAnnotation(
-                        annotation.title(), annotation.message(), annotation.path(), annotation.startLine()))
-                .filter(GitHubActionsClient::hasSourceLocation)
-                .collect(toImmutableList());
-    }
-
-    private static boolean hasSourceLocation(CheckRunAnnotation annotation)
-    {
-        return annotation.startLine() != null
-                && annotation.path() != null
-                && !annotation.path().isBlank()
-                && !annotation.path().equals(".github")
-                && !annotation.path().startsWith(".github/");
-    }
-
-    private static Long extractActionsJobId(String url)
-    {
-        if (url == null || url.isEmpty()) {
-            return null;
-        }
-        Matcher matcher = ACTIONS_JOB_URL.matcher(url);
-        if (!matcher.find()) {
-            return null;
-        }
-        try {
-            return Long.parseLong(matcher.group(1));
-        }
-        catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GitHubWorkflowRunsResponse(@JsonProperty("workflow_runs") List<Run> workflowRuns)
-    {
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record Run(long id, String status, String conclusion) {}
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GitHubCheckRunDetail(
-            @JsonProperty("details_url") String detailsUrl,
-            @JsonProperty("html_url") String htmlUrl) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GitHubCheckRunAnnotation(
-            @JsonProperty("path") String path,
-            @JsonProperty("start_line") Integer startLine,
-            @JsonProperty("annotation_level") String annotationLevel,
-            @JsonProperty("title") String title,
-            @JsonProperty("message") String message) {}
 }

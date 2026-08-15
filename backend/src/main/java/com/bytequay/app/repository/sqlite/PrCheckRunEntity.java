@@ -40,15 +40,6 @@ class PrCheckRunEntity
 
     private String conclusion;
 
-    @Column(name = "html_url")
-    private String htmlUrl;
-
-    @Column(name = "output_title")
-    private String outputTitle;
-
-    @Column(name = "output_summary")
-    private String outputSummary;
-
     protected PrCheckRunEntity() {}
 
     Long getId() { return id; }
@@ -67,13 +58,4 @@ class PrCheckRunEntity
 
     String getConclusion() { return conclusion; }
     void setConclusion(String conclusion) { this.conclusion = conclusion; }
-
-    String getHtmlUrl() { return htmlUrl; }
-    void setHtmlUrl(String htmlUrl) { this.htmlUrl = htmlUrl; }
-
-    String getOutputTitle() { return outputTitle; }
-    void setOutputTitle(String outputTitle) { this.outputTitle = outputTitle; }
-
-    String getOutputSummary() { return outputSummary; }
-    void setOutputSummary(String outputSummary) { this.outputSummary = outputSummary; }
 }

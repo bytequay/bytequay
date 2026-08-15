@@ -1,10 +1,3 @@
----
-id: pr-dashboard
-title: Pull requests
-sidebar_label: Pull requests
-sidebar_position: 2
----
-
 # Pull requests
 
 The pull-request screen has a filterable list on the left and the selected PR

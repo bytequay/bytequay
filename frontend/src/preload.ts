@@ -20,14 +20,10 @@ const bridge: Bridge = {
   fetchPrs: () => ipcRenderer.invoke('prs:list'),
   syncPrs: () => ipcRenderer.invoke('prs:sync'),
   fetchPullRequestDetail: (repo, number) => ipcRenderer.invoke('prs:detail', repo, number),
-  refreshPullRequestDetail: (repo, number, maxAgeSeconds) =>
-    ipcRenderer.invoke('prs:detail:refresh', repo, number, maxAgeSeconds),
+  refreshPullRequestDetail: (repo, number) =>
+    ipcRenderer.invoke('prs:detail:refresh', repo, number),
   fetchPrDiffFiles: (repo, number) => ipcRenderer.invoke('prs:diff', repo, number),
-  fetchPrCommits: (repo, number) => ipcRenderer.invoke('prs:commits', repo, number),
-  fetchPrCommitDiff: (repo, number, sha) => ipcRenderer.invoke('prs:commit-diff', repo, number, sha),
-  fetchFileBlob: (repo, path, sha) => ipcRenderer.invoke('prs:file', repo, path, sha),
-  commentPr: (prId, repo, number, body, close) =>
-    ipcRenderer.invoke('prs:comment', prId, repo, number, body, close),
+  commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
   approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),

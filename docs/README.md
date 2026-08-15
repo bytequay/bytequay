@@ -1,11 +1,3 @@
----
-id: intro
-title: Overview
-sidebar_label: Overview
-sidebar_position: 1
-slug: /
----
-
 # ByteQuay
 
 > A calmer home for GitHub pull requests.
@@ -18,6 +10,6 @@ GitHub view.
 The app is being rebuilt around this small foundation. Agent development and
 task orchestration are not part of the current product.
 
-- **[Getting started](./usage/getting-started.md)** — install and connect GitHub.
-- **[Pull requests](./usage/pr-dashboard.md)** — use the list and detail view.
-- **[Release notes](/releases)** — see what changed.
+- [Getting started](getting-started.md)
+- [Pull requests](pull-requests.md)
+- [Release notes](releases/README.md)

@@ -15,8 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.StoredRepoMeta;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,11 +72,11 @@ public class RepoMetaStore
         // Defensive copies — store implementations should not retain
         // references to caller-mutable collections.
         List<String> topics = meta.topics() == null
-                ? ImmutableList.of()
-                : ImmutableList.copyOf(meta.topics());
+                ? List.of()
+                : List.copyOf(meta.topics());
         Map<String, Long> languages = meta.languages() == null
-                ? ImmutableMap.of()
-                : ImmutableMap.copyOf(meta.languages());
+                ? Map.of()
+                : Map.copyOf(meta.languages());
         entity.setTopics(topics);
         entity.setLanguages(languages);
         entity.setOwnerAvatarUrl(meta.ownerAvatarUrl());
@@ -104,8 +102,8 @@ public class RepoMetaStore
                 e.getSizeKb(),
                 e.getCreatedAt(),
                 e.getPushedAt(),
-                e.getTopics() == null ? ImmutableList.of() : ImmutableList.copyOf(e.getTopics()),
-                e.getLanguages() == null ? ImmutableMap.of() : ImmutableMap.copyOf(e.getLanguages()),
+                e.getTopics() == null ? List.of() : List.copyOf(e.getTopics()),
+                e.getLanguages() == null ? Map.of() : Map.copyOf(e.getLanguages()),
                 e.getOwnerAvatarUrl(),
                 e.getParentOwner(),
                 e.getParentRepo(),

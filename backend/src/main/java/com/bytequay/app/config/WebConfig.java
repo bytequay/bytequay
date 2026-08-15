@@ -22,15 +22,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
 
 @Configuration
 public class WebConfig
-        implements WebMvcConfigurer
 {
     private static final String GITHUB_API_BASE_URL = "https://api.github.com";
     private static final String GITHUB_ACCEPT = "application/vnd.github+json";
@@ -43,16 +40,6 @@ public class WebConfig
     // network blips. This stays below the frontend's one-minute request timeout.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(45);
-
-    @Override
-    public void addCorsMappings(CorsRegistry registry)
-    {
-        registry.addMapping("/**")
-                .allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*", "file://*")
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("*")
-                .allowCredentials(false);
-    }
 
     @Bean
     public GitHubRateLimitMonitor gitHubRateLimitMonitor()

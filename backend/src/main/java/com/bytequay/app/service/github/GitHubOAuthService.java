@@ -18,7 +18,6 @@ import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,7 +101,7 @@ public class GitHubOAuthService
      *  resolve. {@code repo} covers private repo access — the broad
      *  scope is required because GitHub OAuth Apps don't expose
      *  per-repo granularity (fine-grained PATs do). */
-    static final List<String> SCOPES = ImmutableList.of(
+    static final List<String> SCOPES = List.of(
             "repo",
             "read:user",
             "read:org");
@@ -221,20 +220,6 @@ public class GitHubOAuthService
                 "Acquired via GitHub OAuth on " + Instant.now(clock));
         log.info("GitHub OAuth completed for login={}", login);
         return new ConnectionInfo(login);
-    }
-
-    /** Returns the connection info for the currently-stored token, if
-     *  the slot exists. The {@code label} carries the GitHub login. */
-    public Optional<ConnectionInfo> getConnection()
-    {
-        return credentialService.get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .map(c -> new ConnectionInfo(c.label()));
-    }
-
-    /** Drops the stored token. Idempotent. */
-    public void disconnect()
-    {
-        credentialService.delete(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME);
     }
 
     private Optional<String> resolveClientId()

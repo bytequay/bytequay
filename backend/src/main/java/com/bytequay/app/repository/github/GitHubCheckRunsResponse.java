@@ -28,10 +28,5 @@ public record GitHubCheckRunsResponse(
             Long id,
             String name,
             String status,
-            String conclusion,
-            @JsonProperty("html_url") String htmlUrl,
-            CheckRunOutput output) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record CheckRunOutput(String title, String summary) {}
+            String conclusion) {}
 }

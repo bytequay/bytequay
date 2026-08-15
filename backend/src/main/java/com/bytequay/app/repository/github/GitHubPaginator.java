@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.google.common.collect.ImmutableList;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -88,7 +87,7 @@ final class GitHubPaginator
                 break;
             }
         }
-        return ImmutableList.copyOf(seen);
+        return List.copyOf(seen);
     }
 
     private <T> List<T> fetchPage(
@@ -105,10 +104,10 @@ final class GitHubPaginator
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(typeRef);
-            return rows == null ? ImmutableList.of() : rows;
+            return rows == null ? List.of() : rows;
         }
         catch (RestClientResponseException e) {
-            return ImmutableList.of();
+            return List.of();
         }
     }
 

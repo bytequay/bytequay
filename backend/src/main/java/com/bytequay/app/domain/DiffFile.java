@@ -14,10 +14,7 @@
 package com.bytequay.app.domain;
 
 /**
- * A single file in a pull-request diff, with the unified-diff patch text
- * included. Separate from {@link PullRequestDetail.ChangedFile} because the
- * preview/cache path deliberately omits patches (they can be large and aren't
- * worth persisting in SQLite).
+ * A single file in a pull-request diff, with the unified-diff patch text.
  *
  * @param patch unified diff hunks for this file; {@code null} for binary or
  *              renamed-without-content-change files

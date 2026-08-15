@@ -15,40 +15,10 @@ package com.bytequay.app.domain;
 
 import java.util.List;
 
-/**
- * All cached detail data for a single pull request, loaded as a unit from the local store.
- *
- * @param mergeQueueState GraphQL-sourced merge-queue entry state, such as
- * {@code QUEUED}, {@code MERGEABLE}, or {@code UNMERGEABLE}. Null when the PR
- * has no queue entry.
- * @param mergeQueueEnabled true when the PR's base branch has a merge queue
- * configured (it's possible to add this PR to the queue); GraphQL-sourced.
- */
 public record StoredPrDetail(
         PrRawDetail raw,
         List<PrReviewState> reviews,
-        List<PullRequestDetail.ChangedFile> files,
         List<PrTimelineEvent> timeline,
-        List<PrCheckRunState> checkRuns,
-        List<PrReviewThreadMessage> reviewComments,
-        List<PullRequestDetail.LinkedIssue> linkedIssues,
-        String mergeQueueState,
-        boolean mergeQueueEnabled)
+        List<PrCheckRunState> checkRuns)
 {
-    /** Backward-compat 7-arg constructor for callers (mostly the
-     *  copy-on-mutation paths in PullRequestService + tests) that
-     *  don't surface merge-queue state. Defaults {@code mergeQueueState}
-     *  to null and {@code mergeQueueEnabled} to false. New callers should
-     *  use the canonical constructor. */
-    public StoredPrDetail(
-            PrRawDetail raw,
-            List<PrReviewState> reviews,
-            List<PullRequestDetail.ChangedFile> files,
-            List<PrTimelineEvent> timeline,
-            List<PrCheckRunState> checkRuns,
-            List<PrReviewThreadMessage> reviewComments,
-            List<PullRequestDetail.LinkedIssue> linkedIssues)
-    {
-        this(raw, reviews, files, timeline, checkRuns, reviewComments, linkedIssues, null, false);
-    }
 }

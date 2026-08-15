@@ -16,18 +16,17 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.github.GitHubOAuthService;
 import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
-import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
-import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
-import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -65,9 +64,9 @@ public class GitHubOAuthController
     public Map<String, Object> authorizeUrl()
     {
         if (!oauth.isConfigured()) {
-            return ImmutableMap.of("configured", false);
+            return Map.of("configured", false);
         }
-        return ImmutableMap.of(
+        return Map.of(
                 "configured", true,
                 "url", oauth.issueAuthorizeUrl());
     }
@@ -81,31 +80,12 @@ public class GitHubOAuthController
     @PostMapping("/callback")
     public ConnectionInfo callback(@RequestBody CallbackRequest req)
     {
-        req = requireBody(req);
+        if (req == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         requireNotBlank(req.code(), "code is required");
         requireNotBlank(req.state(), "state is required");
         return oauth.exchangeCode(req.code(), req.state());
-    }
-
-    /**
-     * GET /api/auth/github/connection — returns
-     * {@code {connected: bool, login?}}. Cheap; backed by a single
-     * credentials-store lookup.
-     */
-    @GetMapping("/connection")
-    public Map<String, Object> connection()
-    {
-        Optional<ConnectionInfo> info = oauth.getConnection();
-        if (info.isEmpty()) {
-            return ImmutableMap.of("connected", false);
-        }
-        ConnectionInfo c = info.get();
-        ImmutableMap.Builder<String, Object> out = ImmutableMap.builder();
-        out.put("connected", true);
-        if (c.login() != null) {
-            out.put("login", c.login());
-        }
-        return out.build();
     }
 
     /**
@@ -116,7 +96,7 @@ public class GitHubOAuthController
     @GetMapping("/cli")
     public Map<String, Object> ghCliAvailable()
     {
-        return ImmutableMap.of("available", ghCli.isAvailable());
+        return Map.of("available", ghCli.isAvailable());
     }
 
     /**
@@ -128,17 +108,5 @@ public class GitHubOAuthController
     public ConnectionInfo importGhCliToken()
     {
         return ghCli.importToken();
-    }
-
-    /**
-     * POST /api/auth/github/disconnect — clears the stored token.
-     * Idempotent. The {@code pat:clear} IPC path also drops this
-     * slot, so either route works.
-     */
-    @PostMapping("/disconnect")
-    public Map<String, String> disconnect()
-    {
-        oauth.disconnect();
-        return ImmutableMap.of("result", "disconnected");
     }
 }

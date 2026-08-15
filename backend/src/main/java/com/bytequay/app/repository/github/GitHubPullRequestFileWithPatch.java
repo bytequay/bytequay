@@ -15,12 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-/**
- * Same endpoint as {@link GitHubPullRequestFile} but retains the {@code patch}
- * field — the unified-diff hunks for this file. Kept separate so the
- * preview/cache path (which doesn't need patches) doesn't accidentally drag
- * several hundred kilobytes of diff text through SQLite.
- */
+/** One changed file with its unified-diff patch. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestFileWithPatch(
         String filename,

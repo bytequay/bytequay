@@ -19,8 +19,8 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -37,7 +37,7 @@ public class PrViewStateStore
     public Map<Long, PrViewState> findAll()
     {
         return jpaRepository.findAll().stream()
-                .collect(toImmutableMap(
+                .collect(Collectors.toUnmodifiableMap(
                         PrViewStateEntity::getPrId,
                         e -> new PrViewState(
                                 e.getPrId(),

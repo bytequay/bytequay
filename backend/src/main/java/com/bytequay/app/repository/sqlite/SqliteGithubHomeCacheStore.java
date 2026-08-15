@@ -18,7 +18,6 @@ import com.bytequay.app.domain.UserProfile;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,7 +74,7 @@ public class SqliteGithubHomeCacheStore
         var key = new GithubUserEventCacheEntity.GithubUserEventCacheKey(login, feed.name());
         return eventRepo.findById(key)
                 .map(e -> new TimedValue<>(
-                        ImmutableList.copyOf(readList(e.getPayload(), EVENT_LIST)),
+                        List.copyOf(readList(e.getPayload(), EVENT_LIST)),
                         e.getFetchedAt()));
     }
 
@@ -86,7 +85,7 @@ public class SqliteGithubHomeCacheStore
         GithubUserEventCacheEntity entity = eventRepo.findById(key)
                 .orElseGet(GithubUserEventCacheEntity::new);
         entity.setId(key);
-        entity.setPayload(write(ImmutableList.copyOf(events)));
+        entity.setPayload(write(List.copyOf(events)));
         entity.setFetchedAt(fetchedAt);
         eventRepo.save(entity);
     }

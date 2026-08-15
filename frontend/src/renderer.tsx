@@ -15,11 +15,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
-import { applyTheme, loadTheme } from './themes';
-
-// Theme before React's first paint so startup never flashes the former
-// purple/warm palette while the app is mounting.
-applyTheme(loadTheme());
 
 const container = document.getElementById('root');
 if (!container) {

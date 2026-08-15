@@ -13,52 +13,33 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
-import com.bytequay.app.domain.DiffSide;
-import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
-import com.bytequay.app.domain.PrCheckRunState;
-import com.bytequay.app.domain.PrCiSnapshot;
-import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
-import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
-import com.bytequay.app.domain.PullRequestMetadata;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
-import com.bytequay.app.domain.SuggestedReviewer;
-import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
-import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
-import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -78,16 +59,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.app.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
-import static com.bytequay.app.utils.PullRequestRefUtil.parseRepoRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
-import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -116,7 +95,6 @@ public class PullRequestService
     // is wasteful. Between polls the last resolved set is re-served so those
     // PRs stay in the sweep's result set and don't flicker off the dashboard.
     private static final Duration NOTIFICATION_POLL_INTERVAL = Duration.ofMinutes(5);
-    private static final Duration REPO_METADATA_TTL = Duration.ofDays(7);
 
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
@@ -128,29 +106,14 @@ public class PullRequestService
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
     private final GitHubMergeClient merges;
-    private final GitHubActionsClient actions;
     private final GitHubAccountClient accounts;
     private final SqlitePullRequestStore store;
     private final SqlitePrDetailStore detailStore;
     private final PrViewStateStore viewStateStore;
-    private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
-    private final SqliteRepoMetadataCacheStore repoMetadataCache;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
-    private final CollaboratorPermissionService collaboratorPermissions;
-    /** prId → last ETag + the timestamp it was returned by GitHub.
-     *  Populated by {@link #refreshPullRequestDetail}'s probe path
-     *  and consulted on the next probe to short-circuit unchanged
-     *  PRs (304 → no rate-limit cost). The {@code lastProbedAt}
-     *  field powers the {@code maxAgeSeconds} short-circuit — when
-     *  a caller (e.g. the detail-page 10s polling tick) probes more
-     *  often than necessary, we serve cached without even hitting
-     *  GitHub's {@code If-None-Match} endpoint. In-memory only —
-     *  a backend restart just means the next probe pays for one
-     *  full fetch. */
-    private final ConcurrentMap<Long, EtagEntry> detailEtags = new ConcurrentHashMap<>();
     /** prId → the last time we forced a backfill detail-sync for an
      *  unchanged-but-under-enriched PR. Gates the enrichment / review-
      *  timestamp re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
@@ -165,9 +128,6 @@ public class PullRequestService
     private volatile List<PullRequest> cachedNotificationPrs = List.of();
     private volatile Instant lastNotificationPoll = Instant.EPOCH;
 
-    /** Snapshot of "last ETag and when we got it" for one PR. */
-    private record EtagEntry(String etag, Instant lastProbedAt) {}
-
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
@@ -178,31 +138,24 @@ public class PullRequestService
             SqlitePullRequestStore store,
             SqlitePrDetailStore detailStore,
             PrViewStateStore viewStateStore,
-            GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
-            SqliteRepoMetadataCacheStore repoMetadataCache,
             PatResolver patResolver,
-            CollaboratorPermissionService collaboratorPermissions,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.merges = requireNonNull(merges, "merges is null");
-        this.actions = requireNonNull(actions, "actions is null");
+        requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
-        this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
-        this.repoMetadataCache = requireNonNull(repoMetadataCache, "repoMetadataCache is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
-        this.collaboratorPermissions = requireNonNull(collaboratorPermissions, "collaboratorPermissions is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(
                 gitHub,
-                merges,
                 actions,
                 detailStore,
                 requireNonNull(ioExecutor, "ioExecutor is null"));
@@ -219,20 +172,6 @@ public class PullRequestService
     }
 
     /**
-     * Fetches a single PR straight from GitHub by repo + number,
-     * bypassing the cached dashboard list. Backs the assign-review
-     * dialog's on-demand lookup so the user can target any PR they can
-     * see on GitHub — even one that never enters the dashboard's
-     * relevant-PR set (e.g. requested via a team, or in an unwatched
-     * repo). Propagates GitHub's 404 when no such PR exists.
-     */
-    public PullRequest lookupPullRequest(String repo, int number)
-    {
-        String pat = patResolver.resolve(repo);
-        return gitHub.getPullRequest(pat, parseRef(repo, number));
-    }
-
-    /**
      * Fetches the PR list from GitHub, persists it, then refreshes detail for any PR whose
      * {@code updatedAt} changed (or is new). Stale detail for removed PRs is cleaned up.
      * All detail fetches run in parallel.
@@ -246,7 +185,7 @@ public class PullRequestService
         Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
         // Also refresh a bounded batch whose cached reviews predate the
         // submitted-at field.
-        Set<Long> missingReviewTimestamps = ImmutableSet.copyOf(
+        Set<Long> missingReviewTimestamps = Set.copyOf(
                 detailStore.findPrIdsMissingReviewTimestamps(REVIEW_TIMESTAMP_BACKFILL_BATCH));
 
         // Pull the current user's login once per sync so we can reconcile
@@ -259,10 +198,10 @@ public class PullRequestService
 
         Set<Long> freshIds = fresh.stream()
                 .map(PullRequest::id)
-                .collect(toImmutableSet());
+                .collect(Collectors.toUnmodifiableSet());
         Set<Long> removedIds = existingUpdatedAt.keySet().stream()
                 .filter(id -> !freshIds.contains(id))
-                .collect(toImmutableSet());
+                .collect(Collectors.toUnmodifiableSet());
         if (!removedIds.isEmpty()) {
             detailStore.deleteByPrIds(removedIds);
             removedIds.forEach(lastBackfillAttempt::remove);
@@ -290,20 +229,9 @@ public class PullRequestService
         }
         List<CompletableFuture<Void>> detailFutures = toSync.stream()
                 .map(pr -> CompletableFuture.runAsync(() -> syncDetailQuietly(pat, pr, currentLogin), executor))
-                .collect(toImmutableList());
+                .toList();
 
         CompletableFuture.allOf(detailFutures.toArray(CompletableFuture[]::new)).join();
-
-        // After detail-sync has refreshed reviewerVerdicts / mergeable /
-        // ciStatus / etc., walk the snoozed PRs and wake any whose timer
-        // has elapsed or whose urgent signals have flipped on. Cheap —
-        // an in-memory pass over the local store.
-        try {
-            runAutoWakeCheck();
-        }
-        catch (Exception e) {
-            log.warn("Snooze auto-wake check failed: {}", e.getMessage());
-        }
     }
 
     /** The dashboard's relevant-PR sweep (open authored + review-requested +
@@ -353,10 +281,7 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
-        boolean viewerCanWrite = responseCache.getViewerCanWrite(
-                pat,
-                repoRef,
-                () -> accounts.fetchViewerCanWrite(pat, repoRef));
+        boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, repoRef);
 
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
@@ -364,9 +289,7 @@ public class PullRequestService
             if (stored.isPresent()) {
                 log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
                         repo, number);
-                int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, stored.get().reviews());
-                return PullRequestDetailMapper.toPullRequestDetail(
-                        repo, number, stored.get(), viewerCanWrite, writeApprovals);
+                return PullRequestDetailMapper.toPullRequestDetail(repo, number, stored.get(), viewerCanWrite);
             }
             log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
                     repo, number);
@@ -384,395 +307,13 @@ public class PullRequestService
             // the PR list update without waiting for the next bulk sync.
             store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
         });
-        int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, fetched.reviews());
-        return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite, writeApprovals);
+        return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite);
     }
 
-    /**
-     * Refreshes one PR's detail. Tries a cheap conditional GET first
-     * ({@code If-None-Match} on the cached ETag); when GitHub answers
-     * 304 we skip the full multi-call refetch, but still refresh the head
-     * commit's check runs. GitHub Actions state changes do not reliably bump
-     * the PR resource's ETag, so treating 304 as proof that CI is unchanged
-     * leaves the PR UI stuck on stale checks.
-     *
-     * <p>On a miss (no prior ETag, or a 200) we fall back to the
-     * invalidate-then-refetch path so the caller gets the freshest data we
-     * can produce. A probe that <em>fails</em> is different: it proves
-     * nothing about the cached snapshot, so we keep and serve that snapshot
-     * rather than discarding data we cannot re-fetch.
-     */
     public PullRequestDetail refreshPullRequestDetail(String repo, int number)
     {
-        return refreshPullRequestDetail(repo, number, 0);
-    }
-
-    /**
-     * Fetches a complete live PR detail snapshot for an authorization decision.
-     * Unlike {@link #refreshPullRequestDetail(String, int)}, this never accepts a
-     * PR-resource 304 as proof that reviews or review-thread resolution are
-     * unchanged, because those GitHub resources can change independently.
-     */
-    public PullRequestDetail fetchFreshPullRequestDetail(String repo, int number)
-    {
         invalidatePullRequestDetail(repo, number);
         return getPullRequestDetail(repo, number);
-    }
-
-    /**
-     * Same as {@link #refreshPullRequestDetail(String, String, int)},
-     * with a {@code maxAgeSeconds} short-circuit. When we've already
-     * probed GitHub for this PR within the last {@code maxAgeSeconds}
-     * the response is served from the local detail store with no
-     * network call at all — neither full refetch nor ETag probe.
-     *
-     * <p>Powers the detail-page 10s polling tick (frontend ticks every
-     * 10s, passes {@code maxAgeSeconds=20}, so concurrent tabs probe
-     * GitHub at most once per 20s on average — every other tick hits
-     * the fast path). The manual ↻ refresh button still passes
-     * {@code 0} so it always probes.
-     */
-    public PullRequestDetail refreshPullRequestDetail(String repo, int number, int maxAgeSeconds)
-    {
-        String pat = patResolver.resolve(repo);
-        log.debug("[cache-diag] refreshPullRequestDetail entry: {}#{} maxAge={}s", repo, number, maxAgeSeconds);
-        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
-        if (prId.isPresent()) {
-            // Fast path: a recent probe already established that the
-            // cached snapshot is current. Skip even the ETag round-trip.
-            if (maxAgeSeconds > 0) {
-                EtagEntry entry = detailEtags.get(prId.get());
-                if (entry != null
-                        && entry.lastProbedAt() != null
-                        && entry.lastProbedAt().isAfter(Instant.now().minusSeconds(maxAgeSeconds))) {
-                    log.debug("[cache-diag] maxAge FAST-PATH fired for {}#{}: lastProbed {}s ago (<= {}s)",
-                            repo, number,
-                            Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond(),
-                            maxAgeSeconds);
-                    return getPullRequestDetail(repo, number);
-                }
-                else {
-                    log.debug("[cache-diag] maxAge fast-path SKIPPED for {}#{}: entry={} lastProbedAt={}",
-                            repo, number,
-                            entry == null ? "NULL" : "present",
-                            entry == null ? "n/a" : (entry.lastProbedAt() == null ? "null"
-                                    : (Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond()) + "s ago"));
-                }
-            }
-            try {
-                PullRequestRef ref = parseRef(repo, number);
-                EtagEntry cachedEntry = detailEtags.get(prId.get());
-                String cachedEtag = cachedEntry != null ? cachedEntry.etag() : null;
-                GitHubPullRequestReadClient.ProbeResult probe =
-                        gitHub.probeChangedSinceEtag(pat, ref, cachedEtag);
-                Instant now = Instant.now();
-                // Always capture the latest ETag — including the
-                // first-ever probe (no cached ETag → 200 response,
-                // body discarded, ETag captured for the next call).
-                if (probe.newEtag() != null) {
-                    detailEtags.put(prId.get(), new EtagEntry(probe.newEtag(), now));
-                }
-                else if (cachedEntry != null) {
-                    // GitHub didn't issue a new ETag (rare — happens on
-                    // some 304 responses). Bump the probe timestamp
-                    // anyway so the maxAge short-circuit sees the
-                    // probe just happened.
-                    detailEtags.put(prId.get(), new EtagEntry(cachedEntry.etag(), now));
-                }
-                if (cachedEtag != null && !probe.changed()) {
-                    // 304 only covers the PR resource. Check runs are a
-                    // separate Actions resource and may have moved from
-                    // queued → success/failure without changing this ETag.
-                    // Refresh that lightweight snapshot before serving the
-                    // otherwise-cached detail.
-                    log.debug("[cache-diag] ETag probe 304 for {}#{} — refreshing CI snapshot", repo, number);
-                    getPullRequestCiSnapshot(repo, number);
-                    return getPullRequestDetail(repo, number);
-                }
-                log.debug("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",
-                        repo, number, cachedEtag != null, probe.changed());
-            }
-            catch (Exception e) {
-                // Probe is best-effort, so a failed probe must not cost the
-                // user the snapshot they already have: dropping it turns a
-                // 403/5xx/network blip into an empty PR page, because the
-                // refetch that follows the invalidate fails the same way.
-                // Serve the cached detail and try again next refresh.
-                if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
-                    log.debug("[cache-diag] ETag probe denied for {}#{} — serving cached detail", repo, number);
-                }
-                else {
-                    log.info("[cache-diag] ETag probe failed for {}#{}: {} — serving cached detail",
-                            repo, number, e.getMessage());
-                }
-                return getPullRequestDetail(repo, number);
-            }
-        }
-        invalidatePullRequestDetail(repo, number);
-        return getPullRequestDetail(repo, number);
-    }
-
-    /**
-     * Returns conversation (issue) comments created on the PR after
-     * {@code since}, mapped to the same activity-item shape the detail
-     * timeline uses. Backs the detail page's lightweight comments-delta
-     * poll: it runs on a tighter cadence than the full-detail refresh and
-     * touches only the issue-comments endpoint, so a reviewer's new comment
-     * surfaces quickly without paying for the multi-call detail refetch.
-     *
-     * <p>{@code since} is GitHub's inclusive lower bound, so a boundary
-     * comment can come back again; the caller dedups by comment id.
-     */
-    public List<PullRequestDetail.ActivityItem> fetchNewComments(String repo, int number, Instant since)
-    {
-        requireNonNull(since, "since is null");
-        String pat = patResolver.resolve(repo);
-        List<PrTimelineEvent> comments = gitHub.fetchPrIssueComments(pat, parseRef(repo, number), since);
-        return PullRequestDetailMapper.toActivityItems(comments);
-    }
-
-    /**
-     * Toggles a PR between draft and ready-for-review. Drops the cached
-     * detail so the next fetch reflects the new state and the timeline
-     * picks up the synthetic "ready for review" / "marked as draft"
-     * event GitHub emits.
-     */
-    public void setPullRequestDraft(String repo, int number, boolean draft)
-    {
-        String pat = patResolver.resolve(repo);
-        pullRequestWrites.setPullRequestDraft(pat, parseRef(repo, number), draft);
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /** The result of a title edit, returned to the caller so the UI can
-     *  reflect the change before the next background sync lands. */
-    public record PrTitleUpdate(int number, String title, Instant updatedAt) {}
-
-    /**
-     * Renames a PR on GitHub, then busts the cached detail so the next
-     * {@link PullRequestDetailFetcher} poll surfaces the new title. The
-     * title must be non-blank, ≤256 chars, and actually different from the
-     * cached one; a PR that isn't in our cache 404s. A GitHub permission
-     * failure (401/403) maps to 403, any other GitHub error to 502.
-     */
-    public PrTitleUpdate updatePullRequestTitle(String repo, int number, String newTitle)
-    {
-        String trimmed = newTitle == null ? "" : newTitle.strip();
-        if (trimmed.isEmpty() || trimmed.length() > 256) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "Title must be between 1 and 256 characters");
-        }
-        PullRequest cached = store.findIdByRepoAndNumber(repo, number)
-                .flatMap(store::findById)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404),
-                        "No such pull request: " + repo + "#" + number));
-        if (trimmed.equals(cached.title())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "Title is unchanged");
-        }
-        String pat = patResolver.resolve(repo);
-        try {
-            pullRequestWrites.updatePullRequest(pat, parseRef(repo, number),
-                    new UpdatePullRequestCommand(Optional.of(trimmed),
-                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
-        }
-        catch (ResponseStatusException e) {
-            int status = e.getStatusCode().value();
-            if (status == 401 || status == 403) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(403),
-                        "You don't have permission to rename this pull request", e);
-            }
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "GitHub rejected the title update", e);
-        }
-        invalidatePullRequestCaches(repo, number);
-        return new PrTitleUpdate(number, trimmed, Instant.now());
-    }
-
-    /**
-     * Re-runs the failed CI jobs on {@code headSha} for {@code repo}
-     * (GitHub's "re-run failed jobs"). Returns how many workflow runs
-     * were re-triggered — 0 when nothing on the head had failed.
-     */
-    public int rerunFailedChecks(String repo, String headSha)
-    {
-        String pat = patResolver.resolve(repo);
-        return actions.rerunFailedChecks(pat, parseRepoRef(repo), headSha);
-    }
-
-    /**
-     * Returns the raw log text for a single Actions check-run, capped at
-     * a sensible size so a 50MB job log doesn't crater the renderer.
-     * Empty string when GitHub doesn't expose a log for this check
-     * (external CI, expired log, missing PAT scope) — the frontend
-     * shows a "log unavailable" hint in that case. Each invocation fetches
-     * GitHub directly; raw CI logs are never served from a local cache.
-     */
-    public String getCheckRunLog(String repo, long checkRunId)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
-        return actions.fetchCheckRunLog(pat, RepoRef.of(refOrNull.owner(), refOrNull.repo()), checkRunId)
-                .map(PullRequestService::trimLogToTail)
-                .orElse("");
-    }
-
-    /**
-     * The best failure text available for one check run. Prefers GitHub's
-     * source-located annotations (an assertion with its file and line);
-     * falls back to an excerpt of the job log for the many jobs whose only
-     * annotation is the contentless "Process completed with exit code 1.".
-     * Both empty means GitHub exposed nothing — external CI, or an expired log.
-     *
-     * @param annotations source-located failure annotations, empty when none
-     * @param log         log excerpt, populated only when {@code annotations}
-     *                    is empty so a check with real annotations costs no
-     *                    extra GitHub round-trip
-     */
-    public record CheckRunFailure(List<GitHubActionsClient.CheckRunAnnotation> annotations, String log) {}
-
-    public CheckRunFailure getCheckRunFailure(String repo, long checkRunId)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
-        RepoRef repoRef = RepoRef.of(refOrNull.owner(), refOrNull.repo());
-        List<GitHubActionsClient.CheckRunAnnotation> annotations =
-                actions.fetchCheckRunAnnotations(pat, repoRef, checkRunId);
-        if (!annotations.isEmpty()) {
-            return new CheckRunFailure(annotations, "");
-        }
-        return new CheckRunFailure(
-                annotations,
-                actions.fetchCheckRunLog(pat, repoRef, checkRunId)
-                        .map(PullRequestService::trimLogToError)
-                        .orElse(""));
-    }
-
-    /**
-     * Re-runs the failed CI jobs on the PR's head commit — GitHub's
-     * built-in flaky-failure fix. Returns how many workflow runs were
-     * re-triggered (0 when nothing on the head had failed). One PR fetch
-     * resolves the head SHA the Actions API keys off.
-     */
-    public int rerunFailedChecks(String repo, int number)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
-        String headSha = raw == null ? null : raw.headSha();
-        return actions.rerunFailedChecks(pat, RepoRef.of(ref.owner(), ref.repo()), headSha);
-    }
-
-    /** Lines of log to show before the failure marker. Enough for a stack
-     *  trace or a Maven error block, short enough to read inside a card. */
-    private static final int ERROR_WINDOW_LINES = 40;
-
-    /** The tail of an Actions log is post-job cleanup — unsetting git config,
-     *  removing credentials, reaping orphans — not the failure. The runner
-     *  marks the real thing with {@code ##[error]}, so the useful excerpt is
-     *  the window *ending* at the last such marker; a Trino job typically
-     *  buries it ~290 lines from the end. Falls back to the tail for logs with
-     *  no marker at all. Strips each line's 28-char ISO timestamp and any ANSI
-     *  colour codes, which otherwise crowd the message out of a narrow card.
-     */
-    @VisibleForTesting
-    static String trimLogToError(String full)
-    {
-        List<String> lines = full.lines()
-                .map(line -> line.replaceFirst("^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z ", "")
-                        .replaceAll("\\x1B?\\[[0-9;]*m", ""))
-                .collect(toImmutableList());
-        int marker = -1;
-        for (int i = lines.size() - 1; i >= 0; i--) {
-            if (lines.get(i).contains("##[error]")) {
-                marker = i;
-                break;
-            }
-        }
-        int end = marker >= 0 ? marker + 1 : lines.size();
-        int start = Math.max(0, end - ERROR_WINDOW_LINES);
-        return String.join("\n", lines.subList(start, end)).strip();
-    }
-
-    /** Logs from CI runs are appended chronologically; the *end* of the
-     *  log is almost always the failure context. Cap at 200 KB tail —
-     *  large enough for a deep stack trace, small enough to ship over
-     *  IPC and render in a {@code <pre>} without choking the UI. */
-    private static String trimLogToTail(String full)
-    {
-        final int cap = 200_000;
-        if (full.length() <= cap) {
-            return full;
-        }
-        int start = full.length() - cap;
-        // Don't slice mid-line — start at the next newline so the first
-        // visible line isn't a half-message.
-        int newline = full.indexOf('\n', start);
-        if (newline >= 0 && newline - start < 1024) {
-            start = newline + 1;
-        }
-        return "… (log truncated; showing last " + (full.length() - start) + " bytes)\n" + full.substring(start);
-    }
-
-    /**
-     * Lightweight CI snapshot for the focus-driven polling on the PR detail
-     * page. Skips the full timeline + threads orchestration; just refetches
-     * the head SHA's check runs and the per-PAT write permission. The merge
-     * button on the detail page reads both from this response so it can
-     * react to a CI flip without waiting for the next full-detail load.
-     */
-    public PrCiSnapshot getPullRequestCiSnapshot(String repo, int number)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
-        List<PrCheckRunState> runs = raw != null && raw.headSha() != null
-                ? actions.fetchPrCheckRunsStrict(pat, ref.owner(), ref.repo(), raw.headSha())
-                : ImmutableList.of();
-        RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
-        boolean viewerCanWrite = responseCache.getViewerCanWrite(
-                pat,
-                repoRef,
-                () -> accounts.fetchViewerCanWrite(pat, repoRef));
-        PullRequestDetail.CiStatus aggregate = PullRequestDetailMapper.aggregateCiStatus(runs);
-        // Propagate the freshly computed aggregate onto the list row.
-        store.findIdByRepoAndNumber(repo, number).ifPresent(id -> {
-            store.updateCiStatus(id, aggregate);
-            // Also patch the cached detail blob's check runs. The detail-page
-            // poll serves that snapshot, and aggregateCiStatus recomputes the
-            // pill from it — so a stale blob (e.g. right after a re-run, while
-            // the 60s sync hasn't re-fetched) would otherwise overwrite this
-            // fresh PENDING with the old FAILING on the next tick.
-            detailStore.find(id).ifPresent(d -> detailStore.save(id, new StoredPrDetail(
-                    d.raw(), d.reviews(), d.files(), d.timeline(), runs,
-                    d.reviewComments(), d.linkedIssues(), d.mergeQueueState(), d.mergeQueueEnabled())));
-        });
-        return new PrCiSnapshot(
-                aggregate,
-                PullRequestDetailMapper.toCheckRuns(runs),
-                viewerCanWrite);
-    }
-
-    /**
-     * Records that the user opened this PR in the app. Idempotent.
-     */
-    public void markViewed(long prId)
-    {
-        viewStateStore.markViewed(prId);
-    }
-
-    /**
-     * Id-namespace-safe variant of {@link #markViewed(long)}: the local
-     * store keys by GitHub's search-issue ids, while rows fetched via the
-     * REST pulls endpoints carry pull-request ids — the same PR under two
-     * different numbers. Resolving by repo + number sidesteps the mismatch.
-     * No-op when the PR isn't in the local store (nothing tracks it).
-     */
-    public void markViewed(String repo, int number)
-    {
-        store.findAll().stream()
-                .filter(pr -> pr.repo().equals(repo) && pr.number() == number)
-                .findFirst()
-                .ifPresent(pr -> viewStateStore.markViewed(pr.id()));
     }
 
     /**
@@ -786,472 +327,16 @@ public class PullRequestService
         return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number));
     }
 
-    /**
-     * Fetches the commits in a pull request, oldest first. Also served fresh —
-     * commit metadata is small and the sync job doesn't currently retain it.
-     */
-    public List<PullRequestCommit> getPullRequestCommits(String repo, int number)
+    public void commentOnPullRequest(String repo, int number, String body)
     {
-        String pat = patResolver.resolve(repo);
-        return gitHub.fetchPrCommits(pat, parseRef(repo, number));
-    }
-
-    /**
-     * Returns the diff scoped to a single commit — same DiffFile shape as
-     * {@link #getPullRequestDiffFiles}, but only the changes that this one
-     * sha introduced. Backs the "select a commit" affordance in the diff
-     * viewer for PRs with many commits.
-     */
-    public List<DiffFile> getCommitDiffFiles(String repo, int number, String sha)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        return responseCache.getCommitDiffFiles(
-                pat,
-                ref,
-                sha,
-                () -> gitHub.fetchCommitDiffFiles(pat, ref, sha));
-    }
-
-    /**
-     * Fetches a file's full content at a specific commit, returned as a
-     * list of lines (1-based by index in the caller's view). Backs the
-     * "expand collapsed code" affordance in the diff viewer.
-     */
-    public List<String> getFileBlobLines(String repo, String path, String sha)
-    {
-        String pat = patResolver.resolve(repo);
-        RepoRef repoRef = parseRepoRef(repo);
-        return responseCache.getFileBlobLines(
-                pat,
-                repoRef,
-                path,
-                sha,
-                () -> gitHub.fetchFileBlobLines(pat, repoRef, path, sha));
-    }
-
-    /**
-     * Posts a general-purpose issue comment on the PR, optionally closing the
-     * PR afterwards (matches github.com's "Comment" / "Close with comment"
-     * buttons). Empty body + {@code close=true} just closes.
-     */
-    public void commentOnPullRequest(String repo, int number, long prId, String body, boolean close)
-    {
-        commentOnPullRequestLocked(repo, number, prId, body, close);
-    }
-
-    private void commentOnPullRequestLocked(
-            String repo, int number, long prId, String body, boolean close)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        if (body != null && !body.isBlank()) {
-            PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
-            // Splice the just-posted comment into the cached snapshot so the
-            // next /prs/detail read (including the 10s poll's maxAge fast
-            // path) shows it immediately rather than waiting for the cache
-            // to age out. When closing we drop the whole cache below, so
-            // there's no point patching it first.
-            if (!close && created != null) {
-                patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
-                        cached -> PullRequestDetailPatcher.withTimelineCommentAppended(cached, created));
-            }
-        }
-        if (close) {
-            pullRequestWrites.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
-            Optional<Long> storedPrId = prId > 0
-                    ? Optional.of(prId)
-                    : store.findIdByRepoAndNumber(repo, number);
-            storedPrId.ifPresent(id -> viewStateStore.markReviewed(id, HandledAction.DISMISSED));
-            invalidatePullRequestCaches(repo, number);
-        }
-    }
-
-    /**
-     * Replies to an existing per-line review thread on the PR. {@code rootCommentId}
-     * is the GitHub id of the thread root (root or any reply works on
-     * GitHub's side, but we always pass the root for clarity).
-     *
-     * <p>After GitHub accepts the reply we append the returned message to
-     * the cached PR detail so the next {@code /prs/detail} read shows the
-     * reply (with its real GitHub id) without waiting for a background
-     * sync.
-     */
-    public void replyToReviewThread(String repo, int number, long rootCommentId, String body)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(body, "reply body must not be blank");
-        PrReviewThreadMessage created = pullRequestWrites.replyToReviewComment(
-                pat, parseRef(repo, number), rootCommentId, body);
-        patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
-                cached -> PullRequestDetailPatcher.withReviewThreadReplyAppended(cached, created));
-    }
-
-    /**
-     * Updates the body of a top-level issue / PR comment owned by the
-     * authenticated user. GitHub returns 403 for comments authored by
-     * someone else; the frontend already gates the affordance on the
-     * author check, so a 403 here is purely a defensive backstop.
-     *
-     * <p>After GitHub accepts the edit we patch the cached detail in
-     * place so the next {@code /prs/detail} read shows the new body
-     * immediately.
-     */
-    public void editIssueComment(String repo, long commentId, String body)
-    {
-        String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
-        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withTimelineCommentBody(cached, commentId, body));
-    }
-
-    /**
-     * Updates the body of a per-line review comment owned by the
-     * authenticated user. Same author-gating story as
-     * {@link #editIssueComment(String, String, long, String)}.
-     *
-     * <p>After GitHub accepts the edit we patch the cached detail in
-     * place so the next {@code /prs/detail} read shows the new body
-     * immediately.
-     */
-    public void editReviewComment(String repo, long commentId, String body)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(body, "comment body must not be blank");
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
-        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withReviewCommentBody(cached, commentId, body));
-    }
-
-    /**
-     * Deletes a top-level issue / PR comment. GitHub permits this when
-     * the authenticated user owns the comment or holds write access on
-     * the repo; the frontend gates the affordance the same way, so a 403
-     * here is a defensive backstop.
-     *
-     * <p>After GitHub accepts the delete we drop the comment from the
-     * cached detail so the next {@code /prs/detail} read no longer shows
-     * it.
-     */
-    public void deleteIssueComment(String repo, long commentId)
-    {
-        String pat = patResolver.resolve(repo);
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.deleteIssueComment(pat, ref.owner(), ref.repo(), commentId);
-        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withTimelineCommentRemoved(cached, commentId));
-    }
-
-    /**
-     * Deletes a per-line review comment. Same permission story and cache
-     * handling as {@link #deleteIssueComment(String, long)}.
-     */
-    public void deleteReviewComment(String repo, long commentId)
-    {
-        String pat = patResolver.resolve(repo);
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.deleteReviewComment(pat, ref.owner(), ref.repo(), commentId);
-        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withReviewCommentRemoved(cached, commentId));
-    }
-
-    /**
-     * Toggles a review thread's resolved state via GraphQL. The
-     * frontend identifies the thread by its REST root comment id; we
-     * look up the GraphQL node id from the cached detail (populated by
-     * the GraphQL fetch on the previous PR-detail load) before firing
-     * the mutation. Throws 404 when the thread isn't in the cache or
-     * its node id hasn't been written yet.
-     *
-     * <p>After GitHub accepts the mutation we patch the cached detail
-     * in place so the next {@code /prs/detail} read returns the new
-     * resolved flag immediately, instead of the previous "wait for the
-     * 30s TTL or the next background sync" behaviour that made
-     * unresolve clicks feel like they hadn't taken.
-     */
-    public void setReviewThreadResolved(String repo, long prId, long rootCommentId, boolean resolved)
-    {
-        setReviewThreadResolved(repo, 0, prId, rootCommentId, resolved);
-    }
-
-    /**
-     * Same as the 4-arg overload, but {@code number} lets the resolution
-     * recover the thread's GraphQL node id via a live GraphQL lookup when it
-     * isn't in the detail cache.
-     * Pass 0 for {@code number} when it isn't known (the live fallback is then
-     * skipped and the cache-only behaviour is preserved).
-     */
-    public void setReviewThreadResolved(String repo, int number, long prId, long rootCommentId, boolean resolved)
-    {
-        String pat = patResolver.resolve(repo);
-        // Prefer the client-supplied prId, but fall back to resolving it from
-        // the thread's own root comment id.
-        long detailPrId = detailStore.find(prId).isPresent()
-                ? prId
-                : detailStore.findPrIdByReviewCommentId(rootCommentId).orElse(prId);
-        StoredPrDetail cached = detailStore.find(detailPrId).orElse(null);
-        String nodeId = cached == null ? null : cached.reviewComments().stream()
-                .filter(m -> m.githubId() == rootCommentId && m.graphqlNodeId() != null)
-                .findFirst()
-                .map(PrReviewThreadMessage::graphqlNodeId)
-                .orElse(null);
-        if (nodeId == null && number > 0) {
-            // The thread was not cached with a node id; resolve it live.
-            nodeId = gitHub.fetchReviewThreadResolution(pat, parseRef(repo, number)).stream()
-                    .filter(m -> m.rootCommentDatabaseId() == rootCommentId)
-                    .map(GitHubPullRequestReadClient.ReviewThreadMeta::graphqlNodeId)
-                    .filter(id -> id != null && !id.isBlank())
-                    .findFirst()
-                    .orElse(null);
-        }
-        if (nodeId == null) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(404),
-                    "review thread " + rootCommentId + " has no GraphQL node id yet — refresh the PR detail and try again");
-        }
-        if (resolved) {
-            pullRequestWrites.resolveReviewThread(pat, nodeId);
-        }
-        else {
-            pullRequestWrites.unresolveReviewThread(pat, nodeId);
-        }
-        if (cached != null) {
-            detailStore.save(detailPrId,
-                    PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
-        }
-    }
-
-    /** Adds an emoji reaction to the PR description. */
-    public void addPullRequestReaction(String repo, int number, String content)
-    {
-        String pat = patResolver.resolve(repo);
-        requireAllowedReactionContent(content);
-        pullRequestWrites.addPullRequestReaction(pat, parseRef(repo, number), content);
-    }
-
-    /**
-     * Adds an emoji reaction to a per-line review comment. {@code content}
-     * is GitHub's reaction-content string ("+1", "heart", "rocket", …).
-     * Idempotent on GitHub — re-adding the same reaction returns 200 OK
-     * with the existing reaction id.
-     *
-     * <p>After GitHub accepts the reaction we bump the matching
-     * reaction count on the cached review-thread message so the next
-     * {@code /prs/detail} read shows the new chip without waiting for
-     * the next background sync. Re-clicks bump the cache count again
-     * even though GitHub stays at +1; the next full sync reconciles.
-     */
-    public void addReviewCommentReaction(String repo, long commentId, String content)
-    {
-        String pat = patResolver.resolve(repo);
-        requireAllowedReactionContent(content);
-        // The reactions endpoint targets a repo + comment id; PR number
-        // isn't part of the URL. parseRepoRef avoids parseRef's
-        // number-must-be-positive invariant.
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
-        patchCachedDetail(detailStore.findPrIdByReviewCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withReviewCommentReaction(cached, commentId, content));
-    }
-
-    /**
-     * Adds an emoji reaction to a top-level issue / PR comment (the
-     * "commented" timeline events). Same content-allowlist + path
-     * shape as the review-comment variant — only the GitHub URL
-     * differs (issues/comments vs pulls/comments).
-     *
-     * <p>After GitHub accepts the reaction we bump the matching tally
-     * on the cached timeline event in place, mirroring the
-     * review-comment patch path so the next {@code /prs/detail} read
-     * shows the new chip without waiting for a background sync.
-     */
-    public void addIssueCommentReaction(String repo, long commentId, String content)
-    {
-        String pat = patResolver.resolve(repo);
-        requireAllowedReactionContent(content);
-        RepoRef ref = parseRepoRef(repo);
-        pullRequestWrites.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
-        patchCachedDetail(detailStore.findPrIdByIssueCommentId(commentId),
-                cached -> PullRequestDetailPatcher.withTimelineCommentReaction(cached, commentId, content));
-    }
-
-    /**
-     * Adds one user to the PR's requested reviewers. Drops the cached
-     * detail so the next fetch reflects the updated reviewer set + the
-     * synthetic review_requested timeline event GitHub emits.
-     */
-    public void addRequestedReviewer(String repo, int number, String reviewer)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(reviewer, "reviewer must not be blank");
-        pullRequestWrites.requestReviewers(
-                pat,
-                parseRef(repo, number),
-                new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /** Removes one user from the PR's requested reviewers. */
-    public void removeRequestedReviewer(String repo, int number, String reviewer)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(reviewer, "reviewer must not be blank");
-        pullRequestWrites.removeRequestedReviewers(
-                pat,
-                parseRef(repo, number),
-                new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /**
-     * GitHub's suggested reviewers for one PR — the same chips github.com
-     * surfaces in its conversation-page reviewers picker. GraphQL-only;
-     * empty list on auth/network failure since this is a non-essential
-     * affordance and shouldn't block the rest of the reviewers panel.
-     */
-    public List<SuggestedReviewer> getSuggestedReviewers(String repo, int number)
-    {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        return responseCache.getSuggestedReviewers(
-                pat,
-                ref,
-                () -> gitHub.fetchSuggestedReviewers(pat, ref));
-    }
-
-    public record MetadataChoices(
-            List<GitHubUserMatch> users,
-            List<PullRequestMetadata.Label> labels,
-            List<String> assignees,
-            List<String> selectedLabels) {}
-
-    /** Current selections plus the repository choices used by the three metadata pickers. */
-    public MetadataChoices getMetadataChoices(String repo, int number)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        PullRequestMetadata metadata = gitHub.fetchPullRequestMetadata(pat, ref);
-        Optional<SqliteRepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
-        SqliteRepoMetadataCacheStore.Snapshot choices = cached
-                .filter(snapshot -> !snapshot.fetchedAt().isBefore(Instant.now().minus(REPO_METADATA_TTL)))
-                .orElseGet(() -> refreshMetadataChoices(pat, ref, cached));
-        return new MetadataChoices(
-                choices.users(),
-                choices.labels(),
-                metadata.assignees(),
-                metadata.labels().stream().map(PullRequestMetadata.Label::name).toList());
-    }
-
-    private SqliteRepoMetadataCacheStore.Snapshot refreshMetadataChoices(
-            String pat,
-            PullRequestRef ref,
-            Optional<SqliteRepoMetadataCacheStore.Snapshot> stale)
-    {
-        List<GitHubUserMatch> users = gitHub.fetchAssignableUsers(pat, ref.repoRef());
-        List<PullRequestMetadata.Label> labels = gitHub.fetchRepoLabels(pat, ref.repoRef());
-        if (users.isEmpty() && stale.isPresent()) {
-            // ponytail: the shared paginator represents an upstream failure as
-            // an empty list; preserve the last useful DB snapshot rather than
-            // replacing it with a transient outage.
-            return stale.get();
+        PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
+        if (created != null) {
+            patchCachedDetail(store.findIdByRepoAndNumber(repo, number),
+                    cached -> PullRequestDetailPatcher.withTimelineCommentAppended(cached, created));
         }
-        if (labels.isEmpty() && stale.isPresent() && !stale.get().labels().isEmpty()) {
-            labels = stale.get().labels();
-        }
-        Instant fetchedAt = Instant.now();
-        repoMetadataCache.save(ref.repoFullName(), users, labels, fetchedAt);
-        return new SqliteRepoMetadataCacheStore.Snapshot(users, labels, fetchedAt);
-    }
-
-    public void setPullRequestAssignee(String repo, int number, String login, boolean selected)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(login, "assignee must not be blank");
-        pullRequestWrites.setPullRequestAssignee(pat, parseRef(repo, number), login.trim(), selected);
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    public void setPullRequestLabel(String repo, int number, String label, boolean selected)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(label, "label must not be blank");
-        pullRequestWrites.setPullRequestLabel(pat, parseRef(repo, number), label.trim(), selected);
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /**
-     * Posts a single per-line review comment on a diff line, mirroring
-     * GitHub's "Add single comment" action. Resolves the current PR head
-     * directly from GitHub immediately before posting; {@code commitId} is
-     * retained for transport compatibility but is not trusted. Drops the
-     * cached detail so the next detail fetch picks up the new thread.
-     */
-    public void createInlineReviewComment(
-            String repo,
-            int number,
-            String body,
-            String path,
-            int line,
-            String side,
-            String commitId,
-            Integer startLine,
-            String startSide)
-    {
-        String pat = patResolver.resolve(repo);
-        requireNotBlank(body, "comment body must not be blank");
-        requireNotBlank(path, "path must not be blank");
-
-        String resolvedSide = DiffSide.normalize(side);
-        // Multi-line range: validate startLine sits before line on the
-        // same side. We accept null startSide and default it to the end
-        // side, matching GitHub's UX.
-        Integer resolvedStartLine = null;
-        String resolvedStartSide = null;
-        if (startLine != null && startLine != line) {
-            if (startLine > line) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                        "startLine must be ≤ line for a multi-line comment");
-            }
-            resolvedStartLine = startLine;
-            resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
-        }
-        PullRequestRef ref = parseRef(repo, number);
-        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
-        String headSha = raw == null ? null : raw.headSha();
-        if (headSha == null || headSha.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "Pull request head SHA is unavailable");
-        }
-        pullRequestWrites.createInlineReviewComment(pat, ref,
-                body, path, line, resolvedSide, headSha,
-                resolvedStartLine, resolvedStartSide);
-        invalidatePullRequestDetail(repo, number);
-    }
-
-    /**
-     * Updates the PR's description (body) on GitHub. GitHub only lets the PR
-     * author edit this; attempts from anyone else come back as 422 / 403
-     * which the client surfaces as an error.
-     */
-    public void updatePullRequestBody(String repo, int number, String body)
-    {
-        String pat = patResolver.resolve(repo);
-        pullRequestWrites.updatePullRequest(
-                pat,
-                parseRef(repo, number),
-                new UpdatePullRequestCommand(
-                        Optional.empty(),
-                        Optional.ofNullable(body),
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.empty()));
-        // Drop the cached detail so the next `GET /prs/detail` refetches and
-        // reflects the new body. Simpler and less error-prone than patching
-        // the cache in place.
-        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -1259,25 +344,11 @@ public class PullRequestService
      */
     public void approvePullRequest(String repo, int number, long prId)
     {
-        submitApproval(repo, number);
-        viewStateStore.markReviewed(prId, HandledAction.APPROVED);
-    }
-
-    /** GitHub-only half of {@link #approvePullRequest} — the unified
-     *  dashboard's {@code POST /api/prs/{id}/approve} calls this directly
-     *  and records its own triage state via {@code PRService.markHandled}
-     *  instead of the legacy {@code pr_view_state} write. */
-    public void submitApproval(String repo, int number)
-    {
         String pat = patResolver.resolve(repo);
-        pullRequestWrites.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
-        // Drop the cached detail so the next /prs/detail call re-pulls the
-        // timeline and the new "reviewed APPROVED" event shows up in the
-        // conversation immediately. Without this the user waits for the
-        // next background sync (~2 min) to see their own approval land.
+        pullRequestWrites.approve(pat, parseRef(repo, number));
+        viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         invalidatePullRequestCaches(repo, number);
     }
-
     /**
      * Merges the given pull request on GitHub using the requested strategy
      * and records a local reviewed state. {@code strategy} is one of
@@ -1373,207 +444,6 @@ public class PullRequestService
         };
     }
 
-    /**
-     * Enables auto-merge for the PR — GitHub will merge it automatically once
-     * required checks pass and approvals are in place. Mirrors github.com's
-     * "Merge when ready" button. Goes through GraphQL; REST has no
-     * equivalent. The detail cache is dropped so the next /prs/detail call
-     * reflects the new state instead of waiting for the background sync.
-     */
-    public void enableAutoMerge(String repo, int number, long prId, String strategy)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        merges.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /**
-     * Cancels a previously-enabled auto-merge. Idempotent on GitHub's side
-     * — a no-op when auto-merge isn't enabled. Detail cache is invalidated
-     * for the same reason as {@link #enableAutoMerge}.
-     */
-    public void disableAutoMerge(String repo, int number, long prId)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        merges.disableAutoMerge(pat, ref);
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /**
-     * Removes the PR from its repo's merge queue. Mirrors github.com's
-     * "Remove from queue" button. Cache is invalidated so the next
-     * detail fetch reflects the PR's new state (mergeQueueState cleared,
-     * mergeable_state typically flipping back to "blocked").
-     */
-    public void dequeuePullRequest(String repo, int number, long prId)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        merges.dequeuePullRequest(pat, ref);
-        invalidatePullRequestCaches(repo, number);
-    }
-
-    /**
-     * Maps the wire-level "rebase" / "squash" / "merge" strategy strings
-     * (used by /prs/merge for parity with the dropdown) onto GraphQL's
-     * PullRequestMergeMethod enum values (REBASE / SQUASH / MERGE).
-     */
-    private static String autoMergeGraphqlEnum(String strategy)
-    {
-        if (strategy == null) {
-            return "REBASE";
-        }
-        return switch (strategy.toLowerCase(Locale.ROOT)) {
-            case "squash" -> "SQUASH";
-            case "merge" -> "MERGE";
-            default -> "REBASE";
-        };
-    }
-
-    /**
-     * Marks a PR as handled with the given action, without calling any GitHub API.
-     * Used by the hover "Handled" button on the card.
-     */
-    public void markHandled(long prId, HandledAction action)
-    {
-        viewStateStore.markReviewed(prId, action);
-    }
-
-    /**
-     * Clears the local reviewed timestamp so the PR returns to the Inbox.
-     */
-    public void reopen(long prId)
-    {
-        viewStateStore.reopen(prId);
-    }
-
-    /**
-     * Park a PR until {@code until}. The PR is hidden from Home and lists
-     * until that time, until the user explicitly
-     * wakes it, or until the auto-wake check trips an urgent condition
-     * (CI failing, changes requested, merge conflict).
-     */
-    public void snooze(long prId, Instant until)
-    {
-        if (until == null || !until.isAfter(Instant.now())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "Snooze target must be in the future.");
-        }
-        viewStateStore.snooze(prId, until);
-    }
-
-    /** User-initiated wake. No alert banner. */
-    public void unsnooze(long prId)
-    {
-        viewStateStore.unsnooze(prId, null);
-    }
-
-    /** Drop the wake-reason flag once the user has seen the just-woke alert. */
-    public void clearSnoozeWakeReason(long prId)
-    {
-        viewStateStore.clearWakeReason(prId);
-    }
-
-    /**
-     * Live GitHub search for closed (merged + closed-without-merge) PRs the
-     * user authored. Powers the "View full merge history" page — the local
-     * sync only persists the last 7 days of closed PRs so a real history
-     * view has to hit GitHub directly. Sorted server-side by closed date
-     * descending.
-     *
-     * @param page    1-based page index
-     * @param perPage per page count (clamped to [1, 100] by the client)
-     */
-    public PullRequestHistoryPage searchAuthoredHistory(int page, int perPage)
-    {
-        String pat = patResolver.resolve();
-        return gitHub.searchPullRequestsPaged(
-                pat, "is:pr is:closed author:@me sort:closed-desc", page, perPage);
-    }
-
-    /**
-     * Walk every PR with a non-null {@code snoozedUntil} and decide
-     * whether to wake it. The four wake conditions:
-     *
-     *   1. Time elapsed.
-     *   2. CI started failing after the snooze was set.
-     *   3. A reviewer requested changes after the snooze was set.
-     *   4. A merge conflict appeared after the snooze was set.
-     *
-     * Each wake records a reason so the frontend can surface a
-     * just-woke alert. Called from {@link #syncFromGitHub} after the
-     * detail-sync passes have updated the rows we need to inspect.
-     */
-    private void runAutoWakeCheck()
-    {
-        Instant now = Instant.now();
-        Map<Long, PrViewState> states = viewStateStore.findAll();
-        for (Map.Entry<Long, PrViewState> entry : states.entrySet()) {
-            PrViewState state = entry.getValue();
-            if (state.snoozedUntil() == null) {
-                continue;
-            }
-            if (!state.snoozedUntil().isAfter(now)) {
-                viewStateStore.unsnooze(state.prId(), "TIME");
-                continue;
-            }
-            // Pull the PR row to inspect its current urgent signals.
-            // Skip if the PR is no longer in the local store (was
-            // unwatched / merged-and-removed since the snooze landed).
-            Optional<PullRequest> prOpt = store.findById(state.prId());
-            if (prOpt.isEmpty()) {
-                continue;
-            }
-            PullRequest pr = prOpt.get();
-            String reason = autoWakeReason(pr, state);
-            if (reason != null) {
-                viewStateStore.unsnooze(state.prId(), reason);
-            }
-        }
-    }
-
-    /**
-     * Returns the wake reason if the PR has tripped an auto-wake
-     * condition since the snooze was set, or null if no condition has
-     * fired. Order matters: CI > CHANGES_REQUESTED > MERGE_CONFLICT
-     * (most-blocking first, matches the focus-band picking order).
-     */
-    private static String autoWakeReason(PullRequest pr, PrViewState state)
-    {
-        // CI started failing while snoozed.
-        if (pr.ciStatus() == PullRequestDetail.CiStatus.FAILING) {
-            return "CI_FAILING";
-        }
-        // A reviewer requested changes after the snooze landed. We
-        // can't tell *when* the verdict was set without an extra
-        // timestamp, so we treat any current CHANGES_REQUESTED as a
-        // wake — false positives are rare (the user just snoozed; if
-        // the verdict was already there they'd have seen it). Cheap
-        // pragmatic check until we wire per-verdict timestamps.
-        Map<String, String> verdicts = pr.reviewerVerdicts();
-        if (verdicts != null) {
-            for (String v : verdicts.values()) {
-                if (GithubReviewState.CHANGES_REQUESTED.equals(v)) {
-                    return GithubReviewState.CHANGES_REQUESTED;
-                }
-            }
-        }
-        // Merge conflict — only flag if the snooze was set BEFORE the
-        // PR's last update (otherwise the user snoozed it knowing
-        // about the conflict).
-        boolean conflict = Boolean.FALSE.equals(pr.mergeable())
-                || "MERGE_CONFLICT".equals(String.valueOf(pr.attentionReason()));
-        if (conflict
-                && state.snoozedAt() != null
-                && pr.updatedAt() != null
-                && pr.updatedAt().isAfter(state.snoozedAt())) {
-            return "MERGE_CONFLICT";
-        }
-        return null;
-    }
-
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private List<PullRequest> fetchRelevant(String pat)
@@ -1607,7 +477,7 @@ public class PullRequestService
         List<PullRequest> reviewedBy = join(reviewedByFuture);
         List<PullRequest> recentlyClosed = join(recentlyClosedFuture);
 
-        LinkedHashMap<String, PullRequest> merged = Maps.newLinkedHashMap();
+        LinkedHashMap<String, PullRequest> merged = new LinkedHashMap<>();
         if (authored != null) {
             for (PullRequest pr : authored) {
                 merged.put(pr.repo() + "#" + pr.number(), withOrigin(pr, AUTHORED));
@@ -1646,7 +516,7 @@ public class PullRequestService
         for (PullRequest pr : notificationBackstopPrs(pat, merged.keySet())) {
             merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, REVIEW_REQUESTED));
         }
-        return ImmutableList.copyOf(merged.values());
+        return List.copyOf(merged.values());
     }
 
     /**
@@ -1706,7 +576,7 @@ public class PullRequestService
      */
     private List<PullRequest> searchAllPages(String pat, String query)
     {
-        ImmutableList.Builder<PullRequest> all = ImmutableList.builder();
+        List<PullRequest> all = new ArrayList<>();
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             // sort=updated desc so the freshest PRs land on the first pages —
             // GitHub's default best-match ordering can push the newest past
@@ -1718,7 +588,7 @@ public class PullRequestService
                 break;
             }
         }
-        return all.build();
+        return List.copyOf(all);
     }
 
     private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)
@@ -1819,15 +689,6 @@ public class PullRequestService
     private void invalidatePullRequestDetail(String repo, int number)
     {
         detailInvalidator.invalidate(repo, number);
-    }
-
-    private static void requireAllowedReactionContent(String content)
-    {
-        if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400),
-                    "reaction content must be one of " + PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT);
-        }
     }
 
     private void invalidatePullRequestCaches(String repo, int number)

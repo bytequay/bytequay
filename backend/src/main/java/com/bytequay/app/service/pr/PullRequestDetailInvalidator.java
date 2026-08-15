@@ -13,43 +13,37 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
-import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
-import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
+import java.util.Set;
+
 import static java.util.Objects.requireNonNull;
 
 /**
- * Clears durable and in-memory PR-detail caches after structural GitHub writes.
+ * Clears the cached PR detail after a GitHub write.
  */
 @Component
 public class PullRequestDetailInvalidator
 {
     private final SqlitePullRequestStore store;
     private final SqlitePrDetailStore detailStore;
-    private final GitHubResponseCache responseCache;
 
     public PullRequestDetailInvalidator(
             SqlitePullRequestStore store,
-            SqlitePrDetailStore detailStore,
-            GitHubResponseCache responseCache)
+            SqlitePrDetailStore detailStore)
     {
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
-        this.responseCache = requireNonNull(responseCache, "responseCache is null");
     }
 
     /**
-     * Invalidates the SQLite detail snapshot and PR-scoped response caches.
+     * Invalidates the SQLite detail snapshot.
      */
     public void invalidate(String repo, int number)
     {
-        PullRequestRef ref = parseRef(repo, number);
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(id -> detailStore.deleteByPrIds(ImmutableSet.of(id)));
-        responseCache.invalidatePullRequest(ref);
+                .ifPresent(id -> detailStore.deleteByPrIds(Set.of(id)));
     }
 }

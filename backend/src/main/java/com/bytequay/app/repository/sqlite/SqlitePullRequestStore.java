@@ -17,22 +17,18 @@ import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -59,7 +55,7 @@ public class SqlitePullRequestStore
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
         return jpaRepository.findAll().stream()
                 .map(e -> toDomain(e, stateByPrId.get(e.getId())))
-                .collect(toImmutableList());
+                .toList();
     }
 
     @Transactional
@@ -80,7 +76,7 @@ public class SqlitePullRequestStore
 
         Set<Long> freshIds = pullRequests.stream()
                 .map(PullRequest::id)
-                .collect(toImmutableSet());
+                .collect(Collectors.toUnmodifiableSet());
 
         // Preserve detail-derived enrichment columns from the previous
         // sync. The search-API responses fed in here don't include
@@ -117,11 +113,11 @@ public class SqlitePullRequestStore
                     }
                     return entity;
                 })
-                .collect(toImmutableList());
+                .toList();
 
         jpaRepository.saveAll(entities);
 
-        Set<Long> keep = Sets.newHashSet(freshIds);
+        Set<Long> keep = new HashSet<>(freshIds);
         keep.addAll(protectedIds);
         jpaRepository.deleteAllByIdNotIn(keep);
     }
@@ -138,13 +134,13 @@ public class SqlitePullRequestStore
         return viewStateStore.findAll().values().stream()
                 .filter(s -> s.reviewedAt() != null && s.reviewedAt().isAfter(cutoff))
                 .map(PrViewState::prId)
-                .collect(toImmutableSet());
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     public Map<Long, Instant> findUpdatedAtMap()
     {
         return jpaRepository.findAll().stream()
-                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+                .collect(Collectors.toUnmodifiableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
     }
 
     public Set<Long> findIdsMissingEnrichment()
@@ -288,7 +284,7 @@ public class SqlitePullRequestStore
                 Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
-                ImmutableList.of(),
+                List.of(),
                 entity.getCiStatus(),
                 entity.getAdditions(),
                 entity.getDeletions(),

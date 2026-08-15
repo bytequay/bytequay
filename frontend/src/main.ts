@@ -265,46 +265,23 @@ function registerIpc(): void {
     backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
   ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
-  ipcMain.handle('prs:detail:refresh', (
-    _event,
-    repo: string,
-    number: number,
-    maxAgeSeconds?: number,
-  ) => {
+  ipcMain.handle('prs:detail:refresh', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh', repo, number);
-    if (maxAgeSeconds !== undefined) url.searchParams.set('maxAgeSeconds', String(maxAgeSeconds));
     return backendJson(url, { method: 'POST' });
   });
   ipcMain.handle('prs:diff', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/diffFiles', repo, number)));
-  ipcMain.handle('prs:commits', (_event, repo: string, number: number) =>
-    backendJson(prUrl('/prs/commits', repo, number)));
-  ipcMain.handle('prs:commit-diff', (_event, repo: string, number: number, sha: string) => {
-    const url = prUrl('/prs/commitDiff', repo, number);
-    url.searchParams.set('sha', sha);
-    return backendJson(url);
-  });
-  ipcMain.handle('prs:file', (_event, repo: string, filePath: string, sha: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/fileBlob`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('path', filePath);
-    url.searchParams.set('sha', sha);
-    return backendJson(url);
-  });
   ipcMain.handle('prs:comment', (
     _event,
-    prId: number,
     repo: string,
     number: number,
     body: string,
-    close: boolean,
   ) => {
     const url = prUrl('/prs/comment', repo, number);
-    url.searchParams.set('id', String(prId));
     return backendVoid(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, close }),
+      body: JSON.stringify({ body }),
     });
   });
   ipcMain.handle('prs:approve', (_event, prId: number, repo: string, number: number) => {

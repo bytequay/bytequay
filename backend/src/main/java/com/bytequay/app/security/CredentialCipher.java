@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.security;
 
-import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -32,6 +31,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Set;
 
 /**
  * Encrypts and decrypts stored credentials using AES-256-GCM with a local
@@ -154,7 +154,7 @@ public class CredentialCipher
     private static void tryRestrictPermissions(Path path)
     {
         try {
-            Files.setPosixFilePermissions(path, ImmutableSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+            Files.setPosixFilePermissions(path, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
         }
         catch (UnsupportedOperationException | IOException e) {
             // Non-POSIX filesystem (Windows); best-effort only.

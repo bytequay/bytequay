@@ -59,86 +59,29 @@ export type DiffFileDto = {
   patch: string | null;
 };
 
-export type PullRequestCommitDto = {
-  sha: string;
-  authorLogin: string | null;
-  authorName: string | null;
-  authoredAt: string | null;
-  message: string | null;
-};
-
-export type ReactionsDto = {
-  plusOne: number;
-  minusOne: number;
-  laugh: number;
-  hooray: number;
-  confused: number;
-  heart: number;
-  rocket: number;
-  eyes: number;
-};
-
-export type ActivityItemDto = {
-  actor: string;
-  eventType: string;
-  timestamp: string | null;
-  body: string | null;
-  state: string | null;
-  beforeSha: string | null;
-  afterSha: string | null;
-  requestedReviewer: string | null;
-  reviewId: number | null;
-  authorAssociation: string | null;
-  githubId: number | null;
-  reactions: ReactionsDto | null;
-  labelName: string | null;
-  labelColor: string | null;
-  milestoneTitle: string | null;
-  assigneeLogin: string | null;
-  crossRefNumber: number | null;
-  crossRefTitle: string | null;
-  crossRefUrl: string | null;
-  crossRefIsPullRequest: boolean;
-};
-
-export type CheckRunDto = {
-  githubId: number | null;
-  name: string | null;
-  status: string | null;
-  conclusion: string | null;
-  htmlUrl: string | null;
-  outputTitle: string | null;
-  outputSummary: string | null;
-};
-
 export type PullRequestDetailDto = {
   repo: string;
   number: number;
   body: string | null;
-  labels: string[];
-  draft: boolean;
-  mergeable: boolean | null;
-  mergeableState: string | null;
   additions: number;
   deletions: number;
   changedFiles: number;
   approvalCount: number;
-  changesRequestedCount: number;
-  pendingReviewerCount: number;
-  requestedReviewers: string[];
   ciStatus: CiStatus;
-  files: Array<{ filename: string; additions: number; deletions: number; status: string }>;
-  recentActivity: ActivityItemDto[];
-  checkRuns: CheckRunDto[];
-  reviewThreads: unknown[];
-  linkedIssues: Array<{ number: number; title: string; state: string; htmlUrl: string }>;
+  recentActivity: Array<{
+    actor: string;
+    eventType: string;
+    timestamp: string | null;
+    body: string | null;
+    githubId: number | null;
+  }>;
+  checkRuns: Array<{
+    githubId: number | null;
+    name: string | null;
+    status: string | null;
+    conclusion: string | null;
+  }>;
   viewerCanWrite: boolean;
-  headRef: string | null;
-  headRepo: string | null;
-  baseRef: string | null;
-  baseRepo: string | null;
-  mergeQueueState: string | null;
-  mergeQueueEnabled: boolean;
 };
 
 export type WatchedRepoDto = {
@@ -238,12 +181,9 @@ export type Bridge = {
   fetchPrs: () => Promise<PullRequestDto[]>;
   syncPrs: () => Promise<void>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
-  refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number) => Promise<PullRequestDetailDto>;
+  refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
-  fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
-  fetchPrCommitDiff: (repo: string, number: number, sha: string) => Promise<DiffFileDto[]>;
-  fetchFileBlob: (repo: string, path: string, sha: string) => Promise<{ lines: string[] }>;
-  commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
+  commentPr: (repo: string, number: number, body: string) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 

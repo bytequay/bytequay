@@ -18,7 +18,4 @@ public record PrCheckRunState(
         Long githubId,
         String name,
         String status,
-        String conclusion,
-        String htmlUrl,
-        String outputTitle,
-        String outputSummary) {}
+        String conclusion) {}

@@ -13,13 +13,12 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.repository.sqlite.SqlitePrDetailStore;
 import com.bytequay.app.repository.sqlite.SqlitePullRequestStore;
-import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.Set;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -28,20 +27,17 @@ import static org.mockito.Mockito.when;
 class TestPullRequestDetailInvalidator
 {
     @Test
-    void testInvalidateClearsSqliteAndResponseCaches()
+    void testInvalidateClearsSqliteDetail()
     {
         SqlitePullRequestStore store = mock(SqlitePullRequestStore.class);
         SqlitePrDetailStore detailStore = mock(SqlitePrDetailStore.class);
-        GitHubResponseCache responseCache = mock(GitHubResponseCache.class);
         PullRequestDetailInvalidator invalidator = new PullRequestDetailInvalidator(
                 store,
-                detailStore,
-                responseCache);
+                detailStore);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(123L));
 
         invalidator.invalidate("owner/repo", 7);
 
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(123L));
-        verify(responseCache).invalidatePullRequest(PullRequestRef.of("owner", "repo", 7));
+        verify(detailStore).deleteByPrIds(Set.of(123L));
     }
 }

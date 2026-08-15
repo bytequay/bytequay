@@ -35,7 +35,6 @@ import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.repository.sqlite.SqliteWatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +56,6 @@ import java.util.regex.Pattern;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -226,7 +224,7 @@ public class RepoService
     {
         String trimmed = query == null ? "" : query.trim();
         if (trimmed.isEmpty()) {
-            return ImmutableList.of();
+            return List.of();
         }
         String pat = patResolver.resolve();
         int slash = trimmed.indexOf('/');
@@ -235,7 +233,7 @@ public class RepoService
             String name = trimmed.substring(slash + 1).trim();
             Optional<UserRepo> exact = accounts.fetchRepository(pat, owner, name);
             if (exact.isPresent()) {
-                return ImmutableList.of(exact.orElseThrow());
+                return List.of(exact.orElseThrow());
             }
             return accounts.searchRepositories(pat, name + " in:name user:" + owner);
         }
@@ -256,7 +254,7 @@ public class RepoService
     {
         return homeCache.findEvents(login, feed)
                 .map(SqliteGithubHomeCacheStore.TimedValue::value)
-                .orElse(ImmutableList.of());
+                .orElse(List.of());
     }
 
     public List<RecentEvent> refreshRecentEventsFromGitHub(String login)
@@ -265,7 +263,7 @@ public class RepoService
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<RecentEvent> fresh = accounts.fetchUserEvents(patResolver.resolve(), login, 100).stream()
                 .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
-                .collect(toImmutableList());
+                .toList();
         homeCache.putEvents(login, EventFeed.RECENT, fresh, Instant.now());
         return fresh;
     }
@@ -273,7 +271,7 @@ public class RepoService
     public List<RecentEvent> refreshFollowingEventsFromGitHub(String login)
     {
         List<RecentEvent> all = accounts.fetchReceivedEvents(patResolver.resolve(), login, 30);
-        List<RecentEvent> fresh = ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
+        List<RecentEvent> fresh = List.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
         homeCache.putEvents(login, EventFeed.FOLLOWING, fresh, Instant.now());
         return fresh;
     }

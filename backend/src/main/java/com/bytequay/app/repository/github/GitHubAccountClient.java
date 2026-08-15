@@ -14,24 +14,18 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.ContributionCalendar;
-import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.UserCommitSummary;
-import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -39,6 +33,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,7 +41,6 @@ import java.util.Optional;
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -77,38 +71,6 @@ public class GitHubAccountClient
             if (response == null) {
                 throw new ResponseStatusException(
                         HttpStatusCode.valueOf(502), "Empty response from GitHub /user");
-            }
-            return toUserProfile(response);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
-
-    public UserProfile updateUserProfile(String pat, String name, String bio, String location) {
-        Map<String, Object> body = Maps.newHashMap();
-        if (name != null) {
-            body.put("name", name);
-        }
-        if (bio != null) {
-            body.put("bio", bio);
-        }
-        if (location != null) {
-            body.put("location", location);
-        }
-        try {
-            GitHubUserProfileResponse response =
-                    gitHubRestClient
-                            .patch()
-                            .uri("/user")
-                            .header("Authorization", authorization(pat))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .body(body)
-                            .retrieve()
-                            .body(GitHubUserProfileResponse.class);
-            if (response == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub PATCH /user");
             }
             return toUserProfile(response);
         }
@@ -157,7 +119,7 @@ public class GitHubAccountClient
                         + "  }"
                         + "}";
         Map<String, Object> body =
-                ImmutableMap.of("query", query, "variables", ImmutableMap.of("login", login));
+                Map.of("query", query, "variables", Map.of("login", login));
         try {
             ContributionGqlResponse response =
                     graphqlRestClient
@@ -189,7 +151,7 @@ public class GitHubAccountClient
             ContributionGqlCalendar cal =
                     response.data().user().contributionsCollection().contributionCalendar();
             List<ContributionGqlWeek> rawWeeks =
-                    cal.weeks() != null ? cal.weeks() : ImmutableList.of();
+                    cal.weeks() != null ? cal.weeks() : List.of();
             if (rawWeeks.isEmpty()) {
                 throw new IllegalStateException("GitHub contribution calendar returned no weeks");
             }
@@ -199,9 +161,7 @@ public class GitHubAccountClient
                                     w ->
                                             new ContributionCalendar.Week(
                                                     (w.contributionDays() == null
-                                                                    ? ImmutableList
-                                                                            .<ContributionGqlDay>
-                                                                                    of()
+                                                                    ? List.<ContributionGqlDay>of()
                                                                     : w.contributionDays())
                                                             .stream()
                                                                     .map(
@@ -220,8 +180,8 @@ public class GitHubAccountClient
                                                                                                             .contributionCount(),
                                                                                             d
                                                                                                     .color()))
-                                                                    .collect(toImmutableList())))
-                            .collect(toImmutableList());
+                                                                    .toList()))
+                            .toList();
             int total = cal.totalContributions() == null ? 0 : cal.totalContributions();
             return new ContributionCalendar(total, weeks);
         }
@@ -282,18 +242,18 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(CommitSearchResponse.class);
             if (response == null || response.items() == null) {
-                return ImmutableList.of();
+                return List.of();
             }
             return response.items().stream()
                     .map(GitHubAccountClient::toUserCommitSummary)
-                    .collect(toImmutableList());
+                    .toList();
         }
         catch (RestClientResponseException e) {
             // Non-essential affordance — degrade silently rather than
             // breaking the home-page click; the popover renders an
             // empty list.
             log.warn("commit search for {} on {} failed: {}", login, isoDate, e.getMessage());
-            return ImmutableList.of();
+            return List.of();
         }
     }
 
@@ -351,7 +311,7 @@ public class GitHubAccountClient
         // commonly have several hundred repos via org_member affiliation.
         int perPage = 100;
         int maxPages = 10;
-        ImmutableList.Builder<UserRepo> all = ImmutableList.builder();
+        List<UserRepo> all = new ArrayList<>();
         for (int page = 1; page <= maxPages; page++) {
             int currentPage = page;
             try {
@@ -388,7 +348,7 @@ public class GitHubAccountClient
                 throw toReadableException(e);
             }
         }
-        return all.build();
+        return List.copyOf(all);
     }
 
     private static UserRepo toUserRepo(GitHubUserRepoItem item) {
@@ -455,73 +415,12 @@ public class GitHubAccountClient
         }
     }
 
-    public boolean fetchCollaboratorCanWrite(String pat, RepoRef repo, String login) {
-        // /repos/{owner}/{repo}/collaborators/{login}/permission returns the
-        // collaborator's permission ("admin" | "write" | "read" | "none";
-        // maintain→write, triage→read in this legacy field). admin/write means
-        // push access — the same test that lights GitHub's green approval mark.
-        // Errors (404 for a non-collaborator, rate-limit) fall through to
-        // false, so an unconfirmable reviewer simply doesn't count.
-        try {
-            GitHubCollaboratorPermissionResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path(
-                                                            "/repos/{owner}/{repo}/collaborators/{login}/permission")
-                                                    .build(repo.owner(), repo.repo(), login))
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubCollaboratorPermissionResponse.class);
-            if (response == null || response.permission() == null) {
-                return false;
-            }
-            String permission = response.permission();
-            return "admin".equals(permission) || "write".equals(permission);
-        }
-        catch (Exception e) {
-            return false;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record GitHubCollaboratorPermissionResponse(String permission) {}
-
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitHubRepoPermissionsResponse(GitHubRepoPermissions permissions) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitHubRepoPermissions(
             Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
-
-    public List<UserOrg> fetchUserOrgs(String pat) {
-        try {
-            List<GitHubUserOrgItem> items =
-                    gitHubRestClient
-                            .get()
-                            .uri(u -> u.path("/user/orgs").queryParam("per_page", 100).build())
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(new ParameterizedTypeReference<>() {});
-            if (items == null) {
-                return ImmutableList.of();
-            }
-            return items.stream()
-                    // /user/orgs doesn't ship html_url — synthesise from login.
-                    .map(
-                            o ->
-                                    new UserOrg(
-                                            o.login(),
-                                            o.avatarUrl(),
-                                            "https://github.com/" + o.login(),
-                                            o.description()))
-                    .collect(toImmutableList());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
 
     public List<UserRepo> searchRepositories(String pat, String query) {
         try {
@@ -538,11 +437,11 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(GitHubRepoSearchResponse.class);
             if (response == null || response.items() == null) {
-                return ImmutableList.of();
+                return List.of();
             }
             return response.items().stream()
                     .map(GitHubAccountClient::toUserRepoFromSearch)
-                    .collect(toImmutableList());
+                    .toList();
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -580,42 +479,6 @@ public class GitHubAccountClient
                 item.stargazersCount());
     }
 
-    public List<GitHubUserMatch> searchUsers(String pat, String query) {
-        // `in:login` scopes the match to the login text rather than name /
-        // bio / email; `type:user` filters out organisations so the team
-        // roster doesn't accidentally pull in an org account. per_page is
-        // small because the dropdown only renders ~10 rows.
-        String q = query.trim() + " in:login type:user";
-        try {
-            GitHubUserSearchResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path("/search/users")
-                                                    .queryParam("q", q)
-                                                    .queryParam("per_page", 10)
-                                                    .build())
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubUserSearchResponse.class);
-            if (response == null || response.items() == null) {
-                return ImmutableList.of();
-            }
-            return response.items().stream()
-                    .filter(i -> i.login() != null)
-                    // Skip organisation accounts even if the search returned
-                    // them (the qualifier above usually filters but isn't
-                    // 100% — defence in depth).
-                    .filter(i -> !"Organization".equalsIgnoreCase(i.type()))
-                    .map(i -> new GitHubUserMatch(i.login(), i.avatarUrl(), null))
-                    .collect(toImmutableList());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
-
     // ── Events ────────────────────────────────────────────────────────────────
 
     public List<RecentEvent> fetchUserEvents(String pat, String login, int limit) {
@@ -641,16 +504,16 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
-                return ImmutableList.of();
+                return List.of();
             }
             return items.stream()
                     .filter(e -> e.createdAt() != null)
                     .limit(limit)
                     .map(GitHubEventMapper::toRecentEvent)
-                    .collect(toImmutableList());
+                    .toList();
         }
         catch (RestClientResponseException e) {
-            return ImmutableList.of();
+            return List.of();
         }
     }
 }

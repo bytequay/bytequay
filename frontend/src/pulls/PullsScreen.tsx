@@ -250,7 +250,7 @@ function DetailBody({
     if (!comment.trim()) return;
     setPosting(true);
     try {
-      await window.bridge.commentPr(pr.id, pr.repo, pr.number, comment.trim(), false);
+      await window.bridge.commentPr(pr.repo, pr.number, comment.trim());
       setComment('');
       await onRefresh();
     }

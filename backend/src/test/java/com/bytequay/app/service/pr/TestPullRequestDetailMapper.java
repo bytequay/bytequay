@@ -18,8 +18,6 @@ import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
-import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import org.junit.jupiter.api.Test;
@@ -32,136 +30,54 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestPullRequestDetailMapper
 {
     @Test
-    void aggregatesCiStatusOverTheLatestRunPerCheck()
+    void aggregatesTheLatestAttemptForEachCheck()
     {
-        assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of()))
-                .isEqualTo(CiStatus.NONE);
-        assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
-                check("build", "completed", "success"))))
-                .isEqualTo(CiStatus.PASSING);
-        // Any distinct check failing fails the whole PR.
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of())).isEqualTo(PullRequestDetail.CiStatus.NONE);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
                 check("build", "completed", "success"),
-                check("test", "completed", "failure"))))
-                .isEqualTo(CiStatus.FAILING);
-        // A still-running check (none failed) reads as pending.
+                check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
                 check("build", "completed", "success"),
-                check("test", "in_progress", null))))
-                .isEqualTo(CiStatus.PENDING);
-    }
-
-    @Test
-    void aReRunSuccessMasksTheEarlierFailureForTheSameCheck()
-    {
-        // Newest-first: the re-run (success) precedes the original failure,
-        // so the deduped latest is the success → not FAILING.
+                check("test", "in_progress", null)))).isEqualTo(PullRequestDetail.CiStatus.PENDING);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
-                check("build", "completed", "success"),
-                check("build", "completed", "failure"))))
-                .isEqualTo(CiStatus.PASSING);
+                check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
     }
 
     @Test
-    void allTerminalFailureConclusionsFailTheAggregate()
-    {
-        for (String conclusion : List.of(
-                "failure", "timed_out", "cancelled", "action_required", "startup_failure")) {
-            assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
-                    check("build", "completed", conclusion))))
-                    .as(conclusion)
-                    .isEqualTo(CiStatus.FAILING);
-        }
-    }
-
-    @Test
-    void countsApprovalsAndChangesRequestedFromReviews()
-    {
-        List<PrReviewState> reviews = List.of(
-                new PrReviewState("alice", "APPROVED"),
-                new PrReviewState("bob", "CHANGES_REQUESTED"),
-                new PrReviewState("carol", "COMMENTED"));
-        assertThat(PullRequestDetailMapper.countApprovals(reviews)).isEqualTo(1);
-        assertThat(PullRequestDetailMapper.countChangesRequested(reviews)).isEqualTo(1);
-    }
-
-    @Test
-    void mapsTerminalStateCountsCiAndViewerWriteEndToEnd()
+    void mapsOnlyTheDetailFieldsTheRendererUses()
     {
         StoredPrDetail stored = new StoredPrDetail(
-                raw("closed", /* merged */ true),
-                List.of(new PrReviewState("alice", "APPROVED"),
-                        new PrReviewState("bob", "CHANGES_REQUESTED")),
-                List.of(), List.of(),
-                List.of(check("build", "completed", "success")),
-                List.of(), List.of(), /* mergeQueueState */ null, /* mergeQueueEnabled */ false);
+                raw(),
+                List.of(new PrReviewState("alice", "APPROVED")),
+                List.of(new PrTimelineEvent(
+                        7L, "commented", "bob", null, Instant.parse("2026-01-01T00:00:00Z"), "hello",
+                        null, null, null, null, null, Reactions.EMPTY)),
+                List.of(check("build", "completed", "success")));
 
-        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(
-                "owner/repo", 7, stored, /* viewerCanWrite */ true, /* writeApprovalCount */ 0);
+        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 5, stored, true);
 
-        assertThat(detail.state()).isEqualTo("closed");
-        assertThat(detail.merged()).isTrue();
+        assertThat(detail.repo()).isEqualTo("owner/repo");
+        assertThat(detail.body()).isEqualTo("body");
         assertThat(detail.approvalCount()).isEqualTo(1);
-        assertThat(detail.changesRequestedCount()).isEqualTo(1);
-        assertThat(detail.ciStatus()).isEqualTo(CiStatus.PASSING);
+        assertThat(detail.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+        assertThat(detail.recentActivity()).singleElement().satisfies(item -> {
+            assertThat(item.actor()).isEqualTo("bob");
+            assertThat(item.body()).isEqualTo("hello");
+        });
+        assertThat(detail.checkRuns()).singleElement().satisfies(check ->
+                assertThat(check.name()).isEqualTo("build"));
         assertThat(detail.viewerCanWrite()).isTrue();
-        assertThat(detail.baseRef()).isEqualTo("main");
-    }
-
-    @Test
-    void labeledAssignedMilestonedAndCrossReferencedEventsSurviveWithTheirFields()
-    {
-        Instant when = Instant.parse("2026-04-14T10:00:00Z");
-        List<PrTimelineEvent> timeline = List.of(
-                new PrTimelineEvent(
-                        1L, "labeled", "alice", null, when, null, null, null, null, null, null,
-                        Reactions.EMPTY, "delta-lake", "0e8a16", null, null, null, null, null, false),
-                new PrTimelineEvent(
-                        2L, "assigned", "alice", null, when, null, null, null, null, null, null,
-                        Reactions.EMPTY, null, null, null, "bob", null, null, null, false),
-                new PrTimelineEvent(
-                        3L, "milestoned", "alice", null, when, null, null, null, null, null, null,
-                        Reactions.EMPTY, null, null, "v451", null, null, null, null, false),
-                new PrTimelineEvent(
-                        4L, "cross-referenced", "carol", null, when, null, null, null, null, null, null,
-                        Reactions.EMPTY, null, null, null, null, 29064, "Improve extended stats management",
-                        "https://github.com/trinodb/trino/issues/29064", true),
-                // Not in the allowlist — dropped, same as before this change.
-                new PrTimelineEvent(
-                        5L, "subscribed", "alice", null, when, null, null, null, null, null, null,
-                        Reactions.EMPTY));
-
-        List<ActivityItem> items = PullRequestDetailMapper.toActivityItems(timeline);
-
-        assertThat(items).extracting(ActivityItem::eventType)
-                .containsExactlyInAnyOrder("labeled", "assigned", "milestoned", "cross-referenced");
-        ActivityItem labeled = items.stream().filter(i -> "labeled".equals(i.eventType())).findFirst().orElseThrow();
-        assertThat(labeled.labelName()).isEqualTo("delta-lake");
-        assertThat(labeled.labelColor()).isEqualTo("0e8a16");
-        ActivityItem assigned = items.stream().filter(i -> "assigned".equals(i.eventType())).findFirst().orElseThrow();
-        assertThat(assigned.assigneeLogin()).isEqualTo("bob");
-        ActivityItem milestoned = items.stream()
-                .filter(i -> "milestoned".equals(i.eventType())).findFirst().orElseThrow();
-        assertThat(milestoned.milestoneTitle()).isEqualTo("v451");
-        ActivityItem crossRef = items.stream()
-                .filter(i -> "cross-referenced".equals(i.eventType())).findFirst().orElseThrow();
-        assertThat(crossRef.crossRefNumber()).isEqualTo(29064);
-        assertThat(crossRef.crossRefTitle()).isEqualTo("Improve extended stats management");
-        assertThat(crossRef.crossRefUrl()).isEqualTo("https://github.com/trinodb/trino/issues/29064");
-        assertThat(crossRef.crossRefIsPullRequest()).isTrue();
     }
 
     private static PrCheckRunState check(String name, String status, String conclusion)
     {
-        return new PrCheckRunState(1L, name, status, conclusion, null, null, null);
+        return new PrCheckRunState(1L, name, status, conclusion);
     }
 
-    private static PrRawDetail raw(String state, boolean merged)
+    private static PrRawDetail raw()
     {
         return new PrRawDetail(
-                "body", List.of(), /* draft */ false, /* mergeable */ true, "clean",
-                10, 2, 3, /* requestedReviewerCount */ 0, List.of(),
-                "headsha", "dev/x", "owner/repo", "main", "owner/repo",
-                state, merged);
+                "body", List.of(), false, true, "clean", 10, 2, 3, 0, List.of(),
+                "head", "feature", "owner/repo", "main", "owner/repo", "open", false);
     }
 }

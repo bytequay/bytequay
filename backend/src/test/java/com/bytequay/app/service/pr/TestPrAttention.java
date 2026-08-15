@@ -20,10 +20,8 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -32,208 +30,71 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestPrAttention
 {
     private static final Instant NOW = Instant.parse("2026-04-26T10:00:00Z");
-    private static final String ME = "alice";
 
     @Test
-    void testMentionAfterViewedPromotes()
+    void unseenThirdPartyMentionPromotesThePullRequest()
     {
-        Instant viewedAt = NOW.minus(Duration.ofHours(2));
-        PrTimelineEvent comment = commented("bob", NOW.minusSeconds(60), "hey @alice can you take a look?");
-        StoredPrDetail detail = detailWith(ImmutableList.of(comment));
+        StoredPrDetail detail = detail(
+                List.of(comment("bob", "hey @Alice", NOW.minusSeconds(1))), List.of(), raw(true, "clean"));
 
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, viewedAt, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.MENTIONED);
-    }
-
-    @Test
-    void testMentionBeforeViewedIsIgnored()
-    {
-        Instant viewedAt = NOW.minus(Duration.ofMinutes(30));
-        PrTimelineEvent stale = commented("bob", NOW.minus(Duration.ofHours(2)), "hey @alice");
-        StoredPrDetail detail = detailWith(ImmutableList.of(stale));
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, viewedAt, NOW);
-        assertThat(reason).isNull();
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice",
+                NOW.minusSeconds(2), NOW)).isEqualTo(AttentionReason.MENTIONED);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice",
+                NOW, NOW)).isNull();
     }
 
     @Test
-    void testNeverViewedAnyMentionPromotes()
+    void failingCiTakesPriority()
     {
-        PrTimelineEvent old = commented("bob", NOW.minus(Duration.ofDays(3)), "hi @alice");
-        StoredPrDetail detail = detailWith(ImmutableList.of(old));
+        StoredPrDetail detail = detail(
+                List.of(),
+                List.of(new PrCheckRunState(1L, "ci", "completed", "failure")),
+                raw(false, "dirty"));
 
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, null, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.MENTIONED);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail, "alice", NOW, NOW))
+                .isEqualTo(AttentionReason.CI_FAILING);
     }
 
     @Test
-    void testSelfMentionDoesNotPromote()
+    void authoredPullRequestsFallBackToMine()
     {
-        PrTimelineEvent selfNote = commented("alice", NOW.minusSeconds(60), "@alice will follow up");
-        StoredPrDetail detail = detailWith(ImmutableList.of(selfNote));
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, null, NOW);
-        assertThat(reason).isNull();
+        assertThat(PrAttention.promoteReason(
+                pr(PullRequest.Origin.AUTHORED), detail(List.of(), List.of(), raw(true, "clean")),
+                "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
     }
 
     @Test
-    void testMentionMatchesAreCaseInsensitive()
+    void countsTimelineComments()
     {
-        PrTimelineEvent comment = commented("bob", NOW.minusSeconds(60), "thanks @ALICE");
-        StoredPrDetail detail = detailWith(ImmutableList.of(comment));
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, null, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.MENTIONED);
+        StoredPrDetail detail = detail(
+                List.of(comment("bob", "one", NOW), comment("carol", "two", NOW)), List.of(), raw(true, "clean"));
+        assertThat(PrAttention.countComments(detail)).isEqualTo(2);
     }
 
-    @Test
-    void testMentionMustBeWordBoundary()
+    private static StoredPrDetail detail(
+            List<PrTimelineEvent> timeline, List<PrCheckRunState> checks, PrRawDetail raw)
     {
-        // "@alicebot" is a different user — must not match "@alice".
-        PrTimelineEvent decoy = commented("bob", NOW.minusSeconds(60), "I'll ping @alicebot for the rollout");
-        StoredPrDetail detail = detailWith(ImmutableList.of(decoy));
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, null, NOW);
-        assertThat(reason).isNull();
+        return new StoredPrDetail(raw, List.of(), timeline, checks);
     }
 
-    @Test
-    void testCiFailingTakesPrecedenceOverMention()
+    private static PrTimelineEvent comment(String actor, String body, Instant timestamp)
     {
-        PrTimelineEvent comment = commented("bob", NOW.minusSeconds(60), "hi @alice");
-        StoredPrDetail detail = new StoredPrDetail(
-                rawDetail(),
-                ImmutableList.of(),
-                ImmutableList.of(),
-                ImmutableList.of(comment),
-                ImmutableList.of(new PrCheckRunState(null, "ci", "completed", "failure", null, null, null)),
-                ImmutableList.of(),
-                ImmutableList.of());
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, ME, null, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.CI_FAILING);
+        return new PrTimelineEvent(
+                null, "commented", actor, null, timestamp, body, null, null, null, null, null, Reactions.EMPTY);
     }
 
-    @Test
-    void testNullCurrentLoginNeverMentions()
+    private static PrRawDetail raw(boolean mergeable, String mergeableState)
     {
-        PrTimelineEvent comment = commented("bob", NOW.minusSeconds(60), "hi @alice");
-        StoredPrDetail detail = detailWith(ImmutableList.of(comment));
-
-        AttentionReason reason = PrAttention.promoteReason(pr(), detail, null, null, NOW);
-        assertThat(reason).isNull();
+        return new PrRawDetail(
+                null, List.of(), false, mergeable, mergeableState, 0, 0, 0, 0, List.of(),
+                "head", null, null, null, null);
     }
 
-    private static PullRequest pr()
-    {
-        return prWith(PullRequest.Origin.REVIEW_REQUESTED);
-    }
-
-    private static PullRequest prWith(PullRequest.Origin origin)
+    private static PullRequest pr(PullRequest.Origin origin)
     {
         return new PullRequest(
-                1L, "acme/widgets", 42, "Title", "carol",
-                "https://x", null, NOW.minus(Duration.ofMinutes(5)),
-                origin,
-                ImmutableList.of(), null, false,
-                null, null, null, ImmutableList.of(),
-                null, 0, 0, 0, null,
-                "open", null, null, null, null, null, null,
-                null, null, null);
-    }
-
-    @Test
-    void testMineFiresForAuthoredPrWithNothingElse()
-    {
-        StoredPrDetail detail = detailWith(ImmutableList.of());
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, NOW, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.MINE);
-    }
-
-    @Test
-    void testMineDoesNotFireForReviewRequestedPr()
-    {
-        StoredPrDetail detail = detailWith(ImmutableList.of());
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.REVIEW_REQUESTED), detail, ME, NOW, NOW);
-        assertThat(reason).isNull();
-    }
-
-    @Test
-    void testMergeConflictFiresOnAuthoredPr()
-    {
-        StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, ImmutableList.of(), "abc", null, null, null, null),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, NOW, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.MERGE_CONFLICT);
-    }
-
-    @Test
-    void testMergeConflictDoesNotFireOnReviewRequestedPr()
-    {
-        StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, ImmutableList.of(), "abc", null, null, null, null),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.REVIEW_REQUESTED), detail, ME, NOW, NOW);
-        // Reviewer can't fix the conflict; falls through to MINE-or-null;
-        // since this PR is REVIEW_REQUESTED, MINE doesn't fire either.
-        assertThat(reason).isNull();
-    }
-
-    @Test
-    void testNewCommentFiresOnAuthoredPrAfterViewedAt()
-    {
-        Instant viewedAt = NOW.minus(Duration.ofHours(1));
-        PrTimelineEvent fresh = commented("bob", NOW.minus(Duration.ofMinutes(30)), "looking good");
-        StoredPrDetail detail = detailWith(ImmutableList.of(fresh));
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, viewedAt, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.NEW_COMMENT);
-    }
-
-    @Test
-    void testNewCommentDoesNotFireForOwnComment()
-    {
-        Instant viewedAt = NOW.minus(Duration.ofHours(1));
-        PrTimelineEvent self = commented(ME, NOW.minus(Duration.ofMinutes(10)), "ping");
-        StoredPrDetail detail = detailWith(ImmutableList.of(self));
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, viewedAt, NOW);
-        // Falls through to MINE since no third-party activity.
-        assertThat(reason).isEqualTo(AttentionReason.MINE);
-    }
-
-    @Test
-    void testCiFailingTakesPrecedenceOverMergeConflictAndMine()
-    {
-        StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, ImmutableList.of(), "abc", null, null, null, null),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(null, "ci", "completed", "failure", null, null, null)),
-                ImmutableList.of(), ImmutableList.of());
-        AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, NOW, NOW);
-        assertThat(reason).isEqualTo(AttentionReason.CI_FAILING);
-    }
-
-    private static PrTimelineEvent commented(String actor, Instant timestamp, String body)
-    {
-        return new PrTimelineEvent(null, "commented", actor, null, timestamp, body, null, null, null, null, null, Reactions.EMPTY);
-    }
-
-    private static StoredPrDetail detailWith(List<PrTimelineEvent> timeline)
-    {
-        return new StoredPrDetail(
-                rawDetail(),
-                ImmutableList.of(),
-                ImmutableList.of(),
-                timeline,
-                ImmutableList.of(),
-                ImmutableList.of(),
-                ImmutableList.of());
-    }
-
-    private static PrRawDetail rawDetail()
-    {
-        return new PrRawDetail(null, ImmutableList.of(), false, null, null, 0, 0, 0, 0, ImmutableList.of(), "abc", null, null, null, null);
+                1, "owner/repo", 7, "title", "alice", "url", null, NOW, origin,
+                List.of(), null, false, null, null, null, List.of(), null,
+                0, 0, 0, null, "open", null, null, null, null, null, null, null, null, null);
     }
 }

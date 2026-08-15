@@ -12,46 +12,21 @@
  * limitations under the License.
  */
 
-/**
- * The one relative-time formatter. Seventeen near-identical copies of this
- * used to live next to the components that needed them, disagreeing about
- * when to switch units and whether sub-minute reads "now" or "just now".
- *
- * Surfaces that genuinely format something else keep their own helper —
- * elapsed-timer displays, and the ones that fall back to a calendar date
- * past a cutoff. Those aren't relative timestamps.
- */
+const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' });
 
-const MINUTE = 60_000;
-const HOUR = 3_600_000;
-const DAY = 86_400_000;
-
-type Options = {
-  /** `false` drops the trailing " ago" for dense chips: `5m`, `3h`, `2d`. */
-  suffix?: boolean;
-  /** Reference clock, injectable so callers and tests control it. */
-  now?: number;
-};
-
-/**
- * A timestamp as `just now` / `5m ago` / `3h ago` / `2d ago`, counting down
- * in whole units so nothing ever rounds up into a unit that hasn't elapsed.
- *
- * Returns `''` for null, undefined, and unparseable input — callers that
- * want a placeholder write `relativeTime(x) || '—'`.
- */
 export function relativeTime(
   value: string | number | null | undefined,
-  { suffix = true, now = Date.now() }: Options = {},
+  { suffix = true, now = Date.now() }: { suffix?: boolean; now?: number } = {},
 ): string {
   if (value === null || value === undefined) return '';
-  const then = typeof value === 'number' ? value : Date.parse(value);
-  if (!Number.isFinite(then)) return '';
-
-  const elapsed = Math.max(0, now - then);
-  const ago = suffix ? ' ago' : '';
-  if (elapsed < MINUTE) return suffix ? 'just now' : 'now';
-  if (elapsed < HOUR) return `${Math.floor(elapsed / MINUTE)}m${ago}`;
-  if (elapsed < DAY) return `${Math.floor(elapsed / HOUR)}h${ago}`;
-  return `${Math.floor(elapsed / DAY)}d${ago}`;
+  const elapsed = Math.max(0, now - (typeof value === 'number' ? value : Date.parse(value)));
+  if (!Number.isFinite(elapsed)) return '';
+  const [amount, unit, short] = elapsed < 60_000
+    ? [0, 'second', 'now'] as const
+    : elapsed < 3_600_000
+      ? [Math.floor(elapsed / 60_000), 'minute', 'm'] as const
+      : elapsed < 86_400_000
+        ? [Math.floor(elapsed / 3_600_000), 'hour', 'h'] as const
+        : [Math.floor(elapsed / 86_400_000), 'day', 'd'] as const;
+  return suffix ? formatter.format(-amount, unit) : amount === 0 ? short : `${amount}${short}`;
 }

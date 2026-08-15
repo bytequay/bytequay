@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Converter;
 
 import java.util.List;
@@ -30,7 +29,7 @@ class StringListConverter
 {
     StringListConverter()
     {
-        super(new TypeReference<>() {}, "string list", "[]", ImmutableList.of());
+        super(new TypeReference<>() {}, "string list", "[]", List.of());
     }
 
     @Override

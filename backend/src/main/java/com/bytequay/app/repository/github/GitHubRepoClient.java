@@ -15,8 +15,6 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -24,6 +22,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -79,7 +78,7 @@ public class GitHubRepoClient
                     response.size(),
                     response.createdAt(),
                     response.pushedAt(),
-                    Optional.ofNullable(response.topics()).orElse(ImmutableList.of()),
+                    Optional.ofNullable(response.topics()).orElse(List.of()),
                     languages,
                     Optional.ofNullable(response.owner())
                             .map(GitHubRepoResponse.Owner::avatarUrl)
@@ -102,10 +101,10 @@ public class GitHubRepoClient
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
-            return languages == null ? ImmutableMap.of() : languages;
+            return languages == null ? Map.of() : languages;
         }
         catch (RestClientResponseException ignored) {
-            return ImmutableMap.of();
+            return Map.of();
         }
     }
 }

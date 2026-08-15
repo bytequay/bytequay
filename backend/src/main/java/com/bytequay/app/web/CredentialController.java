@@ -16,7 +16,6 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,7 +53,7 @@ public class CredentialController
     public Map<String, Boolean> accountConfigured()
     {
         boolean configured = credentialService.get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).isPresent();
-        return ImmutableMap.of("configured", configured);
+        return Map.of("configured", configured);
     }
 
     @PostMapping("/api/credentials")

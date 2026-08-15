@@ -22,7 +22,7 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.service.RepoService;
-import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,12 +31,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
-import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -59,7 +59,9 @@ public class RepoController
     @PostMapping("/repos")
     public WatchedRepo addRepo(@RequestBody AddRepoRequest request)
     {
-        request = requireBody(request);
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         requireNotBlank(request.owner(), "owner is required");
         requireNotBlank(request.repo(), "repo is required");
         return repos.addWatchedRepo(request.owner(), request.repo());
@@ -69,7 +71,7 @@ public class RepoController
     public Map<String, String> removeRepo(@PathVariable String owner, @PathVariable String repo)
     {
         repos.removeWatchedRepo(owner, repo);
-        return ImmutableMap.of("result", "removed");
+        return Map.of("result", "removed");
     }
 
     @GetMapping("/profile")

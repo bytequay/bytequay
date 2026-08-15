@@ -73,16 +73,6 @@ class PrDetailEntity
     @Column(name = "base_repo")
     private String baseRepo;
 
-    /** GitHub merge-queue entry state (GraphQL-sourced). Null when the
-     *  PR isn't in the queue. */
-    @Column(name = "merge_queue_state")
-    private String mergeQueueState;
-
-    /** True when the PR's base branch has a merge queue configured
-     *  (it's possible to add this PR to the queue). GraphQL-sourced. */
-    @Column(name = "merge_queue_enabled")
-    private Boolean mergeQueueEnabled;
-
     /** PR lifecycle state: "open" | "closed". Lets the reconciler detect
      *  a finished PR regardless of where it was merged/closed. */
     private String state;
@@ -144,12 +134,6 @@ class PrDetailEntity
 
     String getBaseRepo() { return baseRepo; }
     void setBaseRepo(String baseRepo) { this.baseRepo = baseRepo; }
-
-    String getMergeQueueState() { return mergeQueueState; }
-    void setMergeQueueState(String mergeQueueState) { this.mergeQueueState = mergeQueueState; }
-
-    Boolean getMergeQueueEnabled() { return mergeQueueEnabled; }
-    void setMergeQueueEnabled(Boolean mergeQueueEnabled) { this.mergeQueueEnabled = mergeQueueEnabled; }
 
     String getState() { return state; }
     void setState(String state) { this.state = state; }

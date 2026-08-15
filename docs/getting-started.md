@@ -1,10 +1,3 @@
----
-id: getting-started
-title: Getting started
-sidebar_label: Getting started
-sidebar_position: 1
----
-
 # Getting started
 
 Install the latest `.dmg` from the

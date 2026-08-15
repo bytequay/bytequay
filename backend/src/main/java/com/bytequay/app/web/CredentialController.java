@@ -13,17 +13,12 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.domain.Credential;
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.credentials.CredentialService;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Locale;
 import java.util.Map;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -39,28 +34,19 @@ public class CredentialController
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
     }
 
-    public record UpsertRequest(
-            String type,
-            String name,
-            String value,
-            String label,
-            String notes,
-            String configJson)
-    {}
+    public record TokenRequest(String value) {}
 
-    @GetMapping("/api/credentials/account/exists")
+    @GetMapping("/api/auth/github/configured")
     public Map<String, Boolean> accountConfigured()
     {
         return Map.of("configured", credentialService.isGitHubAccountConfigured());
     }
 
-    @PostMapping("/api/credentials")
-    public Credential upsert(@RequestBody UpsertRequest req)
+    @PostMapping("/api/auth/github/token")
+    public void saveToken(@RequestBody TokenRequest req)
     {
         requireNotBlank(req.value(), "value must not be blank");
-        requireNotBlank(req.name(), "name must not be blank");
-        return credentialService.upsert(
-                parseType(req.type()), req.name(), req.value(), req.label(), req.notes(), req.configJson());
+        credentialService.saveGitHubToken(req.value());
     }
 
     @GetMapping("/api/auth/github/cli")
@@ -73,15 +59,5 @@ public class CredentialController
     public Map<String, String> importGhCliToken()
     {
         return Map.of("login", credentialService.importGitHubCliToken());
-    }
-
-    private static CredentialType parseType(String value)
-    {
-        try {
-            return CredentialType.valueOf(value.toUpperCase(Locale.ROOT));
-        }
-        catch (IllegalArgumentException | NullPointerException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "unknown credential type: " + value);
-        }
     }
 }

@@ -64,23 +64,6 @@ class PrDetailEntity
     @Column(name = "head_ref")
     private String headRef;
 
-    @Column(name = "head_repo")
-    private String headRepo;
-
-    @Column(name = "base_ref")
-    private String baseRef;
-
-    @Column(name = "base_repo")
-    private String baseRepo;
-
-    /** PR lifecycle state: "open" | "closed". Lets the reconciler detect
-     *  a finished PR regardless of where it was merged/closed. */
-    private String state;
-
-    /** True when the PR landed (merged), as opposed to closed unmerged. */
-    @Column(nullable = false)
-    private boolean merged;
-
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -125,21 +108,6 @@ class PrDetailEntity
 
     String getHeadRef() { return headRef; }
     void setHeadRef(String headRef) { this.headRef = headRef; }
-
-    String getHeadRepo() { return headRepo; }
-    void setHeadRepo(String headRepo) { this.headRepo = headRepo; }
-
-    String getBaseRef() { return baseRef; }
-    void setBaseRef(String baseRef) { this.baseRef = baseRef; }
-
-    String getBaseRepo() { return baseRepo; }
-    void setBaseRepo(String baseRepo) { this.baseRepo = baseRepo; }
-
-    String getState() { return state; }
-    void setState(String state) { this.state = state; }
-
-    boolean isMerged() { return merged; }
-    void setMerged(boolean merged) { this.merged = merged; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

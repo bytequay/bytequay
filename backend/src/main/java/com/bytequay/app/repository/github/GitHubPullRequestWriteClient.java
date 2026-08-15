@@ -15,7 +15,6 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.Reactions;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -84,30 +83,7 @@ public class GitHubPullRequestWriteClient
                 comment.id(),
                 "commented",
                 Optional.ofNullable(comment.user()).map(GitHubIssueComment.User::login).orElse(null),
-                null,
                 comment.createdAt(),
-                comment.body(),
-                null,
-                null,
-                null,
-                null,
-                comment.authorAssociation(),
-                toReactions(comment.reactions()));
-    }
-
-    private static Reactions toReactions(GitHubIssueComment.Reactions reactions)
-    {
-        if (reactions == null) {
-            return Reactions.EMPTY;
-        }
-        return new Reactions(
-                reactions.plusOne(),
-                reactions.minusOne(),
-                reactions.laugh(),
-                reactions.hooray(),
-                reactions.confused(),
-                reactions.heart(),
-                reactions.rocket(),
-                reactions.eyes());
+                comment.body());
     }
 }

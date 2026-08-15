@@ -13,20 +13,14 @@
  */
 package com.bytequay.app.service;
 
-import com.bytequay.app.domain.Credential;
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.sqlite.SqliteCredentialStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_ACCOUNT_NAME;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,12 +35,11 @@ class TestCredentialService
     {
         SqliteCredentialStore store = mock(SqliteCredentialStore.class);
         GhCliService ghCli = mock(GhCliService.class);
-        when(store.find(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
-                .thenReturn(Optional.of(accountRow(GH_CLI_SOURCE)));
+        when(store.source()).thenReturn(Optional.of(GH_CLI_SOURCE));
         when(ghCli.currentToken()).thenReturn(Optional.of("gho_rotated"));
 
         assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("gho_rotated");
-        verify(store, never()).getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME);
+        verify(store, never()).getSecret();
     }
 
     @Test
@@ -54,10 +47,8 @@ class TestCredentialService
     {
         SqliteCredentialStore store = mock(SqliteCredentialStore.class);
         GhCliService ghCli = mock(GhCliService.class);
-        when(store.find(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
-                .thenReturn(Optional.of(accountRow(null)));
-        when(store.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
-                .thenReturn(Optional.of("ghp_pasted"));
+        when(store.source()).thenReturn(Optional.empty());
+        when(store.getSecret()).thenReturn(Optional.of("ghp_pasted"));
 
         assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("ghp_pasted");
         verify(ghCli, never()).currentToken();
@@ -68,11 +59,9 @@ class TestCredentialService
     {
         SqliteCredentialStore store = mock(SqliteCredentialStore.class);
         GhCliService ghCli = mock(GhCliService.class);
-        when(store.find(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
-                .thenReturn(Optional.of(accountRow(GH_CLI_SOURCE)));
+        when(store.source()).thenReturn(Optional.of(GH_CLI_SOURCE));
         when(ghCli.currentToken()).thenReturn(Optional.empty());
-        when(store.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME))
-                .thenReturn(Optional.of("gho_imported"));
+        when(store.getSecret()).thenReturn(Optional.of("gho_imported"));
 
         assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("gho_imported");
     }
@@ -87,27 +76,6 @@ class TestCredentialService
         var result = new CredentialService(store, ghCli).importGitHubCliToken();
 
         assertThat(result).isEqualTo("octocat");
-        verify(store).upsert(
-                eq(CredentialType.ACCOUNT),
-                eq(GITHUB_ACCOUNT_NAME),
-                eq("gho_secret"),
-                eq("octocat"),
-                any(),
-                eq(GH_CLI_SOURCE));
-    }
-
-    private static Credential accountRow(String configJson)
-    {
-        return new Credential(
-                1L,
-                CredentialType.ACCOUNT,
-                GITHUB_ACCOUNT_NAME,
-                "octocat",
-                "gho_…",
-                null,
-                configJson,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                null);
+        verify(store).save("gho_secret", GH_CLI_SOURCE);
     }
 }

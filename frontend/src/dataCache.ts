@@ -24,8 +24,7 @@ export function getCached<T>(key: string): T | undefined {
 /**
  * Like {@link getCached} but evicts the entry — and returns undefined —
  * once it's older than {@code maxAgeMs}. For data that's expensive to
- * fetch but acceptable to refresh on a fixed cadence (e.g. the team
- * home's "merged this week" GitHub-search count, with a 10-minute TTL).
+ * fetch but acceptable to refresh on a fixed cadence.
  */
 export function getCachedFresh<T>(key: string, maxAgeMs: number): T | undefined {
   const entry = cache.get(key);
@@ -39,9 +38,4 @@ export function getCachedFresh<T>(key: string, maxAgeMs: number): T | undefined 
 
 export function setCached<T>(key: string, value: T): void {
   cache.set(key, { value, storedAt: Date.now() });
-}
-
-/** Test isolation hook for components backed by this module-level cache. */
-export function invalidate(key: string): void {
-  cache.delete(key);
 }

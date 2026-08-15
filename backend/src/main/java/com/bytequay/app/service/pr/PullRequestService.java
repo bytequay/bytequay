@@ -73,14 +73,8 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestService
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
-    // How many V53-backfill PRs to re-fetch per sync tick. A bounded
-    // batch keeps the rate-limit cost predictable — once the table is
-    // backfilled the query returns 0 and this loop is free.
-    private static final int REVIEW_TIMESTAMP_BACKFILL_BATCH = 25;
-
     // Minimum gap between forced detail re-fetches of an *unchanged* PR
-    // that still looks under-enriched (empty reviewer verdicts, null
-    // review timestamps). The enrichment re-check exists to catch
+    // that still looks under-enriched. The enrichment re-check exists to catch
     // reviewer verdicts that flip without bumping the PR's updatedAt, so
     // we can't drop it entirely — but re-fetching every ~60s sync tick
     // for every review-less PR is what exhausts the GitHub rate limit.
@@ -113,9 +107,9 @@ public class PullRequestService
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final CredentialService credentialService;
-    /** prId → the last time we forced a backfill detail-sync for an
+    /** prId → the last time we forced a detail-sync for an
      *  unchanged-but-under-enriched PR. Gates the enrichment / review-
-     *  timestamp re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
+     *  re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
      *  review-less PR isn't re-fetched on every sync tick. In-memory
      *  only — a restart just re-checks each PR once. */
     private final ConcurrentMap<Long, Instant> lastBackfillAttempt = new ConcurrentHashMap<>();
@@ -175,11 +169,6 @@ public class PullRequestService
         // Rows whose enrichment fields are still null get a forced detail
         // sync regardless of updatedAt.
         Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
-        // Also refresh a bounded batch whose cached reviews predate the
-        // submitted-at field.
-        Set<Long> missingReviewTimestamps = Set.copyOf(
-                detailStore.findPrIdsMissingReviewTimestamps(REVIEW_TIMESTAMP_BACKFILL_BATCH));
-
         // Pull the current user's login once per sync so we can reconcile
         // `handledAction` against reviews submitted outside the app (e.g. via
         // the embedded github.com window or a separate browser tab).
@@ -212,8 +201,7 @@ public class PullRequestService
                 toSync.add(pr);
                 continue;
             }
-            boolean underEnriched = missingEnrichment.contains(pr.id())
-                    || missingReviewTimestamps.contains(pr.id());
+            boolean underEnriched = missingEnrichment.contains(pr.id());
             if (underEnriched && backfillDue(pr.id(), now)) {
                 lastBackfillAttempt.put(pr.id(), now);
                 toSync.add(pr);

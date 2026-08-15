@@ -81,25 +81,4 @@ class TestCredentialCipher
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to decrypt");
     }
-
-    @Test
-    void testPreviewShowsFirst4AndLast4WithBulletsInBetween()
-    {
-        assertThat(CredentialCipher.preview("ghp_1234567890abcdefghij"))
-                .isEqualTo("ghp_•••••ghij");
-    }
-
-    @Test
-    void testPreviewShortValueIsFullyMasked()
-    {
-        assertThat(CredentialCipher.preview("abc")).isEqualTo("•••");
-        assertThat(CredentialCipher.preview("12345678")).isEqualTo("••••••••");
-    }
-
-    @Test
-    void testPreviewEmptyAndNull()
-    {
-        assertThat(CredentialCipher.preview(null)).isEmpty();
-        assertThat(CredentialCipher.preview("")).isEmpty();
-    }
 }

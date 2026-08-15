@@ -18,7 +18,6 @@ import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import org.junit.jupiter.api.Test;
 
@@ -50,8 +49,7 @@ class TestPullRequestDetailMapper
                 raw(),
                 List.of(new PrReviewState("alice", "APPROVED")),
                 List.of(new PrTimelineEvent(
-                        7L, "commented", "bob", null, Instant.parse("2026-01-01T00:00:00Z"), "hello",
-                        null, null, null, null, null, Reactions.EMPTY)),
+                        7L, "commented", "bob", Instant.parse("2026-01-01T00:00:00Z"), "hello")),
                 List.of(check("build", "completed", "success")));
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 5, stored, true);
@@ -78,6 +76,6 @@ class TestPullRequestDetailMapper
     {
         return new PrRawDetail(
                 "body", List.of(), false, true, "clean", 10, 2, 3, 0, List.of(),
-                "head", "feature", "owner/repo", "main", "owner/repo", "open", false);
+                "head", "feature");
     }
 }

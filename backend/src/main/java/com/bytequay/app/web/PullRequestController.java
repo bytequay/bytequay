@@ -17,11 +17,14 @@ import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.pr.PullRequestService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -33,16 +36,25 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestController
 {
     private final PullRequestService pullRequests;
+    private final PullRequestSyncJob syncJob;
 
-    public PullRequestController(PullRequestService pullRequests)
+    public PullRequestController(PullRequestService pullRequests, PullRequestSyncJob syncJob)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.syncJob = requireNonNull(syncJob, "syncJob is null");
     }
 
     @GetMapping("/prs")
     public List<PullRequest> list()
     {
         return pullRequests.listPullRequests();
+    }
+
+    @PostMapping("/api/settings/sync/trigger")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void triggerSync()
+    {
+        syncJob.requestImmediateSync();
     }
 
     @GetMapping("/prs/detail")

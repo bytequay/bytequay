@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.domain.CredentialType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -21,7 +20,5 @@ import java.util.Optional;
 interface CredentialJpaRepository
         extends JpaRepository<CredentialEntity, Long>
 {
-    Optional<CredentialEntity> findFirstByTypeAndNameOrderByIdAsc(CredentialType type, String name);
-
-    void deleteByTypeAndName(CredentialType type, String name);
+    Optional<CredentialEntity> findFirstByOrderByIdAsc();
 }

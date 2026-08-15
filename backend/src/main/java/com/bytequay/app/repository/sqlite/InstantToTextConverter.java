@@ -17,11 +17,6 @@ import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.Optional;
-
 /**
  * Stores {@link Instant} values as ISO-8601 text in SQLite.
  *
@@ -29,81 +24,20 @@ import java.util.Optional;
  * setTimestamp() on SQLite-JDBC. That driver stores the value as raw epoch milliseconds
  * (a long integer), then getTimestamp() fails to parse it back as a date string.
  * This converter bypasses that path by going through getString()/setString() instead.
- *
- * <p>The reader handles three formats found in existing rows:
- * <ol>
- *   <li>ISO-8601 ("2026-04-21T10:30:00Z") – written by this converter</li>
- *   <li>SQLite CURRENT_TIMESTAMP ("2026-04-21 10:30:00") – found in older local data</li>
- *   <li>Epoch millis as string ("1776764879190") – written by pre-fix Hibernate</li>
- * </ol>
  */
 @Converter
 class InstantToTextConverter
         implements AttributeConverter<Instant, String>
 {
-    private static final DateTimeFormatter SQLITE_DATETIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
     @Override
     public String convertToDatabaseColumn(Instant attribute)
     {
-        if (attribute == null) {
-            return null;
-        }
-        return attribute.toString();
-    }
-
-    static Instant parse(String dbData)
-    {
-        return new InstantToTextConverter().convertToEntityAttribute(dbData);
+        return attribute == null ? null : attribute.toString();
     }
 
     @Override
     public Instant convertToEntityAttribute(String dbData)
     {
-        if (dbData == null || dbData.isEmpty()) {
-            return null;
-        }
-        Optional<Instant> isoInstant = parseIsoInstant(dbData);
-        if (isoInstant.isPresent()) {
-            return isoInstant.get();
-        }
-
-        Optional<Instant> sqliteDateTime = parseSqliteDateTime(dbData);
-        if (sqliteDateTime.isPresent()) {
-            return sqliteDateTime.get();
-        }
-
-        return parseEpochMillis(dbData).orElse(null);
-    }
-
-    private static Optional<Instant> parseIsoInstant(String value)
-    {
-        try {
-            return Optional.of(Instant.parse(value));
-        }
-        catch (RuntimeException ignored) {
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<Instant> parseSqliteDateTime(String value)
-    {
-        try {
-            return Optional.of(LocalDateTime.parse(value, SQLITE_DATETIME).toInstant(ZoneOffset.UTC));
-        }
-        catch (RuntimeException ignored) {
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<Instant> parseEpochMillis(String value)
-    {
-        try {
-            return Optional.of(Instant.ofEpochMilli(Long.parseLong(value)));
-        }
-        catch (RuntimeException ignored) {
-            return Optional.empty();
-        }
+        return dbData == null ? null : Instant.parse(dbData);
     }
 }

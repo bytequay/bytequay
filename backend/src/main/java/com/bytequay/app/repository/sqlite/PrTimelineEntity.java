@@ -38,78 +38,14 @@ class PrTimelineEntity
 
     private String actor;
 
-    private String state;
-
     @Convert(converter = InstantToTextConverter.class)
     private Instant timestamp;
 
     @Column(columnDefinition = "TEXT")
     private String body;
 
-    @Column(name = "before_sha")
-    private String beforeSha;
-
-    @Column(name = "after_sha")
-    private String afterSha;
-
-    @Column(name = "requested_reviewer")
-    private String requestedReviewer;
-
-    @Column(name = "review_id")
-    private Long reviewId;
-
-    /** Stable GitHub event id; lets the upsert-on-insert pattern dedupe
-     *  rows across incremental sync windows. Null only on legacy rows
-     *  written before V25. */
     @Column(name = "github_id")
     private Long githubId;
-
-    /** GitHub author_association — see V30 migration. */
-    @Column(name = "author_association")
-    private String authorAssociation;
-
-    /** Reactions on issue/PR comments (V32). All 0 for non-comment
-     *  timeline events. */
-    @Column(name = "reactions_plus_one", nullable = false)
-    private int reactionsPlusOne;
-    @Column(name = "reactions_minus_one", nullable = false)
-    private int reactionsMinusOne;
-    @Column(name = "reactions_laugh", nullable = false)
-    private int reactionsLaugh;
-    @Column(name = "reactions_hooray", nullable = false)
-    private int reactionsHooray;
-    @Column(name = "reactions_confused", nullable = false)
-    private int reactionsConfused;
-    @Column(name = "reactions_heart", nullable = false)
-    private int reactionsHeart;
-    @Column(name = "reactions_rocket", nullable = false)
-    private int reactionsRocket;
-    @Column(name = "reactions_eyes", nullable = false)
-    private int reactionsEyes;
-
-    /** Label name/color on labeled/unlabeled events (V156). */
-    @Column(name = "label_name")
-    private String labelName;
-    @Column(name = "label_color")
-    private String labelColor;
-
-    /** Milestone title on milestoned/demilestoned events (V156). */
-    @Column(name = "milestone_title")
-    private String milestoneTitle;
-
-    /** Login assigned/unassigned on assigned/unassigned events (V156). */
-    @Column(name = "assignee_login")
-    private String assigneeLogin;
-
-    /** The other issue/PR referenced by a cross-referenced event (V156). */
-    @Column(name = "cross_ref_number")
-    private Integer crossRefNumber;
-    @Column(name = "cross_ref_title")
-    private String crossRefTitle;
-    @Column(name = "cross_ref_url")
-    private String crossRefUrl;
-    @Column(name = "cross_ref_is_pull_request", nullable = false)
-    private boolean crossRefIsPullRequest;
 
     protected PrTimelineEntity() {}
 
@@ -124,67 +60,12 @@ class PrTimelineEntity
     String getActor() { return actor; }
     void setActor(String actor) { this.actor = actor; }
 
-    String getState() { return state; }
-    void setState(String state) { this.state = state; }
-
     Instant getTimestamp() { return timestamp; }
     void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
 
     String getBody() { return body; }
     void setBody(String body) { this.body = body; }
 
-    String getBeforeSha() { return beforeSha; }
-    void setBeforeSha(String beforeSha) { this.beforeSha = beforeSha; }
-
-    String getAfterSha() { return afterSha; }
-    void setAfterSha(String afterSha) { this.afterSha = afterSha; }
-
-    String getRequestedReviewer() { return requestedReviewer; }
-    void setRequestedReviewer(String requestedReviewer) { this.requestedReviewer = requestedReviewer; }
-
-    Long getReviewId() { return reviewId; }
-    void setReviewId(Long reviewId) { this.reviewId = reviewId; }
-
     Long getGithubId() { return githubId; }
     void setGithubId(Long githubId) { this.githubId = githubId; }
-
-    String getAuthorAssociation() { return authorAssociation; }
-    void setAuthorAssociation(String authorAssociation) { this.authorAssociation = authorAssociation; }
-
-    int getReactionsPlusOne() { return reactionsPlusOne; }
-    void setReactionsPlusOne(int v) { this.reactionsPlusOne = v; }
-    int getReactionsMinusOne() { return reactionsMinusOne; }
-    void setReactionsMinusOne(int v) { this.reactionsMinusOne = v; }
-    int getReactionsLaugh() { return reactionsLaugh; }
-    void setReactionsLaugh(int v) { this.reactionsLaugh = v; }
-    int getReactionsHooray() { return reactionsHooray; }
-    void setReactionsHooray(int v) { this.reactionsHooray = v; }
-    int getReactionsConfused() { return reactionsConfused; }
-    void setReactionsConfused(int v) { this.reactionsConfused = v; }
-    int getReactionsHeart() { return reactionsHeart; }
-    void setReactionsHeart(int v) { this.reactionsHeart = v; }
-    int getReactionsRocket() { return reactionsRocket; }
-    void setReactionsRocket(int v) { this.reactionsRocket = v; }
-    int getReactionsEyes() { return reactionsEyes; }
-    void setReactionsEyes(int v) { this.reactionsEyes = v; }
-
-    String getLabelName() { return labelName; }
-    void setLabelName(String labelName) { this.labelName = labelName; }
-    String getLabelColor() { return labelColor; }
-    void setLabelColor(String labelColor) { this.labelColor = labelColor; }
-
-    String getMilestoneTitle() { return milestoneTitle; }
-    void setMilestoneTitle(String milestoneTitle) { this.milestoneTitle = milestoneTitle; }
-
-    String getAssigneeLogin() { return assigneeLogin; }
-    void setAssigneeLogin(String assigneeLogin) { this.assigneeLogin = assigneeLogin; }
-
-    Integer getCrossRefNumber() { return crossRefNumber; }
-    void setCrossRefNumber(Integer crossRefNumber) { this.crossRefNumber = crossRefNumber; }
-    String getCrossRefTitle() { return crossRefTitle; }
-    void setCrossRefTitle(String crossRefTitle) { this.crossRefTitle = crossRefTitle; }
-    String getCrossRefUrl() { return crossRefUrl; }
-    void setCrossRefUrl(String crossRefUrl) { this.crossRefUrl = crossRefUrl; }
-    boolean isCrossRefIsPullRequest() { return crossRefIsPullRequest; }
-    void setCrossRefIsPullRequest(boolean crossRefIsPullRequest) { this.crossRefIsPullRequest = crossRefIsPullRequest; }
 }

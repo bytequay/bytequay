@@ -18,7 +18,6 @@ import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -140,9 +139,7 @@ class TestPullRequestDetailFetcher
     {
         Instant commentedAt = Instant.parse("2026-08-15T10:00:00Z");
         PrTimelineEvent timelineCopy = comment(1L, "alice", commentedAt, "plain copy");
-        PrTimelineEvent labeled = new PrTimelineEvent(
-                2L, "labeled", "bob", null, commentedAt, null,
-                null, null, null, null, null, Reactions.EMPTY);
+        PrTimelineEvent labeled = new PrTimelineEvent(2L, "labeled", "bob", commentedAt, null);
         PrTimelineEvent issueCopy = comment(3L, "alice", commentedAt, "copy with reactions");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
@@ -175,13 +172,11 @@ class TestPullRequestDetailFetcher
     {
         return new PrRawDetail(
                 "body", List.of(), false, true, "clean", 4, 2, 1, 0, List.of(),
-                headSha, "feature", "owner/repo", "main", "owner/repo", "open", false);
+                headSha, "feature");
     }
 
     private static PrTimelineEvent comment(Long githubId, String actor, Instant timestamp, String body)
     {
-        return new PrTimelineEvent(
-                githubId, "commented", actor, null, timestamp, body,
-                null, null, null, null, null, Reactions.EMPTY);
+        return new PrTimelineEvent(githubId, "commented", actor, timestamp, body);
     }
 }

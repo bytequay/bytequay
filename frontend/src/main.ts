@@ -230,16 +230,10 @@ function registerIpc(): void {
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');
-    await backendJson(`${BACKEND_BASE}/api/credentials`, {
+    await backendJson(`${BACKEND_BASE}/api/auth/github/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'ACCOUNT',
-        name: 'github',
-        value: pat.trim(),
-        label: null,
-        notes: null,
-      }),
+      body: JSON.stringify({ value: pat.trim() }),
     });
     void fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });
     return true;
@@ -248,7 +242,7 @@ function registerIpc(): void {
     if (!await waitForBackendReady()) return false;
     try {
       const result = await backendJson<{ configured: boolean }>(
-        `${BACKEND_BASE}/api/credentials/account/exists`,
+        `${BACKEND_BASE}/api/auth/github/configured`,
       );
       return result.configured;
     }

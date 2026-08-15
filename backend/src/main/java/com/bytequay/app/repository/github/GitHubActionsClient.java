@@ -14,17 +14,14 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.PrCheckRunState;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
-import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -39,21 +36,8 @@ public class GitHubActionsClient
 
     public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
     {
-        return fetchPrCheckRuns(pat, owner, repo, sha, false);
-    }
-
-    public List<PrCheckRunState> fetchPrCheckRunsStrict(String pat, String owner, String repo, String sha)
-    {
-        return fetchPrCheckRuns(pat, owner, repo, sha, true);
-    }
-
-    private List<PrCheckRunState> fetchPrCheckRuns(
-            String pat, String owner, String repo, String sha, boolean strict)
-    {
         List<PrCheckRunState> result = new ArrayList<>();
         int collected = 0;
-        Integer total = null;
-        boolean complete = false;
         for (int page = 1; page <= 5; page++) {
             int currentPage = page;
             try {
@@ -66,49 +50,21 @@ public class GitHubActionsClient
                         .retrieve()
                         .body(GitHubCheckRunsResponse.class);
                 if (response == null || response.checkRuns() == null) {
-                    if (strict) {
-                        throw incompleteCheckRunsResponse(collected, total);
-                    }
                     break;
-                }
-                if (strict) {
-                    if (total == null) {
-                        total = response.totalCount();
-                    }
-                    else if (total != response.totalCount()) {
-                        throw incompleteCheckRunsResponse(collected, total);
-                    }
                 }
                 for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
                     result.add(new PrCheckRunState(
                             check.id(), check.name(), check.status(), check.conclusion()));
                 }
                 collected += response.checkRuns().size();
-                complete = strict && collected == total;
-                if (complete || (!strict && (collected >= response.totalCount() || response.checkRuns().size() < 100))) {
+                if (collected >= response.totalCount() || response.checkRuns().size() < 100) {
                     break;
-                }
-                if (strict && (collected > total || response.checkRuns().size() < 100)) {
-                    throw incompleteCheckRunsResponse(collected, total);
                 }
             }
             catch (RestClientResponseException e) {
-                if (strict) {
-                    throw toReadableException(e);
-                }
                 break;
             }
         }
-        if (strict && !complete) {
-            throw incompleteCheckRunsResponse(collected, total);
-        }
         return List.copyOf(result);
-    }
-
-    private static ResponseStatusException incompleteCheckRunsResponse(int collected, Integer total)
-    {
-        return new ResponseStatusException(
-                HttpStatusCode.valueOf(502),
-                "GitHub check-runs pagination was incomplete: collected " + collected + " of " + total);
     }
 }

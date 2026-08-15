@@ -40,7 +40,7 @@ class TestGitHubActionsClient
                         """, MediaType.APPLICATION_JSON));
 
         PrCheckRunState check = fixture.client()
-                .fetchPrCheckRunsStrict("pat", "owner", "repo", "head")
+                .fetchPrCheckRuns("pat", "owner", "repo", "head")
                 .getFirst();
 
         assertThat(check.githubId()).isEqualTo(99L);

@@ -21,7 +21,6 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -185,20 +184,6 @@ public class GitHubPullRequestReadClient
                     Optional.ofNullable(r.head())
                             .map(GitHubPullRequestDetailResponse.Head::ref)
                             .orElse(null);
-            String headRepo =
-                    Optional.ofNullable(r.head())
-                            .map(GitHubPullRequestDetailResponse.Head::repo)
-                            .map(GitHubPullRequestDetailResponse.Repo::fullName)
-                            .orElse(null);
-            String baseRef =
-                    Optional.ofNullable(r.base())
-                            .map(GitHubPullRequestDetailResponse.Base::ref)
-                            .orElse(null);
-            String baseRepo =
-                    Optional.ofNullable(r.base())
-                            .map(GitHubPullRequestDetailResponse.Base::repo)
-                            .map(GitHubPullRequestDetailResponse.Repo::fullName)
-                            .orElse(null);
             return new PrRawDetail(
                     r.body(),
                     labels,
@@ -211,12 +196,7 @@ public class GitHubPullRequestReadClient
                     reviewerCount,
                     reviewerLogins,
                     headSha,
-                    headRef,
-                    headRepo,
-                    baseRef,
-                    baseRepo,
-                    r.state(),
-                    Boolean.TRUE.equals(r.merged()));
+                    headRef);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -367,30 +347,8 @@ public class GitHubPullRequestReadClient
                 c.id(),
                 "commented",
                 Optional.ofNullable(c.user()).map(GitHubIssueComment.User::login).orElse(null),
-                null,
                 c.createdAt(),
-                c.body(),
-                null,
-                null,
-                null,
-                null,
-                c.authorAssociation(),
-                toIssueCommentReactions(c.reactions()));
-    }
-
-    private static Reactions toIssueCommentReactions(GitHubIssueComment.Reactions r) {
-        if (r == null) {
-            return Reactions.EMPTY;
-        }
-        return new Reactions(
-                r.plusOne(),
-                r.minusOne(),
-                r.laugh(),
-                r.hooray(),
-                r.confused(),
-                r.heart(),
-                r.rocket(),
-                r.eyes());
+                c.body());
     }
 
     private static PrTimelineEvent toTimelineEvent(GitHubTimelineEvent event)
@@ -416,34 +374,12 @@ public class GitHubPullRequestReadClient
             case "reviewed" -> event.submittedAt();
             default -> event.createdAt();
         };
-        GitHubTimelineEvent.SourceIssue crossRef = Optional.ofNullable(event.source())
-                .map(GitHubTimelineEvent.Source::issue)
-                .orElse(null);
         return new PrTimelineEvent(
                 event.id(),
                 event.event(),
                 actor,
-                event.state(),
                 timestamp,
-                event.body(),
-                Optional.ofNullable(event.beforeCommit()).map(GitHubTimelineEvent.Commit::sha).orElse(null),
-                Optional.ofNullable(event.afterCommit()).map(GitHubTimelineEvent.Commit::sha).orElse(event.sha()),
-                "review_requested".equals(type)
-                        ? Optional.ofNullable(event.requestedReviewer())
-                                .map(GitHubTimelineEvent.User::login)
-                                .orElse(null)
-                        : null,
-                "reviewed".equals(type) ? event.id() : null,
-                event.authorAssociation(),
-                Reactions.EMPTY,
-                Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::name).orElse(null),
-                Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::color).orElse(null),
-                Optional.ofNullable(event.milestone()).map(GitHubTimelineEvent.Milestone::title).orElse(null),
-                Optional.ofNullable(event.assignee()).map(GitHubTimelineEvent.User::login).orElse(null),
-                crossRef == null ? null : crossRef.number(),
-                crossRef == null ? null : crossRef.title(),
-                crossRef == null ? null : crossRef.htmlUrl(),
-                crossRef != null && crossRef.pullRequest() != null);
+                event.body());
     }
 
     public List<PullRequest> listPullRequests(

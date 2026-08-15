@@ -18,35 +18,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-/**
- * Response shape for {@code GET /repos/:owner/:repo/issues/:n/comments}.
- * One row per top-level PR/issue comment ("Add a comment" at the bottom);
- * does not include per-line review comments.
- *
- * @param reactions reactions tally on this issue or PR comment.
- * @param authorAssociation author's relationship to the repo.
- */
+/** Fields consumed from {@code GET /repos/:owner/:repo/issues/:n/comments}. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubIssueComment(
         long id,
         User user,
         String body,
-        @JsonProperty("html_url") String htmlUrl,
-        @JsonProperty("created_at") Instant createdAt,
-        Reactions reactions,
-        @JsonProperty("author_association") String authorAssociation)
+        @JsonProperty("created_at") Instant createdAt)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record User(String login, @JsonProperty("avatar_url") String avatarUrl) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Reactions(
-            @JsonProperty("+1") int plusOne,
-            @JsonProperty("-1") int minusOne,
-            int laugh,
-            int hooray,
-            int confused,
-            int heart,
-            int rocket,
-            int eyes) {}
+    public record User(String login) {}
 }

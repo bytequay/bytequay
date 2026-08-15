@@ -18,7 +18,6 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import org.junit.jupiter.api.Test;
 
@@ -79,15 +78,14 @@ class TestPrAttention
 
     private static PrTimelineEvent comment(String actor, String body, Instant timestamp)
     {
-        return new PrTimelineEvent(
-                null, "commented", actor, null, timestamp, body, null, null, null, null, null, Reactions.EMPTY);
+        return new PrTimelineEvent(null, "commented", actor, timestamp, body);
     }
 
     private static PrRawDetail raw(boolean mergeable, String mergeableState)
     {
         return new PrRawDetail(
                 null, List.of(), false, mergeable, mergeableState, 0, 0, 0, 0, List.of(),
-                "head", null, null, null, null);
+                "head", null);
     }
 
     private static PullRequest pr(PullRequest.Origin origin)

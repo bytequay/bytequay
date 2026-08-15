@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.domain.NotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,12 +54,6 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
-    }
-
-    @ExceptionHandler(NotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFoundException(NotFoundException exception, HttpServletRequest request)
-    {
-        return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)

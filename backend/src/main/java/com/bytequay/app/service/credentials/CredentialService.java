@@ -13,15 +13,12 @@
  */
 package com.bytequay.app.service.credentials;
 
-import com.bytequay.app.domain.Credential;
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.sqlite.SqliteCredentialStore;
 import com.bytequay.app.service.github.GhCliService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
@@ -30,8 +27,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class CredentialService
 {
-    public static final String GITHUB_ACCOUNT_NAME = "github";
-    private static final String GITHUB_CLI_SOURCE_MARKER = "{\"source\":\"gh-cli\"}";
+    static final String GITHUB_CLI_SOURCE = "{\"source\":\"gh-cli\"}";
 
     private final SqliteCredentialStore credentialStore;
     private final GhCliService ghCli;
@@ -42,45 +38,14 @@ public class CredentialService
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
     }
 
-    public Optional<Credential> get(CredentialType type, String name)
+    public void saveGitHubToken(String token)
     {
-        return credentialStore.find(type, name);
-    }
-
-    public Optional<String> getSecret(CredentialType type, String name)
-    {
-        return credentialStore.getSecret(type, name);
-    }
-
-    public Credential upsert(
-            CredentialType type,
-            String name,
-            String rawValue,
-            String label,
-            String notes)
-    {
-        return upsert(type, name, rawValue, label, notes, null);
-    }
-
-    public Credential upsert(
-            CredentialType type,
-            String name,
-            String rawValue,
-            String label,
-            String notes,
-            String configJson)
-    {
-        return credentialStore.upsert(type, name, rawValue, label, notes, configJson);
-    }
-
-    public void delete(CredentialType type, String name)
-    {
-        credentialStore.delete(type, name);
+        credentialStore.save(token, null);
     }
 
     public boolean isGitHubAccountConfigured()
     {
-        return get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).isPresent();
+        return credentialStore.exists();
     }
 
     /**
@@ -100,13 +65,7 @@ public class CredentialService
     public String importGitHubCliToken()
     {
         GhCliService.CliCredential credential = ghCli.readCredential();
-        upsert(
-                CredentialType.ACCOUNT,
-                GITHUB_ACCOUNT_NAME,
-                credential.token(),
-                credential.login(),
-                "Imported from the GitHub CLI on " + Instant.now(),
-                GITHUB_CLI_SOURCE_MARKER);
+        credentialStore.save(credential.token(), GITHUB_CLI_SOURCE);
         return credential.login();
     }
 
@@ -117,16 +76,15 @@ public class CredentialService
 
     private Optional<String> liveGhCliToken()
     {
-        return get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .map(Credential::configJson)
-                .filter(GITHUB_CLI_SOURCE_MARKER::equals)
+        return credentialStore.source()
+                .filter(GITHUB_CLI_SOURCE::equals)
                 .flatMap(marker -> ghCli.currentToken())
                 .filter(value -> isNotBlank(value));
     }
 
     private Optional<String> storedGitHubToken()
     {
-        return getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
+        return credentialStore.getSecret()
                 .filter(value -> isNotBlank(value));
     }
 }

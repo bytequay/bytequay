@@ -105,23 +105,6 @@ public class CredentialCipher
         }
     }
 
-    /**
-     * Produces a masked preview of a secret suitable for UI display.
-     * Shows the first 4 and last 4 characters of the raw value with bullets
-     * in between — e.g. {@code ghp_•••••xyz9}. Short values are fully masked.
-     */
-    public static String preview(String raw)
-    {
-        if (raw == null) {
-            return "";
-        }
-        String trimmed = raw.trim();
-        if (trimmed.length() <= 8) {
-            return "•".repeat(trimmed.length());
-        }
-        return trimmed.substring(0, 4) + "•••••" + trimmed.substring(trimmed.length() - 4);
-    }
-
     private static Path defaultKeyPath()
     {
         String home = System.getProperty("user.home");

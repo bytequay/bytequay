@@ -472,20 +472,6 @@ samp {
 .onboarding__cmd button:hover {
   color: var(--text-1);
 }
-.onboarding__altlink {
-  appearance: none;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  padding: var(--space-1);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.onboarding__altlink:hover {
-  color: var(--accent-dark, var(--accent));
-}
 
 
 .app-clean {

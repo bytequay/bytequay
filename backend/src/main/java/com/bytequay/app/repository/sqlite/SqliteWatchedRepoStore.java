@@ -19,7 +19,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -38,11 +37,6 @@ public class SqliteWatchedRepoStore
         return jpaRepository.findAllByOrderByDisplayOrderAsc().stream()
                 .map(SqliteWatchedRepoStore::toDomain)
                 .toList();
-    }
-
-    public Optional<WatchedRepo> find(String owner, String repo)
-    {
-        return jpaRepository.findByOwnerAndRepo(owner, repo).map(SqliteWatchedRepoStore::toDomain);
     }
 
     public WatchedRepo add(String owner, String repo)

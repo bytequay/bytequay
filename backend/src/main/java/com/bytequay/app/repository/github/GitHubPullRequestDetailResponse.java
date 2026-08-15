@@ -29,11 +29,8 @@ public record GitHubPullRequestDetailResponse(
         @JsonProperty("changed_files") int changedFiles,
         @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
         Head head,
-        Base base,
         Boolean mergeable,
-        @JsonProperty("mergeable_state") String mergeableState,
-        String state,
-        Boolean merged)
+        @JsonProperty("mergeable_state") String mergeableState)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Label(String name, String color) {}
@@ -48,12 +45,5 @@ public record GitHubPullRequestDetailResponse(
      * for cross-fork PRs where it differs from the base.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Head(String sha, String ref, Repo repo) {}
-
-    /** The PR's target side (almost always the same repo's default branch). */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Base(String ref, Repo repo) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Repo(@JsonProperty("full_name") String fullName) {}
+    public record Head(String sha, String ref) {}
 }

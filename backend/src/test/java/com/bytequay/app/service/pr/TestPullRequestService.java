@@ -23,7 +23,6 @@ import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.github.GitHubAccountClient;
@@ -134,9 +133,7 @@ class TestPullRequestService
     @Test
     void postsCommentAndPatchesCachedTimeline()
     {
-        PrTimelineEvent posted = new PrTimelineEvent(
-                99L, "commented", "me", null, Instant.now(), "hello",
-                null, null, null, null, null, Reactions.EMPTY);
+        PrTimelineEvent posted = new PrTimelineEvent(99L, "commented", "me", Instant.now(), "hello");
         when(writes.createIssueComment("pat", PullRequestRef.of("owner", "repo", 7), "hello"))
                 .thenReturn(posted);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -206,6 +203,6 @@ class TestPullRequestService
     {
         return new PrRawDetail(
                 "body", List.of(), false, true, "clean", 4, 2, 1, 0, List.of(),
-                "head", "feature", "owner/repo", "main", "owner/repo", "open", false);
+                "head", "feature");
     }
 }

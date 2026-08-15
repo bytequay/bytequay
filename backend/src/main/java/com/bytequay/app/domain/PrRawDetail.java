@@ -18,19 +18,8 @@ import java.util.List;
 /**
  * Raw data returned by a single GitHub pull-request API call, before business-logic aggregation.
  *
- * @param requestedReviewers GitHub logins still on the PR's pending-review
- * list. Null on legacy pre-V39 rows; callers that only care about presence
- * can fall back to {@link #requestedReviewerCount}.
- * @param headRef Branch name on the head side. Null on legacy rows.
- * @param headRepo Full {@code owner/repo} name of the head side. Differs
- * from {@code baseRepo} for fork PRs. Null on legacy rows.
- * @param baseRef Target branch. Null on legacy rows.
- * @param baseRepo Full {@code owner/repo} name of the target side. Same as
- * the PR's repo for in-repo PRs. Null on legacy rows.
- * @param state PR lifecycle state ("open" | "closed"). Null on cached rows
- * written before the terminal-state columns existed, and on the
- * backward-compat constructor used by callers that don't carry it.
- * @param merged True when the PR landed (merged) rather than closed unmerged.
+ * @param requestedReviewers GitHub logins still on the PR's pending-review list.
+ * @param headRef branch name on the head side.
  */
 public record PrRawDetail(
         String body,
@@ -44,34 +33,4 @@ public record PrRawDetail(
         int requestedReviewerCount,
         List<String> requestedReviewers,
         String headSha,
-        String headRef,
-        String headRepo,
-        String baseRef,
-        String baseRepo,
-        String state,
-        boolean merged)
-{
-    /** Backward-compat constructor for callers (mostly tests) that don't
-     *  carry terminal PR state: defaults to open / not-merged. */
-    public PrRawDetail(
-            String body,
-            List<String> labels,
-            boolean draft,
-            Boolean mergeable,
-            String mergeableState,
-            int additions,
-            int deletions,
-            int changedFiles,
-            int requestedReviewerCount,
-            List<String> requestedReviewers,
-            String headSha,
-            String headRef,
-            String headRepo,
-            String baseRef,
-            String baseRepo)
-    {
-        this(body, labels, draft, mergeable, mergeableState, additions, deletions, changedFiles,
-                requestedReviewerCount, requestedReviewers, headSha, headRef, headRepo, baseRef,
-                baseRepo, null, false);
-    }
-}
+        String headRef) {}

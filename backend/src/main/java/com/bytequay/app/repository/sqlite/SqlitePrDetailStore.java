@@ -17,9 +17,7 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
-import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -116,13 +114,6 @@ public class SqlitePrDetailStore
         }
     }
 
-    public List<Long> findPrIdsMissingReviewTimestamps(int limit)
-    {
-        return limit > 0
-                ? reviewRepo.findDistinctPrIdsWithNullSubmittedAt(PageRequest.of(0, limit))
-                : List.of();
-    }
-
     private void saveHeader(long prId, PrRawDetail raw)
     {
         PrDetailEntity entity = detailRepo.findById(prId).orElseGet(PrDetailEntity::new);
@@ -139,11 +130,6 @@ public class SqlitePrDetailStore
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : List.of());
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());
-        entity.setHeadRepo(raw.headRepo());
-        entity.setBaseRef(raw.baseRef());
-        entity.setBaseRepo(raw.baseRepo());
-        entity.setState(raw.state());
-        entity.setMerged(raw.merged());
         entity.setSyncedAt(Instant.now());
         detailRepo.save(entity);
     }
@@ -162,12 +148,7 @@ public class SqlitePrDetailStore
                 detail.getRequestedReviewerCount(),
                 detail.getRequestedReviewers() != null ? detail.getRequestedReviewers() : List.of(),
                 detail.getHeadSha(),
-                detail.getHeadRef(),
-                detail.getHeadRepo(),
-                detail.getBaseRef(),
-                detail.getBaseRepo(),
-                detail.getState(),
-                detail.isMerged());
+                detail.getHeadRef());
     }
 
     private static PrReviewState toReview(PrReviewEntity entity)
@@ -211,26 +192,8 @@ public class SqlitePrDetailStore
                 entity.getGithubId(),
                 entity.getEvent(),
                 entity.getActor(),
-                entity.getState(),
                 entity.getTimestamp(),
-                entity.getBody(),
-                entity.getBeforeSha(),
-                entity.getAfterSha(),
-                entity.getRequestedReviewer(),
-                entity.getReviewId(),
-                entity.getAuthorAssociation(),
-                new Reactions(
-                        entity.getReactionsPlusOne(), entity.getReactionsMinusOne(), entity.getReactionsLaugh(),
-                        entity.getReactionsHooray(), entity.getReactionsConfused(), entity.getReactionsHeart(),
-                        entity.getReactionsRocket(), entity.getReactionsEyes()),
-                entity.getLabelName(),
-                entity.getLabelColor(),
-                entity.getMilestoneTitle(),
-                entity.getAssigneeLogin(),
-                entity.getCrossRefNumber(),
-                entity.getCrossRefTitle(),
-                entity.getCrossRefUrl(),
-                entity.isCrossRefIsPullRequest());
+                entity.getBody());
     }
 
     private static PrTimelineEntity toEntity(long prId, PrTimelineEvent event)
@@ -240,31 +203,8 @@ public class SqlitePrDetailStore
         entity.setGithubId(event.githubId());
         entity.setEvent(event.event());
         entity.setActor(event.actor());
-        entity.setState(event.state());
         entity.setTimestamp(event.timestamp());
         entity.setBody(event.body());
-        entity.setBeforeSha(event.beforeSha());
-        entity.setAfterSha(event.afterSha());
-        entity.setRequestedReviewer(event.requestedReviewer());
-        entity.setReviewId(event.reviewId());
-        entity.setAuthorAssociation(event.authorAssociation());
-        Reactions reactions = event.reactions() != null ? event.reactions() : Reactions.EMPTY;
-        entity.setReactionsPlusOne(reactions.plusOne());
-        entity.setReactionsMinusOne(reactions.minusOne());
-        entity.setReactionsLaugh(reactions.laugh());
-        entity.setReactionsHooray(reactions.hooray());
-        entity.setReactionsConfused(reactions.confused());
-        entity.setReactionsHeart(reactions.heart());
-        entity.setReactionsRocket(reactions.rocket());
-        entity.setReactionsEyes(reactions.eyes());
-        entity.setLabelName(event.labelName());
-        entity.setLabelColor(event.labelColor());
-        entity.setMilestoneTitle(event.milestoneTitle());
-        entity.setAssigneeLogin(event.assigneeLogin());
-        entity.setCrossRefNumber(event.crossRefNumber());
-        entity.setCrossRefTitle(event.crossRefTitle());
-        entity.setCrossRefUrl(event.crossRefUrl());
-        entity.setCrossRefIsPullRequest(event.crossRefIsPullRequest());
         return entity;
     }
 }

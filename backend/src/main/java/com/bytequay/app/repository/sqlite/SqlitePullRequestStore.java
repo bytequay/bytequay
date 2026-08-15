@@ -169,13 +169,6 @@ public class SqlitePullRequestStore
         return jpaRepository.findIdByRepoAndNumber(repo, number);
     }
 
-    public Optional<PullRequest> findById(long prId)
-    {
-        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
-        return jpaRepository.findById(prId)
-                .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())));
-    }
-
     @Transactional
     public void updateEnrichment(
             long prId,

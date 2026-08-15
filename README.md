@@ -35,6 +35,9 @@ Agent development flows and their local-worktree/task runtime are intentionally
 not part of the current codebase. They will be redesigned from a clean starting
 point.
 
+See the [ByteQuay design index](docs/design/design.md) for the whole-system
+overview, module architecture, and proposed agent-service design.
+
 ## Install
 
 Download the latest `.dmg` from

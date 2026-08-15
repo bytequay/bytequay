@@ -68,8 +68,7 @@ public class CredentialController
             String value,
             String label,
             String notes,
-            /** MCP-only structured config (transport, authKind,
-             *  serverUrl, envVarName). Null for the other kinds. */
+            /** Optional source metadata, currently used for GitHub CLI imports. */
             String configJson)
     {}
 
@@ -87,7 +86,7 @@ public class CredentialController
 
     /**
      * GET /api/credentials — list all stored credentials. Optional {@code ?type=}
-     * filter narrows to one of ACCOUNT / REPO / AI.
+     * filter narrows to one credential type.
      */
     @GetMapping("/api/credentials")
     public List<Credential> list(@RequestParam(value = "type", required = false) String type)
@@ -155,8 +154,8 @@ public class CredentialController
     /**
      * PUT /api/credentials/{type}/{name}/{instanceName}/default —
      * promote this instance to the ★ default for its (type, name)
-     * group. Resolvers that name only the provider/host (PatResolver,
-     * AI key lookup) follow this flag; explicit instanceName lookups
+     * group. Resolvers that name only the provider/host follow this flag;
+     * explicit instanceName lookups
      * still bypass it. The service clears the previous default in the
      * same transaction so the single-default invariant holds.
      */

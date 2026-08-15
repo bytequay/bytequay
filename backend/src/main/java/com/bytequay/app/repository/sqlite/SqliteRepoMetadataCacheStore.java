@@ -14,7 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.GitHubUserMatch;
-import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.PullRequestMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,12 +33,12 @@ public class SqliteRepoMetadataCacheStore
 {
     public record Snapshot(
             List<GitHubUserMatch> users,
-            List<IssueDetail.Label> labels,
+            List<PullRequestMetadata.Label> labels,
             Instant fetchedAt) {}
 
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<List<GitHubUserMatch>> USERS = new TypeReference<>() {};
-    private static final TypeReference<List<IssueDetail.Label>> LABELS = new TypeReference<>() {};
+    private static final TypeReference<List<PullRequestMetadata.Label>> LABELS = new TypeReference<>() {};
 
     private final RepoMetadataCacheJpaRepository repo;
 
@@ -58,7 +58,7 @@ public class SqliteRepoMetadataCacheStore
     }
 
     @Transactional
-    public void save(String repoFullName, List<GitHubUserMatch> users, List<IssueDetail.Label> labels, Instant fetchedAt)
+    public void save(String repoFullName, List<GitHubUserMatch> users, List<PullRequestMetadata.Label> labels, Instant fetchedAt)
     {
         RepoMetadataCacheEntity entity = repo.findById(repoFullName).orElseGet(RepoMetadataCacheEntity::new);
         entity.setRepoFullName(repoFullName);

@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>Review is all you need.</strong><br>
-  A local-first macOS workspace for GitHub pull requests and AI coding tasks.
+  A local-first macOS app for GitHub pull-request work.
 </p>
 
 <p align="center">
@@ -15,59 +15,46 @@
   <a href="https://github.com/bytequay/bytequay/actions/workflows/ci.yml"><img src="https://github.com/bytequay/bytequay/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
-ByteQuay brings pull-request triage, native diffs, AI-assisted review,
-CI diagnostics, merge controls, and AI development agents into one app.
-Agents work in isolated git worktrees, while pushes, pull requests,
-review requests, and merges remain behind explicit approval.
+ByteQuay puts your GitHub pull requests, their details, diffs, checks,
+activity, comments, approvals, and merge controls in one desktop app. Data and
+credentials stay on your Mac; GitHub writes happen only after a direct user
+action.
 
-## Vision
+ByteQuay is pre-1.0, under active redesign, and currently supports macOS only.
 
-We believe every developer will eventually run capable, free, open-source
-coding agents locally. Open models can already write useful code; the harness—
-context, tools, review, and guardrails—is what makes them effective. ByteQuay's
-end goal is to replace cloud agents from OpenAI and Anthropic with open-source
-agents running entirely on your machine.
+## Current scope
 
-**v0.4.0 is pre-1.0 and actively developed. ByteQuay currently supports macOS only.**
+- A Home page with watched repositories, contribution history, and recent activity.
+- Pull-request lists for authored PRs and review requests.
+- PR descriptions, changed files, patches, checks, and activity.
+- Direct comment, approve, and merge actions.
+- GitHub OAuth, GitHub CLI token import, or personal access token onboarding.
+- An embedded GitHub view using Electron `WebContentsView`.
 
-## Highlights
-
-- Review pull requests with native diffs, inline threads, suggestions,
-  merge controls, and an embedded GitHub view.
-- Draft AI summaries and comments locally before publishing anything.
-- Diagnose failing CI and ask AI for root-cause and patch suggestions.
-- Review agent work privately as a Local PR before approving a push.
-- Plan and run coding tasks in isolated worktrees with a tracked,
-  approval-gated lifecycle.
-- Keep drafts, view state, repositories, and credentials local.
+Agent development flows and their local-worktree/task runtime are intentionally
+not part of the current codebase. They will be redesigned from a clean starting
+point.
 
 ## Install
 
 Download the latest `.dmg` from
-[GitHub Releases](https://github.com/bytequay/bytequay/releases),
-open it, and drag **ByteQuay.app** to **Applications**.
+[GitHub Releases](https://github.com/bytequay/bytequay/releases), open it, and
+drag **ByteQuay.app** to **Applications**.
 
-Current builds require:
+Current builds require macOS 14+ and JDK 25 LTS.
 
-- macOS 14+
-- Java 21+
-- Git for local repository and agent workflows
-
-Node and Maven are not required when using a release build.
-
-Current releases are not notarized. If macOS reports that ByteQuay is
-damaged after downloading it from the official Releases page, run:
+Current releases are not notarized. If macOS reports that ByteQuay is damaged
+after downloading it from the official Releases page, run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/ByteQuay.app
 ```
 
-Connect GitHub during onboarding. Add AI provider keys under
-**Settings → Credentials** and choose engines under **Settings → AI**.
-
 ## Develop
 
-Requirements: macOS 14+, JDK 21+, Maven 3.9+, Node 20/npm 10+, and Git.
+Requirements: macOS 14+, JDK 25 LTS, Maven 3.9+, Node 24.18.1 LTS,
+and npm 11.16+. Run `nvm install` from the repository root to select the
+checked-in Node version.
 
 ```sh
 git clone https://github.com/bytequay/bytequay.git
@@ -75,21 +62,11 @@ cd bytequay
 ./dev.sh
 ```
 
-`dev.sh` installs missing frontend packages, starts the Spring Boot
-sidecar on `localhost:53123`, and launches Electron with Vite.
+`dev.sh` starts the Spring Boot sidecar on `localhost:53123` and launches the
+Electron frontend. The backend uses SQLite with Hibernate managing the current
+schema directly; there is no migration framework.
 
-The frontend is Electron, React 19, and TypeScript. The local backend is
-Spring Boot with SQLite and Flyway.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for project structure, build
-commands, tests, IDE setup, and architectural constraints.
-
-## Documentation
-
-- [Getting started](docs/website/docs/usage/getting-started.md)
-- [User guide](docs/website/docs)
-- [Release notes](docs/website/release-notes)
-- [Release process](RELEASING.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
 
 ## License
 

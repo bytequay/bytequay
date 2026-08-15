@@ -14,16 +14,13 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.CreateReviewCommand;
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
-import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
-import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
@@ -35,31 +32,25 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
+import com.bytequay.app.domain.PullRequestMetadata;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.GitHubAccountRepository;
 import com.bytequay.app.repository.GitHubActionsRepository;
-import com.bytequay.app.repository.GitHubIssueRepository;
 import com.bytequay.app.repository.GitHubMergeRepository;
 import com.bytequay.app.repository.GitHubPullRequestReadRepository;
 import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
-import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -139,21 +130,17 @@ public class PullRequestService
     private final GitHubPullRequestWriteRepository pullRequestWrites;
     private final GitHubMergeRepository merges;
     private final GitHubActionsRepository actions;
-    private final GitHubIssueRepository issues;
     private final GitHubAccountRepository accounts;
     private final PullRequestStore store;
     private final PrDetailStore detailStore;
     private final PrViewStateStore viewStateStore;
     private final AppSettingsStore settingsStore;
-    private final CredentialService credentialService;
     private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
-    private final RepoListCache repoListCache;
     private final SqliteRepoMetadataCacheStore repoMetadataCache;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
-    private final TaskStore taskStore;
     private final CollaboratorPermissionService collaboratorPermissions;
     /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
@@ -189,19 +176,15 @@ public class PullRequestService
             GitHubPullRequestWriteRepository pullRequestWrites,
             GitHubMergeRepository merges,
             GitHubActionsRepository actions,
-            GitHubIssueRepository issues,
             GitHubAccountRepository accounts,
             PullRequestStore store,
             PrDetailStore detailStore,
             PrViewStateStore viewStateStore,
             AppSettingsStore settingsStore,
-            CredentialService credentialService,
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
-            RepoListCache repoListCache,
             SqliteRepoMetadataCacheStore repoMetadataCache,
             PatResolver patResolver,
-            TaskStore taskStore,
             CollaboratorPermissionService collaboratorPermissions,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
@@ -210,19 +193,15 @@ public class PullRequestService
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.merges = requireNonNull(merges, "merges is null");
         this.actions = requireNonNull(actions, "actions is null");
-        this.issues = requireNonNull(issues, "issues is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
-        this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
-        this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.repoMetadataCache = requireNonNull(repoMetadataCache, "repoMetadataCache is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.collaboratorPermissions = requireNonNull(collaboratorPermissions, "collaboratorPermissions is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(
@@ -233,39 +212,9 @@ public class PullRequestService
                 requireNonNull(ioExecutor, "ioExecutor is null"));
     }
 
-    PullRequestService(
-            PullRequestRepository gitHub,
-            PullRequestStore store,
-            PrDetailStore detailStore,
-            PrViewStateStore viewStateStore,
-            AppSettingsStore settingsStore,
-            CredentialService credentialService,
-            GitHubResponseCache responseCache,
-            PullRequestDetailInvalidator detailInvalidator,
-            RepoListCache repoListCache,
-            SqliteRepoMetadataCacheStore repoMetadataCache,
-            PatResolver patResolver,
-            TaskStore taskStore,
-            CollaboratorPermissionService collaboratorPermissions,
-            Executor executor,
-            Executor ioExecutor)
+    private String patForRepo(String accountPat, String ignoredRepo)
     {
-        this(gitHub, gitHub, gitHub, gitHub, gitHub, gitHub, store, detailStore, viewStateStore,
-                settingsStore, credentialService, responseCache, detailInvalidator,
-                repoListCache, repoMetadataCache, patResolver, taskStore,
-                collaboratorPermissions, executor, ioExecutor);
-    }
-
-    /**
-     * Returns the PAT to use for repo-scoped GitHub calls about {@code repo}:
-     * a per-repo (REPO, repo) credential when present, otherwise falls back
-     * to the account-level PAT passed in.
-     */
-    private String patForRepo(String accountPat, String repo)
-    {
-        return credentialService.getSecret(CredentialType.REPO, repo)
-                .filter(s -> !s.isBlank())
-                .orElse(accountPat);
+        return accountPat;
     }
 
     /**
@@ -300,18 +249,11 @@ public class PullRequestService
     {
         String pat = patResolver.resolve();
         Map<Long, Instant> existingUpdatedAt = store.findUpdatedAtMap();
-        // Rows whose V26 enrichment fields are still null get a forced
-        // detail sync below regardless of `updatedAt`. Catches legacy
-        // rows whose `updatedAt` hasn't moved since the kanban
-        // categorization started reading reviewer_verdicts; without
-        // this backfill those rows render as "Opened" forever.
+        // Rows whose enrichment fields are still null get a forced detail
+        // sync regardless of updatedAt.
         Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
-        // Same idea for the V53 review-timestamp backfill: pull a
-        // capped batch of PRs whose cached reviews still have null
-        // submitted_at and queue them alongside missing-enrichment so
-        // the analytics page's time-bucketed cards (daily bars,
-        // heatmap, response time) light up without waiting for the PR
-        // itself to be touched again on GitHub.
+        // Also refresh a bounded batch whose cached reviews predate the
+        // submitted-at field.
         Set<Long> missingReviewTimestamps = ImmutableSet.copyOf(
                 detailStore.findPrIdsMissingReviewTimestamps(REVIEW_TIMESTAMP_BACKFILL_BATCH));
 
@@ -322,7 +264,6 @@ public class PullRequestService
 
         List<PullRequest> fresh = fetchRelevant(pat);
         store.replaceAll(fresh);
-        linkPrsToTasks(fresh);
 
         Set<Long> freshIds = fresh.stream()
                 .map(PullRequest::id)
@@ -400,57 +341,6 @@ public class PullRequestService
         return last == null || last.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL));
     }
 
-    /**
-     * Auto-link synced PRs back to their originating task by head branch,
-     * so a PR opened outside the app's {@code open_pr} flow (e.g. manually
-     * on GitHub) still attaches to its task, and a linked task's PR state
-     * stays current (open → merged) on every sync. Bounded to {@code dev/}
-     * head refs — the prefix worktree task branches carry — so a busy
-     * repo's sync doesn't issue a task lookup per unrelated PR.
-     */
-    private void linkPrsToTasks(List<PullRequest> prs)
-    {
-        for (PullRequest pr : prs) {
-            String head = pr.headRef();
-            if (head == null || !head.startsWith("dev/")) {
-                continue;
-            }
-            Task task = taskStore.findTaskByBranch(head).orElse(null);
-            if (task == null) {
-                continue;
-            }
-            String state = prStateFor(pr);
-            // The sync runs often; skip the write when nothing changed.
-            if (Integer.valueOf(pr.number()).equals(task.prNumber())
-                    && state.equals(task.prState())) {
-                continue;
-            }
-            try {
-                taskStore.linkPullRequest(task.id(), pr.number(), state);
-                taskStore.linkTaskToPr(task.id(), pr.repo() + "#" + pr.number());
-            }
-            catch (RuntimeException e) {
-                log.warn("auto-linking PR #{} to task {} failed: {}",
-                        pr.number(), task.id(), e.getMessage());
-            }
-        }
-    }
-
-    /** Derive the task-facing PR state from a synced PR. */
-    private static String prStateFor(PullRequest pr)
-    {
-        if (pr.mergedAt() != null) {
-            return "merged";
-        }
-        if (pr.draft()) {
-            return "draft";
-        }
-        if ("closed".equalsIgnoreCase(pr.state())) {
-            return "closed";
-        }
-        return "open";
-    }
-
     private String resolveCurrentLogin(String pat)
     {
         try {
@@ -498,41 +388,13 @@ public class PullRequestService
         StoredPrDetail fetched = detailFetcher.fetch(pat, ref);
         prId.ifPresent(id -> {
             detailStore.save(id, fetched);
-            // Propagate the aggregate CI status onto the PR row so the
-            // kanban categorizer (prBuckets.ts) picks up a fresh
-            // FAILING state without waiting for the next bulk sync.
-            // The detail blob has it; the row didn't until this line.
+            // Propagate the aggregate CI status onto the PR row so Home and
+            // the PR list update without waiting for the next bulk sync.
             store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
         });
         int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, fetched.reviews());
         return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite, writeApprovals);
     }
-
-    /** Latest terminal GitHub state already held by the background list sync.
-     *  This is a pure cache read for UI projection; it grants no workflow
-     *  transition or remote-effect authority. */
-    public Optional<CachedTerminalState> findCachedTerminalState(
-            String repo, int number)
-    {
-        return store.findIdByRepoAndNumber(repo, number)
-                .flatMap(store::findById)
-                .flatMap(remote -> {
-                    if (remote.mergedAt() != null
-                            || "merged".equalsIgnoreCase(remote.state())) {
-                        return Optional.of(new CachedTerminalState(
-                                PR.STATUS_MERGED, remote.mergedAt(),
-                                remote.closedAt()));
-                    }
-                    if ("closed".equalsIgnoreCase(remote.state())) {
-                        return Optional.of(new CachedTerminalState(
-                                PR.STATUS_CLOSED, null, remote.closedAt()));
-                    }
-                    return Optional.empty();
-                });
-    }
-
-    public record CachedTerminalState(
-            String status, Instant mergedAt, Instant closedAt) {}
 
     /**
      * Refreshes one PR's detail. Tries a cheap conditional GET first
@@ -540,7 +402,7 @@ public class PullRequestService
      * 304 we skip the full multi-call refetch, but still refresh the head
      * commit's check runs. GitHub Actions state changes do not reliably bump
      * the PR resource's ETag, so treating 304 as proof that CI is unchanged
-     * leaves task automation and the PR UI stuck on stale checks.
+     * leaves the PR UI stuck on stale checks.
      *
      * <p>On a miss (no prior ETag, or a 200) we fall back to the
      * invalidate-then-refetch path so the caller gets the freshest data we
@@ -736,10 +598,8 @@ public class PullRequestService
 
     /**
      * Re-runs the failed CI jobs on {@code headSha} for {@code repo}
-     * (GitHub's "re-run failed jobs"). Used by the post-ship loop to
-     * shake out a transient/flaky failure before spending an agent
-     * turn. Returns how many workflow runs were re-triggered — 0 when
-     * nothing on the head had failed.
+     * (GitHub's "re-run failed jobs"). Returns how many workflow runs
+     * were re-triggered — 0 when nothing on the head had failed.
      */
     public int rerunFailedChecks(String repo, String headSha)
     {
@@ -882,10 +742,7 @@ public class PullRequestService
                 repoRef,
                 () -> accounts.fetchViewerCanWrite(pat, repoRef));
         PullRequestDetail.CiStatus aggregate = PullRequestDetailMapper.aggregateCiStatus(runs);
-        // Propagate the freshly-computed aggregate onto the PR row so
-        // a click on the merge bar's ↻ refresh also re-routes the
-        // kanban card (categorizeMyPr / categorizeToReview both read
-        // ciStatus from the row, not the detail blob).
+        // Propagate the freshly computed aggregate onto the list row.
         store.findIdByRepoAndNumber(repo, number).ifPresent(id -> {
             store.updateCiStatus(id, aggregate);
             // Also patch the cached detail blob's check runs. The detail-page
@@ -988,16 +845,6 @@ public class PullRequestService
      */
     public void commentOnPullRequest(String repo, int number, long prId, String body, boolean close)
     {
-        if (close) {
-            Optional<Task> owner = findTaskOwnedPr(repo, number);
-            if (owner.isPresent()) {
-                TaskPhaseMachine.withTaskLock(owner.get().id(), () -> {
-                    commentOnPullRequestLocked(repo, number, prId, body, true);
-                    return null;
-                });
-                return;
-            }
-        }
         commentOnPullRequestLocked(repo, number, prId, body, close);
     }
 
@@ -1141,8 +988,7 @@ public class PullRequestService
     /**
      * Same as the 4-arg overload, but {@code number} lets the resolution
      * recover the thread's GraphQL node id via a live GraphQL lookup when it
-     * isn't in the detail cache — task-owned PRs the legacy dashboard never
-     * fetched carry no cached node id, so the cache-only path 404s for them.
+     * isn't in the detail cache.
      * Pass 0 for {@code number} when it isn't known (the live fallback is then
      * skipped and the cache-only behaviour is preserved).
      */
@@ -1150,10 +996,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         // Prefer the client-supplied prId, but fall back to resolving it from
-        // the thread's own root comment id. Unified-PR surfaces don't carry
-        // the legacy pull_requests id the client-passed prId assumes, so
-        // without this the cache lookup 404s for any PR opened outside the
-        // legacy dashboard path.
+        // the thread's own root comment id.
         long detailPrId = detailStore.find(prId).isPresent()
                 ? prId
                 : detailStore.findPrIdByReviewCommentId(rootCommentId).orElse(prId);
@@ -1164,8 +1007,7 @@ public class PullRequestService
                 .map(PrReviewThreadMessage::graphqlNodeId)
                 .orElse(null);
         if (nodeId == null && number > 0) {
-            // Never cached with a node id (task-owned PRs the legacy dashboard
-            // never fetched land here): resolve the thread's node id live.
+            // The thread was not cached with a node id; resolve it live.
             nodeId = gitHub.fetchReviewThreadResolution(pat, parseRef(repo, number)).stream()
                     .filter(m -> m.rootCommentDatabaseId() == rootCommentId)
                     .map(GitHubPullRequestReadRepository.ReviewThreadMeta::graphqlNodeId)
@@ -1290,7 +1132,7 @@ public class PullRequestService
 
     public record MetadataChoices(
             List<GitHubUserMatch> users,
-            List<IssueDetail.Label> labels,
+            List<PullRequestMetadata.Label> labels,
             List<String> assignees,
             List<String> selectedLabels) {}
 
@@ -1299,7 +1141,7 @@ public class PullRequestService
     {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
-        IssueDetail issue = issues.fetchIssueDetail(pat, ref.repoRef(), number);
+        PullRequestMetadata metadata = gitHub.fetchPullRequestMetadata(pat, ref);
         Optional<SqliteRepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
         SqliteRepoMetadataCacheStore.Snapshot choices = cached
                 .filter(snapshot -> !snapshot.fetchedAt().isBefore(Instant.now().minus(REPO_METADATA_TTL)))
@@ -1307,8 +1149,8 @@ public class PullRequestService
         return new MetadataChoices(
                 choices.users(),
                 choices.labels(),
-                issue.assignees().stream().map(IssueDetail.Assignee::login).toList(),
-                issue.labels().stream().map(IssueDetail.Label::name).toList());
+                metadata.assignees(),
+                metadata.labels().stream().map(PullRequestMetadata.Label::name).toList());
     }
 
     private SqliteRepoMetadataCacheStore.Snapshot refreshMetadataChoices(
@@ -1317,7 +1159,7 @@ public class PullRequestService
             Optional<SqliteRepoMetadataCacheStore.Snapshot> stale)
     {
         List<GitHubUserMatch> users = gitHub.fetchAssignableUsers(pat, ref.repoRef());
-        List<IssueDetail.Label> labels = gitHub.fetchRepoLabels(pat, ref.repoRef());
+        List<PullRequestMetadata.Label> labels = gitHub.fetchRepoLabels(pat, ref.repoRef());
         if (users.isEmpty() && stale.isPresent()) {
             // ponytail: the shared paginator represents an upstream failure as
             // an empty list; preserve the last useful DB snapshot rather than
@@ -1470,7 +1312,6 @@ public class PullRequestService
      */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {
-        rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         Optional<GitHubMergeRepository.MergeQueueProbe> probe;
@@ -1519,40 +1360,6 @@ public class PullRequestService
         return result;
     }
 
-    /**
-     * Add a PR to its repo's merge queue without ever attempting a direct
-     * merge — used for the automatic re-enqueue after a merge-queue bounce
-     * (the user's merge consent already stands). Resolves the PR's GraphQL
-     * node id via the queue probe, falling back to a plain node-id lookup for
-     * ruleset-driven queues. Returns true when the enqueue call succeeded.
-     */
-    public boolean enqueueForMerge(String repo, int number)
-    {
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        Optional<GitHubMergeRepository.MergeQueueProbe> probe;
-        try {
-            probe = merges.probeMergeQueue(pat, ref);
-        }
-        catch (RuntimeException e) {
-            probe = Optional.empty();
-        }
-        String nodeId = probe.map(GitHubMergeRepository.MergeQueueProbe::pullRequestNodeId)
-                .orElseGet(() -> merges.pullRequestNodeId(pat, ref).orElse(null));
-        if (nodeId == null) {
-            return false;
-        }
-        try {
-            merges.enqueuePullRequest(pat, nodeId);
-            invalidatePullRequestCaches(repo, number);
-            return true;
-        }
-        catch (RuntimeException e) {
-            log.warn("auto re-enqueue of {}#{} failed: {}", repo, number, e.getMessage());
-            return false;
-        }
-    }
-
     /** True when a direct-merge rejection is GitHub requiring the change to
      *  go through the merge queue (HTTP 405 with a queue message). */
     private static boolean requiresMergeQueue(ResponseStatusException e)
@@ -1583,34 +1390,10 @@ public class PullRequestService
      */
     public void enableAutoMerge(String repo, int number, long prId, String strategy)
     {
-        rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         merges.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
         invalidatePullRequestCaches(repo, number);
-    }
-
-    /** Task-owned PRs have stronger local policy than GitHub alone can see
-     *  (live review rounds, app-local comments, and the configured approval
-     *  threshold). They must merge through the local-PR endpoint, whose fresh
-     *  {@code ReadyToMergeService} predicate is authoritative. */
-    private void rejectTaskOwnedMergePath(String repo, int number)
-    {
-        if (findTaskOwnedPr(repo, number).isPresent()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(409),
-                    "task-owned pull requests must use the task Merge / Close gate");
-        }
-    }
-
-    private Optional<Task> findTaskOwnedPr(String repo, int number)
-    {
-        String prRef = repo + "#" + number;
-        return taskStore.findTasksByPrRef(prRef).stream().findFirst()
-                .or(() -> taskStore.findByLinkedPrNumber(number).stream()
-                        .filter(task -> task.linkedPrRef() != null
-                                && prRef.equalsIgnoreCase(task.linkedPrRef()))
-                        .findFirst());
     }
 
     /**
@@ -1675,8 +1458,8 @@ public class PullRequestService
     }
 
     /**
-     * Park a PR until {@code until}. The PR is hidden from the Inbox /
-     * kanban / sidebar lists until that time, until the user explicitly
+     * Park a PR until {@code until}. The PR is hidden from Home and lists
+     * until that time, until the user explicitly
      * wakes it, or until the auto-wake check trips an urgent condition
      * (CI failing, changes requested, merge conflict).
      */
@@ -1820,12 +1603,7 @@ public class PullRequestService
         // hides them from the dashboard because they have a verdict.
         CompletableFuture<List<PullRequest>> reviewedByFuture = CompletableFuture.supplyAsync(
                 () -> searchAllPages(pat, "is:pr is:open reviewed-by:@me"), executor);
-        // Recently-closed authored PRs feed the kanban's "Recently merged"
-        // column. Without this the moment a PR is merged on GitHub the
-        // is:open search drops it, store.replaceAll(...) deletes the row,
-        // and the column stays empty. 7-day window matches
-        // categorizeMyPr's recently_merged horizon exactly so we don't
-        // pull rows the kanban would discard anyway.
+        // Keep a short history of recently closed authored PRs for the Done tab.
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
         CompletableFuture<List<PullRequest>> recentlyClosedFuture = CompletableFuture.supplyAsync(
                 () -> gitHub.searchPullRequests(pat,
@@ -1974,9 +1752,7 @@ public class PullRequestService
             PrViewState viewState = viewStateStore.findAll().get(pr.id());
             reconcileHandledActionFromReviews(pr.id(), detail.reviews(), currentLogin, viewState);
             Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
-            // Refresh the list-level enrichment columns so cards can render
-            // ciStatus / diff / comment count / attention banner / kanban
-            // signals without re-loading the full detail blob.
+            // Refresh list-level values without reloading the detail blob.
             store.updateEnrichment(
                     pr.id(),
                     PrAttention.aggregateCiStatus(detail),
@@ -2065,7 +1841,6 @@ public class PullRequestService
     private void invalidatePullRequestCaches(String repo, int number)
     {
         invalidatePullRequestDetail(repo, number);
-        repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
     private void patchCachedDetail(Optional<Long> prId, UnaryOperator<StoredPrDetail> patcher)

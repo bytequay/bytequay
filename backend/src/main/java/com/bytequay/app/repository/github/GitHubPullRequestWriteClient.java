@@ -228,9 +228,7 @@ public class GitHubPullRequestWriteClient
                 0,
                 0,
                 null,
-                // V26 kanban fields populated from the list response.
-                // mergeable / mergeableState / headPushedAt / reviewerVerdicts
-                // come from the detail fetch downstream and stay null here.
+                // List response fields; detail-only fields stay null here.
                 item.state(),
                 item.closedAt(),
                 item.mergedAt(),
@@ -238,13 +236,10 @@ public class GitHubPullRequestWriteClient
                 null,
                 null,
                 null,
-                // V37 snooze fields — local-state only, joined in by
-                // SqlitePullRequestStore.toDomain via PrViewState.
+                // Local view state is joined later by SqlitePullRequestStore.
                 null,
                 null,
-                // V42: head ref captured from the list response so the
-                // local-repo kanban can map a local branch to its open
-                // PR without waiting for the per-PR detail fetch.
+                // Head ref is available directly from the list response.
                 Optional.ofNullable(item.head())
                         .map(GitHubRepoPullRequestItem.Head::ref)
                         .orElse(null));

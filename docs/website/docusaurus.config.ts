@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'ByteQuay',
-  tagline: 'A calmer home for pull requests, reviews, and AI coding tasks',
+  tagline: 'A calmer home for pull requests and reviews',
   favicon: 'img/favicon.svg',
 
   // Set the production url of your site here.

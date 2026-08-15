@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.domain.NotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -64,24 +63,6 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    /**
-     * A command did not match the current state of its aggregate — the task is
-     * terminal, the stage moved on, the version is stale. That is the caller's
-     * answer, not a server fault, so it gets a 409 (404 when the subject is
-     * simply gone) carrying the rejection reason instead of the catch-all's
-     * opaque 500. The UI shows this text, so keep the message user-readable.
-     */
-    @ExceptionHandler(CommandRejectedException.class)
-    public ResponseEntity<ErrorResponse> handleCommandRejected(
-            CommandRejectedException exception, HttpServletRequest request)
-    {
-        HttpStatus status = exception.reason() == CommandRejectedException.Reason.NOT_FOUND
-                ? HttpStatus.NOT_FOUND : HttpStatus.CONFLICT;
-        log.warn("Command rejected ({}): {} — {}",
-                exception.reason(), request.getRequestURI(), exception.getMessage());
-        return errorResponse(status.value(), exception.getMessage(), request.getRequestURI());
-    }
-
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingRequestParameter(
             MissingServletRequestParameterException exception, HttpServletRequest request)
@@ -91,8 +72,8 @@ public class GlobalExceptionHandler
 
     /**
      * The client closed the connection before we finished writing the
-     * response (a broken pipe — e.g. the MCP CLI subprocess timed out,
-     * was interrupted, or the user navigated away mid-request). The
+     * response (a broken pipe — e.g. the request timed out,
+     * was interrupted, or the user navigated away). The
      * socket is already gone, so there's nothing to send and nothing
      * actionable on our side. Log quietly and return {@code void} so the
      * resolver doesn't attempt a second write onto the dead socket (which
@@ -106,23 +87,9 @@ public class GlobalExceptionHandler
     }
 
     /**
-     * A request hit a known route with the wrong HTTP verb. The most common
-     * source is a Streamable-HTTP MCP client (notably Codex's {@code rmcp}
-     * client) opening a {@code GET} on the POST-only MCP endpoint to probe for
-     * a server→client SSE stream. The transport spec lets us decline that GET,
-     * but it MUST be answered with {@code 405 Method Not Allowed} (plus an
-     * {@code Allow} header) — NOT the {@code 500} the catch-all below would
-     * otherwise produce. A 500 makes the client treat the whole MCP session as
-     * broken and discard the tools it just enumerated via {@code tools/list},
-     * which is exactly what stranded Codex on its built-in sub-agent fallback.
-     *
-     * <p>The response is deliberately body-less. The SSE probe sends
-     * {@code Accept: text/event-stream}, which no message converter can satisfy
-     * for a JSON {@code ErrorResponse}; returning a body here made the resolver
-     * raise {@code HttpMediaTypeNotAcceptableException} ("No acceptable
-     * representation") while writing the 405, defeating the whole point of this
-     * handler. A 405 carries its meaning in the status line and {@code Allow}
-     * header, so we skip the body and skip content negotiation entirely.
+     * A request hit a known route with the wrong HTTP verb. Preserve the
+     * framework-provided {@code Allow} header and avoid routing this ordinary
+     * client error through the catch-all 500 response.
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<Void> handleMethodNotSupported(

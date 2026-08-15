@@ -1,81 +1,15 @@
-/* ── Settings tabs + Credentials UI ─────────────────────── */
-
-/* Help & feedback — compact fixed-repository issue form. */
-.product-issue-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.product-issue-form__images {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.product-issue-form__image {
-  position: relative;
-  width: 112px;
-  height: 72px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--bg-base);
-}
-
-.product-issue-form__image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.product-issue-form__image button {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.72);
-  color: white;
-  cursor: pointer;
-  line-height: 18px;
-}
-
-/* Sub-name shown next to the provider tag — distinguishes multiple keys
-   for the same provider (e.g. two DeepSeek keys named "personal" and
-   "work"). Always present; defaults to "default api". */
-
-.button--small {
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-/* Credential editor form */
-
-/* LLM provider chooser */
-
-/* AI run button — sparkle emoji sits tight against the label. */
-
-/* Disclosure for the rare BYO-OAuth setup path on Settings → Integrations.
-   Collapsed by default, opens automatically when a credential already
-   exists so power users don't have to click twice to see their config. */
-
-/* ── AI Skills tab ────────────────────────────────────────────────
-   Layout for docs/mockups/design/tasks/settings-ai-skills.png. The
-   page-head and tab strip above this surface are owned by AiReviewPage;
-   everything here is the body of the Skills tab. */
-
-/* Segmented scope switcher — Global / Repos / Domains. The scope
-   chip's count comes from useMemo over the full skill list so the
-   badge stays accurate as the user adds/removes skills. */
-
-/* Group header — one per repo / domain / global bucket. Acts as a
-   collapse toggle for the rows underneath, and surfaces a "+ skill"
-   shortcut that pre-fills the editor's scope + repo so a user adding
-   the second/third skill to a repo doesn't retype the slug. */
-
-/* Skill row — three-column grid: toggle / body / actions. Hover
-   raises the border so the row reads as clickable without being
-   noisy in the default state. */
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+.settings-clean { max-width: 720px; margin: 0 auto; padding: 48px 32px; }
+.settings-clean header { margin-bottom: 28px; }
+.settings-clean section { display: flex; flex-direction: column; gap: 10px; padding: 22px; border: 1px solid #d8dee4; border-radius: 10px; background: #fff; }
+.settings-clean input { padding: 9px 10px; border: 1px solid #d0d7de; border-radius: 7px; }
+.settings-clean__actions { display: flex; gap: 8px; }
+.settings-clean__actions button { padding: 7px 11px; }
+.settings-clean__ok { color: #1a7f37; }
+.settings-clean footer { margin-top: 24px; color: #636c76; font-size: 12px; }

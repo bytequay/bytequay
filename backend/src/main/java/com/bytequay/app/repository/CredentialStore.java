@@ -29,8 +29,7 @@ import java.util.Optional;
  * defaults to {@code "default api"} for callers that don't pick.
  *
  * <p>Convenience read methods that omit {@code instanceName} return the
- * earliest-created instance (lowest id), matching what resolvers / reviewers
- * want when they simply need "any usable secret for this provider".
+ * earliest-created instance (lowest id).
  */
 public interface CredentialStore
 {
@@ -49,9 +48,8 @@ public interface CredentialStore
     /** Exact lookup. */
     Optional<Credential> find(CredentialType type, String name, String instanceName);
 
-    /** Resolve the default instance for (type, name). Falls back to
-     *  the earliest-created row only when V84's backfill hasn't run
-     *  (defensive path — production rows always carry a default). */
+    /** Resolve the default instance for (type, name), falling back to the
+     * earliest-created row for older local data. */
     Optional<Credential> findDefault(CredentialType type, String name);
 
     /**
@@ -64,18 +62,15 @@ public interface CredentialStore
 
     /**
      * Default-instance decrypted value for (type, name) — used by
-     * reviewers / PAT resolvers that name only the provider/host.
-     * Falls back to the earliest-created instance on legacy rows that
-     * pre-date V84's backfill.
+     * callers that name only the provider/host. Falls back to the
+     * earliest-created instance for older local data.
      */
     Optional<String> getSecret(CredentialType type, String name);
 
     /** Exact decrypted value. */
     Optional<String> getSecret(CredentialType type, String name, String instanceName);
 
-    /** Upserts by (type, name, instanceName). MCP rows pass a JSON
-     *  config blob through {@code configJson} (transport / authKind
-     *  / serverUrl / envVarName); other kinds leave it null. */
+    /** Upserts by (type, name, instanceName), with optional source metadata. */
     Credential upsert(
             CredentialType type,
             String name,

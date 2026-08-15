@@ -12,15 +12,12 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { RecentEventDto, UserProfileDto, WatchedRepoDto } from '../types';
-import type { DashboardPR } from '../types/dashboardPr';
+import type { PullRequestDto, RecentEventDto, UserProfileDto, WatchedRepoDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
-import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
-import InboxSection from './InboxSection';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
 
@@ -35,16 +32,8 @@ const KEY_WATCHED = 'home:watchedRepos';
 const KEY_PRS = 'prs:list';
 
 type Props = {
-  /** Navigate into the repo page in-app. {@code prNumber} is honoured by
-   *  RepoDetailPage to auto-select that PR after the pulls load. */
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
-  onOpenWorkspacePr?: (workspaceId: string, prNumber: number) => void;
-  onOpenRemoteReview?: (owner: string, repo: string, prNumber: number) => void;
   onGoToMyPrs: () => void;
-  /** Inbox "View task" — opens the task detail page. */
-  onOpenTask?: (threadId: string, taskId: string) => void;
-  /** Inbox "See all" — opens the notification center. */
-  onOpenNotifications?: () => void;
 };
 
 function openUrl(url: string) {
@@ -105,10 +94,7 @@ export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<
 
 function HomePage({
   onSelectRepo,
-  onOpenWorkspacePr,
-  onOpenRemoteReview,
   onGoToMyPrs,
-  onOpenTask,
 }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
@@ -128,13 +114,13 @@ function HomePage({
   // GitHub-sourced flows below (profile, events, following) start empty
   // and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
-  const cachedPrs = getCached<DashboardPR[]>(KEY_PRS);
+  const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
 
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
   const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [prs, setPrs] = useState<DashboardPR[] | null>(cachedPrs ?? null);
+  const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   // Only show the first-load spinner when we have nothing to paint yet.
   const [loading, setLoading] = useState(cachedWatched === undefined);
   const [showModal, setShowModal] = useState(false);
@@ -171,7 +157,7 @@ function HomePage({
     }
     // The PR list still lives in localStorage (DB-backed on the backend
     // already, but reads aren't free; the cache makes tab return instant).
-    window.bridge.fetchDashboardPrs()
+    window.bridge.fetchPrs()
       .then(v => { setPrs(v); setCached(KEY_PRS, v); })
       .catch(() => {});
   }
@@ -182,7 +168,7 @@ function HomePage({
     let awaiting = 0;
     let flagged = 0;
     for (const pr of prs) {
-      if (bucketize(pr) !== 'inbox') continue;
+      if (pr.state !== 'open' || pr.snoozedUntil !== null) continue;
       if (pr.origin === 'AUTHORED') mine++;
       else if (pr.origin === 'REVIEW_REQUESTED') awaiting++;
       if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
@@ -192,19 +178,13 @@ function HomePage({
 
 
   async function handleAdded() {
-    // The modal already watched + cloned the repo; re-read the list so the
-    // new (now clone-backed) row lands with its server-assigned fields.
     const fresh = await window.bridge.getWatchedRepos();
     setRepos(fresh);
     setCached(KEY_WATCHED, fresh);
   }
 
   async function handleRemove(owner: string, repo: string) {
-    if (!confirm(
-      `Remove ${owner}/${repo}?\n\nThis deletes its workspace and everything under it — `
-      + 'threads, tasks, sync runs, agent logs — plus the local clone and its worktrees. '
-      + 'This cannot be undone.',
-    )) return;
+    if (!confirm(`Stop watching ${owner}/${repo}?`)) return;
     await window.bridge.removeWatchedRepo(owner, repo).catch(() => {});
     setRepos(prev => {
       const next = prev.filter(r => !(r.owner === owner && r.repo === repo));
@@ -246,17 +226,43 @@ function HomePage({
         <span className="home-cta-card__open">Open <span aria-hidden="true">›</span></span>
       </button>
 
-      {/* ── Inbox: app notifications + PRs that need the user ── */}
-      <div className="workspace-redesign">
-        <InboxSection
-          prs={prs}
-          onOpenPr={(owner, repo, prNumber) => onSelectRepo(owner, repo, prNumber)}
-          onOpenWorkspacePr={onOpenWorkspacePr}
-          onOpenRemoteReview={onOpenRemoteReview}
-          onOpenTask={onOpenTask}
-          onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
-        />
-      </div>
+      <section className="home-section">
+        <div className="home-section__header">
+          <span className="home-section__title">Pull requests needing attention</span>
+          <button className="home-section__action" type="button" onClick={onGoToMyPrs}>
+            See all
+          </button>
+        </div>
+        <div className="home-following-list">
+          {(prs ?? [])
+            .filter(pr => pr.state === 'open' && pr.snoozedUntil === null)
+            .slice(0, 5)
+            .map(pr => {
+              const slash = pr.repo.indexOf('/');
+              return (
+                <button
+                  type="button"
+                  className="home-cta-card"
+                  key={pr.id}
+                  onClick={() => onSelectRepo(
+                    pr.repo.slice(0, slash),
+                    pr.repo.slice(slash + 1),
+                    pr.number,
+                  )}
+                >
+                  <span className="home-cta-card__body">
+                    <span className="home-cta-card__title">{pr.title}</span>
+                    <span className="home-cta-card__counts">
+                      {pr.repo} · #{pr.number} · {relativeTime(pr.updatedAt)}
+                    </span>
+                  </span>
+                  <span className="home-cta-card__open">Open <span aria-hidden="true">›</span></span>
+                </button>
+              );
+            })}
+          {prs?.length === 0 && <div className="hp-empty">No pull requests yet.</div>}
+        </div>
+      </section>
 
       {/* ── Repos you watch ── */}
       <WatchedReposGrid

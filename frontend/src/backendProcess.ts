@@ -18,7 +18,7 @@ import path from 'node:path';
 export const BACKEND_PORT = 53123;
 export const BACKEND_BASE = `http://127.0.0.1:${BACKEND_PORT}`;
 
-const MIN_JAVA_VERSION = 21;
+const MIN_JAVA_VERSION = 25;
 
 let child: ChildProcess | null = null;
 let failure: string | null = null;
@@ -99,7 +99,7 @@ function resolveJava(): string | null {
     if (version !== null && version >= MIN_JAVA_VERSION) return candidate;
   }
   failure = `ByteQuay needs Java ${MIN_JAVA_VERSION} or newer on this Mac and couldn't find it.\n\n`
-    + `Install a JDK (e.g. "brew install openjdk@21") or set JAVA_HOME, then reopen ByteQuay.\n\n`
+    + `Install a JDK (e.g. "brew install openjdk@25") or set JAVA_HOME, then reopen ByteQuay.\n\n`
     + `Looked in: ${[...seen].join(', ')}`;
   return null;
 }

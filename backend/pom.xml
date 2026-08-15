@@ -18,12 +18,9 @@
     <description>Local sidecar for the ByteQuay macOS app</description>
 
     <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <development-flow-test-exclude>**/developmentflow/**</development-flow-test-exclude>
-        <new-flow-test-exclude>**/flow/**</new-flow-test-exclude>
-        <development-flow-migration-test-exclude>**/repository/sqlite/migration/**</development-flow-migration-test-exclude>
+        <java.version>25</java.version>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
     </properties>
 
     <dependencies>
@@ -55,11 +52,6 @@
         <dependency>
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-community-dialects</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
         </dependency>
 
         <dependency>
@@ -99,18 +91,6 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <testExcludes>
-                        <testExclude>${development-flow-test-exclude}</testExclude>
-                        <testExclude>${new-flow-test-exclude}</testExclude>
-                        <testExclude>${development-flow-migration-test-exclude}</testExclude>
-                    </testExcludes>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
@@ -133,23 +113,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-javaagent:${project.build.directory}/test-agents/byte-buddy-agent.jar</argLine>
-                    <!-- One JVM per core, capped at four. Every test owns an
-                         isolated database file, so forks divide the suite without
-                         any shared-state coupling, but each one pays JVM startup
-                         plus a Flyway baseline — past four that setup costs more
-                         than the extra parallelism returns (on a sixteen-core
-                         machine sixteen forks measured slower than four). Four is
-                         also what a CI runner gets from 1C. Do not add an -Xmx
-                         here without measuring: capping the forks at 1500m made
-                         Spring contexts fail to build, which surfaces as
-                         unrelated NoSuchBeanDefinitionException errors. -->
+                    <!-- Four forks measured faster than either one fork or one
+                         fork per core on the current test suite. -->
                     <forkCount>4</forkCount>
                     <reuseForks>true</reuseForks>
-                    <excludes>
-                        <exclude>${development-flow-test-exclude}</exclude>
-                        <exclude>${new-flow-test-exclude}</exclude>
-                        <exclude>${development-flow-migration-test-exclude}</exclude>
-                    </excludes>
                 </configuration>
             </plugin>
 
@@ -231,15 +198,6 @@
     </build>
 
     <profiles>
-        <profile>
-            <id>development-flow-tests</id>
-            <properties>
-                <development-flow-test-exclude>**/__no_excluded_tests__/**</development-flow-test-exclude>
-                <new-flow-test-exclude>**/__no_excluded_tests__/**</new-flow-test-exclude>
-                <development-flow-migration-test-exclude>**/__no_excluded_tests__/**</development-flow-migration-test-exclude>
-            </properties>
-        </profile>
-
         <!-- Error Prone — Google's static analyzer attached to the compiler.
              Same .mvn/errorprone.config Trino uses (curated -Xep flags). The
              JVM add-exports/add-opens args it needs on Java 16+ to reach

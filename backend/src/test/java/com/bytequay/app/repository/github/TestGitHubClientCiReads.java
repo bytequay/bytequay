@@ -20,7 +20,6 @@ import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogCapture;
 import com.bytequay.app.repository.GitHubActionsRepository.ActionsJobLogStatus;
 import com.bytequay.app.repository.GitHubActionsRepository.ActionsWorkflowJobSetEvidence;
 import com.bytequay.app.repository.GitHubActionsRepository.CheckRunAnnotationEvidence;
-import com.bytequay.app.repository.PullRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -758,7 +757,7 @@ class TestGitHubClientCiReads
         return new GitHubClient(restBuilder.build());
     }
 
-    private static final class GitHubClient implements PullRequestRepository
+    private static final class GitHubClient implements GitHubActionsRepository
     {
         private final GitHubActionsClient actions;
 

@@ -50,7 +50,7 @@ The `release.yml` workflow at `.github/workflows/release.yml` triggers on
 any tag matching `v*`:
 
 1. Spins up a `macos-latest` runner.
-2. Installs JDK 21 + Node 20.
+2. Installs JDK 25 LTS + the Node 24 LTS version pinned in `.nvmrc`.
 3. Runs `npm ci` then `npm run make`. The `generateAssets` Forge hook
    builds the Spring Boot JAR via `mvn -DskipTests package` if it's
    missing.

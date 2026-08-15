@@ -20,7 +20,7 @@ type Props = {
   className?: string;
 };
 
-/** The signed-in GitHub account's real avatar, shared by workspace surfaces. */
+/** The signed-in GitHub account's avatar, shared by Home and PR surfaces. */
 export default function CurrentUserAvatar({ size, className }: Props) {
   const [profile, setProfile] = useState<UserProfileDto | null>(
     () => getCached<UserProfileDto>('home:profile') ?? null,

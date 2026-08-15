@@ -21,8 +21,7 @@ import java.util.List;
 
 /**
  * JSON shape returned by GitHub's {@code GET /repos/{owner}/{repo}}.
- * Drives {@link com.bytequay.app.domain.RepoMeta} on the repo detail
- * page right pane.
+ * Drives {@link com.bytequay.app.domain.RepoMeta} on Home.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubRepoResponse(
@@ -40,8 +39,7 @@ record GitHubRepoResponse(
         @JsonProperty("pushed_at") Instant pushedAt,
         List<String> topics,
         Owner owner,
-        // Only populated when this repo is a fork. Drives the
-        // fork → upstream view-focus dropdown on the detail page.
+        // Only populated when this repository is a fork.
         Parent parent)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)

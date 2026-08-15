@@ -15,7 +15,6 @@ package com.bytequay.app.repository;
 
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
-import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
@@ -25,6 +24,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
+import com.bytequay.app.domain.PullRequestMetadata;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RepoRef;
@@ -194,7 +194,11 @@ public interface GitHubPullRequestReadRepository {
         throw unsupported();
     }
 
-    default List<IssueDetail.Label> fetchRepoLabels(String pat, RepoRef repo) {
+    default PullRequestMetadata fetchPullRequestMetadata(String pat, PullRequestRef pr) {
+        throw unsupported();
+    }
+
+    default List<PullRequestMetadata.Label> fetchRepoLabels(String pat, RepoRef repo) {
         throw unsupported();
     }
 

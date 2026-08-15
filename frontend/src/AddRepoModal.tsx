@@ -11,163 +11,107 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { UserRepoDto, WatchedRepoDto } from './types';
-import type { WorkspaceCreationDto } from './workspace/workspaceApi';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from './Avatar';
-import MapRepoModal from './repos/AddRepoModal';
+import type { UserRepoDto, WatchedRepoDto } from './types';
 
 type Props = {
   watchedRepos: WatchedRepoDto[];
-  // Called after the repo has been watched and its managed clone has
-  // been queued. Clone progress continues in the background.
-  onAdded: (operation: WorkspaceCreationDto) => void;
+  onAdded: (repo: WatchedRepoDto) => void;
   onClose: () => void;
 };
 
-function RepoRow({
-  repo,
-  isWatched,
-  onAdd,
-}: {
-  repo: UserRepoDto;
-  isWatched: boolean;
-  onAdd: () => void;
-}) {
-  return (
-    <div className="modal-repo-row">
-      <div className="modal-repo-row__info">
-        <Avatar login={repo.owner} size={16} className="avatar--repo" />
-        <div className="modal-repo-row__text">
-          <div className="modal-repo-row__name">{repo.fullName}</div>
-          {repo.description && (
-            <div className="modal-repo-row__desc">{repo.description}</div>
-          )}
-          <div className="modal-repo-row__meta">
-            {repo.language && <span className="modal-repo-row__lang">{repo.language}</span>}
-            {repo.stars > 0 && <span>★ {repo.stars.toLocaleString()}</span>}
-          </div>
-        </div>
-      </div>
-      {isWatched ? (
-        <span className="modal-repo-row__badge">Watching</span>
-      ) : (
-        <button
-          className="modal-repo-row__add-btn"
-          onClick={onAdd}
-        >
-          Watch…
-        </button>
-      )}
-    </div>
-  );
-}
-
-function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
-  const [userRepos, setUserRepos] = useState<UserRepoDto[]>([]);
-  const [searchResults, setSearchResults] = useState<UserRepoDto[] | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-  const [searching, setSearching] = useState(false);
+export default function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
+  const [repos, setRepos] = useState<UserRepoDto[]>([]);
   const [query, setQuery] = useState('');
-  // Picking a repo opens the managed-clone step. Starting that step
-  // persists the watched row before background cloning begins.
-  const [mapTarget, setMapTarget] = useState<{ owner: string; repo: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const watchedSet = new Set(watchedRepos.map(r => `${r.owner}/${r.repo}`));
 
   useEffect(() => {
     inputRef.current?.focus();
     window.bridge.getUserRepos()
-      .then(setUserRepos)
-      .catch(() => {})
-      .finally(() => setLoadingUser(false));
+      .then(setRepos)
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
-  function handleQueryChange(value: string) {
-    setQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!value.trim()) {
-      setSearchResults(null);
-      setSearching(false);
-      return;
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      window.bridge.searchRepos(trimmed)
+        .then(setRepos)
+        .catch(e => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const watched = useMemo(
+    () => new Set(watchedRepos.map(repo => `${repo.owner}/${repo.repo}`.toLowerCase())),
+    [watchedRepos],
+  );
+
+  const add = async (repo: UserRepoDto) => {
+    setAdding(repo.fullName);
+    setError(null);
+    try {
+      onAdded(await window.bridge.addWatchedRepo(repo.owner, repo.name));
+      onClose();
     }
-    setSearching(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const results = await window.bridge.searchRepos(value.trim());
-        setSearchResults(results);
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 350);
-  }
-
-  function handleAdd(repo: UserRepoDto) {
-    setMapTarget({ owner: repo.owner, repo: repo.name });
-  }
-
-  const displayRepos = searchResults ?? userRepos;
-  const isSearchMode = !!query.trim();
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setAdding(null);
+    }
+  };
 
   return (
-    <>
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal" onClick={event => event.stopPropagation()}>
         <div className="modal__header">
-          <h2 className="modal__title">Add a repo to watch</h2>
-          <button className="modal__close" onClick={onClose}>✕</button>
+          <h2 className="modal__title">Watch a repository</h2>
+          <button className="modal__close" onClick={onClose} type="button">✕</button>
         </div>
         <div className="modal__search-row">
           <input
             ref={inputRef}
             className="modal__search"
-            type="text"
-            placeholder="Search any GitHub repo (e.g. trinodb/trino or trino)"
             value={query}
-            onChange={e => handleQueryChange(e.target.value)}
+            placeholder="Search GitHub repositories"
+            onChange={event => setQuery(event.target.value)}
           />
         </div>
-        {!isSearchMode && (
-          <div className="modal__section-label">Your recently updated repos</div>
-        )}
+        {error && <div className="modal__empty">{error}</div>}
         <div className="modal__list">
-          {(isSearchMode ? searching : loadingUser) ? (
-            <div className="modal__loading">
-              {isSearchMode ? 'Searching…' : 'Loading your repos…'}
-            </div>
-          ) : displayRepos.length === 0 ? (
-            <div className="modal__empty">
-              {isSearchMode ? `No repos found for "${query}"` : 'No repos found'}
-            </div>
-          ) : displayRepos.map(repo => (
-            <RepoRow
-              key={repo.fullName}
-              repo={repo}
-              isWatched={watchedSet.has(repo.fullName)}
-              onAdd={() => handleAdd(repo)}
-            />
-          ))}
+          {loading ? <div className="modal__loading">Loading…</div> : repos.map(repo => {
+            const isWatched = watched.has(repo.fullName.toLowerCase());
+            return (
+              <div className="modal-repo-row" key={repo.fullName}>
+                <div className="modal-repo-row__info">
+                  <Avatar login={repo.owner} size={20} />
+                  <div className="modal-repo-row__text">
+                    <div className="modal-repo-row__name">{repo.fullName}</div>
+                    {repo.description && <div className="modal-repo-row__desc">{repo.description}</div>}
+                  </div>
+                </div>
+                <button
+                  className="modal-repo-row__add-btn"
+                  type="button"
+                  disabled={isWatched || adding === repo.fullName}
+                  onClick={() => { void add(repo); }}
+                >
+                  {isWatched ? 'Watching' : adding === repo.fullName ? 'Adding…' : 'Watch'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
-    {mapTarget && (
-      <MapRepoModal
-        owner={mapTarget.owner}
-        repo={mapTarget.repo}
-        onClose={() => setMapTarget(null)}
-        onStarted={(operation) => {
-          setMapTarget(null);
-          onAdded(operation);
-          onClose();
-        }}
-      />
-    )}
-    </>
   );
 }
-
-export default AddRepoModal;

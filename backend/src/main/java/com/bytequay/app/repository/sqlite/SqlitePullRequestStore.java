@@ -89,8 +89,7 @@ public class SqlitePullRequestStore
         // Preserve detail-derived enrichment columns from the previous
         // sync. The search-API responses fed in here don't include
         // reviewer_verdicts / mergeable / etc., so toEntity below would
-        // overwrite a populated row with nulls and wipe the kanban
-        // categorization between syncs. The detail-sync pass downstream
+        // overwrite a populated row with nulls between syncs. The detail-sync pass downstream
         // only re-runs for PRs whose updatedAt changed (or whose
         // enrichment is missing) — for unchanged PRs we want their
         // last-known verdict map to survive this replace.
@@ -167,11 +166,8 @@ public class SqlitePullRequestStore
         // no reviews at the moment — but it's indistinguishable from
         // "stale empty after a reviewer later requested changes", which
         // is exactly the trino #29289 case. Re-syncing on every cycle
-        // is cheap relative to the kanban being silently wrong.
-        // Null head_ref also forces a re-sync — the V42 column was
-        // added after these rows were stored and only the detail
-        // fetch fills it; without this clause the local-repo IN_REVIEW
-        // column stays empty for every legacy PR.
+        // is cheap relative to silently stale reviewer state.
+        // Null head_ref also forces a re-sync for older local rows.
         return jpaRepository.findAll().stream()
                 .filter(e -> {
                     Map<String, String> verdicts = e.getReviewerVerdicts();
@@ -286,7 +282,7 @@ public class SqlitePullRequestStore
     {
         // GitHub's REST API reports merged PRs as state="closed" with
         // merged_at set; synthesize "merged" here so every renderer
-        // (status pills on cards + title, kanban categorization) sees
+        // (status pills on rows and titles) sees
         // one canonical value instead of having to special-case the
         // closed-but-merged combination.
         String synthesizedState = entity.getMergedAt() != null && "closed".equals(entity.getState())

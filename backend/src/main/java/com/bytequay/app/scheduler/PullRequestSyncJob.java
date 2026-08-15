@@ -17,7 +17,6 @@ import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.SyncSettingsService;
-import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +58,6 @@ public class PullRequestSyncJob
     private final CredentialService credentialService;
     private final Executor executor;
     private final QuietHoursPolicy quietHours;
-    private final PRSyncService prSyncService;
 
     /** Guards against overlapping syncs whether triggered by tick or immediate request. */
     private final AtomicBoolean syncing = new AtomicBoolean(false);
@@ -70,8 +68,7 @@ public class PullRequestSyncJob
             SyncSettingsService syncSettings,
             CredentialService credentialService,
             QuietHoursPolicy quietHours,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
-            PRSyncService prSyncService)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.store = requireNonNull(store, "store is null");
@@ -79,7 +76,6 @@ public class PullRequestSyncJob
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.quietHours = requireNonNull(quietHours, "quietHours is null");
         this.executor = requireNonNull(executor, "executor is null");
-        this.prSyncService = requireNonNull(prSyncService, "prSyncService is null");
     }
 
     /**
@@ -131,18 +127,6 @@ public class PullRequestSyncJob
         }
         finally {
             syncing.set(false);
-        }
-
-        // Unified-dashboard sweep, running alongside the legacy sync above
-        // during its soak period (unified-pr-view.md's dashboard migration)
-        // — writes to the disjoint `pr`/`pr_triage` tables, so this never
-        // conflicts with the legacy pass. Own try/catch: a failure here
-        // must never block the legacy sync that just ran.
-        try {
-            prSyncService.syncList();
-        }
-        catch (Exception e) {
-            log.warn("Unified dashboard sync failed: {}", e.getMessage());
         }
     }
 

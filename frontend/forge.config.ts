@@ -59,8 +59,8 @@ function requireJavaAtLeast(minMajor: number): void {
     throw new Error(
       `[forge] Maven is using JDK ${major} but ByteQuay's backend (Checkstyle ${'>=13.x'}, `
       + `Error Prone, Spring Boot 3.5) requires JDK ${minMajor}+. `
-      + `Set JAVA_HOME to a JDK ${minMajor}+ install (e.g. via 'brew install temurin@21' on macOS or '/usr/libexec/java_home -v 21'), `
-      + `then re-run. CI runs JDK 21 via actions/setup-java.`,
+      + `Set JAVA_HOME to a JDK ${minMajor}+ install (e.g. via 'brew install openjdk@25' on macOS or '/usr/libexec/java_home -v 25'), `
+      + `then re-run. CI runs JDK 25 via actions/setup-java.`,
     );
   }
 }
@@ -89,7 +89,7 @@ const config: ForgeConfig = {
       if (existsSync(BACKEND_JAR)) {
         return;
       }
-      requireJavaAtLeast(21);
+      requireJavaAtLeast(25);
       // eslint-disable-next-line no-console
       console.log('[forge] backend JAR missing — running mvn package…');
       execSync('mvn -B -q -DskipTests package', {

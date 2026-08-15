@@ -1,43 +1,7 @@
-/*
- * Master stylesheet — pure @import glue. Every feature owns its own file
- * under ./css/, so adding a kanban rule means editing kanban.css instead
- * of paging through 11k lines. Vite resolves these at build time so the
- * runtime cost is one bundled CSS file (no extra HTTP requests).
- *
- * Order matters: base.css ships theme variables and resets that the
- * feature stylesheets reference, so it goes first. The rest are
- * order-independent — selector specificity (not file order) decides
- * conflicts within feature surfaces.
- */
+/* Base, Home, pull-request, and onboarding surfaces only. */
 @import './css/base.css';
-@import './css/v3.css';
-@import './css/v3-shell.css';
-@import './css/v3-conv.css';
-@import './css/v3-pane.css';
-@import './css/task-brain.css';
-@import './css/v3-fullpage.css';
-@import './css/v3-workspace.css';
-@import './css/dashboard.css';
-@import './css/settings.css';
-@import './css/ai.css';
 @import './css/home.css';
 @import './css/modals.css';
-@import './css/repos.css';
-@import './css/inbox.css';
-@import './css/email.css';
-@import './css/pr-detail.css';
 @import './css/inapp-browser.css';
-@import './css/workspace.css';
-@import './css/calm-page.css';
-@import './css/review.css';
-@import './css/stage-detail.css';
-@import './css/highlight.css';
-@import './css/agent-review.css';
-@import './css/workspace-unification.css';
-@import './css/workspace-pages-v2.css';
-@import './css/workspace-task-v2.css';
-@import './css/workspace-trunk-v2.css';
-@import './css/ci-autofix.css';
-@import './css/upstream-sync.css';
-@import './css/codex-light.css';
-@import './css/settings-v2.css';
+@import './css/pulls.css';
+@import './css/settings.css';

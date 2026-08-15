@@ -11,63 +11,68 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import SettingsSidebar from './SettingsSidebar';
-import type { SettingsSection } from './types';
+import { useEffect, useState } from 'react';
 
-import AccountPage from './pages/AccountPage';
-import AppearancePage from './pages/AppearancePage';
-import AiReviewPage from './pages/AiReviewPage';
-import CredentialsPage from './pages/CredentialsPage';
-import EmailSettingsPage from './pages/EmailPage';
-import HelpPage from './pages/HelpPage';
-import IntegrationsPage from './pages/IntegrationsPage';
-import AgentRolesPage from './pages/AgentRolesPage';
-import ConceptsPage from './pages/ConceptsPage';
-import SavedViewsPage from './pages/SavedViewsPage';
-import SkillsPage from './pages/SkillsPage';
-import WatchedReposPage from './pages/WatchedReposPage';
-import WorkspaceMemoryPage from './pages/WorkspaceMemoryPage';
+export default function SettingsShell() {
+  const [configured, setConfigured] = useState(false);
+  const [pat, setPat] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [version, setVersion] = useState('');
 
-type Props = {
-  section: SettingsSection;
-  workspaceId?: string | null;
-  onSelectSection: (section: SettingsSection) => void;
-  /** Forwarded to WorkspaceMemoryPage so back-link chips in the
-   *  memory proposal banner can navigate to the source thread. */
-  onOpenThread?: (threadId: string) => void;
-};
+  useEffect(() => {
+    void window.bridge.hasPat().then(setConfigured);
+    void window.bridge.getAppVersion().then(value => setVersion(value.version));
+  }, []);
 
-function SettingsShell({ section, workspaceId, onSelectSection, onOpenThread }: Props) {
-  // 'github-token' is kept in the section union so existing onboarding
-  // deep links resolve cleanly; the Credentials → Git PAT tab owns the
-  // PAT now, so we alias the old id at render time.
-  const resolved = section === 'github-token' ? 'credentials' : section;
-  // Local AI is a tab of the AI page, not a page of its own. The rail
-  // entry and every existing 'local-ai' deep link land on the AI page
-  // with that tab already open.
-  const isAi = resolved === 'ai-review' || resolved === 'local-ai';
+  const save = async () => {
+    if (!pat.trim()) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await window.bridge.savePat(pat.trim());
+      setConfigured(true);
+      setPat('');
+      setMessage('GitHub credential saved.');
+    }
+    catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <section className="sv2">
-      <SettingsSidebar active={resolved} onSelect={onSelectSection} />
-      <div className="sv2-content">
-          {resolved === 'account' && <AccountPage />}
-          {resolved === 'appearance' && <AppearancePage />}
-          {resolved === 'credentials' && <CredentialsPage />}
-          {isAi && <AiReviewPage key={resolved} initialTab={resolved === 'local-ai' ? 'local' : 'backends'} />}
-          {resolved === 'skills' && <SkillsPage />}
-          {resolved === 'agent-roles' && <AgentRolesPage />}
-          {resolved === 'saved-views' && <SavedViewsPage />}
-          {resolved === 'concepts' && <ConceptsPage />}
-          {resolved === 'watched-repos' && <WatchedReposPage workspaceId={workspaceId} />}
-          {resolved === 'workspace-memory' && (
-            <WorkspaceMemoryPage workspaceId={workspaceId ?? undefined} onOpenThread={onOpenThread} />
-          )}
-          {resolved === 'integrations' && <IntegrationsPage />}
-          {resolved === 'email' && <EmailSettingsPage />}
-          {resolved === 'help' && <HelpPage />}
-      </div>
-    </section>
+    <main className="settings-clean">
+      <header>
+        <h1>Settings</h1>
+        <p>Only settings required by the Home and pull-request surfaces are retained.</p>
+      </header>
+      <section>
+        <h2>GitHub account</h2>
+        <p className={configured ? 'settings-clean__ok' : ''}>
+          {configured ? 'Connected' : 'Not connected'}
+        </p>
+        <label htmlFor="github-pat">Replace personal access token</label>
+        <input
+          id="github-pat"
+          type="password"
+          value={pat}
+          placeholder="github_pat_…"
+          onChange={event => setPat(event.target.value)}
+        />
+        <div className="settings-clean__actions">
+          <button type="button" disabled={saving || !pat.trim()} onClick={() => { void save(); }}>
+            {saving ? 'Saving…' : 'Save token'}
+          </button>
+          <button type="button" onClick={() => { void window.bridge.syncPrs().then(() => setMessage('Sync requested.')); }}>
+            Sync pull requests now
+          </button>
+        </div>
+        {message && <p>{message}</p>}
+      </section>
+      <footer>ByteQuay {version}</footer>
+    </main>
   );
 }
-
-export default SettingsShell;

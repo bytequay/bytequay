@@ -12,9 +12,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'usage/getting-started',
         'usage/pr-dashboard',
-        'usage/ai-pr-review',
-        'usage/tasks',
-        'usage/teams',
       ],
     },
   ],

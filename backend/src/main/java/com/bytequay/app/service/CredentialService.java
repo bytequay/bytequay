@@ -15,54 +15,30 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
-import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.CredentialStore;
-import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.repository.AppSettingsStore.Key.GITHUB_PAT;
-import static com.bytequay.app.repository.CredentialStore.DEFAULT_INSTANCE_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
- * CRUD over the credentials vault, plus a one-time migration of the legacy
- * {@code app_settings.github.pat} row into the new table.
+ * CRUD over the credentials vault.
  *
  * <p>Each credential is keyed by (type, name, instanceName); convenience
- * overloads omit {@code instanceName} and resolve to the earliest-created
- * instance, which is what reviewers / the PAT resolver want when they don't
- * care about the specific key.
+ * overloads omit {@code instanceName} and resolve to the default instance.
  */
 @Service
 public class CredentialService
 {
     public static final String GITHUB_ACCOUNT_NAME = "github";
 
-    private static final Logger log = LoggerFactory.getLogger(CredentialService.class);
-
     private final CredentialStore credentialStore;
-    private final AppSettingsStore appSettingsStore;
 
-    public CredentialService(CredentialStore credentialStore, AppSettingsStore appSettingsStore)
+    public CredentialService(CredentialStore credentialStore)
     {
         this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
-        this.appSettingsStore = requireNonNull(appSettingsStore, "appSettingsStore is null");
-    }
-
-    @PostConstruct
-    public void migrateLegacyPat()
-    {
-        if (credentialStore.find(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).isPresent()) {
-            return;
-        }
-        appSettingsStore.get(GITHUB_PAT)
-                .filter(value -> !value.isBlank())
-                .ifPresent(this::migrateLegacyPat);
     }
 
     public List<Credential> list()
@@ -75,8 +51,7 @@ public class CredentialService
         return credentialStore.findByType(type);
     }
 
-    /** All instances of (type, name), in insertion order. Used by services
-     *  that store one row per connected account (Gmail). */
+    /** All instances of (type, name), in insertion order. */
     public List<Credential> listByTypeAndName(CredentialType type, String name)
     {
         return credentialStore.findByTypeAndName(type, name);
@@ -94,10 +69,7 @@ public class CredentialService
         return credentialStore.find(type, name, instanceName);
     }
 
-    /** Resolve the user's ★ default instance for (type, name). Used
-     *  by callers that name only a provider/host (e.g. PatResolver,
-     *  the AI reviewer key lookup) so a workspace pick of "Anthropic"
-     *  picks up the right account. */
+    /** Resolve the user's default instance for (type, name). */
     public Optional<Credential> getDefault(CredentialType type, String name)
     {
         return credentialStore.findDefault(type, name);
@@ -134,8 +106,7 @@ public class CredentialService
         return upsert(type, name, instanceName, rawValue, label, notes, null);
     }
 
-    /** Upsert with a structured config blob (MCP rows). The legacy
-     *  six-arg overload above leaves {@code configJson} null. */
+    /** Upsert with optional source metadata, used for GitHub CLI imports. */
     public Credential upsert(
             CredentialType type,
             String name,
@@ -151,19 +122,5 @@ public class CredentialService
     public void delete(CredentialType type, String name, String instanceName)
     {
         credentialStore.delete(type, name, instanceName);
-    }
-
-    private void migrateLegacyPat(String legacyPat)
-    {
-        credentialStore.upsert(
-                CredentialType.ACCOUNT,
-                GITHUB_ACCOUNT_NAME,
-                DEFAULT_INSTANCE_NAME,
-                legacyPat,
-                null,
-                "Migrated from legacy app_settings on first boot.",
-                /* configJson */ null);
-        appSettingsStore.set(GITHUB_PAT, "");
-        log.info("Migrated legacy GitHub PAT from app_settings into credentials table");
     }
 }

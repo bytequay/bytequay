@@ -20,11 +20,11 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 
 /**
  * Boots the entire Spring application context — every controller, every
- * service, every JPA repository, the Flyway migration set — and asserts
+ * service and every JPA repository, and asserts
  * that the bean graph wires up without errors. Catches DI / config
  * regressions that the slice-only {@code @WebMvcTest} suites miss
- * (missing constructor args, broken Qualifiers, malformed Flyway
- * migrations, beans that fail their own validation in @PostConstruct).
+ * (missing constructor args, broken Qualifiers, or beans that fail their
+ * own validation in @PostConstruct).
  *
  * <p>Intentionally has no body: the {@link Test} method exists only to
  * trigger the {@code SpringBootTest} context load. If the context fails

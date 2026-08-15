@@ -33,7 +33,7 @@ import java.util.Optional;
  * <p>The reader handles three formats found in existing rows:
  * <ol>
  *   <li>ISO-8601 ("2026-04-21T10:30:00Z") – written by this converter</li>
- *   <li>SQLite CURRENT_TIMESTAMP ("2026-04-21 10:30:00") – written by Flyway seeds</li>
+ *   <li>SQLite CURRENT_TIMESTAMP ("2026-04-21 10:30:00") – found in older local data</li>
  *   <li>Epoch millis as string ("1776764879190") – written by pre-fix Hibernate</li>
  * </ol>
  */

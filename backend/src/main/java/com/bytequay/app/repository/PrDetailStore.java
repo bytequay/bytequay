@@ -17,7 +17,6 @@ import com.bytequay.app.domain.StoredPrDetail;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -89,24 +88,6 @@ public interface PrDetailStore
     default Optional<Long> findPrIdByReviewCommentId(long commentId)
     {
         return Optional.empty();
-    }
-
-    /**
-     * Returns a map of {@code head_ref → pr_number} for all currently
-     * open PRs against {@code repo} (form {@code "owner/repo"}) that
-     * have detail synced. Used by the local-repo branches kanban to
-     * route branches into the IN REVIEW column.
-     *
-     * <p>Branches whose PR detail hasn't been synced yet won't appear
-     * here — that's by design; the IN REVIEW signal is best-effort,
-     * and the PR will appear once the user opens it (which triggers
-     * the detail sync). Same-name collisions across forks are
-     * resolved by last-write-wins; the kanban can live with that
-     * because the user typically only has one fork per watched repo.
-     */
-    default Map<String, Integer> openPrNumbersByHeadRef(String repo)
-    {
-        return Map.of();
     }
 
     /**

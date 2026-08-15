@@ -58,14 +58,11 @@ class CredentialEntity
     @Column
     private String notes;
 
-    /** Default flag for (type, name) resolution. SQLite has no native
-     *  boolean — stored as INTEGER 0/1 to match V84's column type. */
+    /** Default flag for (type, name) resolution, stored as SQLite INTEGER 0/1. */
     @Column(name = "is_default", nullable = false)
     private int isDefault;
 
-    /** Kind-specific structured config blob. JSON for MCP rows
-     *  (transport / authKind / serverUrl / envVarName); null for
-     *  every other kind. */
+    /** Optional source metadata, currently used for GitHub CLI imports. */
     @Column(name = "config_json")
     private String configJson;
 

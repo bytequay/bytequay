@@ -147,9 +147,8 @@ wait_for_backend() {
 }
 
 # A reset stashes the pre-reset database (see scripts/reset-dev-data.sh) so
-# saved credentials outlive it. The rows can only go back once Flyway has
-# rebuilt the schema, which is why this runs after the backend is up rather
-# than during the wipe itself.
+# saved credentials outlive it. Restore the rows after Hibernate has created
+# the current schema.
 restore_saved_credentials() {
   local saved="${BYTEQUAY_DEV_RESET_KEEP_DIR:-}"
   unset BYTEQUAY_DEV_RESET_KEEP_DIR
@@ -235,7 +234,7 @@ wait "$frontend_pid" || frontend_status=$?
 reset_requested=0
 [[ -f "$DEV_RESET_MARKER" ]] && reset_requested=1
 
-# Stop and reap the backend, Electron, agents, and their subprocesses before
+# Stop and reap the backend, Electron, and their subprocesses before
 # touching any persistent files. cleanup() is idempotent, so the EXIT trap is
 # still safe after this explicit call.
 cleanup

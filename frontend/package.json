@@ -5,6 +5,11 @@
   "description": "My Electron application description",
   "main": ".vite/build/main.js",
   "private": true,
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
@@ -27,9 +32,7 @@
     "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
     "@electron/fuses": "^1.8.0",
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^20.19.39",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
@@ -40,21 +43,14 @@
     "eslint-plugin-header": "^3.1.1",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react-hooks": "^4.6.2",
-    "jsdom": "^29.1.1",
     "license-checker-rseidelsohn": "^4.4.2",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^1.6.1"
   },
   "dependencies": {
-    "highlight.js": "^11.11.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-markdown": "^10.1.0",
-    "rehype-raw": "^7.0.0",
-    "rehype-sanitize": "^6.0.0",
-    "remark-breaks": "^4.0.0",
-    "remark-gfm": "^4.0.1",
     "undici": "^7.25.0"
   }
 }

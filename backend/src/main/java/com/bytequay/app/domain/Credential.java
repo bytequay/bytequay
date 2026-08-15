@@ -20,7 +20,7 @@ import java.time.Instant;
  * the backend; this is what the Settings UI shows. Identified by the triple
  * (type, name, instanceName) — see {@link CredentialType} for the conventions
  * on {@code name}. {@code instanceName} lets multiple keys coexist for the
- * same provider (e.g. two DeepSeek keys, one personal and one work);
+ * same provider (for example, personal and work GitHub accounts);
  * defaults to {@code "default api"} for callers that don't pick.
  */
 public record Credential(
@@ -35,10 +35,7 @@ public record Credential(
          *  (type, name) group. Exactly one row per group carries
          *  this; an unnamed scope resolves to it. */
         boolean isDefault,
-        /** Kind-specific structured config (raw JSON string), or
-         *  null for kinds that don't need it. MCP rows pack their
-         *  transport / auth-kind / server-url / env-var name in
-         *  here; ACCOUNT / AI / REPO ignore the column. */
+        /** Optional source metadata as raw JSON, or null. */
         String configJson,
         Instant createdAt,
         Instant updatedAt,

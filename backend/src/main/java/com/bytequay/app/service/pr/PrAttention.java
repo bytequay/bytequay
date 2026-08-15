@@ -26,10 +26,9 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Promotes a PR into the "Needs attention" Kanban column. Called per PR
- * after the detail sync has refreshed StoredPrDetail.
+ * Computes the attention flag shown on Home after detail sync.
  *
- * <p>v1 rules — see docs/design/settings-redesign.md §6.5:
+ * <p>Rules:
  * <ul>
  *   <li>{@link AttentionReason#CI_FAILING} — aggregate CI is FAILING.</li>
  *   <li>{@link AttentionReason#MENTIONED} — a comment body contains

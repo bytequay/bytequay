@@ -18,7 +18,6 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +26,7 @@ import java.util.Set;
 /**
  * Local database store for pull request list data.
  *
- * <p>Unlike {@link PullRequestRepository}, which is the live GitHub API abstraction,
+ * <p>Unlike the live GitHub API repositories,
  * this interface operates on the local PostgreSQL database and requires no PAT.
  * Rows are written exclusively by the background sync job and read by the list API.
  */
@@ -60,12 +59,8 @@ public interface PullRequestStore
     Map<Long, Instant> findUpdatedAtMap();
 
     /**
-     * Returns the ids of PR rows whose V26 enrichment fields haven't been
-     * populated yet — i.e. {@code reviewer_verdicts} is null. The sync job
-     * uses this to backfill legacy rows that pre-date the V26 schema or
-     * that were stored before the kanban features started reading the
-     * field. Without this backfill those rows show up in the kanban as
-     * "Opened" forever and never land in Needs changes / Ready to merge.
+     * Returns ids whose detail-enrichment fields have not been populated.
+     * The sync job uses this to backfill older local rows.
      */
     Set<Long> findIdsMissingEnrichment();
 
@@ -78,35 +73,11 @@ public interface PullRequestStore
     Optional<PullRequest> findById(long prId);
 
     /**
-     * Returns a map of {@code head_ref → pr_number} for every open PR
-     * in {@code repo} ({@code "owner/name"}). Powers the local-repo
-     * kanban's IN REVIEW column without requiring per-PR detail to
-     * have been synced first. PRs whose row pre-dates V42 (head_ref
-     * still null) are skipped — they'll join the next list sync.
-     */
-    default Map<String, Integer> openPrNumbersByHeadRef(String repo)
-    {
-        Map<String, Integer> out = new HashMap<>();
-        for (PullRequest pr : findAll()) {
-            if (!repo.equals(pr.repo()) || pr.headRef() == null) {
-                continue;
-            }
-            // Last-write-wins on collisions (same head_ref appears on
-            // more than one open PR — a recreate-then-recreate edge
-            // case). The latest one is the most actionable.
-            out.put(pr.headRef(), pr.number());
-        }
-        return out;
-    }
-
-    /**
      * Updates the detail-derived enrichment columns for a single PR row.
      * No-op if the id isn't in the store. Called by the sync job after each
-     * detail fetch — the columns power the Kanban card render path so we
-     * don't have to re-read the detail blob just to draw a list.
+     * detail fetch so list reads don't need to re-read the detail blob.
      *
-     * <p>The trailing block (mergeable…reviewerVerdicts) was added by V26
-     * for the kanban refactor — see docs/design/kanban-refactor.md.
+     * <p>The trailing block (mergeable…reviewerVerdicts)
      * mergeable/mergeableState come from the raw PR detail; headPushedAt
      * is the timestamp of the latest "committed" timeline event;
      * reviewerVerdicts is the rolled-up login → state map derived from
@@ -127,10 +98,8 @@ public interface PullRequestStore
 
     /**
      * Narrow writeback for the cached aggregate ciStatus only. Used by
-     * the user-driven detail / CI-snapshot paths so the kanban
-     * categorizer (prBuckets.ts categorizeMyPr / categorizeToReview)
-     * picks up a fresh failing-CI state without waiting for the next
-     * full bulk sync to run. No-op if {@code prId} isn't in the store.
+     * the user-driven detail / CI-snapshot paths so list and Home reads
+     * pick up fresh CI state without waiting for the next full sync.
      *
      * <p>Deliberately doesn't touch attentionReason or the rest of
      * the enrichment block — those depend on per-user state

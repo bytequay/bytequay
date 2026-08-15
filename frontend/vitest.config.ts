@@ -14,14 +14,4 @@
 // eslint-disable-next-line import/no-unresolved -- subpath export, resolves at runtime
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({
-  test: {
-    // jsdom for every spec — lets component / render tests use
-    // `document` and `window` without a per-file
-    // `@vitest-environment jsdom` directive (which is fragile because
-    // the directive must live in the first comment block, where the
-    // license header now sits).
-    environment: 'jsdom',
-    setupFiles: ['./src/testSetup.ts'],
-  },
-});
+export default defineConfig({ test: { environment: 'node' } });

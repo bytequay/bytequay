@@ -16,7 +16,6 @@ package com.bytequay.app.service.github;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.github.GitHubOAuthService.ConnectionInfo;
-import com.bytequay.app.service.local.ShellRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -79,13 +78,13 @@ public class GhCliService
             Path.of("/usr/local/bin/gh"));
 
     private final CredentialService credentialService;
-    private final ShellRunner shellRunner;
+    private final BoundedProcessRunner processRunner;
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();
 
-    public GhCliService(CredentialService credentialService, ShellRunner shellRunner)
+    public GhCliService(CredentialService credentialService, BoundedProcessRunner processRunner)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
-        this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
+        this.processRunner = requireNonNull(processRunner, "processRunner is null");
     }
 
     /** Absolute path to the {@code gh} binary, or empty when it isn't installed. */
@@ -174,11 +173,11 @@ public class GhCliService
     /** Runs one gh subcommand and returns its trimmed stdout. */
     private String run(List<String> argv)
     {
-        ShellRunner.Result result;
+        BoundedProcessRunner.Result result;
         try {
             // gh resolves its config from HOME; the home dir is also a working
             // dir that always exists, unlike any repo path.
-            result = shellRunner.runArgv(
+            result = processRunner.run(
                     Path.of(System.getProperty("user.home")), argv, TIMEOUT_SECONDS, MAX_OUTPUT_BYTES);
         }
         catch (InterruptedException e) {
@@ -187,7 +186,7 @@ public class GhCliService
         }
         String output = result.output() == null ? "" : result.output().strip();
         if (!result.ran() || result.exitCode() != 0) {
-            // ShellRunner folds stderr into stdout, so `output` carries gh's own
+            // The runner folds stderr into stdout, so `output` carries gh's own
             // guidance ("To get started with GitHub CLI, please run: gh auth login").
             String detail = !output.isEmpty() ? output : result.error();
             log.warn("gh {} failed: {}", argv.subList(1, argv.size()), detail);

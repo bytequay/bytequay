@@ -93,8 +93,7 @@ class PullRequestEntity
     @Column(name = "attention_reason")
     private AttentionReason attentionReason;
 
-    // --- Phase 1 kanban-refactor fields (V26). All nullable so existing rows
-    //     survive without re-sync; populated lazily as PRs are next touched. ---
+    // Detail-enrichment fields. Nullable until a row has been synced.
 
     /** GitHub PR state: "open", "closed", "merged" (the latter is closed+merged_at). */
     @Column(name = "state")
@@ -129,10 +128,7 @@ class PullRequestEntity
     @Convert(converter = StringMapConverter.class)
     private Map<String, String> reviewerVerdicts;
 
-    /** PR head branch name (GitHub's head.ref on the list response).
-     *  Populated by the list sync so the local-repo kanban can map a
-     *  local branch to its open PR without waiting for the per-PR
-     *  detail fetch. NULL on legacy rows that pre-date V42. */
+    /** PR head branch name (GitHub's head.ref on the list response). */
     @Column(name = "head_ref")
     private String headRef;
 

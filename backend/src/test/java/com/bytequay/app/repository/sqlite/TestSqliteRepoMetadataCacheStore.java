@@ -14,7 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.GitHubUserMatch;
-import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.PullRequestMetadata;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,7 +42,7 @@ class TestSqliteRepoMetadataCacheStore
         String repo = "owner/repo-" + UUID.randomUUID();
         Instant fetchedAt = Instant.parse("2026-07-19T00:00:00Z");
         List<GitHubUserMatch> users = List.of(new GitHubUserMatch("alice", "Alice", "avatar"));
-        List<IssueDetail.Label> labels = List.of(new IssueDetail.Label("jdbc", "007f8b"));
+        List<PullRequestMetadata.Label> labels = List.of(new PullRequestMetadata.Label("jdbc", "007f8b"));
 
         store.save(repo, users, labels, fetchedAt);
 

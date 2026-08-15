@@ -15,7 +15,6 @@ package com.bytequay.app.service.github;
 
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.local.ShellRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -46,11 +45,11 @@ class TestGhCliService
             throws Exception
     {
         CredentialService credentials = mock(CredentialService.class);
-        ShellRunner runner = mock(ShellRunner.class);
-        when(runner.runArgv(any(), eq(List.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
-                .thenReturn(new ShellRunner.Result(true, 0, "gho_secret\n", false, null));
-        when(runner.runArgv(any(), eq(List.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
-                .thenReturn(new ShellRunner.Result(true, 0, "octocat\n", false, null));
+        BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
+        when(runner.run(any(), eq(List.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
+                .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
+        when(runner.run(any(), eq(List.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
+                .thenReturn(new BoundedProcessRunner.Result(true, 0, "octocat\n", false, null));
 
         var info = new GhCliService(credentials, runner).importToken("/fake/gh");
 
@@ -69,24 +68,24 @@ class TestGhCliService
     void repeatedTokenReadsAreServedFromTheCache()
             throws Exception
     {
-        ShellRunner runner = mock(ShellRunner.class);
-        when(runner.runArgv(any(), any(), anyLong(), anyInt()))
-                .thenReturn(new ShellRunner.Result(true, 0, "gho_secret\n", false, null));
+        BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
+        when(runner.run(any(), any(), anyLong(), anyInt()))
+                .thenReturn(new BoundedProcessRunner.Result(true, 0, "gho_secret\n", false, null));
         GhCliService service = new GhCliService(mock(CredentialService.class), runner);
 
         assertThat(service.currentToken("/fake/gh")).hasValue("gho_secret");
         assertThat(service.currentToken("/fake/gh")).hasValue("gho_secret");
 
-        verify(runner, times(1)).runArgv(any(), any(), anyLong(), anyInt());
+        verify(runner, times(1)).run(any(), any(), anyLong(), anyInt());
     }
 
     @Test
     void aLoggedOutGhYieldsNoLiveTokenRatherThanThrowing()
             throws Exception
     {
-        ShellRunner runner = mock(ShellRunner.class);
-        when(runner.runArgv(any(), any(), anyLong(), anyInt()))
-                .thenReturn(new ShellRunner.Result(true, 1, "gh auth login", false, null));
+        BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
+        when(runner.run(any(), any(), anyLong(), anyInt()))
+                .thenReturn(new BoundedProcessRunner.Result(true, 1, "gh auth login", false, null));
         GhCliService service = new GhCliService(mock(CredentialService.class), runner);
 
         assertThat(service.currentToken("/fake/gh")).isEmpty();
@@ -97,9 +96,9 @@ class TestGhCliService
             throws Exception
     {
         CredentialService credentials = mock(CredentialService.class);
-        ShellRunner runner = mock(ShellRunner.class);
-        when(runner.runArgv(any(), any(), anyLong(), anyInt()))
-                .thenReturn(new ShellRunner.Result(
+        BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
+        when(runner.run(any(), any(), anyLong(), anyInt()))
+                .thenReturn(new BoundedProcessRunner.Result(
                         true, 1, "To get started with GitHub CLI, please run: gh auth login", false, null));
 
         assertThatThrownBy(() -> new GhCliService(credentials, runner).importToken("/fake/gh"))

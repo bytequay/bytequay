@@ -25,9 +25,9 @@ import static java.util.Objects.requireNonNull;
  * conserve the 5,000/hr REST rate limit while the user is asleep.
  *
  * <p>This gates only the {@code @Scheduled} background jobs (the per-minute
- * PR sync, the home-cache refresh, the optional review sweep). It does
+ * PR sync and the Home-cache refresh). It does
  * <strong>not</strong> touch anything the user initiates — opening a PR,
- * posting a comment, a manual sync, or running a task all hit GitHub on
+ * posting a comment, or a manual sync all hit GitHub on
  * demand regardless of the hour.
  *
  * <p>The window is evaluated in the JVM's local time zone, which on this

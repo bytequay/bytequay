@@ -24,7 +24,6 @@ import java.util.Optional;
 
 import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -77,18 +76,6 @@ class TestPatResolver
                 .thenReturn(Optional.of("gho_imported"));
 
         assertThat(new PatResolver(credentials, ghCli).resolve()).isEqualTo("gho_imported");
-    }
-
-    @Test
-    void aPerRepoTokenStillWinsOutright()
-    {
-        CredentialService credentials = mock(CredentialService.class);
-        GhCliService ghCli = mock(GhCliService.class);
-        when(credentials.getSecret(eq(CredentialType.REPO), eq("acme/widgets")))
-                .thenReturn(Optional.of("ghp_repo"));
-
-        assertThat(new PatResolver(credentials, ghCli).resolve("acme/widgets")).isEqualTo("ghp_repo");
-        verify(ghCli, never()).currentToken();
     }
 
     private static Credential accountRow(String configJson)

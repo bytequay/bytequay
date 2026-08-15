@@ -15,7 +15,6 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
-import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
@@ -25,6 +24,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
+import com.bytequay.app.domain.PullRequestMetadata;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.Reactions;
@@ -927,6 +927,39 @@ public class GitHubPullRequestReadClient
         }
     }
 
+    @Override
+    public PullRequestMetadata fetchPullRequestMetadata(String pat, PullRequestRef pr)
+    {
+        try {
+            GitHubIssueItem item = gitHubRestClient
+                    .get()
+                    .uri("/repos/{owner}/{repo}/issues/{number}",
+                            pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubIssueItem.class);
+            if (item == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "Empty response from GitHub /issues/{n}");
+            }
+            List<PullRequestMetadata.Label> labels = Optional.ofNullable(item.labels())
+                    .orElse(ImmutableList.of())
+                    .stream()
+                    .map(label -> new PullRequestMetadata.Label(label.name(), label.color()))
+                    .collect(toImmutableList());
+            List<String> assignees = Optional.ofNullable(item.assignees())
+                    .orElse(ImmutableList.of())
+                    .stream()
+                    .map(GitHubIssueItem.User::login)
+                    .filter(Objects::nonNull)
+                    .collect(toImmutableList());
+            return new PullRequestMetadata(labels, assignees);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     private static PrTimelineEvent toTimelineEvent(GitHubTimelineEvent e) {
         String event = Optional.ofNullable(e.event()).orElse("");
         String actor =
@@ -1184,9 +1217,7 @@ public class GitHubPullRequestReadClient
                 0,
                 0,
                 null,
-                // V26 kanban fields populated from the list response.
-                // mergeable / mergeableState / headPushedAt / reviewerVerdicts
-                // come from the detail fetch downstream and stay null here.
+                // List response fields; detail-only fields stay null here.
                 item.state(),
                 item.closedAt(),
                 item.mergedAt(),
@@ -1194,13 +1225,10 @@ public class GitHubPullRequestReadClient
                 null,
                 null,
                 null,
-                // V37 snooze fields — local-state only, joined in by
-                // SqlitePullRequestStore.toDomain via PrViewState.
+                // Local view state is joined later by SqlitePullRequestStore.
                 null,
                 null,
-                // V42: head ref captured from the list response so the
-                // local-repo kanban can map a local branch to its open
-                // PR without waiting for the per-PR detail fetch.
+                // Head ref is available directly from the list response.
                 Optional.ofNullable(item.head())
                         .map(GitHubRepoPullRequestItem.Head::ref)
                         .orElse(null));
@@ -1476,7 +1504,7 @@ public class GitHubPullRequestReadClient
     }
 
     @Override
-    public List<IssueDetail.Label> fetchRepoLabels(String pat, RepoRef repo) {
+    public List<PullRequestMetadata.Label> fetchRepoLabels(String pat, RepoRef repo) {
         return paginator
                 .paginate(
                         pat,
@@ -1487,7 +1515,7 @@ public class GitHubPullRequestReadClient
                         repo.repo())
                 .stream()
                 .filter(label -> label.name() != null)
-                .map(label -> new IssueDetail.Label(label.name(), label.color()))
+                .map(label -> new PullRequestMetadata.Label(label.name(), label.color()))
                 .collect(toImmutableList());
     }
 
@@ -1528,7 +1556,7 @@ public class GitHubPullRequestReadClient
                 0,
                 0,
                 null,
-                // V26 kanban fields. Search reports a merged PR as
+                // Search reports a merged PR as
                 // state=closed, so merged_at has to come along or every
                 // renderer downstream reads it as plainly closed.
                 item.state(),

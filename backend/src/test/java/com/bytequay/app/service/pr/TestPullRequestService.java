@@ -16,7 +16,6 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.HandledAction;
-import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrCiSnapshot;
@@ -27,22 +26,23 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
+import com.bytequay.app.domain.PullRequestMetadata;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubActionsRepository;
+import com.bytequay.app.repository.GitHubMergeRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubPullRequestWriteRepository;
 import com.bytequay.app.repository.PrDetailStore;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
-import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -94,6 +94,14 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @ExtendWith(MockitoExtension.class)
 class TestPullRequestService
 {
+    private interface PullRequestRepository
+            extends GitHubPullRequestReadRepository,
+                    GitHubPullRequestWriteRepository,
+                    GitHubMergeRepository,
+                    GitHubActionsRepository,
+                    GitHubAccountRepository
+    {}
+
     @Mock
     private PullRequestRepository gitHub;
 
@@ -109,19 +117,11 @@ class TestPullRequestService
     @Mock
     private AppSettingsStore settingsStore;
 
-    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
-    @SuppressWarnings("UnusedVariable")
-    @Mock
-    private CredentialService credentialService;
-
     @Mock
     private GitHubResponseCache responseCache;
 
     @Mock
     private PullRequestDetailInvalidator detailInvalidator;
-
-    @Mock
-    private RepoListCache repoListCache;
 
     @Mock
     private SqliteRepoMetadataCacheStore repoMetadataCache;
@@ -132,11 +132,6 @@ class TestPullRequestService
     @SuppressWarnings("UnusedVariable")
     @Mock
     private Executor executor;
-
-    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
-    @SuppressWarnings("UnusedVariable")
-    @Mock
-    private TaskStore taskStore;
 
     // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
     @SuppressWarnings("UnusedVariable")
@@ -244,9 +239,10 @@ class TestPullRequestService
     private PullRequestService dashboardService()
     {
         return new PullRequestService(
-                gitHub, store, detailStore, viewStateStore, settingsStore, credentialService,
-                responseCache, detailInvalidator, repoListCache, repoMetadataCache, patResolver,
-                taskStore, collaboratorPermissions, Runnable::run, Runnable::run);
+                gitHub, gitHub, gitHub, gitHub, gitHub,
+                store, detailStore, viewStateStore, settingsStore,
+                responseCache, detailInvalidator, repoMetadataCache, patResolver,
+                collaboratorPermissions, Runnable::run, Runnable::run);
     }
 
     private void stubEmptySearches()
@@ -272,36 +268,6 @@ class TestPullRequestService
     }
 
     // ── listPullRequests ───────────────────────────────────────────────────────
-
-    @Test
-    void cachedTerminalStateReadsClosedRemoteTruthWithoutGithubIo()
-    {
-        PullRequest closed = samplePr("owner/repo", 42, "closed");
-        when(store.findIdByRepoAndNumber("owner/repo", 42))
-                .thenReturn(Optional.of(42L));
-        when(store.findById(42L)).thenReturn(Optional.of(closed));
-
-        var terminal = pullRequestService.findCachedTerminalState(
-                "owner/repo", 42);
-
-        assertThat(terminal).get().extracting(
-                PullRequestService.CachedTerminalState::status)
-                .isEqualTo("closed");
-        verifyNoInteractions(gitHub);
-    }
-
-    @Test
-    void cachedTerminalStateDoesNotOverrideAnOpenRemotePr()
-    {
-        when(store.findIdByRepoAndNumber("owner/repo", 42))
-                .thenReturn(Optional.of(42L));
-        when(store.findById(42L)).thenReturn(Optional.of(
-                samplePr("owner/repo", 42, "open")));
-
-        assertThat(pullRequestService.findCachedTerminalState(
-                "owner/repo", 42)).isEmpty();
-        verifyNoInteractions(gitHub);
-    }
 
     @Test
     void testListPullRequestsReadsFromStore()
@@ -855,7 +821,6 @@ class TestPullRequestService
         verify(viewStateStore, never()).markReviewed(anyLong(), any());
         verifyNoInteractions(responseCache);
         verifyNoInteractions(detailInvalidator);
-        verifyNoInteractions(repoListCache);
     }
 
     @Test
@@ -867,7 +832,6 @@ class TestPullRequestService
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -879,21 +843,6 @@ class TestPullRequestService
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
-    }
-
-    @Test
-    void taskOwnedCloseResolvesLegacyIdAndSealsImmediately()
-    {
-        Task owner = Mockito.mock(Task.class);
-        when(owner.id()).thenReturn("task-1");
-        when(taskStore.findTasksByPrRef("owner/repo#7")).thenReturn(List.of(owner));
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(77L));
-
-        pullRequestService.commentOnPullRequest("owner/repo", 7, 0L, "", true);
-
-        verify(viewStateStore).markReviewed(77L, HandledAction.DISMISSED);
-        verify(viewStateStore, never()).markReviewed(eq(0L), any());
     }
 
     @Test
@@ -970,7 +919,6 @@ class TestPullRequestService
 
         verify(gitHub).setPullRequestDraft(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq(true));
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -980,7 +928,6 @@ class TestPullRequestService
 
         verify(gitHub).requestReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -990,7 +937,6 @@ class TestPullRequestService
 
         verify(gitHub).removeRequestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -1063,7 +1009,6 @@ class TestPullRequestService
         verify(gitHub).createReview(eq("pat"), any(PullRequestRef.class), any());
         verify(viewStateStore).markReviewed(99L, HandledAction.APPROVED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -1086,7 +1031,6 @@ class TestPullRequestService
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
         verify(viewStateStore).markReviewed(99L, HandledAction.MERGED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
-        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -1132,35 +1076,6 @@ class TestPullRequestService
         pullRequestService.mergePullRequest("owner/repo", 7, 99L, "garbage");
 
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
-    }
-
-    @Test
-    void taskOwnedPullRequestCannotUseLegacyMergePath()
-    {
-        when(taskStore.findTasksByPrRef("owner/repo#7"))
-                .thenReturn(List.of(Mockito.mock(Task.class)));
-
-        assertThatThrownBy(() -> pullRequestService.mergePullRequest(
-                "owner/repo", 7, 99L, "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("task Merge / Close gate");
-
-        verify(gitHub, never()).mergePullRequest(anyString(), any(), any());
-        verify(gitHub, never()).enqueuePullRequest(anyString(), anyString());
-    }
-
-    @Test
-    void taskOwnedPullRequestCannotEnableGitHubAutoMerge()
-    {
-        when(taskStore.findTasksByPrRef("owner/repo#7"))
-                .thenReturn(List.of(Mockito.mock(Task.class)));
-
-        assertThatThrownBy(() -> pullRequestService.enableAutoMerge(
-                "owner/repo", 7, 99L, "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("task Merge / Close gate");
-
-        verify(gitHub, never()).enableAutoMerge(anyString(), any(), anyString());
     }
 
     @Test
@@ -1650,12 +1565,12 @@ class TestPullRequestService
     void testMetadataChoicesCombineCurrentAndAvailableValues()
     {
         PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
-        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(gitHub.fetchPullRequestMetadata("pat", ref)).thenReturn(metadata());
         when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.empty());
         when(gitHub.fetchAssignableUsers("pat", ref.repoRef())).thenReturn(
                 ImmutableList.of(new GitHubUserMatch("alice", null, null)));
         when(gitHub.fetchRepoLabels("pat", ref.repoRef())).thenReturn(
-                ImmutableList.of(new IssueDetail.Label("jdbc", "007f8b")));
+                ImmutableList.of(new PullRequestMetadata.Label("jdbc", "007f8b")));
 
         PullRequestService.MetadataChoices choices =
                 pullRequestService.getMetadataChoices("trinodb/trino", 4074);
@@ -1673,16 +1588,16 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
         SqliteRepoMetadataCacheStore.Snapshot cached = new SqliteRepoMetadataCacheStore.Snapshot(
                 ImmutableList.of(new GitHubUserMatch("cached-user", null, null)),
-                ImmutableList.of(new IssueDetail.Label("cached-label", "123456")),
+                ImmutableList.of(new PullRequestMetadata.Label("cached-label", "123456")),
                 Instant.now());
-        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(gitHub.fetchPullRequestMetadata("pat", ref)).thenReturn(metadata());
         when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.of(cached));
 
         PullRequestService.MetadataChoices choices =
                 pullRequestService.getMetadataChoices("trinodb/trino", 4074);
 
         assertThat(choices.users()).extracting(GitHubUserMatch::login).containsExactly("cached-user");
-        assertThat(choices.labels()).extracting(IssueDetail.Label::name).containsExactly("cached-label");
+        assertThat(choices.labels()).extracting(PullRequestMetadata.Label::name).containsExactly("cached-label");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
         verify(gitHub, never()).fetchRepoLabels(anyString(), any());
         verify(repoMetadataCache, never()).save(anyString(), any(), any(), any());
@@ -1694,20 +1609,20 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
         SqliteRepoMetadataCacheStore.Snapshot stale = new SqliteRepoMetadataCacheStore.Snapshot(
                 ImmutableList.of(new GitHubUserMatch("stale-user", null, null)),
-                ImmutableList.of(new IssueDetail.Label("stale-label", "123456")),
+                ImmutableList.of(new PullRequestMetadata.Label("stale-label", "123456")),
                 Instant.now().minus(Duration.ofDays(8)));
-        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(gitHub.fetchPullRequestMetadata("pat", ref)).thenReturn(metadata());
         when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.of(stale));
         when(gitHub.fetchAssignableUsers("pat", ref.repoRef())).thenReturn(
                 ImmutableList.of(new GitHubUserMatch("fresh-user", null, null)));
         when(gitHub.fetchRepoLabels("pat", ref.repoRef())).thenReturn(
-                ImmutableList.of(new IssueDetail.Label("fresh-label", "654321")));
+                ImmutableList.of(new PullRequestMetadata.Label("fresh-label", "654321")));
 
         PullRequestService.MetadataChoices choices =
                 pullRequestService.getMetadataChoices("trinodb/trino", 4074);
 
         assertThat(choices.users()).extracting(GitHubUserMatch::login).containsExactly("fresh-user");
-        assertThat(choices.labels()).extracting(IssueDetail.Label::name).containsExactly("fresh-label");
+        assertThat(choices.labels()).extracting(PullRequestMetadata.Label::name).containsExactly("fresh-label");
         verify(repoMetadataCache).save(
                 eq("trinodb/trino"), eq(choices.users()), eq(choices.labels()), any(Instant.class));
     }
@@ -1724,14 +1639,11 @@ class TestPullRequestService
         verify(gitHub).setPullRequestLabel("pat", ref, "jdbc", false);
     }
 
-    private static IssueDetail metadataIssue()
+    private static PullRequestMetadata metadata()
     {
-        return new IssueDetail(
-                1L, 4074, "title", "body", "author", null, "open", "url",
-                Instant.EPOCH, Instant.EPOCH, null,
-                ImmutableList.of(new IssueDetail.Label("jdbc", "007f8b")),
-                ImmutableList.of(new IssueDetail.Assignee("alice", null)),
-                null, ImmutableList.of(), ImmutableList.of(), false);
+        return new PullRequestMetadata(
+                ImmutableList.of(new PullRequestMetadata.Label("jdbc", "007f8b")),
+                ImmutableList.of("alice"));
     }
 
     @Test
@@ -1918,7 +1830,6 @@ class TestPullRequestService
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class),
                 argThat(cmd -> cmd.title().equals(Optional.of("New title"))));
         verify(detailInvalidator).invalidate("owner/repo", 42);
-        verify(repoListCache).invalidatePulls(any());
     }
 
     @Test

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app;
 
-import com.bytequay.app.config.LegacyDatabaseGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -33,13 +32,11 @@ public final class ByteQuayApplication
     public static void main(String[] args)
             throws IOException
     {
-        // Create the app data directory before Spring Boot initialises the DataSource and Flyway.
+        // Create the app data directory before Spring Boot initialises SQLite.
         Path home = Path.of(System.getProperty("user.home"), "Library", "Application Support");
         Path dbDir = home.resolve("ByteQuay");
         Files.createDirectories(dbDir);
         log.debug("Database directory ready: {}", dbDir);
-        LegacyDatabaseGuard.quarantinePreBaselineDatabase(dbDir.resolve("bytequay.db"));
-
         SpringApplication.run(ByteQuayApplication.class, args);
     }
 }

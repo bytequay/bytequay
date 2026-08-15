@@ -439,138 +439,6 @@ samp {
   height: 100%;
 }
 
-/* ── Global app shell ────────────────────────────────────── */
-
-.app-shell {
-  display: flex;
-  flex-direction: row;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.route-error {
-  padding: 40px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: flex-start;
-  background: var(--bg-base);
-  color: var(--text-1);
-}
-.route-error h2 { margin: 0; font-size: 16px; }
-.route-error__stack {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  white-space: pre-wrap;
-  color: #b91c1c;
-  max-width: 720px;
-}
-.route-error__btn {
-  font: inherit;
-  font-size: var(--font-size-md);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-1);
-  cursor: pointer;
-}
-
-.app-content {
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.app-window-drag-region {
-  position: fixed;
-  z-index: 1000;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 10px;
-  app-region: drag;
-  -webkit-app-region: drag;
-  user-select: none;
-}
-
-/* Frameless-window title bar: the empty parts of every page's top header
-   move the window, while controls inside the header keep normal pointer
-   behaviour. The sidebar's matching drag region lives on .sb-traffic. */
-.app-content :is(
-  .workspace-landing__appbar,
-  .wu-page-header,
-  .workspace-pageheader,
-  .wu-backlog__header,
-  .wu-memory__header,
-  .wu-insights__header,
-  .wu-pr-detail__header,
-  .wu-branch-detail__header,
-  .wu-session-live-header,
-  .trunk-topbar,
-  .pr-list-header,
-  .repo-detail-page__topbar,
-  .calm-page-header
-) {
-  -webkit-app-region: drag;
-}
-
-.app-content :is(
-  .workspace-landing__appbar,
-  .wu-page-header,
-  .workspace-pageheader,
-  .wu-backlog__header,
-  .wu-memory__header,
-  .wu-insights__header,
-  .wu-pr-detail__header,
-  .wu-branch-detail__header,
-  .wu-session-live-header,
-  .trunk-topbar,
-  .pr-list-header,
-  .repo-detail-page__topbar,
-  .calm-page-header
-) :is(button, a, input, select, textarea, label, [role='button'], [role='tab'], [role='tablist']) {
-  -webkit-app-region: no-drag;
-}
-
-/* Brand mark fills the 78px traffic-light reserve when the window is
-   in macOS native fullscreen and the inset lights are hidden — without
-   it, "ByteQuay" floats with an empty gap on its left. Absolutely
-   positioned (rather than inserted at the start of __left) so the
-   wordmark stays at its current x — only the previously-empty zone is
-   filled. Renders as a button (Home shortcut), so it opts out of the
-   topbar's drag region and grows a hover tint. */
-
-/* Restore pointer interactions for any clickable element inside the
-   topbar — without this, drag swallows clicks and the brand / nav
-   buttons stop responding. */
-
-/* Pill-shaped breadcrumb buttons in the global topbar — both the
-   built-in "← owner/repo" and the portalled "← Back to kanban" share
-   this look so they read as the same affordance class. The tinted
-   background makes them stand out against the topbar without
-   competing with the brand. */
-
-/* Portal slot — children mount here. display:contents so the slot
-   itself is invisible and its child sits next to the breadcrumb as
-   if it were a sibling. */
-
-/* Spacer pushes the bottom nav group (Settings) to the foot of the rail. */
-
-/* Threads section in the rail — the current thread shown as selected. */
-
-.settings-page {
-  height: 100%;
-  overflow-y: auto;
-  padding: var(--space-6);
-  max-width: 560px;
-  margin: 0 auto;
-}
-
 /* ── Loading / setup ─────────────────────────────────────── */
 
 .app-loading {
@@ -798,46 +666,62 @@ samp {
 }
 
 
-/* ── Pending-approval banner (task brain + stage pages) ───────────────────
-   Surfaces a parked publish proposal (AWAITING_REVIEW) where the agent runs,
-   so the publish gate is reachable without hunting for the Notifications bell. */
-/* 🔥 flickers to read as a live, attention-demanding state. */
-@keyframes approval-flicker {
-  0%, 100% { transform: scale(1) rotate(-3deg); filter: brightness(1); }
-  50%      { transform: scale(1.18) rotate(3deg); filter: brightness(1.25); }
-}
-
-/* ── Attachment preview ───────────────────────────────────────
-   Thumbnails (composer chips, sent conversation images, the feedback
-   form) open full-size in a native <dialog>: top layer, so it escapes
-   the composer's overflow clipping, with a free backdrop and Esc-close.
-   The wrapping button is display:contents so each call site's own
-   thumbnail sizing still applies. */
-.img-preview-btn { display: contents; }
-.img-preview-btn img { cursor: zoom-in; }
-.img-preview {
-  border: none;
-  padding: 0;
-  background: transparent;
-  max-width: 92vw;
-  max-height: 92vh;
+.app-clean {
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
 }
-.img-preview img {
-  display: block;
-  max-width: 92vw;
-  max-height: 92vh;
-  border-radius: 8px;
-  cursor: zoom-out;
-}
-.img-preview::backdrop { background: rgba(0, 0, 0, 0.72); }
-.repo-loading,
-.repo-error {
-  padding: var(--space-4) var(--space-3);
-  font-size: var(--font-size-md);
-  color: var(--text-3);
+
+.app-clean__topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid #d8dee4;
+  -webkit-app-region: drag;
 }
 
-.repo-error {
-  color: #b00020;
+.app-clean__traffic,
+.app-clean__topbar nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.app-clean__traffic button {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.app-clean__traffic button:nth-child(2) { background: #febc2e; }
+.app-clean__traffic button:nth-child(3) { background: #28c840; }
+
+.app-clean__topbar nav {
+  margin-left: auto;
+}
+
+.app-clean__topbar nav button {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.app-clean__topbar nav button.is-active {
+  background: #ddf4ff;
+  color: #0969da;
+}
+
+.app-clean__content {
+  min-height: 0;
+  overflow: auto;
 }

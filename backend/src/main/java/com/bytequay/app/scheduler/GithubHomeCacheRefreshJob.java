@@ -41,7 +41,6 @@ import static java.util.Objects.requireNonNull;
  * <ul>
  *   <li>profile — 2 min ({@code github_user_profile_cache})</li>
  *   <li>recent + following events — 2 min ({@code github_user_event_cache})</li>
- *   <li>orgs — 30 days ({@code github_user_orgs_cache})</li>
  * </ul>
  *
  * <p>Each refresh is independently try/catch'd so a transient failure on
@@ -55,11 +54,6 @@ public class GithubHomeCacheRefreshJob
 
     private static final Duration PROFILE_TTL = Duration.ofMinutes(2);
     private static final Duration EVENTS_TTL = Duration.ofMinutes(2);
-    // Org membership changes on the order of months, not minutes. The home
-    // page profile card just needs the org list to render the avatar strip;
-    // stale by a day is fine, stale by 30 days is the threshold where we
-    // start risking visible drift after the user joins or leaves an org.
-    private static final Duration ORGS_TTL = Duration.ofDays(30);
 
     private final CredentialService credentialService;
     private final AppSettingsStore settingsStore;
@@ -125,7 +119,6 @@ public class GithubHomeCacheRefreshJob
 
         refreshEventsIfStale(login, EventFeed.RECENT, now);
         refreshEventsIfStale(login, EventFeed.FOLLOWING, now);
-        refreshOrgsIfStale(login, now);
     }
 
     /** Returns the freshly-fetched login when it ran, empty otherwise. */
@@ -163,22 +156,6 @@ public class GithubHomeCacheRefreshJob
         }
         catch (Exception e) {
             log.warn("{} events refresh failed: {}", feed, e.getMessage());
-        }
-    }
-
-    private void refreshOrgsIfStale(String login, Instant now)
-    {
-        Instant fetchedAt = homeCache.findOrgs(login)
-                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
-                .orElse(Instant.EPOCH);
-        if (Duration.between(fetchedAt, now).compareTo(ORGS_TTL) < 0) {
-            return;
-        }
-        try {
-            repoService.refreshUserOrgsFromGitHub(login);
-        }
-        catch (Exception e) {
-            log.warn("Orgs refresh failed: {}", e.getMessage());
         }
     }
 }

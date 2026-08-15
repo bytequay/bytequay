@@ -121,8 +121,8 @@ public interface GitHubAccountRepository {
 
     /**
      * Whether {@code login} has write (push) permission on the repo, from {@code GET
-     * /repos/{owner}/{repo}/collaborators/{login}/permission}. Used to decide which approvals count
-     * toward a task's minimum-approvals gate (GitHub's green vs. grey approval marks). Returns
+     * /repos/{owner}/{repo}/collaborators/{login}/permission}. Used to distinguish
+     * GitHub's green and grey approval marks. Returns
      * {@code false} on any error — a reviewer we can't confirm simply doesn't count.
      */
     default boolean fetchCollaboratorCanWrite(String pat, RepoRef repo, String login) {

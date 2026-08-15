@@ -17,8 +17,7 @@ import java.util.Locale;
 
 /**
  * Normalizes a diff-anchor side to the canonical {@code LEFT}/{@code RIGHT} GitHub
- * uses, the same way across every inline-comment system this app has: remote PR
- * review threads, local PR comments, and task/AI review comments.
+ * uses for pull-request review threads.
  */
 public final class DiffSide
 {

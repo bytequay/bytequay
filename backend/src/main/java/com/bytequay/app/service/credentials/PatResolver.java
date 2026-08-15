@@ -30,14 +30,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * Resolves the GitHub PAT for a backend GitHub call. The frontend no longer
  * passes a bearer token — every request resolves the PAT from the
- * credentials store:
- * <ol>
- *   <li>(REPO, {@code "owner/repo"}) — when a repo slug is provided and a
- *       per-repo token exists.</li>
- *   <li>(ACCOUNT, {@code "github"}) — the account-level token, used for
- *       cross-repo and account-scoped calls. When that slot was filled
- *       from the GitHub CLI, gh's live token wins over the stored copy.</li>
- * </ol>
+ * credentials store. The account token is used for every call. When that slot
+ * was filled from the GitHub CLI, gh's live token wins over the stored copy.
  * Throws 401 if no usable token is configured.
  */
 @Component
@@ -52,27 +46,14 @@ public class PatResolver
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
     }
 
-    /** Resolves the account-level PAT (no per-repo override considered). */
+    /** Resolves the account-level GitHub token. */
     public String resolve()
     {
         return resolve(null);
     }
 
-    /**
-     * Resolves a PAT for a repo-scoped fetch. When {@code repoFullName} is
-     * non-null and a (REPO, repoFullName) credential exists, that token is
-     * preferred over the account-level token.
-     */
-    public String resolve(String repoFullName)
+    public String resolve(String ignoredRepoFullName)
     {
-        if (isNotBlank(repoFullName)) {
-            Optional<String> repoToken = credentialService.getSecret(CredentialType.REPO, repoFullName)
-                    .filter(value -> isNotBlank(value));
-            if (repoToken.isPresent()) {
-                return repoToken.orElseThrow();
-            }
-        }
-
         return liveGhCliToken()
                 .or(this::storedAccountToken)
                 .orElseThrow(() -> new ResponseStatusException(

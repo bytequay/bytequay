@@ -15,13 +15,14 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.GitHubAccountRepository;
+import com.bytequay.app.repository.GitHubPullRequestReadRepository;
+import com.bytequay.app.repository.GitHubRepoRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,7 +42,7 @@ class TestRepoServiceContributionCalendar
     @Test
     void cachesContributionCalendarForRepeatedHomeLoads()
     {
-        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        GitHubAccountRepository gitHub = mock(GitHubAccountRepository.class);
         PatResolver patResolver = mock(PatResolver.class);
         ContributionCalendar calendar = calendar();
         when(patResolver.resolve()).thenReturn("pat");
@@ -59,7 +60,7 @@ class TestRepoServiceContributionCalendar
     @Test
     void graphQlResourceLimitBecomesTemporaryUnavailable()
     {
-        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        GitHubAccountRepository gitHub = mock(GitHubAccountRepository.class);
         PatResolver patResolver = mock(PatResolver.class);
         when(patResolver.resolve()).thenReturn("pat");
         when(gitHub.fetchContributionCalendar("pat", "chenjian2664"))
@@ -74,19 +75,18 @@ class TestRepoServiceContributionCalendar
                 });
     }
 
-    private static RepoService service(PullRequestRepository gitHub, PatResolver patResolver)
+    private static RepoService service(GitHubAccountRepository gitHub, PatResolver patResolver)
     {
         return new RepoService(
                 mock(WatchedRepoStore.class),
+                mock(GitHubPullRequestReadRepository.class),
+                mock(GitHubRepoRepository.class),
                 gitHub,
                 mock(PrViewStateStore.class),
-                mock(RepoListCache.class),
                 mock(RepoMetaStore.class),
                 mock(SqliteGithubHomeCacheStore.class),
                 mock(AppSettingsStore.class),
                 patResolver,
-                mock(IssueOriginService.class),
-                mock(WatchedRepoPurger.class),
                 Runnable::run);
     }
 

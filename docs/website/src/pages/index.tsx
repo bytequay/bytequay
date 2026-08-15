@@ -33,7 +33,7 @@ function HomepageHeader() {
 const cards = [
   {
     title: 'Usage',
-    body: 'Task-oriented guides for getting things done in ByteQuay.',
+    body: 'Guides for connecting GitHub and reviewing pull requests.',
     to: '/docs/usage/getting-started',
   },
   {

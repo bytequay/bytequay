@@ -28,9 +28,8 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Resolves whether a reviewer has write permission on a repo — the test that
- * decides which approvals count toward a task's minimum-approvals gate (the
- * same distinction GitHub draws between its green and grey approval marks).
+ * Resolves whether a reviewer has write permission on a repo, matching
+ * GitHub's distinction between green and grey approval marks.
  * Verdicts are cached in the DB and only re-fetched from GitHub once past the
  * TTL, since a collaborator's permission rarely changes.
  */

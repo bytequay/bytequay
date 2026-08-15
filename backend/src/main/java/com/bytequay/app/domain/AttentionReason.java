@@ -14,9 +14,7 @@
 package com.bytequay.app.domain;
 
 /**
- * Why a PR was promoted into the "Needs attention" Kanban column. Drives
- * the colored banner across the card top. See
- * {@code docs/design/settings-redesign.md} §6.5 for the v1 promotion rules.
+ * Why a PR is flagged as needing attention on Home.
  *
  * <p>NULL on a PR record means it is not promoted.
  */

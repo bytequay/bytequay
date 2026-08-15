@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.RecentEvent;
-import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -42,20 +41,16 @@ public class SqliteGithubHomeCacheStore
 
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<List<RecentEvent>> EVENT_LIST = new TypeReference<>() {};
-    private static final TypeReference<List<UserOrg>> ORG_LIST = new TypeReference<>() {};
 
     private final GithubUserProfileCacheJpaRepository profileRepo;
     private final GithubUserEventCacheJpaRepository eventRepo;
-    private final GithubUserOrgsCacheJpaRepository orgsRepo;
 
     public SqliteGithubHomeCacheStore(
             GithubUserProfileCacheJpaRepository profileRepo,
-            GithubUserEventCacheJpaRepository eventRepo,
-            GithubUserOrgsCacheJpaRepository orgsRepo)
+            GithubUserEventCacheJpaRepository eventRepo)
     {
         this.profileRepo = requireNonNull(profileRepo, "profileRepo is null");
         this.eventRepo = requireNonNull(eventRepo, "eventRepo is null");
-        this.orgsRepo = requireNonNull(orgsRepo, "orgsRepo is null");
     }
 
     public Optional<TimedValue<UserProfile>> findProfile(String login)
@@ -94,25 +89,6 @@ public class SqliteGithubHomeCacheStore
         entity.setPayload(write(ImmutableList.copyOf(events)));
         entity.setFetchedAt(fetchedAt);
         eventRepo.save(entity);
-    }
-
-    public Optional<TimedValue<List<UserOrg>>> findOrgs(String login)
-    {
-        return orgsRepo.findById(login)
-                .map(e -> new TimedValue<>(
-                        ImmutableList.copyOf(readList(e.getPayload(), ORG_LIST)),
-                        e.getFetchedAt()));
-    }
-
-    @Transactional
-    public void putOrgs(String login, List<UserOrg> orgs, Instant fetchedAt)
-    {
-        GithubUserOrgsCacheEntity entity = orgsRepo.findById(login)
-                .orElseGet(GithubUserOrgsCacheEntity::new);
-        entity.setLogin(login);
-        entity.setPayload(write(ImmutableList.copyOf(orgs)));
-        entity.setFetchedAt(fetchedAt);
-        orgsRepo.save(entity);
     }
 
     private static String write(Object value)

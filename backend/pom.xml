@@ -20,6 +20,8 @@
 
     <modules>
         <module>core</module>
+        <module>agent-spi</module>
+        <module>agent-core</module>
         <module>persistence-sqlite</module>
         <module>app</module>
     </modules>

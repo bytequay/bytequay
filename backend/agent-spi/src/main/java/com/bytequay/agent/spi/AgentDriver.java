@@ -1,0 +1,52 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.agent.spi;
+
+public interface AgentDriver
+{
+    /**
+     * Returns the stable lane identifier persisted with every task.
+     *
+     * @return provider lane identifier
+     */
+    AgentLaneId id();
+
+    /**
+     * Describes event fidelity and features supported by this driver version.
+     *
+     * @return immutable provider capabilities
+     */
+    AgentCapabilities capabilities();
+
+    /**
+     * Checks binary, authentication, and protocol readiness without opening a task.
+     *
+     * @return health and actionable diagnostic information
+     */
+    AgentProviderStatus probe();
+
+    /**
+     * Opens a new provider session or resumes the reference in the context.
+     *
+     * <p>The returned session is fixed to the supplied worktree and permission
+     * policy. Events must be normalized, ordered, and free of secrets or hidden
+     * reasoning before they are sent to the sink.
+     *
+     * @param context task, worktree, resources, policy, approval, and resume context
+     * @param events sink for normalized provider events
+     * @return open provider session
+     * @throws AgentUnavailableException when the provider cannot open or resume
+     */
+    AgentSession open(AgentSessionContext context, AgentEventSink events);
+}

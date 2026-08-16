@@ -13,6 +13,13 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTurnNotFoundException;
+import com.bytequay.agent.core.ApprovalNotFoundException;
+import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +27,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -56,11 +65,49 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ExceptionHandler({MissingServletRequestParameterException.class, MissingRequestHeaderException.class})
     public ResponseEntity<ErrorResponse> handleMissingRequestParameter(
-            MissingServletRequestParameterException exception, HttpServletRequest request)
+            Exception exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler({InvalidAgentRequestException.class, HttpMessageNotReadableException.class})
+    public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(
+            Exception exception, HttpServletRequest request)
+    {
+        return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler({AgentTaskNotFoundException.class, AgentTurnNotFoundException.class, ApprovalNotFoundException.class})
+    public ResponseEntity<ErrorResponse> handleAgentNotFound(RuntimeException exception, HttpServletRequest request)
+    {
+        return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(AgentConflictException.class)
+    public ResponseEntity<ErrorResponse> handleAgentConflict(
+            AgentConflictException exception, HttpServletRequest request)
+    {
+        return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(AgentUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleAgentUnavailable(
+            AgentUnavailableException exception, HttpServletRequest request)
+    {
+        return errorResponse(HttpStatus.SERVICE_UNAVAILABLE.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(AgentStorageException.class)
+    public ResponseEntity<ErrorResponse> handleAgentStorage(
+            AgentStorageException exception, HttpServletRequest request)
+    {
+        log.error("Agent storage request failed: {}", request.getRequestURI(), exception);
+        return errorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                INTERNAL_SERVER_ERROR_MESSAGE,
+                request.getRequestURI());
     }
 
     /**

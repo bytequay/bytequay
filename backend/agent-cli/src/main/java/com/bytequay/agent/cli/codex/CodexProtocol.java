@@ -1,0 +1,819 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.agent.cli.codex;
+
+import com.fasterxml.jackson.annotation.JsonEnumDefaultValue;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+
+final class CodexProtocol
+{
+    private CodexProtocol() {}
+
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME,
+            property = "method",
+            defaultImpl = UnknownNotification.class)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(name = "turn/started", value = TurnStartedNotification.class),
+            @JsonSubTypes.Type(name = "turn/completed", value = TurnCompletedNotification.class),
+            @JsonSubTypes.Type(name = "item/started", value = ItemStartedNotification.class),
+            @JsonSubTypes.Type(name = "item/completed", value = ItemCompletedNotification.class),
+            @JsonSubTypes.Type(
+                    name = "item/commandExecution/outputDelta",
+                    value = CommandOutputNotification.class),
+            @JsonSubTypes.Type(name = "turn/plan/updated", value = PlanUpdatedNotification.class),
+            @JsonSubTypes.Type(
+                    name = "thread/tokenUsage/updated",
+                    value = TokenUsageUpdatedNotification.class),
+            @JsonSubTypes.Type(name = "error", value = ErrorNotification.class),
+    })
+    sealed interface Notification
+            permits TurnStartedNotification, TurnCompletedNotification,
+            ItemStartedNotification, ItemCompletedNotification,
+            CommandOutputNotification, PlanUpdatedNotification,
+            TokenUsageUpdatedNotification, ErrorNotification, UnknownNotification
+    {
+        Optional<Long> emittedAtMs();
+
+        default String threadId()
+        {
+            return "";
+        }
+
+        default Optional<String> turnId()
+        {
+            return Optional.empty();
+        }
+    }
+
+    record TurnStartedNotification(TurnNotificationParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        TurnStartedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turn().id());
+        }
+    }
+
+    record TurnCompletedNotification(TurnNotificationParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        TurnCompletedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turn().id());
+        }
+    }
+
+    record ItemStartedNotification(ItemNotificationParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        ItemStartedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record ItemCompletedNotification(ItemNotificationParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        ItemCompletedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record CommandOutputNotification(CommandOutputParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        CommandOutputNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record PlanUpdatedNotification(PlanUpdatedParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        PlanUpdatedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record TokenUsageUpdatedNotification(TokenUsageParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        TokenUsageUpdatedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record ErrorNotification(ErrorParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        ErrorNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record UnknownNotification(UnknownParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        UnknownNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId().orElse("");
+        }
+    }
+
+    record TurnNotificationParams(String threadId, Turn turn)
+    {
+        TurnNotificationParams
+        {
+            checkIdentifier(threadId, "threadId");
+            requireNonNull(turn, "turn is null");
+        }
+    }
+
+    record ItemNotificationParams(ThreadItem item, String threadId, String turnId)
+    {
+        ItemNotificationParams
+        {
+            requireNonNull(item, "item is null");
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+    }
+
+    record CommandOutputParams(String threadId, String turnId, String itemId, String delta)
+    {
+        CommandOutputParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(delta, "delta is null");
+        }
+    }
+
+    record PlanUpdatedParams(List<PlanStep> plan, String threadId, String turnId)
+    {
+        PlanUpdatedParams
+        {
+            plan = ImmutableList.copyOf(requireNonNull(plan, "plan is null"));
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+    }
+
+    record TokenUsageParams(String threadId, String turnId, ThreadTokenUsage tokenUsage)
+    {
+        TokenUsageParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            requireNonNull(tokenUsage, "tokenUsage is null");
+        }
+    }
+
+    record ErrorParams(TurnError error, String threadId, String turnId, Boolean willRetry)
+    {
+        ErrorParams
+        {
+            requireNonNull(error, "error is null");
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            requireNonNull(willRetry, "willRetry is null");
+        }
+    }
+
+    record UnknownParams(Optional<String> threadId)
+    {
+        UnknownParams
+        {
+            requireNonNull(threadId, "threadId is null");
+        }
+    }
+
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME,
+            property = "type",
+            defaultImpl = UnknownThreadItem.class)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(name = "agentMessage", value = AgentMessageItem.class),
+            @JsonSubTypes.Type(name = "commandExecution", value = CommandExecutionItem.class),
+            @JsonSubTypes.Type(name = "mcpToolCall", value = McpToolCallItem.class),
+            @JsonSubTypes.Type(name = "dynamicToolCall", value = DynamicToolCallItem.class),
+            @JsonSubTypes.Type(name = "collabAgentToolCall", value = CollabAgentToolCallItem.class),
+    })
+    sealed interface ThreadItem
+            permits AgentMessageItem, CommandExecutionItem, McpToolCallItem,
+            DynamicToolCallItem, CollabAgentToolCallItem, UnknownThreadItem
+    {
+        String id();
+    }
+
+    record AgentMessageItem(
+            String id,
+            String text,
+            Optional<MessagePhase> phase)
+            implements ThreadItem
+    {
+        AgentMessageItem
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(text, "text is null");
+            requireNonNull(phase, "phase is null");
+        }
+    }
+
+    record CommandExecutionItem(
+            String id,
+            String command,
+            ActivityStatus status,
+            Optional<String> aggregatedOutput,
+            Optional<Integer> exitCode)
+            implements ThreadItem
+    {
+        CommandExecutionItem
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(command, "command is null");
+            requireNonNull(status, "status is null");
+            requireNonNull(aggregatedOutput, "aggregatedOutput is null");
+            requireNonNull(exitCode, "exitCode is null");
+        }
+    }
+
+    record McpToolCallItem(String id, String server, String tool, ActivityStatus status)
+            implements ThreadItem
+    {
+        McpToolCallItem
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(server, "server");
+            checkIdentifier(tool, "tool");
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    record DynamicToolCallItem(String id, String tool, ActivityStatus status)
+            implements ThreadItem
+    {
+        DynamicToolCallItem
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(tool, "tool");
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    record CollabAgentToolCallItem(String id, String tool, ActivityStatus status)
+            implements ThreadItem
+    {
+        CollabAgentToolCallItem
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(tool, "tool");
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    record UnknownThreadItem(String id)
+            implements ThreadItem
+    {
+        UnknownThreadItem
+        {
+            checkIdentifier(id, "id");
+        }
+    }
+
+    record Turn(
+            String id,
+            TurnStatus status,
+            Optional<TurnError> error,
+            Optional<Long> durationMs)
+    {
+        Turn
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(status, "status is null");
+            requireNonNull(error, "error is null");
+            requireNonNull(durationMs, "durationMs is null");
+            durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
+        }
+    }
+
+    record TurnError(String message)
+    {
+        TurnError
+        {
+            requireNonNull(message, "message is null");
+        }
+    }
+
+    record PlanStep(String step, PlanStepStatus status)
+    {
+        PlanStep
+        {
+            requireNonNull(step, "step is null");
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    record ThreadTokenUsage(TokenUsageBreakdown total)
+    {
+        ThreadTokenUsage
+        {
+            requireNonNull(total, "total is null");
+        }
+    }
+
+    record TokenUsageBreakdown(
+            Long totalTokens,
+            Long inputTokens,
+            Long cachedInputTokens,
+            Long outputTokens)
+    {
+        TokenUsageBreakdown
+        {
+            requireNonNull(totalTokens, "totalTokens is null");
+            requireNonNull(inputTokens, "inputTokens is null");
+            requireNonNull(cachedInputTokens, "cachedInputTokens is null");
+            requireNonNull(outputTokens, "outputTokens is null");
+            checkArgument(totalTokens >= 0, "totalTokens is negative");
+            checkArgument(inputTokens >= 0, "inputTokens is negative");
+            checkArgument(cachedInputTokens >= 0, "cachedInputTokens is negative");
+            checkArgument(outputTokens >= 0, "outputTokens is negative");
+        }
+    }
+
+    enum TurnStatus
+    {
+        @JsonProperty("completed")
+        COMPLETED,
+        @JsonProperty("interrupted")
+        INTERRUPTED,
+        @JsonProperty("failed")
+        FAILED,
+        @JsonProperty("inProgress")
+        IN_PROGRESS,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    enum ActivityStatus
+    {
+        @JsonProperty("inProgress")
+        IN_PROGRESS,
+        @JsonProperty("completed")
+        COMPLETED,
+        @JsonProperty("failed")
+        FAILED,
+        @JsonProperty("declined")
+        DECLINED,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    enum PlanStepStatus
+    {
+        @JsonProperty("pending")
+        PENDING,
+        @JsonProperty("inProgress")
+        IN_PROGRESS,
+        @JsonProperty("completed")
+        COMPLETED,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    enum MessagePhase
+    {
+        @JsonProperty("commentary")
+        COMMENTARY,
+        @JsonProperty("final_answer")
+        FINAL_ANSWER,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME,
+            property = "method",
+            defaultImpl = UnknownServerRequest.class)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(
+                    name = "item/commandExecution/requestApproval",
+                    value = CommandApprovalRequest.class),
+            @JsonSubTypes.Type(
+                    name = "item/fileChange/requestApproval",
+                    value = FileChangeApprovalRequest.class),
+    })
+    sealed interface ServerRequest
+            permits CommandApprovalRequest, FileChangeApprovalRequest, UnknownServerRequest
+    {
+        Object id();
+
+        String threadId();
+    }
+
+    record CommandApprovalRequest(Object id, CommandApprovalParams params)
+            implements ServerRequest
+    {
+        CommandApprovalRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+    }
+
+    record FileChangeApprovalRequest(Object id, FileChangeApprovalParams params)
+            implements ServerRequest
+    {
+        FileChangeApprovalRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+    }
+
+    record UnknownServerRequest(Object id, UnknownParams params)
+            implements ServerRequest
+    {
+        UnknownServerRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId().orElse("");
+        }
+    }
+
+    record CommandApprovalParams(
+            String threadId,
+            String turnId,
+            String itemId,
+            Optional<String> command,
+            Optional<String> reason,
+            Long startedAtMs)
+    {
+        CommandApprovalParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(command, "command is null");
+            requireNonNull(reason, "reason is null");
+            requireNonNull(startedAtMs, "startedAtMs is null");
+        }
+    }
+
+    record FileChangeApprovalParams(
+            String threadId,
+            String turnId,
+            String itemId,
+            Optional<String> reason,
+            Long startedAtMs)
+    {
+        FileChangeApprovalParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(reason, "reason is null");
+            requireNonNull(startedAtMs, "startedAtMs is null");
+        }
+    }
+
+    record JsonRpcEnvelope(
+            Optional<Object> id,
+            Optional<String> method,
+            Optional<JsonNode> result,
+            Optional<JsonRpcError> error)
+    {
+        JsonRpcEnvelope
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(method, "method is null");
+            requireNonNull(result, "result is null");
+            requireNonNull(error, "error is null");
+        }
+    }
+
+    record JsonRpcError(Integer code, String message)
+    {
+        JsonRpcError
+        {
+            requireNonNull(code, "code is null");
+            requireNonNull(message, "message is null");
+        }
+    }
+
+    record JsonRpcRequest(long id, String method, Object params)
+    {
+        JsonRpcRequest
+        {
+            checkArgument(id > 0, "id is not positive");
+            checkIdentifier(method, "method");
+            requireNonNull(params, "params is null");
+        }
+    }
+
+    record JsonRpcNotification(String method, Object params)
+    {
+        JsonRpcNotification
+        {
+            checkIdentifier(method, "method");
+            requireNonNull(params, "params is null");
+        }
+    }
+
+    record JsonRpcResponse(Object id, Object result)
+    {
+        JsonRpcResponse
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(result, "result is null");
+        }
+    }
+
+    record JsonRpcFailure(Object id, JsonRpcError error)
+    {
+        JsonRpcFailure
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(error, "error is null");
+        }
+    }
+
+    record ClientInfo(String name, String title, String version)
+    {
+        ClientInfo
+        {
+            checkIdentifier(name, "name");
+            checkIdentifier(title, "title");
+            checkIdentifier(version, "version");
+        }
+    }
+
+    record InitializeParams(ClientInfo clientInfo, Map<String, Object> capabilities)
+    {
+        InitializeParams
+        {
+            requireNonNull(clientInfo, "clientInfo is null");
+            capabilities = ImmutableMap.copyOf(requireNonNull(capabilities, "capabilities is null"));
+        }
+    }
+
+    record EmptyParams() {}
+
+    record EmptyResponse() {}
+
+    record ThreadStartParams(String cwd, String approvalPolicy, String sandbox, String serviceName)
+    {
+        ThreadStartParams
+        {
+            checkIdentifier(cwd, "cwd");
+            checkIdentifier(approvalPolicy, "approvalPolicy");
+            checkIdentifier(sandbox, "sandbox");
+            checkIdentifier(serviceName, "serviceName");
+        }
+    }
+
+    record ThreadResumeParams(String threadId, String cwd, String approvalPolicy, String sandbox)
+    {
+        ThreadResumeParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(cwd, "cwd");
+            checkIdentifier(approvalPolicy, "approvalPolicy");
+            checkIdentifier(sandbox, "sandbox");
+        }
+    }
+
+    record ThreadResponse(TurnThread thread)
+    {
+        ThreadResponse
+        {
+            requireNonNull(thread, "thread is null");
+        }
+    }
+
+    record TurnThread(String id)
+    {
+        TurnThread
+        {
+            checkIdentifier(id, "id");
+        }
+    }
+
+    record TextInput(String type, String text)
+    {
+        TextInput
+        {
+            checkIdentifier(type, "type");
+            requireNonNull(text, "text is null");
+        }
+    }
+
+    record TurnStartParams(String threadId, List<TextInput> input)
+    {
+        TurnStartParams
+        {
+            checkIdentifier(threadId, "threadId");
+            input = ImmutableList.copyOf(requireNonNull(input, "input is null"));
+            checkArgument(!input.isEmpty(), "input is empty");
+        }
+    }
+
+    record TurnStartResponse(Turn turn)
+    {
+        TurnStartResponse
+        {
+            requireNonNull(turn, "turn is null");
+        }
+    }
+
+    record ThreadParams(String threadId)
+    {
+        ThreadParams
+        {
+            checkIdentifier(threadId, "threadId");
+        }
+    }
+
+    record TurnParams(String threadId, String turnId)
+    {
+        TurnParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+    }
+
+    record ApprovalResponse(String decision)
+    {
+        ApprovalResponse
+        {
+            checkIdentifier(decision, "decision");
+        }
+    }
+
+    private static void checkIdentifier(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        checkArgument(!value.isBlank(), name + " is blank");
+    }
+}

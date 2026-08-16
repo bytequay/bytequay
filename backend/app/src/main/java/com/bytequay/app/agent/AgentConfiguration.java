@@ -1,0 +1,180 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.agent;
+
+import com.bytequay.agent.cli.codex.CodexCliDriver;
+import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentMetricsService;
+import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentWorkspaceService;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.impl.DefaultAgentApprovalService;
+import com.bytequay.agent.core.impl.DefaultAgentEventService;
+import com.bytequay.agent.core.impl.DefaultAgentMetricsService;
+import com.bytequay.agent.core.impl.DefaultAgentTaskService;
+import com.bytequay.agent.core.impl.DefaultAgentTurnService;
+import com.bytequay.agent.core.impl.FileAgentResourceService;
+import com.bytequay.agent.core.impl.FileTaskLogStore;
+import com.bytequay.agent.core.impl.GitAgentWorkspaceService;
+import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Clock;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
+@Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(AgentProperties.class)
+public class AgentConfiguration
+{
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "bytequay.agent.codex-enabled", havingValue = "true")
+    public CodexCliDriver codexCliDriver(AgentProperties properties, ObjectMapper objectMapper)
+    {
+        return new CodexCliDriver(properties.codexExecutable(), objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "bytequay.agent.deterministic-enabled", havingValue = "true")
+    public AgentDriver deterministicAgentDriver()
+    {
+        return new DeterministicAgentDriver();
+    }
+
+    @Bean
+    public AgentDriverRegistry agentDriverRegistry(List<AgentDriver> drivers)
+    {
+        return new StaticAgentDriverRegistry(drivers);
+    }
+
+    @Bean
+    public AgentRuntimeRegistry agentRuntimeRegistry()
+    {
+        return new AgentRuntimeRegistry();
+    }
+
+    @Bean
+    public AgentResourceService agentResourceService(AgentProperties properties)
+    {
+        return new FileAgentResourceService(properties.runtimeRoot());
+    }
+
+    @Bean
+    public AgentWorkspaceService agentWorkspaceService()
+    {
+        return new GitAgentWorkspaceService();
+    }
+
+    @Bean
+    public TaskLogStore taskLogStore(AgentResourceService resourceService)
+    {
+        return new FileTaskLogStore(resourceService);
+    }
+
+    @Bean
+    public Clock agentClock()
+    {
+        return Clock.systemUTC();
+    }
+
+    @Bean(destroyMethod = "shutdownNow")
+    public ScheduledExecutorService agentApprovalScheduler()
+    {
+        return Executors.newSingleThreadScheduledExecutor(
+                Thread.ofVirtual().name("bytequay-agent-approval").factory());
+    }
+
+    @Bean
+    public AgentEventService agentEventService(
+            TaskLogStore logStore,
+            AgentTaskStore taskStore,
+            Clock agentClock)
+    {
+        return new DefaultAgentEventService(logStore, taskStore, agentClock);
+    }
+
+    @Bean
+    public AgentMetricsService agentMetricsService(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            Clock agentClock)
+    {
+        return new DefaultAgentMetricsService(taskStore, turnStore, agentClock);
+    }
+
+    @Bean
+    public AgentApprovalService agentApprovalService(
+            AgentEventService eventService,
+            ScheduledExecutorService agentApprovalScheduler,
+            Clock agentClock)
+    {
+        return new DefaultAgentApprovalService(eventService, agentApprovalScheduler, agentClock);
+    }
+
+    @Bean
+    public AgentTaskService agentTaskService(
+            AgentTaskStore taskStore,
+            AgentWorkspaceService workspaceService,
+            AgentResourceService resourceService,
+            AgentDriverRegistry driverRegistry,
+            Clock agentClock)
+    {
+        return new DefaultAgentTaskService(
+                taskStore,
+                workspaceService,
+                resourceService,
+                driverRegistry,
+                agentClock);
+    }
+
+    @Bean
+    public AgentTurnService agentTurnService(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            AgentResourceService resourceService,
+            AgentDriverRegistry driverRegistry,
+            AgentEventService eventService,
+            AgentMetricsService metricsService,
+            AgentApprovalService approvalService,
+            AgentRuntimeRegistry runtimeRegistry,
+            Clock agentClock,
+            AgentProperties properties)
+    {
+        return new DefaultAgentTurnService(
+                taskStore,
+                turnStore,
+                resourceService,
+                driverRegistry,
+                eventService,
+                metricsService,
+                approvalService,
+                runtimeRegistry,
+                agentClock,
+                properties.maximumTurnRuntime());
+    }
+}

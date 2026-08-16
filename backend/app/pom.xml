@@ -23,6 +23,24 @@
 
         <dependency>
             <groupId>com.bytequay</groupId>
+            <artifactId>agent-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
+            <artifactId>agent-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
+            <artifactId>agent-cli</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
             <artifactId>persistence-sqlite</artifactId>
             <version>${project.version}</version>
         </dependency>

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app;
 
-import com.bytequay.persistence.sqlite.SqlitePersistenceConfiguration;
+import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;

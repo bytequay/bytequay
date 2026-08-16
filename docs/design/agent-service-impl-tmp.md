@@ -21,7 +21,7 @@ starts.
 - [x] Checkpoint 2 — add the durable runtime foundation.
 - [x] Checkpoint 3 — implement lifecycle orchestration with a deterministic
   fake lane.
-- [ ] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
+- [x] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
 - [ ] Checkpoint 5 — implement the Codex App Server lane.
 - [ ] Checkpoint 6 — implement the Claude `stream-json` lane.
 - [ ] Checkpoint 7 — implement completion, recovery, and retention.
@@ -98,31 +98,36 @@ Review gate: approve the complete core lifecycle before CLI integration.
 
 ## Checkpoint 4 — Spring HTTP and SSE
 
-- [ ] Add agent configuration properties and Spring composition.
-- [ ] Add task, turn, event, approval, and provider-status controllers.
-- [ ] Adapt `Flow.Publisher` to SSE with cancellation and backpressure.
-- [ ] Map agent exceptions to stable localhost HTTP responses.
-- [ ] Enforce the backend desktop-session/origin contract on agent endpoints.
-- [ ] Add `scripts/agent-e2e.sh` to start an isolated backend, create a clean
+- [x] Add agent configuration properties and Spring composition.
+- [x] Add task, turn, event, approval, and provider-status controllers.
+- [x] Adapt `Flow.Publisher` to SSE with cancellation and backpressure.
+- [x] Map agent exceptions to stable localhost HTTP responses.
+- [x] Enforce the backend desktop-session/origin contract on agent endpoints.
+- [x] Add `scripts/agent-e2e.sh` to start an isolated backend, create a clean
   temporary Git repository, send turns over HTTP, and assert the SSE stream
   through the deterministic lane. Reuse the same script for the Codex and
-  Claude lanes in Checkpoints 5 and 6.
-- [ ] Test validation, conflicts, idempotency, reconnect replay, and Spring
+  Claude lanes in Checkpoints 5 and 6. Its `--interactive` mode keeps SSE open
+  while a developer sends messages and inspects events or backend logs; quit
+  or Ctrl-C stops the backend and removes its temporary state.
+- [x] Test validation, conflicts, idempotency, reconnect replay, and Spring
   context startup without installed provider binaries.
-- [ ] Run `mvn verify`.
+- [x] Run `mvn verify`.
 
 Review gate: approve the backend API contract and deterministic shell E2E
 before provider rollout.
 
 ## Checkpoint 5 — Codex CLI lane
 
-- [ ] Recheck the supported official App Server schema and CLI version range.
+- [x] Recheck the supported official App Server schema and CLI version range.
 - [ ] Implement the shared streaming process supervisor with separate bounded
   stdout/stderr, stdin, exit, and process-tree cancellation.
 - [ ] Implement schema bindings, JSON-RPC initialization, thread start/resume,
   turn start/interrupt, approval responses, event mapping, and unsubscribe.
 - [ ] Fixture-test session resume, events, final-item authority, cumulative
   usage, disconnect, interruption, redaction, and cancellation.
+- [ ] Exercise repeated interactive turns through the backend HTTP/SSE API
+  against the real Codex CLI, including command output, final responses, and
+  Ctrl-C cleanup.
 - [ ] Run `mvn verify`.
 
 Review gate: ship no Claude behavior in the Codex change.

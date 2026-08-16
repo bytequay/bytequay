@@ -19,7 +19,7 @@ starts.
   62-test app suite.
 - [x] Checkpoint 1 — lock framework-free agent contracts.
 - [x] Checkpoint 2 — add the durable runtime foundation.
-- [ ] Checkpoint 3 — implement lifecycle orchestration with a deterministic
+- [x] Checkpoint 3 — implement lifecycle orchestration with a deterministic
   fake lane.
 - [ ] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
 - [ ] Checkpoint 5 — implement the Codex App Server lane.
@@ -86,13 +86,13 @@ Review gate: durable state and event ordering work without a real provider.
 
 ## Checkpoint 3 — Provider-neutral lifecycle
 
-- [ ] Implement the static driver registry and deterministic test driver.
-- [ ] Implement the in-memory runtime/session registry.
-- [ ] Implement task creation and rollback on failed creation.
-- [ ] Implement idempotent turn start, provider session persistence, event
+- [x] Implement the static driver registry and deterministic test driver.
+- [x] Implement the in-memory runtime/session registry.
+- [x] Implement task creation and rollback on failed creation.
+- [x] Implement idempotent turn start, provider session persistence, event
   routing, completion, cancellation, approval denial, and session resume.
-- [ ] Exercise create-to-multiple-turn behavior through the fake lane.
-- [ ] Run `mvn verify`.
+- [x] Exercise create-to-multiple-turn behavior through the fake lane.
+- [x] Run `mvn verify`.
 
 Review gate: approve the complete core lifecycle before CLI integration.
 
@@ -103,11 +103,16 @@ Review gate: approve the complete core lifecycle before CLI integration.
 - [ ] Adapt `Flow.Publisher` to SSE with cancellation and backpressure.
 - [ ] Map agent exceptions to stable localhost HTTP responses.
 - [ ] Enforce the backend desktop-session/origin contract on agent endpoints.
+- [ ] Add `scripts/agent-e2e.sh` to start an isolated backend, create a clean
+  temporary Git repository, send turns over HTTP, and assert the SSE stream
+  through the deterministic lane. Reuse the same script for the Codex and
+  Claude lanes in Checkpoints 5 and 6.
 - [ ] Test validation, conflicts, idempotency, reconnect replay, and Spring
   context startup without installed provider binaries.
 - [ ] Run `mvn verify`.
 
-Review gate: approve the backend API contract before provider rollout.
+Review gate: approve the backend API contract and deterministic shell E2E
+before provider rollout.
 
 ## Checkpoint 5 — Codex CLI lane
 

@@ -14,11 +14,13 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
@@ -61,6 +63,7 @@ public class AgentController
     private final AgentTurnService turnService;
     private final AgentEventService eventService;
     private final AgentApprovalService approvalService;
+    private final AgentCompletionService completionService;
     private final AgentDriverRegistry driverRegistry;
 
     public AgentController(
@@ -68,12 +71,14 @@ public class AgentController
             AgentTurnService turnService,
             AgentEventService eventService,
             AgentApprovalService approvalService,
+            AgentCompletionService completionService,
             AgentDriverRegistry driverRegistry)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
+        this.completionService = requireNonNull(completionService, "completionService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
     }
 
@@ -176,6 +181,22 @@ public class AgentController
                 Optional.ofNullable(request.scopedPermission()))));
     }
 
+    @PostMapping("/tasks/{taskId}/complete")
+    public AgentHttpModels.CompletionResponse completeTask(
+            @PathVariable String taskId,
+            @RequestBody(required = false) CompleteTaskRequest request)
+    {
+        return AgentHttpModels.completion(completionService.complete(new CompleteAgentTaskCommand(
+                TaskId.valueOf(taskId),
+                request == null ? Optional.empty() : Optional.ofNullable(request.notes()))));
+    }
+
+    @PostMapping("/tasks/{taskId}/cleanup")
+    public AgentHttpModels.CleanupResponse cleanupTask(@PathVariable String taskId)
+    {
+        return AgentHttpModels.cleanup(completionService.cleanup(TaskId.valueOf(taskId)));
+    }
+
     @GetMapping("/providers/status")
     public List<AgentHttpModels.ProviderStatusResponse> providerStatuses()
     {
@@ -200,4 +221,6 @@ public class AgentController
     public record ResolveApprovalRequest(
             ApprovalDecision.Decision decision,
             String scopedPermission) {}
+
+    public record CompleteTaskRequest(String notes) {}
 }

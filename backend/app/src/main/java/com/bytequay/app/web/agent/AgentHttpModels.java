@@ -17,6 +17,8 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ApprovalDecision;
+import com.bytequay.agent.core.CleanupResult;
+import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TurnMetrics;
@@ -109,6 +111,24 @@ final class AgentHttpModels
                 status.capabilities());
     }
 
+    static CompletionResponse completion(TaskCompletion completion)
+    {
+        return new CompletionResponse(
+                completion.taskId().toString(),
+                completion.summary(),
+                completion.completedAt(),
+                completion.deleteAfter());
+    }
+
+    static CleanupResponse cleanup(CleanupResult result)
+    {
+        return new CleanupResponse(
+                result.taskId().toString(),
+                result.state().name(),
+                result.deletedAt(),
+                result.failure());
+    }
+
     record TaskResponse(
             String id,
             String title,
@@ -169,4 +189,16 @@ final class AgentHttpModels
             Optional<String> version,
             String diagnostic,
             AgentCapabilities capabilities) {}
+
+    record CompletionResponse(
+            String taskId,
+            TaskSummary summary,
+            Instant completedAt,
+            Instant deleteAfter) {}
+
+    record CleanupResponse(
+            String taskId,
+            String state,
+            Optional<Instant> deletedAt,
+            Optional<String> failure) {}
 }

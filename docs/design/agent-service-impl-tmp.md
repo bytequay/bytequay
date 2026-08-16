@@ -24,7 +24,7 @@ starts.
 - [x] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
 - [x] Checkpoint 5 — implement the Codex App Server lane.
 - [x] Checkpoint 6 — implement the Claude `stream-json` lane.
-- [ ] Checkpoint 7 — implement completion, recovery, and retention.
+- [x] Checkpoint 7 — implement completion, recovery, and retention.
 
 ## Checkpoint 1 — Framework-free contracts
 
@@ -150,12 +150,12 @@ contract without controller branching.
 
 ## Checkpoint 7 — Completion, recovery, and retention
 
-- [ ] Implement atomic completion summary and seven-day deletion deadline.
-- [ ] Implement startup interruption recovery and durable lease restoration.
-- [ ] Implement due cleanup, retry-pending state, and scheduled retries.
-- [ ] Add complete and cleanup HTTP operations only after their services exist.
-- [ ] Test completion and cleanup idempotency, early-cleanup rejection,
+- [x] Implement atomic completion summary and seven-day deletion deadline.
+- [x] Implement startup interruption recovery and durable lease restoration.
+- [x] Implement due cleanup, retry-pending state, and scheduled retries.
+- [x] Add complete and cleanup HTTP operations only after their services exist.
+- [x] Test completion and cleanup idempotency, early-cleanup rejection,
   restart recovery, cleanup failure, and terminal-state preservation.
-- [ ] Run the full `mvn verify` gate and packaged sidecar startup check.
+- [x] Run the full `mvn verify` gate and packaged sidecar startup check.
 
 Final gate: all existing GitHub and pull-request behavior remains unchanged.

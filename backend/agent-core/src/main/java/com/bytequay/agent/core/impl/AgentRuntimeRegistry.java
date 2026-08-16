@@ -36,6 +36,13 @@ public final class AgentRuntimeRegistry
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
+
+    Object taskLock(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return taskLocks.computeIfAbsent(taskId, ignored -> new Object());
+    }
 
     public Optional<AgentSession> session(TaskId taskId)
     {
@@ -53,6 +60,15 @@ public final class AgentRuntimeRegistry
             return existing;
         }
         return session;
+    }
+
+    void closeSession(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        AgentSession session = sessions.remove(taskId);
+        if (session != null) {
+            session.close();
+        }
     }
 
     public void registerRunning(TurnId turnId, RunningTurn runningTurn)

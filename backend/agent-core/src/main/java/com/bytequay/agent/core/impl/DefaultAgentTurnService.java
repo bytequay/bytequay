@@ -54,8 +54,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -72,7 +70,6 @@ public final class DefaultAgentTurnService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
-    private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
 
     public DefaultAgentTurnService(
             AgentTaskStore taskStore,
@@ -115,7 +112,7 @@ public final class DefaultAgentTurnService
     public AgentTurn start(StartAgentTurnCommand command)
     {
         requireNonNull(command, "command is null");
-        synchronized (lock(command.taskId())) {
+        synchronized (runtimeRegistry.taskLock(command.taskId())) {
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
                     command.taskId(),
                     command.idempotencyKey());
@@ -182,7 +179,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(turnId, "turnId is null");
         AgentTurn initial = requireTurn(turnId);
-        synchronized (lock(initial.taskId())) {
+        synchronized (runtimeRegistry.taskLock(initial.taskId())) {
             AgentTurn turn = requireTurn(turnId);
             if (turn.state().terminal()) {
                 return turn;
@@ -281,7 +278,7 @@ public final class DefaultAgentTurnService
             AgentTurnResult result,
             Throwable failure)
     {
-        synchronized (lock(observedTurn.taskId())) {
+        synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
             runtimeRegistry.removeRunning(observedTurn.id(), runningTurn);
             AgentTurn turn = requireTurn(observedTurn.id());
             if (turn.state().terminal()) {
@@ -351,11 +348,6 @@ public final class DefaultAgentTurnService
     {
         return turnStore.findActive(taskId)
                 .orElseThrow(() -> new AgentConflictException("Task has no active turn: " + taskId));
-    }
-
-    private Object lock(TaskId taskId)
-    {
-        return taskLocks.computeIfAbsent(taskId, ignored -> new Object());
     }
 
     private static ProviderApprovalDecision toProviderDecision(ApprovalDecision decision)

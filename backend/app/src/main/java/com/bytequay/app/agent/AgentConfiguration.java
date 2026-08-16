@@ -17,14 +17,17 @@ import com.bytequay.agent.cli.claude.ClaudeCliDriver;
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentWorkspaceService;
+import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.impl.DefaultAgentApprovalService;
+import com.bytequay.agent.core.impl.DefaultAgentCompletionService;
 import com.bytequay.agent.core.impl.DefaultAgentEventService;
 import com.bytequay.agent.core.impl.DefaultAgentMetricsService;
 import com.bytequay.agent.core.impl.DefaultAgentTaskService;
@@ -202,5 +205,49 @@ public class AgentConfiguration
                 runtimeRegistry,
                 agentClock,
                 properties.maximumTurnRuntime());
+    }
+
+    @Bean
+    public AgentCompletionService agentCompletionService(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            TaskLogStore logStore,
+            AgentWorkspaceService workspaceService,
+            AgentResourceService resourceService,
+            AgentRuntimeRegistry runtimeRegistry,
+            AgentMetricsService metricsService,
+            Clock agentClock)
+    {
+        return new DefaultAgentCompletionService(
+                taskStore,
+                turnStore,
+                logStore,
+                workspaceService,
+                resourceService,
+                runtimeRegistry,
+                metricsService,
+                agentClock);
+    }
+
+    @Bean
+    public AgentMaintenance agentMaintenance(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            AgentWorkspaceService workspaceService,
+            AgentApprovalService approvalService,
+            AgentMetricsService metricsService,
+            AgentCompletionService completionService,
+            AgentRuntimeRegistry runtimeRegistry,
+            Clock agentClock)
+    {
+        return new AgentMaintenance(
+                taskStore,
+                turnStore,
+                workspaceService,
+                approvalService,
+                metricsService,
+                completionService,
+                runtimeRegistry,
+                agentClock);
     }
 }

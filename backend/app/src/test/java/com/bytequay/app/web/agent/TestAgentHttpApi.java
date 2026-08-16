@@ -155,6 +155,24 @@ class TestAgentHttpApi
         assertThat(afterFirst).hasSize(1);
         assertThat(afterFirst.get(0).get("payload").get("text").asText()).isEqualTo("deterministic: second");
         assertThat(firstSseData(taskId, firstSequence)).contains("deterministic: second");
+
+        ResponseEntity<JsonNode> completion = post(
+                "/agent/tasks/" + taskId + "/complete",
+                ImmutableMap.of("notes", "ready for review"),
+                null);
+        assertThat(completion.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(completion.getBody().get("summary").get("finalResponse").asText())
+                .isEqualTo("deterministic: second");
+        assertThat(completion.getBody().get("summary").get("notes").asText())
+                .isEqualTo("ready for review");
+        assertThat(get("/agent/tasks/" + taskId).getBody().get("state").asText())
+                .isEqualTo("COMPLETED");
+
+        ResponseEntity<JsonNode> earlyCleanup = post(
+                "/agent/tasks/" + taskId + "/cleanup",
+                ImmutableMap.of(),
+                null);
+        assertThat(earlyCleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     private String createTask()

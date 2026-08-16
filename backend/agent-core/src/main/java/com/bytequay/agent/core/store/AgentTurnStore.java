@@ -20,6 +20,12 @@ import com.bytequay.agent.core.TurnId;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Persistence port for durable per-turn state and idempotency records.
+ *
+ * <p>Implementations enforce one active turn per task and optimistic updates.
+ * Turn details remain durable across provider-process and backend restarts.
+ */
 public interface AgentTurnStore
 {
     /**

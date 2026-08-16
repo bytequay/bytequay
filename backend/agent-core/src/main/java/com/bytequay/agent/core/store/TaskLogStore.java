@@ -20,6 +20,13 @@ import com.bytequay.agent.core.TaskId;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+/**
+ * Persistence port for append-only task event history and external payloads.
+ *
+ * <p>Complete event envelopes are stored in sequence order in JSONL, while
+ * bounded large payloads may be stored as task-relative blobs. This store does
+ * not decide when a task has reached its retention deadline.
+ */
 public interface TaskLogStore
 {
     /**
@@ -63,12 +70,4 @@ public interface TaskLogStore
      * @throws com.bytequay.agent.core.AgentStorageException when storage fails
      */
     BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType);
-
-    /**
-     * Deletes the task event log and blobs without escaping its runtime directory.
-     *
-     * @param taskId task whose disposable history is deleted
-     * @throws com.bytequay.agent.core.AgentStorageException when safe deletion fails
-     */
-    void delete(TaskId taskId);
 }

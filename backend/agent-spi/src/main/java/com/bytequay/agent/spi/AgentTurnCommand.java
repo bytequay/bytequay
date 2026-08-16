@@ -19,7 +19,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentTurnCommand(
         String turnId,
@@ -31,9 +31,9 @@ public record AgentTurnCommand(
     {
         checkNotBlank(turnId, "turnId");
         checkNotBlank(message, "message");
-        checkPresent(attachments, "attachments");
+        requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
-        checkPresent(maximumRuntime, "maximumRuntime");
+        requireNonNull(maximumRuntime, "maximumRuntime is null");
         if (maximumRuntime.isZero() || maximumRuntime.isNegative()) {
             throw new IllegalArgumentException("maximumRuntime must be positive");
         }

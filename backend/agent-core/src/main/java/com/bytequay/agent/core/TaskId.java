@@ -15,13 +15,13 @@ package com.bytequay.agent.core;
 
 import java.util.UUID;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TaskId(UUID value)
 {
     public TaskId
     {
-        checkPresent(value, "value");
+        requireNonNull(value, "value is null");
     }
 
     public static TaskId random()

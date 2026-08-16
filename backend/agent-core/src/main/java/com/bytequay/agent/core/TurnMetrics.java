@@ -19,7 +19,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TurnMetrics(
         long inputTokens,
@@ -31,9 +31,9 @@ public record TurnMetrics(
 {
     public TurnMetrics
     {
-        checkPresent(cost, "cost");
-        checkPresent(costProvenance, "costProvenance");
-        checkPresent(elapsed, "elapsed");
+        requireNonNull(cost, "cost is null");
+        requireNonNull(costProvenance, "costProvenance is null");
+        requireNonNull(elapsed, "elapsed is null");
         if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0) {
             throw new IllegalArgumentException("token counts must not be negative");
         }

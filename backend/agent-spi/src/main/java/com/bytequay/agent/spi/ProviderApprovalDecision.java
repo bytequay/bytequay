@@ -16,13 +16,13 @@ package com.bytequay.agent.spi;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ProviderApprovalDecision(Decision decision, Optional<String> scopedPermission)
 {
     public ProviderApprovalDecision
     {
-        checkPresent(decision, "decision");
+        requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
         if (decision == Decision.DENY && scopedPermission.isPresent()) {
             throw new IllegalArgumentException("a denied decision cannot grant a scoped permission");

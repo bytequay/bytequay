@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ApprovalDecision(
         ApprovalId approvalId,
@@ -28,10 +28,10 @@ public record ApprovalDecision(
 {
     public ApprovalDecision
     {
-        checkPresent(approvalId, "approvalId");
-        checkPresent(decision, "decision");
+        requireNonNull(approvalId, "approvalId is null");
+        requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
-        checkPresent(resolvedAt, "resolvedAt");
+        requireNonNull(resolvedAt, "resolvedAt is null");
         if (decision == Decision.DENY && scopedPermission.isPresent()) {
             throw new IllegalArgumentException("a denied decision cannot grant a scoped permission");
         }

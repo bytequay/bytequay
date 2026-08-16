@@ -912,14 +912,6 @@ public interface TaskLogStore
      * @throws AgentStorageException when the blob cannot be stored safely
      */
     BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType);
-
-    /**
-     * Deletes the task's event log and blobs.
-     *
-     * @param taskId owning task
-     * @throws AgentStorageException when safe deletion fails
-     */
-    void delete(TaskId taskId);
 }
 ```
 
@@ -938,7 +930,7 @@ coordinates the narrower interfaces shown in the last column.
 | 5. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | `RunningTurn.completion()` triggers `AgentApprovalService.denyPending(...)`, `AgentMetricsService.finishTurn(...)`, and `AgentTurnStore.update(...)` |
 | 6. Continue | Send another message to the same task | `AgentTurnService.start(StartAgentTurnCommand)` | Reuses the task's stored `AgentSessionRef`; steps 3–5 repeat with a new `TurnId` |
 | 7. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, closes the session, collects Git/turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
-| 8. Delete logs | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `TaskLogStore.delete(...)` and `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
+| 8. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
 
 The method calls and ownership are shown end to end below. Calls below
 `AgentTaskService`, `AgentTurnService`, and `AgentCompletionService` are
@@ -1046,10 +1038,9 @@ sequenceDiagram
 
 After the seven-day deadline, the retention job calls
 `AgentCompletionService.cleanup(TaskId)`. Cleanup calls
-`TaskLogStore.delete(TaskId)` and `AgentResourceService.delete(TaskId)` before
-`AgentTaskStore.update(...)` records `DELETED`. A deletion failure leaves the
-terminal task and summary unchanged, records `RETRY_PENDING`, and retries the
-same cleanup method later.
+`AgentResourceService.delete(TaskId)` before `AgentTaskStore.update(...)`
+records `DELETED`. A deletion failure leaves the terminal task and summary
+unchanged, records `RETRY_PENDING`, and retries the same cleanup method later.
 
 The cancellation branch calls `AgentTurnService.cancel(TurnId)`,
 `RunningTurn.cancel()`, `AgentApprovalService.denyPending(TurnId)`, and
@@ -1061,6 +1052,12 @@ If creation fails after resource allocation,
 `AgentWorkspaceService.release(TaskId)` before returning the error.
 
 ## 8. Provider implementations
+
+The two drivers are the provider-format normalization layer. They share process
+supervision but not wire DTOs or parsing: `CodexCliDriver` consumes App Server
+JSON-RPC and `ClaudeCliDriver` consumes Claude `stream-json`. Each maps raw
+provider messages to `ProviderAgentEvent` before calling `AgentEventSink`; raw
+provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 
 ### 8.1 CodexCliDriver
 

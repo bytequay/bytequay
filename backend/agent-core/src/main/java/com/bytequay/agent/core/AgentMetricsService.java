@@ -15,6 +15,13 @@ package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.ProviderUsageSample;
 
+/**
+ * Converts provider usage samples into durable turn and task metrics.
+ *
+ * <p>The service owns cumulative-versus-delta semantics and duplicate
+ * suppression so repeated provider snapshots are not summed twice. Missing
+ * monetary cost remains unavailable rather than being recorded as zero.
+ */
 public interface AgentMetricsService
 {
     /**

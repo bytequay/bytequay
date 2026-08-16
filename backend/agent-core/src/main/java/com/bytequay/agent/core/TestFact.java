@@ -17,14 +17,14 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TestFact(String name, Status status, Optional<String> detail)
 {
     public TestFact
     {
         checkNotBlank(name, "name");
-        checkPresent(status, "status");
+        requireNonNull(status, "status is null");
         checkOptionalText(detail, "detail");
     }
 

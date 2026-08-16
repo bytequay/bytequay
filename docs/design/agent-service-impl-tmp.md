@@ -18,7 +18,7 @@ starts.
 - [x] Establish a clean baseline: `mvn verify` passes, including the existing
   62-test app suite.
 - [x] Checkpoint 1 — lock framework-free agent contracts.
-- [ ] Checkpoint 2 — add the durable runtime foundation.
+- [x] Checkpoint 2 — add the durable runtime foundation.
 - [ ] Checkpoint 3 — implement lifecycle orchestration with a deterministic
   fake lane.
 - [ ] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
@@ -59,19 +59,28 @@ implementation begins.
 
 ## Checkpoint 2 — Durable runtime foundation
 
-- [ ] Implement safe task resource allocation, resolution, permissions, and
+- [x] Implement safe task resource allocation, resolution, permissions, and
   deletion.
-- [ ] Implement argv-based Git worktree inspection, clean-state validation,
+- [x] Implement argv-based Git worktree inspection, clean-state validation,
   repository matching, and exclusive leases.
-- [ ] Add task and turn JPA entities, repositories, and SQLite stores with
+- [x] Add task and turn JPA entities, repositories, and SQLite stores with
   optimistic locking, idempotency, and one-active-turn enforcement.
-- [ ] Implement flushed JSONL append/read, blob storage, tail recovery, and
+- [x] Implement flushed JSONL append/read, blob storage, tail recovery, and
   sequence recovery.
-- [ ] Implement metrics, approvals, and event sequencing/publishing services.
-- [ ] Test SQLite constraints, path escape, symlink handling, permissions,
+- [x] Reject unsupported event schema versions and oversized persisted records.
+- [x] Recover failed appends without consuming a sequence and keep per-task
+  serialization locks stable for the service lifetime.
+- [x] Keep idempotent missing-resource deletion distinct from unsafe-resource
+  failures.
+- [x] Round-trip every normalized event type, partial/final message authority,
+  and cumulative usage.
+- [x] Validate the raw-provider/log boundary against real Codex App Server
+  JSON-RPC and Claude `stream-json` captures.
+- [x] Implement metrics, approvals, and event sequencing/publishing services.
+- [x] Test SQLite constraints, path escape, symlink handling, permissions,
   append-before-publish, replay/live handoff, backpressure, and corrupt-tail
   behavior.
-- [ ] Run `mvn verify`.
+- [x] Run `mvn verify`.
 
 Review gate: durable state and event ordering work without a real provider.
 

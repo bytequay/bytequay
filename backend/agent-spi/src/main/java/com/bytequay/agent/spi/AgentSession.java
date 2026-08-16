@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.spi;
 
+/**
+ * Represents one open, resumable provider conversation for an agent task.
+ *
+ * <p>The session is fixed to the task's lane, worktree, resources, and
+ * permission policy. It permits one active turn at a time; closing releases
+ * local transports without deleting provider-owned conversation history.
+ */
 public interface AgentSession
         extends AutoCloseable
 {

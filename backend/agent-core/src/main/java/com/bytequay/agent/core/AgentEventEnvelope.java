@@ -18,7 +18,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentEventEnvelope(
         int schemaVersion,
@@ -32,12 +32,12 @@ public record AgentEventEnvelope(
 
     public AgentEventEnvelope
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(turnId, "turnId");
-        checkPresent(occurredAt, "occurredAt");
-        checkPresent(event, "event");
-        if (schemaVersion <= 0) {
-            throw new IllegalArgumentException("schemaVersion must be positive");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(occurredAt, "occurredAt is null");
+        requireNonNull(event, "event is null");
+        if (schemaVersion != CURRENT_SCHEMA_VERSION) {
+            throw new IllegalArgumentException("Unsupported schemaVersion: " + schemaVersion);
         }
         if (sequence <= 0) {
             throw new IllegalArgumentException("sequence must be positive");

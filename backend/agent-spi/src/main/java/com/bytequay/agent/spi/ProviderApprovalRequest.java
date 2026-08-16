@@ -19,7 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ProviderApprovalRequest(
         String providerRequestId,
@@ -32,12 +32,12 @@ public record ProviderApprovalRequest(
     public ProviderApprovalRequest
     {
         checkNotBlank(providerRequestId, "providerRequestId");
-        checkPresent(kind, "kind");
+        requireNonNull(kind, "kind is null");
         checkNotBlank(title, "title");
-        checkPresent(detail, "detail");
-        checkPresent(requestedPermissions, "requestedPermissions");
+        requireNonNull(detail, "detail is null");
+        requireNonNull(requestedPermissions, "requestedPermissions is null");
         requestedPermissions = ImmutableList.copyOf(requestedPermissions);
-        checkPresent(requestedAt, "requestedAt");
+        requireNonNull(requestedAt, "requestedAt is null");
         if (requestedPermissions.stream().anyMatch(String::isBlank)) {
             throw new IllegalArgumentException("requestedPermissions contains a blank value");
         }

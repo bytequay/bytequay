@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record UnsequencedAgentEvent(
         TaskId taskId,
@@ -26,8 +26,8 @@ public record UnsequencedAgentEvent(
 {
     public UnsequencedAgentEvent
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(turnId, "turnId");
-        checkPresent(event, "event");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(event, "event is null");
     }
 }

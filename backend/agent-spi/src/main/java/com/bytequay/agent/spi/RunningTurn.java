@@ -15,6 +15,13 @@ package com.bytequay.agent.spi;
 
 import java.util.concurrent.CompletionStage;
 
+/**
+ * Controls and observes one in-flight provider turn.
+ *
+ * <p>Provider events are emitted through the sink associated with the owning
+ * {@link AgentSession}; this handle supplies only the provider reference,
+ * terminal result, and idempotent cancellation operation.
+ */
 public interface RunningTurn
 {
     /**

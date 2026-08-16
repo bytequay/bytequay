@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 
 import java.time.Instant;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ApprovalRequest(
         ApprovalId id,
@@ -28,10 +28,10 @@ public record ApprovalRequest(
 {
     public ApprovalRequest
     {
-        checkPresent(id, "id");
-        checkPresent(taskId, "taskId");
-        checkPresent(turnId, "turnId");
-        checkPresent(providerRequest, "providerRequest");
-        checkPresent(requestedAt, "requestedAt");
+        requireNonNull(id, "id is null");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(providerRequest, "providerRequest is null");
+        requireNonNull(requestedAt, "requestedAt is null");
     }
 }

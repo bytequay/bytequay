@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TaskResources(
         Path runtimeDirectory,
@@ -25,10 +25,10 @@ public record TaskResources(
 {
     public TaskResources
     {
-        checkPresent(runtimeDirectory, "runtimeDirectory");
-        checkPresent(eventsFile, "eventsFile");
-        checkPresent(blobsDirectory, "blobsDirectory");
-        checkPresent(providerDirectory, "providerDirectory");
+        requireNonNull(runtimeDirectory, "runtimeDirectory is null");
+        requireNonNull(eventsFile, "eventsFile is null");
+        requireNonNull(blobsDirectory, "blobsDirectory is null");
+        requireNonNull(providerDirectory, "providerDirectory is null");
         Path root = runtimeDirectory.toAbsolutePath().normalize();
         if (!runtimeDirectory.isAbsolute() || !eventsFile.isAbsolute() || !blobsDirectory.isAbsolute() || !providerDirectory.isAbsolute()) {
             throw new IllegalArgumentException("task resource path is not absolute");

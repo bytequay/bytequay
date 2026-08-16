@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TaskSummary(
         String finalResponse,
@@ -31,12 +31,12 @@ public record TaskSummary(
 {
     public TaskSummary
     {
-        checkPresent(finalResponse, "finalResponse");
-        checkPresent(workspace, "workspace");
-        checkPresent(tests, "tests");
+        requireNonNull(finalResponse, "finalResponse is null");
+        requireNonNull(workspace, "workspace is null");
+        requireNonNull(tests, "tests is null");
         tests = ImmutableList.copyOf(tests);
-        checkPresent(metrics, "metrics");
-        checkPresent(learnings, "learnings");
+        requireNonNull(metrics, "metrics is null");
+        requireNonNull(learnings, "learnings is null");
         learnings = ImmutableList.copyOf(learnings);
         checkOptionalText(notes, "notes");
         if (learnings.stream().anyMatch(String::isBlank)) {

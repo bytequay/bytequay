@@ -16,13 +16,13 @@ package com.bytequay.agent.core;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record CompleteAgentTaskCommand(TaskId taskId, Optional<String> notes)
 {
     public CompleteAgentTaskCommand
     {
-        checkPresent(taskId, "taskId");
+        requireNonNull(taskId, "taskId is null");
         checkOptionalText(notes, "notes");
     }
 }

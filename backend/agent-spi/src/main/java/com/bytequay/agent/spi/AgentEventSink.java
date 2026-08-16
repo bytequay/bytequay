@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.spi;
 
+/**
+ * Receives provider-neutral events from a driver for backend sequencing.
+ *
+ * <p>This is the provider-to-core event boundary. Drivers preserve observed
+ * order and remove secrets, raw protocol payloads, and unsupported hidden
+ * reasoning before emitting an event.
+ */
 @FunctionalInterface
 public interface AgentEventSink
 {
@@ -20,7 +27,9 @@ public interface AgentEventSink
      * Accepts one provider-normalized event for backend sequencing.
      *
      * <p>The driver must call the sink in provider order and must exclude secrets,
-     * raw reasoning, and unsupported provider payloads.
+     * raw reasoning, and unsupported provider payloads. Raw Codex JSON-RPC and
+     * Claude {@code stream-json} never cross this boundary; each driver maps its
+     * wire format to {@link ProviderAgentEvent} first.
      *
      * @param event normalized event associated with the current task and turn
      */

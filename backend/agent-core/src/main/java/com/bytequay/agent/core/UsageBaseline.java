@@ -15,15 +15,15 @@ package com.bytequay.agent.core;
 
 import java.time.Instant;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record UsageBaseline(TaskId taskId, TurnId turnId, TaskMetrics totals, Instant capturedAt)
 {
     public UsageBaseline
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(turnId, "turnId");
-        checkPresent(totals, "totals");
-        checkPresent(capturedAt, "capturedAt");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(totals, "totals is null");
+        requireNonNull(capturedAt, "capturedAt is null");
     }
 }

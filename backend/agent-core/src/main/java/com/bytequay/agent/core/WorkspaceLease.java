@@ -16,7 +16,7 @@ package com.bytequay.agent.core;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public final class WorkspaceLease
         implements AutoCloseable
@@ -28,9 +28,9 @@ public final class WorkspaceLease
 
     public WorkspaceLease(TaskId taskId, Path worktree, Runnable release)
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(worktree, "worktree");
-        checkPresent(release, "release");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(release, "release is null");
         this.taskId = taskId;
         this.worktree = worktree;
         this.release = release;

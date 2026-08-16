@@ -17,7 +17,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentTurnResult(
         State state,
@@ -27,10 +27,10 @@ public record AgentTurnResult(
 {
     public AgentTurnResult
     {
-        checkPresent(state, "state");
+        requireNonNull(state, "state is null");
         checkOptionalText(finalResponse, "finalResponse");
         checkOptionalText(terminalReason, "terminalReason");
-        checkPresent(elapsed, "elapsed");
+        requireNonNull(elapsed, "elapsed is null");
         if (elapsed.isNegative()) {
             throw new IllegalArgumentException("elapsed is negative");
         }

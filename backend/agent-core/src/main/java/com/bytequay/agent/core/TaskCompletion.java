@@ -15,16 +15,16 @@ package com.bytequay.agent.core;
 
 import java.time.Instant;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record TaskCompletion(TaskId taskId, TaskSummary summary, Instant completedAt, Instant deleteAfter)
 {
     public TaskCompletion
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(summary, "summary");
-        checkPresent(completedAt, "completedAt");
-        checkPresent(deleteAfter, "deleteAfter");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(summary, "summary is null");
+        requireNonNull(completedAt, "completedAt is null");
+        requireNonNull(deleteAfter, "deleteAfter is null");
         if (!deleteAfter.isAfter(completedAt)) {
             throw new IllegalArgumentException("deleteAfter must be after completedAt");
         }

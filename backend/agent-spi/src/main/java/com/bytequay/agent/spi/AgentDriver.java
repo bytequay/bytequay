@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.spi;
 
+/**
+ * Adapts one provider lane to ByteQuay's resumable session contract.
+ *
+ * <p>Implementations probe their native CLI or protocol, open or resume
+ * sessions, and translate provider wire messages into {@link ProviderAgentEvent}
+ * values. Raw provider protocol objects never cross this SPI boundary.
+ */
 public interface AgentDriver
 {
     /**

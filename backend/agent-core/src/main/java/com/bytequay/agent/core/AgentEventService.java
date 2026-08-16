@@ -16,6 +16,13 @@ package com.bytequay.agent.core;
 import java.util.List;
 import java.util.concurrent.Flow;
 
+/**
+ * Sequences, persists, and publishes provider-neutral task events.
+ *
+ * <p>This service is the sole source of backend event sequence numbers. It
+ * persists each complete envelope before publishing it and provides gap-free
+ * replay followed by live delivery for SSE adapters.
+ */
 public interface AgentEventService
 {
     /**

@@ -22,8 +22,16 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
+/**
+ * Closed provider-neutral event model shared by every agent driver.
+ *
+ * <p>Drivers translate native Codex or Claude protocol messages into these
+ * values before calling {@link AgentEventSink}. Events may contain supported
+ * user-visible activity only; secrets, raw provider payloads, and hidden
+ * chain-of-thought must not enter this model.
+ */
 public sealed interface ProviderAgentEvent
         permits ProviderAgentEvent.Message, ProviderAgentEvent.Plan, ProviderAgentEvent.Tool,
         ProviderAgentEvent.Command, ProviderAgentEvent.FileChange, ProviderAgentEvent.Approval,
@@ -64,9 +72,9 @@ public sealed interface ProviderAgentEvent
         public Message
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
-            checkPresent(phase, "phase");
-            checkPresent(text, "text");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
+            requireNonNull(phase, "phase is null");
+            requireNonNull(text, "text is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
         }
 
@@ -86,8 +94,8 @@ public sealed interface ProviderAgentEvent
         public Plan
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
-            checkPresent(items, "items");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
+            requireNonNull(items, "items is null");
             items = ImmutableList.copyOf(items);
         }
 
@@ -111,11 +119,11 @@ public sealed interface ProviderAgentEvent
         public Tool
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(toolCallId, "toolCallId");
             checkNotBlank(name, "name");
-            checkPresent(state, "state");
-            checkPresent(summary, "summary");
+            requireNonNull(state, "state is null");
+            requireNonNull(summary, "summary is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
         }
 
@@ -140,13 +148,13 @@ public sealed interface ProviderAgentEvent
         public Command
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(commandId, "commandId");
-            checkPresent(state, "state");
-            checkPresent(argv, "argv");
+            requireNonNull(state, "state is null");
+            requireNonNull(argv, "argv is null");
             argv = ImmutableList.copyOf(argv);
-            checkPresent(output, "output");
-            checkPresent(exitCode, "exitCode");
+            requireNonNull(output, "output is null");
+            requireNonNull(exitCode, "exitCode is null");
             if (argv.stream().anyMatch(String::isBlank)) {
                 throw new IllegalArgumentException("argv contains a blank value");
             }
@@ -170,10 +178,10 @@ public sealed interface ProviderAgentEvent
         public FileChange
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(relativePath, "relativePath");
-            checkPresent(change, "change");
-            checkPresent(diff, "diff");
+            requireNonNull(change, "change is null");
+            requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
             if (path.isAbsolute() || path.normalize().startsWith("..")) {
                 throw new IllegalArgumentException("relativePath is unsafe");
@@ -198,10 +206,10 @@ public sealed interface ProviderAgentEvent
         public Approval
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(providerRequestId, "providerRequestId");
             checkNotBlank(title, "title");
-            checkPresent(detail, "detail");
+            requireNonNull(detail, "detail is null");
         }
 
         @Override
@@ -216,7 +224,7 @@ public sealed interface ProviderAgentEvent
     {
         public Usage
         {
-            checkPresent(sample, "sample");
+            requireNonNull(sample, "sample is null");
         }
 
         @Override
@@ -248,9 +256,9 @@ public sealed interface ProviderAgentEvent
         public Lifecycle
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
-            checkPresent(phase, "phase");
-            checkPresent(message, "message");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
+            requireNonNull(phase, "phase is null");
+            requireNonNull(message, "message is null");
         }
 
         @Override
@@ -271,7 +279,7 @@ public sealed interface ProviderAgentEvent
         public Error
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkPresent(providerTimestamp, "providerTimestamp");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(code, "code");
             checkNotBlank(message, "message");
         }
@@ -288,7 +296,7 @@ public sealed interface ProviderAgentEvent
         public PlanItem
         {
             checkNotBlank(text, "text");
-            checkPresent(state, "state");
+            requireNonNull(state, "state is null");
         }
     }
 

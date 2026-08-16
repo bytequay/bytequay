@@ -16,6 +16,13 @@ package com.bytequay.agent.core;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 
+/**
+ * Bridges provider permission requests to explicit frontend decisions.
+ *
+ * <p>Approval is never inferred from a disconnect or timeout. Unresolved
+ * requests are denied when they expire or when their owning turn becomes
+ * terminal or is cancelled.
+ */
 public interface AgentApprovalService
 {
     /**

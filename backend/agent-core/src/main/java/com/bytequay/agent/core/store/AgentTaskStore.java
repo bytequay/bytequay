@@ -20,6 +20,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Persistence port for durable agent task lifecycle facts.
+ *
+ * <p>Implementations store task identity, state, provider session reference,
+ * metrics, summary, and cleanup metadata. Detailed event history is owned by
+ * {@link TaskLogStore} rather than this store.
+ */
 public interface AgentTaskStore
 {
     /**

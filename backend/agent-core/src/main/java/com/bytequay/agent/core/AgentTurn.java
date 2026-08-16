@@ -20,7 +20,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentTurn(
         TurnId id,
@@ -39,18 +39,18 @@ public record AgentTurn(
 {
     public AgentTurn
     {
-        checkPresent(id, "id");
-        checkPresent(taskId, "taskId");
+        requireNonNull(id, "id is null");
+        requireNonNull(taskId, "taskId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        checkPresent(state, "state");
-        checkPresent(createdAt, "createdAt");
-        checkPresent(startedAt, "startedAt");
-        checkPresent(endedAt, "endedAt");
-        checkPresent(cancellationRequestedAt, "cancellationRequestedAt");
-        checkPresent(providerTurnReference, "providerTurnReference");
+        requireNonNull(state, "state is null");
+        requireNonNull(createdAt, "createdAt is null");
+        requireNonNull(startedAt, "startedAt is null");
+        requireNonNull(endedAt, "endedAt is null");
+        requireNonNull(cancellationRequestedAt, "cancellationRequestedAt is null");
+        requireNonNull(providerTurnReference, "providerTurnReference is null");
         checkOptionalText(model, "model");
         checkOptionalText(terminalReason, "terminalReason");
-        checkPresent(metrics, "metrics");
+        requireNonNull(metrics, "metrics is null");
         if (version < 0) {
             throw new IllegalArgumentException("version is negative");
         }
@@ -95,7 +95,7 @@ public record AgentTurn(
     public AgentTurn running(ProviderTurnRef reference, Optional<String> providerModel, Instant now)
     {
         requireState(TurnState.ACCEPTED);
-        checkPresent(reference, "reference");
+        requireNonNull(reference, "reference is null");
         checkOptionalText(providerModel, "providerModel");
         return copy(
                 TurnState.RUNNING,
@@ -111,7 +111,7 @@ public record AgentTurn(
 
     public AgentTurn requestCancellation(Instant now)
     {
-        checkPresent(now, "now");
+        requireNonNull(now, "now is null");
         if (!state.active()) {
             return this;
         }
@@ -131,10 +131,10 @@ public record AgentTurn(
             Optional<String> reason,
             Instant now)
     {
-        checkPresent(terminalState, "terminalState");
-        checkPresent(finalMetrics, "finalMetrics");
+        requireNonNull(terminalState, "terminalState is null");
+        requireNonNull(finalMetrics, "finalMetrics is null");
         checkOptionalText(reason, "reason");
-        checkPresent(now, "now");
+        requireNonNull(now, "now is null");
         if (!terminalState.terminal()) {
             throw new IllegalArgumentException("terminalState is not terminal");
         }
@@ -156,7 +156,7 @@ public record AgentTurn(
 
     public AgentTurn withMetrics(TurnMetrics updatedMetrics)
     {
-        checkPresent(updatedMetrics, "updatedMetrics");
+        requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, version, startedAt, endedAt, cancellationRequestedAt,
                 providerTurnReference, model, terminalReason, updatedMetrics);
     }

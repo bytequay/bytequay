@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.core;
 
+/**
+ * Completes agent tasks and performs retention-aware runtime cleanup.
+ *
+ * <p>Completion stores the final summary and deletion deadline before releasing
+ * the worktree. Cleanup removes ByteQuay-owned runtime resources only after the
+ * deadline; a cleanup failure must not change the terminal task state or summary.
+ */
 public interface AgentCompletionService
 {
     /**

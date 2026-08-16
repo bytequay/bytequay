@@ -16,7 +16,7 @@ package com.bytequay.agent.spi;
 import java.nio.file.Path;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentAttachment(String name, String mediaType, Path path)
 {
@@ -24,7 +24,7 @@ public record AgentAttachment(String name, String mediaType, Path path)
     {
         checkNotBlank(name, "name");
         checkNotBlank(mediaType, "mediaType");
-        checkPresent(path, "path");
+        requireNonNull(path, "path is null");
         if (!path.isAbsolute()) {
             throw new IllegalArgumentException("path is not absolute");
         }

@@ -16,6 +16,13 @@ package com.bytequay.agent.spi;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 
+/**
+ * Requests an explicit ByteQuay decision for a provider permission prompt.
+ *
+ * <p>This provider-facing callback keeps frontend approval handling outside the
+ * driver. A timeout or disconnected frontend results in denial, never implied
+ * approval.
+ */
 @FunctionalInterface
 public interface AgentApprovalHandler
 {

@@ -1,0 +1,200 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.persistence.sqlite;
+
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnMetrics;
+import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderTurnRef;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import jakarta.persistence.Version;
+import org.springframework.data.domain.Persistable;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+
+@Entity
+@Table(name = "agent_turn")
+class AgentTurnEntity
+        implements Persistable<String>
+{
+    @Id
+    private String id;
+
+    @Column(name = "task_id", nullable = false)
+    private String taskId;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(
+            name = "task_id",
+            insertable = false,
+            updatable = false,
+            foreignKey = @ForeignKey(name = "agent_turn_task_fk"))
+    private AgentTaskEntity task;
+
+    @Column(name = "idempotency_key", nullable = false)
+    private String idempotencyKey;
+
+    @Column(nullable = false, unique = true)
+    private String idempotencySlot;
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private TurnState state;
+
+    @Column(unique = true)
+    private String activeTaskId;
+
+    @Version
+    private long version;
+
+    @Column(nullable = false)
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant createdAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant startedAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant endedAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant cancellationRequestedAt;
+
+    private String providerTurnReference;
+
+    private String model;
+
+    private String terminalReason;
+
+    @Column(nullable = false)
+    private long inputTokens;
+
+    @Column(nullable = false)
+    private long cachedInputTokens;
+
+    @Column(nullable = false)
+    private long outputTokens;
+
+    private BigDecimal cost;
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private CostProvenance costProvenance;
+
+    @Column(nullable = false)
+    private long elapsedMillis;
+
+    @Transient
+    private boolean newEntity = true;
+
+    protected AgentTurnEntity() {}
+
+    static AgentTurnEntity fromDomain(AgentTurn turn)
+    {
+        AgentTurnEntity entity = new AgentTurnEntity();
+        entity.id = turn.id().toString();
+        entity.taskId = turn.taskId().toString();
+        entity.version = turn.version();
+        entity.updateFrom(turn);
+        return entity;
+    }
+
+    void updateFrom(AgentTurn turn)
+    {
+        idempotencyKey = turn.idempotencyKey();
+        idempotencySlot = turn.taskId() + ":" + turn.idempotencyKey();
+        state = turn.state();
+        activeTaskId = turn.state().active() ? turn.taskId().toString() : null;
+        createdAt = turn.createdAt();
+        startedAt = turn.startedAt().orElse(null);
+        endedAt = turn.endedAt().orElse(null);
+        cancellationRequestedAt = turn.cancellationRequestedAt().orElse(null);
+        providerTurnReference = turn.providerTurnReference().map(ProviderTurnRef::value).orElse(null);
+        model = turn.model().orElse(null);
+        terminalReason = turn.terminalReason().orElse(null);
+        inputTokens = turn.metrics().inputTokens();
+        cachedInputTokens = turn.metrics().cachedInputTokens();
+        outputTokens = turn.metrics().outputTokens();
+        cost = turn.metrics().cost().orElse(null);
+        costProvenance = turn.metrics().costProvenance();
+        elapsedMillis = turn.metrics().elapsed().toMillis();
+    }
+
+    AgentTurn toDomain()
+    {
+        return new AgentTurn(
+                TurnId.valueOf(id),
+                TaskId.valueOf(taskId),
+                idempotencyKey,
+                state,
+                version,
+                createdAt,
+                Optional.ofNullable(startedAt),
+                Optional.ofNullable(endedAt),
+                Optional.ofNullable(cancellationRequestedAt),
+                Optional.ofNullable(providerTurnReference).map(ProviderTurnRef::new),
+                Optional.ofNullable(model),
+                Optional.ofNullable(terminalReason),
+                new TurnMetrics(
+                        inputTokens,
+                        cachedInputTokens,
+                        outputTokens,
+                        Optional.ofNullable(cost),
+                        costProvenance,
+                        Duration.ofMillis(elapsedMillis)));
+    }
+
+    long getVersion()
+    {
+        return version;
+    }
+
+    @Override
+    public String getId()
+    {
+        return id;
+    }
+
+    @Override
+    public boolean isNew()
+    {
+        return newEntity;
+    }
+
+    @PostLoad
+    @PostPersist
+    private void markPersisted()
+    {
+        newEntity = false;
+    }
+}

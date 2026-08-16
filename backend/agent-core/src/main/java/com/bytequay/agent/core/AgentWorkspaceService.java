@@ -15,6 +15,13 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
+/**
+ * Validates Git worktrees and maintains exclusive in-process task leases.
+ *
+ * <p>The service operates on existing worktrees only. It prevents two live
+ * tasks from owning the same canonical worktree and never creates or deletes a
+ * Git worktree.
+ */
 public interface AgentWorkspaceService
 {
     /**

@@ -1,0 +1,122 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.persistence.sqlite;
+
+import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.TaskSummary;
+import com.bytequay.agent.core.TestFact;
+import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.spi.CostProvenance;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+
+import java.math.BigDecimal;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
+final class AgentTaskSummaryJson
+{
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private AgentTaskSummaryJson() {}
+
+    public static String encode(TaskSummary summary)
+    {
+        TaskMetrics metrics = summary.metrics();
+        SummaryValue value = new SummaryValue(
+                summary.finalResponse(),
+                summary.workspace().worktree().toString(),
+                summary.workspace().repository().toString(),
+                summary.workspace().branch().orElse(null),
+                summary.workspace().head(),
+                summary.workspace().dirty(),
+                summary.tests().stream()
+                        .map(test -> new TestValue(test.name(), test.status(), test.detail().orElse(null)))
+                        .collect(toImmutableList()),
+                metrics.inputTokens(),
+                metrics.cachedInputTokens(),
+                metrics.outputTokens(),
+                metrics.cost().map(BigDecimal::toPlainString).orElse(null),
+                metrics.costProvenance(),
+                metrics.elapsed().toMillis(),
+                summary.learnings(),
+                summary.notes().orElse(null));
+        try {
+            return OBJECT_MAPPER.writeValueAsString(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new AgentStorageException("Cannot serialize task summary", e);
+        }
+    }
+
+    public static TaskSummary decode(String json)
+    {
+        try {
+            SummaryValue value = OBJECT_MAPPER.readValue(json, SummaryValue.class);
+            TaskMetrics metrics = new TaskMetrics(
+                    value.inputTokens(),
+                    value.cachedInputTokens(),
+                    value.outputTokens(),
+                    Optional.ofNullable(value.cost()).map(BigDecimal::new),
+                    value.costProvenance(),
+                    Duration.ofMillis(value.elapsedMillis()));
+            return new TaskSummary(
+                    value.finalResponse(),
+                    new WorkspaceSnapshot(
+                            Path.of(value.worktree()),
+                            RepositoryIdentity.valueOf(value.repository()),
+                            Optional.ofNullable(value.branch()),
+                            value.head(),
+                            value.dirty()),
+                    value.tests().stream()
+                            .map(test -> new TestFact(test.name(), test.status(), Optional.ofNullable(test.detail())))
+                            .collect(toImmutableList()),
+                    metrics,
+                    ImmutableList.copyOf(value.learnings()),
+                    Optional.ofNullable(value.notes()));
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            if (e instanceof AgentStorageException storageException) {
+                throw storageException;
+            }
+            throw new AgentStorageException("Cannot deserialize task summary", e);
+        }
+    }
+
+    private record SummaryValue(
+            String finalResponse,
+            String worktree,
+            String repository,
+            String branch,
+            String head,
+            boolean dirty,
+            List<TestValue> tests,
+            long inputTokens,
+            long cachedInputTokens,
+            long outputTokens,
+            String cost,
+            CostProvenance costProvenance,
+            long elapsedMillis,
+            List<String> learnings,
+            String notes) {}
+
+    private record TestValue(String name, TestFact.Status status, String detail) {}
+}

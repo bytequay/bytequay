@@ -15,13 +15,13 @@ package com.bytequay.agent.core;
 
 import java.util.UUID;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ApprovalId(UUID value)
 {
     public ApprovalId
     {
-        checkPresent(value, "value");
+        requireNonNull(value, "value is null");
     }
 
     public static ApprovalId random()

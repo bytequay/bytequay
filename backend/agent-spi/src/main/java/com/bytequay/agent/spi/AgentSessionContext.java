@@ -17,7 +17,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentSessionContext(
         String taskId,
@@ -30,11 +30,11 @@ public record AgentSessionContext(
     public AgentSessionContext
     {
         checkNotBlank(taskId, "taskId");
-        checkPresent(worktree, "worktree");
-        checkPresent(providerDirectory, "providerDirectory");
-        checkPresent(permissionPolicy, "permissionPolicy");
-        checkPresent(sessionReference, "sessionReference");
-        checkPresent(approvals, "approvals");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(providerDirectory, "providerDirectory is null");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(sessionReference, "sessionReference is null");
+        requireNonNull(approvals, "approvals is null");
         if (!worktree.isAbsolute()) {
             throw new IllegalArgumentException("worktree is not absolute");
         }

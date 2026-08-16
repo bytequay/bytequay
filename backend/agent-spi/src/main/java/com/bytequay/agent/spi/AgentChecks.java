@@ -16,28 +16,24 @@ package com.bytequay.agent.spi;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /** Shared validation for provider-neutral agent values. */
 public final class AgentChecks
 {
     private AgentChecks() {}
 
-    public static void checkPresent(Object value, String name)
-    {
-        checkNotNull(name, "name is null");
-        checkNotNull(value, "%s is null", name);
-    }
-
     public static void checkNotBlank(String value, String name)
     {
-        checkPresent(value, name);
+        requireNonNull(name, "name is null");
+        requireNonNull(value, name + " is null");
         checkArgument(!value.isBlank(), "%s is blank", name);
     }
 
     public static void checkOptionalText(Optional<String> value, String name)
     {
-        checkPresent(value, name);
+        requireNonNull(name, "name is null");
+        requireNonNull(value, name + " is null");
         checkArgument(value.stream().noneMatch(String::isBlank), "%s is blank", name);
     }
 }

@@ -15,6 +15,12 @@ package com.bytequay.agent.spi;
 
 import java.util.List;
 
+/**
+ * Resolves configured provider drivers by their stable lane identifiers.
+ *
+ * <p>The registry also exposes provider readiness for the UI. Failure to probe
+ * one lane is represented in that lane's status and does not hide other lanes.
+ */
 public interface AgentDriverRegistry
 {
     /**

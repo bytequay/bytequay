@@ -17,7 +17,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentProviderStatus(
         AgentLaneId laneId,
@@ -28,11 +28,11 @@ public record AgentProviderStatus(
 {
     public AgentProviderStatus
     {
-        checkPresent(laneId, "laneId");
-        checkPresent(health, "health");
+        requireNonNull(laneId, "laneId is null");
+        requireNonNull(health, "health is null");
         checkOptionalText(version, "version");
         checkNotBlank(diagnostic, "diagnostic");
-        checkPresent(capabilities, "capabilities");
+        requireNonNull(capabilities, "capabilities is null");
     }
 
     public boolean available()

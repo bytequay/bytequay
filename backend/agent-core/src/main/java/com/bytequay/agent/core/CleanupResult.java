@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record CleanupResult(
         TaskId taskId,
@@ -27,9 +27,9 @@ public record CleanupResult(
 {
     public CleanupResult
     {
-        checkPresent(taskId, "taskId");
-        checkPresent(state, "state");
-        checkPresent(deletedAt, "deletedAt");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(state, "state is null");
+        requireNonNull(deletedAt, "deletedAt is null");
         checkOptionalText(failure, "failure");
         if ((state == CleanupState.DELETED) != deletedAt.isPresent()) {
             throw new IllegalArgumentException("deletedAt and cleanup state disagree");

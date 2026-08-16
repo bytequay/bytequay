@@ -17,7 +17,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentCapabilities(
         boolean sessionResume,
@@ -34,8 +34,8 @@ public record AgentCapabilities(
 {
     public AgentCapabilities
     {
-        checkPresent(costProvenance, "costProvenance");
-        checkPresent(attachmentMediaTypes, "attachmentMediaTypes");
+        requireNonNull(costProvenance, "costProvenance is null");
+        requireNonNull(attachmentMediaTypes, "attachmentMediaTypes is null");
         attachmentMediaTypes = ImmutableSet.copyOf(attachmentMediaTypes);
         if (attachmentMediaTypes.stream().anyMatch(String::isBlank)) {
             throw new IllegalArgumentException("attachmentMediaTypes contains a blank value");

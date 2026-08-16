@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.core;
 
+/**
+ * Owns the ByteQuay runtime files allocated for an agent task.
+ *
+ * <p>These resources live outside the Git worktree and include the event log,
+ * blobs, and provider scratch directory. Provider account files and provider-
+ * owned session history are outside this service's ownership.
+ */
 public interface AgentResourceService
 {
     /**

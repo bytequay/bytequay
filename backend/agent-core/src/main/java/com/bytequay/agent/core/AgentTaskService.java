@@ -15,6 +15,13 @@ package com.bytequay.agent.core;
 
 import java.util.List;
 
+/**
+ * Creates agent tasks and exposes their durable task-level state.
+ *
+ * <p>This service owns task creation and rollback after a failed creation. Turn
+ * execution belongs to {@link AgentTurnService}, while completion and retained
+ * resource cleanup belong to {@link AgentCompletionService}.
+ */
 public interface AgentTaskService
 {
     /**

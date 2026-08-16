@@ -19,7 +19,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record StartAgentTurnCommand(
         TaskId taskId,
@@ -29,9 +29,9 @@ public record StartAgentTurnCommand(
 {
     public StartAgentTurnCommand
     {
-        checkPresent(taskId, "taskId");
+        requireNonNull(taskId, "taskId is null");
         checkNotBlank(message, "message");
-        checkPresent(attachments, "attachments");
+        requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         checkNotBlank(idempotencyKey, "idempotencyKey");
     }

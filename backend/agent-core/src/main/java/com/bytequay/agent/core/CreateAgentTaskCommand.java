@@ -19,7 +19,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import java.nio.file.Path;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record CreateAgentTaskCommand(
         AgentLaneId laneId,
@@ -30,10 +30,10 @@ public record CreateAgentTaskCommand(
 {
     public CreateAgentTaskCommand
     {
-        checkPresent(laneId, "laneId");
-        checkPresent(worktree, "worktree");
-        checkPresent(repository, "repository");
+        requireNonNull(laneId, "laneId is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(repository, "repository is null");
         checkNotBlank(title, "title");
-        checkPresent(permissionPolicy, "permissionPolicy");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
     }
 }

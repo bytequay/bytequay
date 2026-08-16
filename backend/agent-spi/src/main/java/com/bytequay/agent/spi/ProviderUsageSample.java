@@ -18,7 +18,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record ProviderUsageSample(
         Optional<String> providerEventId,
@@ -33,10 +33,10 @@ public record ProviderUsageSample(
     public ProviderUsageSample
     {
         checkOptionalText(providerEventId, "providerEventId");
-        checkPresent(semantics, "semantics");
-        checkPresent(cost, "cost");
-        checkPresent(costProvenance, "costProvenance");
-        checkPresent(observedAt, "observedAt");
+        requireNonNull(semantics, "semantics is null");
+        requireNonNull(cost, "cost is null");
+        requireNonNull(costProvenance, "costProvenance is null");
+        requireNonNull(observedAt, "observedAt is null");
         if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0) {
             throw new IllegalArgumentException("token counts must not be negative");
         }

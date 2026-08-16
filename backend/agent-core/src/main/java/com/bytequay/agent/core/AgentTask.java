@@ -23,7 +23,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentTask(
         TaskId id,
@@ -47,22 +47,22 @@ public record AgentTask(
 {
     public AgentTask
     {
-        checkPresent(id, "id");
+        requireNonNull(id, "id is null");
         checkNotBlank(title, "title");
-        checkPresent(laneId, "laneId");
-        checkPresent(repository, "repository");
-        checkPresent(worktree, "worktree");
-        checkPresent(permissionPolicy, "permissionPolicy");
-        checkPresent(state, "state");
-        checkPresent(createdAt, "createdAt");
-        checkPresent(updatedAt, "updatedAt");
-        checkPresent(terminalAt, "terminalAt");
+        requireNonNull(laneId, "laneId is null");
+        requireNonNull(repository, "repository is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(state, "state is null");
+        requireNonNull(createdAt, "createdAt is null");
+        requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(terminalAt, "terminalAt is null");
         checkOptionalText(terminalReason, "terminalReason");
-        checkPresent(sessionReference, "sessionReference");
-        checkPresent(metrics, "metrics");
-        checkPresent(summary, "summary");
-        checkPresent(cleanupState, "cleanupState");
-        checkPresent(deleteAfter, "deleteAfter");
+        requireNonNull(sessionReference, "sessionReference is null");
+        requireNonNull(metrics, "metrics is null");
+        requireNonNull(summary, "summary is null");
+        requireNonNull(cleanupState, "cleanupState is null");
+        requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
         if (!worktree.isAbsolute()) {
             throw new IllegalArgumentException("worktree is not absolute");
@@ -159,9 +159,9 @@ public record AgentTask(
     public AgentTask complete(TaskSummary completedSummary, Instant completedAt, Instant deletionDeadline)
     {
         requireState(TaskState.COMPLETING);
-        checkPresent(completedSummary, "completedSummary");
-        checkPresent(completedAt, "completedAt");
-        checkPresent(deletionDeadline, "deletionDeadline");
+        requireNonNull(completedSummary, "completedSummary is null");
+        requireNonNull(completedAt, "completedAt is null");
+        requireNonNull(deletionDeadline, "deletionDeadline is null");
         return copy(
                 TaskState.COMPLETED,
                 version,
@@ -179,8 +179,8 @@ public record AgentTask(
     public AgentTask fail(String reason, Instant failedAt, Instant deletionDeadline)
     {
         checkNotBlank(reason, "reason");
-        checkPresent(failedAt, "failedAt");
-        checkPresent(deletionDeadline, "deletionDeadline");
+        requireNonNull(failedAt, "failedAt is null");
+        requireNonNull(deletionDeadline, "deletionDeadline is null");
         if (state.terminal()) {
             if (state == TaskState.FAILED && terminalReason.orElseThrow().equals(reason)) {
                 return this;
@@ -206,7 +206,7 @@ public record AgentTask(
 
     public AgentTask withSessionReference(AgentSessionRef reference, Instant now)
     {
-        checkPresent(reference, "reference");
+        requireNonNull(reference, "reference is null");
         if (state.terminal()) {
             throw new IllegalStateException("cannot update a terminal task session");
         }
@@ -216,7 +216,7 @@ public record AgentTask(
 
     public AgentTask withMetrics(TaskMetrics updatedMetrics, Instant now)
     {
-        checkPresent(updatedMetrics, "updatedMetrics");
+        requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
@@ -229,7 +229,7 @@ public record AgentTask(
 
     public AgentTask withCleanupState(CleanupState updatedState, Optional<String> failure, Instant now)
     {
-        checkPresent(updatedState, "updatedState");
+        requireNonNull(updatedState, "updatedState is null");
         checkOptionalText(failure, "failure");
         if (!state.terminal()) {
             throw new IllegalStateException("cannot clean up a live task");

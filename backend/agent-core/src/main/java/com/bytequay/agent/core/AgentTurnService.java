@@ -13,6 +13,13 @@
  */
 package com.bytequay.agent.core;
 
+/**
+ * Serializes turns and coordinates execution in a task's provider session.
+ *
+ * <p>This is the only core service that starts or cancels provider execution.
+ * At most one turn may be active for a task, and later turns resume the task's
+ * persisted provider session.
+ */
 public interface AgentTurnService
 {
     /**

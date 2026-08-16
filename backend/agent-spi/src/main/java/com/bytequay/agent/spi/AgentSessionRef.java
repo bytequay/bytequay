@@ -14,13 +14,13 @@
 package com.bytequay.agent.spi;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record AgentSessionRef(AgentLaneId laneId, int contractVersion, String providerValue)
 {
     public AgentSessionRef
     {
-        checkPresent(laneId, "laneId");
+        requireNonNull(laneId, "laneId is null");
         checkNotBlank(providerValue, "providerValue");
         if (contractVersion <= 0) {
             throw new IllegalArgumentException("contractVersion must be positive");

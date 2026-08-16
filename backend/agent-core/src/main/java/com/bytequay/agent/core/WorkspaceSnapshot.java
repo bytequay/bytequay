@@ -18,7 +18,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.bytequay.agent.spi.AgentChecks.checkPresent;
+import static java.util.Objects.requireNonNull;
 
 public record WorkspaceSnapshot(
         Path worktree,
@@ -29,8 +29,8 @@ public record WorkspaceSnapshot(
 {
     public WorkspaceSnapshot
     {
-        checkPresent(worktree, "worktree");
-        checkPresent(repository, "repository");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(repository, "repository is null");
         checkOptionalText(branch, "branch");
         checkNotBlank(head, "head");
         if (!worktree.isAbsolute()) {

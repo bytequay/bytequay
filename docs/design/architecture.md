@@ -7,7 +7,10 @@ worktree-scoped agent service.
 
 ## 1. Architecture decision
 
-The backend should use a small Maven reactor with six modules:
+The backend grows into a small Maven reactor with at most six planned modules.
+The reactor must list only modules that contain implemented behavior. The
+initial refactor therefore creates `core`, `persistence-sqlite`, and `app`;
+the three agent modules remain absent until the agent feature is implemented.
 
 ```text
 backend/
@@ -212,7 +215,7 @@ extension point currently justified.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 
-The parent POM aggregates the six children:
+The current parent POM aggregates the three implemented children:
 
 ```xml
 <packaging>pom</packaging>
@@ -220,15 +223,14 @@ The parent POM aggregates the six children:
 <modules>
     <module>core</module>
     <module>persistence-sqlite</module>
-    <module>agent-spi</module>
-    <module>agent-core</module>
-    <module>agent-cli</module>
     <module>app</module>
 </modules>
 ```
 
-Dependency and plugin versions belong in the parent. Each child declares only
-the dependencies it uses.
+When agent implementation begins, `agent-spi`, `agent-core`, and `agent-cli`
+are added to this list with their first real code. Empty placeholder modules
+are not created. Dependency and plugin versions belong in the parent. Each
+child declares only the dependencies it uses.
 
 ## 6. System data flow
 

@@ -25,7 +25,7 @@ import { join } from 'node:path';
 // into the packaged app via packagerConfig.extraResource and spawned
 // at runtime by frontend/src/backendProcess.ts. Repo root is one level
 // up from this config (frontend/forge.config.ts).
-const BACKEND_JAR = join(__dirname, '..', 'backend', 'target', 'bytequay-backend.jar');
+const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-backend.jar');
 
 const config: ForgeConfig = {
   packagerConfig: {

@@ -116,26 +116,21 @@ if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
 fi
 
 echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
-# -Dspring-boot.run.fork=false keeps the JVM in the mvn process so Ctrl+C
-# cleanly terminates both. Without it, mvn forks a child JVM that can
-# outlive mvn's own shutdown.
-#
-# spring-boot.run.jvmArguments enforces the same ~2 GB heap ceiling
-# that frontend/src/backendProcess.ts passes in packaged mode, so a
-# leaky session can't eat the whole machine in dev either. Keep the
-# values in sync between this file and backendProcess.ts.
+# Build the three-module reactor, then replace the background subshell with
+# the packaged JVM. The exec keeps the process-group cleanup above reliable,
+# while using the same JAR layout that Electron packages.
 #
 # -Dcheckstyle.skip + -Dlicense.skip drop the validate-phase plugins
 # bound in backend/pom.xml that otherwise run before every dev start
 # and routinely push mvn past the 60s readiness window above. CI and
 # `mvn verify` still enforce both — these are dev-only shortcuts.
-JVM_ARGS="-Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError"
+JVM_ARGS=(-Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
 ( cd "$ROOT/backend" \
-    && mvn -q spring-boot:run \
-        -Dspring-boot.run.fork=false \
-        -Dspring-boot.run.jvmArguments="$JVM_ARGS" \
+    && mvn -q -pl app -am package \
+        -DskipTests \
         -Dcheckstyle.skip=true \
-        -Dlicense.skip=true ) &
+        -Dlicense.skip=true \
+    && exec java "${JVM_ARGS[@]}" -jar app/target/bytequay-backend.jar ) &
 pids+=($!)
 
 if ! wait_for_backend; then

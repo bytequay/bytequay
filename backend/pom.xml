@@ -14,85 +14,41 @@
     <groupId>com.bytequay</groupId>
     <artifactId>backend</artifactId>
     <version>0.4.0</version>
+    <packaging>pom</packaging>
     <name>bytequay-backend</name>
     <description>Local sidecar for the ByteQuay macOS app</description>
+
+    <modules>
+        <module>core</module>
+        <module>persistence-sqlite</module>
+        <module>app</module>
+    </modules>
 
     <properties>
         <java.version>25</java.version>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
+        <guava.version>33.4.8-jre</guava.version>
+        <sqlite-jdbc.version>3.47.1.0</sqlite-jdbc.version>
     </properties>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>33.4.8-jre</version>
-        </dependency>
-
-        <!-- SQLite — embedded, no server required -->
-        <dependency>
-            <groupId>org.xerial</groupId>
-            <artifactId>sqlite-jdbc</artifactId>
-            <version>3.47.1.0</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <!-- Hibernate dialect for SQLite (part of hibernate-community-dialects) -->
-        <dependency>
-            <groupId>org.hibernate.orm</groupId>
-            <artifactId>hibernate-community-dialects</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-    </dependencies>
-
     <build>
-        <finalName>bytequay-backend</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Four forks measured faster than either one fork or one
-                         fork per core on the current test suite. -->
                     <forkCount>4</forkCount>
                     <reuseForks>true</reuseForks>
                 </configuration>
             </plugin>
 
             <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-                <configuration>
-                    <mainClass>com.bytequay.app.ByteQuayApplication</mainClass>
-                </configuration>
-            </plugin>
-
-            <!-- Checkstyle — Trino's airbase rules verbatim
-                 (src/main/checkstyle/checks.xml). Runs on the validate phase
-                 so style errors fail the build before compile. -->
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
                 <version>3.6.0</version>
                 <configuration>
-                    <configLocation>${project.basedir}/src/main/checkstyle/checks.xml</configLocation>
+                    <configLocation>${maven.multiModuleProjectDirectory}/src/main/checkstyle/checks.xml</configLocation>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
                     <failOnViolation>true</failOnViolation>
                     <consoleOutput>true</consoleOutput>
@@ -100,9 +56,6 @@
                     <excludes>**/module-info.java</excludes>
                 </configuration>
                 <dependencies>
-                    <!-- Match Trino/airbase pinning. 13.x is required for
-                         the HexLiteralCase + RegexpMultiline features used
-                         in checks.xml. -->
                     <dependency>
                         <groupId>com.puppycrawl.tools</groupId>
                         <artifactId>checkstyle</artifactId>
@@ -120,11 +73,6 @@
                 </executions>
             </plugin>
 
-            <!-- License header check — replaces the bash grep that lived in
-                 .github/workflows/ci.yml. Verifies every src/**/*.java starts
-                 with the Apache 2.0 header stored at /licenses/header.txt
-                 (one repo-wide source of truth shared with the frontend's
-                 eslint-plugin-header rule). -->
             <plugin>
                 <groupId>com.mycila</groupId>
                 <artifactId>license-maven-plugin</artifactId>
@@ -132,7 +80,7 @@
                 <configuration>
                     <licenseSets>
                         <licenseSet>
-                            <header>${project.basedir}/../licenses/header.txt</header>
+                            <header>${maven.multiModuleProjectDirectory}/../licenses/header.txt</header>
                             <includes>
                                 <include>src/main/java/**/*.java</include>
                                 <include>src/test/java/**/*.java</include>
@@ -152,5 +100,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

@@ -35,10 +35,10 @@ nvm install
 
 ```text
 .
-├── backend/          # Spring Boot sidecar
-│   └── src/main/
-│       ├── java/     # GitHub, Home, PR, credential, and SQLite code
-│       └── resources/application.properties
+├── backend/          # Maven reactor for the Spring Boot sidecar
+│   ├── core/         # Shared domain values and storage ports
+│   ├── persistence-sqlite/ # JPA, SQLite, and credential storage
+│   └── app/          # GitHub/PR services, HTTP, and executable packaging
 ├── frontend/         # Electron + React + TypeScript
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
 ├── docs/             # Design notes and screenshots

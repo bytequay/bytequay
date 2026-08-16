@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.cli.claude.ClaudeCliDriver;
+import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentEventService;
@@ -40,9 +42,11 @@ import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.net.URI;
 import java.time.Clock;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -57,6 +61,28 @@ public class AgentConfiguration
     public CodexCliDriver codexCliDriver(AgentProperties properties, ObjectMapper objectMapper)
     {
         return new CodexCliDriver(properties.codexExecutable(), objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
+    public ClaudePermissionBroker claudePermissionBroker(
+            ObjectMapper objectMapper,
+            ServletWebServerApplicationContext context)
+    {
+        return new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:" + context.getWebServer().getPort()
+                        + "/internal/agent/claude/mcp"),
+                objectMapper);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
+    public ClaudeCliDriver claudeCliDriver(
+            AgentProperties properties,
+            ObjectMapper objectMapper,
+            ClaudePermissionBroker permissions)
+    {
+        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions);
     }
 
     @Bean

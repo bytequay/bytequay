@@ -1148,6 +1148,7 @@ claude
   --permission-mode manual
   --mcp-config <task-provider-directory>/bytequay-mcp.json
   --permission-prompt-tool mcp__bytequay__permission_prompt
+  --session-id <generated-claude-session-id>
 ```
 
 `ProcessSupervisor` supplies this as an argv list without a shell. It writes the
@@ -1155,7 +1156,10 @@ UTF-8 user message to stdin and then closes stdin; prompts are not placed in the
 process list or interpolated into a command string. The process working
 directory is the task's canonical leased worktree.
 
-For every later turn, insert the stored session ID into the same argv:
+ByteQuay generates the first session ID so the provider reference can be
+persisted before the process starts, then verifies that Claude emits the same
+ID in its initialization and result messages. For every later turn, replace
+`--session-id` with the stored session ID in `--resume`:
 
 ```text
 --resume <claude-session-id>

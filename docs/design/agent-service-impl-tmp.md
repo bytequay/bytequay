@@ -22,8 +22,8 @@ starts.
 - [x] Checkpoint 3 — implement lifecycle orchestration with a deterministic
   fake lane.
 - [x] Checkpoint 4 — compose Spring HTTP and SSE endpoints.
-- [ ] Checkpoint 5 — implement the Codex App Server lane.
-- [ ] Checkpoint 6 — implement the Claude `stream-json` lane.
+- [x] Checkpoint 5 — implement the Codex App Server lane.
+- [x] Checkpoint 6 — implement the Claude `stream-json` lane.
 - [ ] Checkpoint 7 — implement completion, recovery, and retention.
 
 ## Checkpoint 1 — Framework-free contracts
@@ -134,14 +134,16 @@ Review gate: ship no Claude behavior in the Codex change.
 
 ## Checkpoint 6 — Claude CLI lane
 
-- [ ] Recheck supported streaming, hook, subagent, resume, and permission
+- [x] Recheck supported streaming, hook, subagent, resume, and permission
   flags.
-- [ ] Implement argv construction, stream parsing, event mapping, task-scoped
+- [x] Implement argv construction, stream parsing, event mapping, task-scoped
   permission MCP endpoint/configuration, resume, and terminal result handling.
-- [ ] Fixture-test partial/final deduplication, tools, hooks, nested agents,
+- [x] Fixture-test partial/final deduplication, tools, hooks, nested agents,
   approvals, usage/cost provenance, malformed lines, trailing events,
   stderr, redaction, and process-tree cancellation.
-- [ ] Run `mvn verify`.
+- [x] Exercise new and resumed turns plus an explicit tool approval through the
+  packaged backend HTTP/SSE shell against the real Claude CLI.
+- [x] Run `mvn verify`.
 
 Review gate: both provider lanes satisfy the same provider-neutral core
 contract without controller branching.

@@ -27,6 +27,8 @@ public record AgentProperties(
         String desktopSessionToken,
         String codexExecutable,
         boolean codexEnabled,
+        String claudeExecutable,
+        boolean claudeEnabled,
         boolean deterministicEnabled)
 {
     public AgentProperties
@@ -35,8 +37,12 @@ public record AgentProperties(
         requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         requireNonNull(desktopSessionToken, "desktopSessionToken is null");
         requireNonNull(codexExecutable, "codexExecutable is null");
+        requireNonNull(claudeExecutable, "claudeExecutable is null");
         if (codexExecutable.isBlank()) {
             throw new IllegalArgumentException("codexExecutable is blank");
+        }
+        if (claudeExecutable.isBlank()) {
+            throw new IllegalArgumentException("claudeExecutable is blank");
         }
         if (maximumTurnRuntime.isZero() || maximumTurnRuntime.isNegative()) {
             throw new IllegalArgumentException("maximumTurnRuntime must be positive");

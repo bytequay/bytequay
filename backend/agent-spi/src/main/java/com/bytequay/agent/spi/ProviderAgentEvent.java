@@ -198,7 +198,7 @@ public sealed interface ProviderAgentEvent
     record Approval(
             Optional<String> providerEventId,
             Optional<Instant> providerTimestamp,
-            String providerRequestId,
+            String approvalId,
             String title,
             String detail)
             implements ProviderAgentEvent
@@ -207,7 +207,7 @@ public sealed interface ProviderAgentEvent
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
-            checkNotBlank(providerRequestId, "providerRequestId");
+            checkNotBlank(approvalId, "approvalId");
             checkNotBlank(title, "title");
             requireNonNull(detail, "detail is null");
         }

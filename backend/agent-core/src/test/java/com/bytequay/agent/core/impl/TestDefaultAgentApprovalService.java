@@ -88,7 +88,9 @@ class TestDefaultAgentApprovalService
         assertThat(service.resolve(command)).isEqualTo(decision);
         assertThat(eventService.events).singleElement().satisfies(event -> {
             assertThat(event.taskId()).isEqualTo(request.taskId());
-            assertThat(event.event()).isInstanceOf(ProviderAgentEvent.Approval.class);
+            assertThat(event.event()).isInstanceOfSatisfying(
+                    ProviderAgentEvent.Approval.class,
+                    approval -> assertThat(approval.approvalId()).isEqualTo(request.id().toString()));
         });
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),

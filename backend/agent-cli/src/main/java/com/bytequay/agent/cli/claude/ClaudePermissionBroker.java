@@ -1,0 +1,366 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.agent.cli.claude;
+
+import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
+
+import static java.util.Objects.requireNonNull;
+
+/** Serves the task-scoped Claude permission-prompt MCP tool. */
+public final class ClaudePermissionBroker
+{
+    private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
+    private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    private final Supplier<URI> endpoint;
+    private final ObjectMapper objectMapper;
+    private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
+
+    public ClaudePermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper)
+    {
+        this.endpoint = requireNonNull(endpoint, "endpoint is null");
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
+                .copy()
+                .registerModule(new Jdk8Module())
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
+
+    Registration register(
+            Path providerDirectory,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor)
+    {
+        requireNonNull(providerDirectory, "providerDirectory is null");
+        requireNonNull(approvals, "approvals is null");
+        requireNonNull(redactor, "redactor is null");
+        String token = token();
+        Path configFile = providerDirectory.resolve("bytequay-mcp.json");
+        contexts.put(token, new PermissionContext(approvals, redactor));
+        try {
+            Files.createDirectories(providerDirectory);
+            String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
+                    "bytequay",
+                    new McpServer(
+                            "http",
+                            requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
+                            ImmutableMap.of("Authorization", "Bearer " + token)))));
+            Files.writeString(configFile, json, StandardCharsets.UTF_8);
+            Files.setPosixFilePermissions(configFile, PosixFilePermissions.fromString("rw-------"));
+            return new Registration(configFile, token);
+        }
+        catch (IOException e) {
+            contexts.remove(token);
+            throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
+        }
+    }
+
+    /**
+     * Handles one authenticated JSON-RPC request from Claude's MCP client.
+     *
+     * @param bearerToken task capability token from the HTTP Authorization header
+     * @param body JSON-RPC request body
+     * @return HTTP status and optional JSON response body
+     */
+    public McpHttpResponse handle(String bearerToken, JsonNode body)
+    {
+        requireNonNull(bearerToken, "bearerToken is null");
+        requireNonNull(body, "body is null");
+        PermissionContext context = contexts.get(bearerToken);
+        if (context == null) {
+            return new McpHttpResponse(401, Optional.empty());
+        }
+        try {
+            McpRequest request = objectMapper.treeToValue(body, McpRequest.class);
+            return switch (request.method()) {
+                case "initialize" -> response(request.id(), new InitializeResult(
+                        protocolVersion(request.params()),
+                        new ServerCapabilities(new ToolCapabilities(false)),
+                        new ServerInfo("bytequay", "1")));
+                case "notifications/initialized" -> new McpHttpResponse(202, Optional.empty());
+                case "ping" -> response(request.id(), ImmutableMap.of());
+                case "tools/list" -> response(request.id(), new ToolsResult(ImmutableList.of(permissionTool())));
+                case "tools/call" -> callTool(request, context);
+                default -> error(request.id(), -32601, "Method not found");
+            };
+        }
+        catch (JsonProcessingException | IllegalArgumentException e) {
+            return error(null, -32600, "Invalid request");
+        }
+    }
+
+    private McpHttpResponse callTool(McpRequest request, PermissionContext context)
+            throws JsonProcessingException
+    {
+        ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
+        if (!params.name().equals("permission_prompt")) {
+            return error(request.id(), -32602, "Unknown tool");
+        }
+        PermissionArguments arguments = objectMapper.treeToValue(params.arguments(), PermissionArguments.class);
+        String detail = bounded(context.redactor().redact(objectMapper.writeValueAsString(arguments.input())));
+        ProviderApprovalRequest approval = new ProviderApprovalRequest(
+                UUID.randomUUID().toString(),
+                kind(arguments.toolName()),
+                "Allow Claude " + arguments.toolName(),
+                detail,
+                ImmutableList.of(arguments.toolName()),
+                Instant.now());
+        ProviderApprovalDecision decision;
+        try {
+            decision = context.approvals()
+                    .request(approval, APPROVAL_TIMEOUT)
+                    .toCompletableFuture()
+                    .get(APPROVAL_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            decision = ProviderApprovalDecision.deny();
+        }
+        catch (ExecutionException | TimeoutException e) {
+            decision = ProviderApprovalDecision.deny();
+        }
+
+        PermissionResult result = decision.decision() == ProviderApprovalDecision.Decision.ALLOW
+                ? new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty())
+                : new PermissionResult("deny", Optional.empty(), Optional.of("Denied by user"));
+        String text = objectMapper.writeValueAsString(result);
+        return response(request.id(), new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+    }
+
+    private McpHttpResponse response(JsonNode id, Object result)
+    {
+        return new McpHttpResponse(200, Optional.of(objectMapper.valueToTree(new McpResponse("2.0", id, result))));
+    }
+
+    private McpHttpResponse error(JsonNode id, int code, String message)
+    {
+        return new McpHttpResponse(
+                200,
+                Optional.of(objectMapper.valueToTree(new McpErrorResponse(
+                        "2.0",
+                        id,
+                        new McpError(code, message)))));
+    }
+
+    private String protocolVersion(JsonNode params)
+            throws JsonProcessingException
+    {
+        return objectMapper.treeToValue(params, InitializeParams.class).protocolVersion();
+    }
+
+    private static ToolDefinition permissionTool()
+    {
+        return new ToolDefinition(
+                "permission_prompt",
+                "Ask the ByteQuay user to approve a Claude tool call",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of(
+                                "tool_name", ImmutableMap.of("type", "string"),
+                                "input", ImmutableMap.of("type", "object")),
+                        "required", ImmutableList.of("tool_name", "input"),
+                        "additionalProperties", true));
+    }
+
+    private static ProviderApprovalRequest.Kind kind(String toolName)
+    {
+        if (toolName.equalsIgnoreCase("Bash")) {
+            return ProviderApprovalRequest.Kind.COMMAND;
+        }
+        if (toolName.equalsIgnoreCase("Edit") || toolName.equalsIgnoreCase("Write")) {
+            return ProviderApprovalRequest.Kind.FILE_CHANGE;
+        }
+        return ProviderApprovalRequest.Kind.TOOL;
+    }
+
+    private static String token()
+    {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String bounded(String text)
+    {
+        return text.length() <= MAX_DETAIL_CHARACTERS
+                ? text
+                : text.substring(0, MAX_DETAIL_CHARACTERS);
+    }
+
+    final class Registration
+            implements AutoCloseable
+    {
+        private final Path configFile;
+        private final String token;
+
+        private Registration(Path configFile, String token)
+        {
+            this.configFile = requireNonNull(configFile, "configFile is null");
+            this.token = requireNonNull(token, "token is null");
+        }
+
+        Path configFile()
+        {
+            return configFile;
+        }
+
+        @Override
+        public void close()
+        {
+            contexts.remove(token);
+            try {
+                Files.deleteIfExists(configFile);
+            }
+            catch (IOException ignored) {
+                // Task resource cleanup owns the final deletion retry.
+            }
+        }
+    }
+
+    /** HTTP response returned to the thin application controller. */
+    public record McpHttpResponse(int status, Optional<JsonNode> body)
+    {
+        public McpHttpResponse
+        {
+            requireNonNull(body, "body is null");
+        }
+    }
+
+    private record PermissionContext(AgentApprovalHandler approvals, SecretRedactor redactor)
+    {
+        private PermissionContext
+        {
+            requireNonNull(approvals, "approvals is null");
+            requireNonNull(redactor, "redactor is null");
+        }
+    }
+
+    private record McpConfiguration(@JsonProperty("mcpServers") Map<String, McpServer> servers)
+    {
+        private McpConfiguration
+        {
+            requireNonNull(servers, "servers is null");
+            servers = ImmutableMap.copyOf(servers);
+        }
+    }
+
+    private record McpServer(String type, String url, Map<String, String> headers)
+    {
+        private McpServer
+        {
+            requireNonNull(type, "type is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(headers, "headers is null");
+            headers = ImmutableMap.copyOf(headers);
+        }
+    }
+
+    private record McpRequest(String jsonrpc, JsonNode id, String method, JsonNode params)
+    {
+        private McpRequest
+        {
+            requireNonNull(jsonrpc, "jsonrpc is null");
+            requireNonNull(method, "method is null");
+        }
+    }
+
+    private record InitializeParams(String protocolVersion)
+    {
+        private InitializeParams
+        {
+            requireNonNull(protocolVersion, "protocolVersion is null");
+        }
+    }
+
+    private record InitializeResult(
+            String protocolVersion,
+            ServerCapabilities capabilities,
+            ServerInfo serverInfo) {}
+
+    private record ServerCapabilities(ToolCapabilities tools) {}
+
+    private record ToolCapabilities(boolean listChanged) {}
+
+    private record ServerInfo(String name, String version) {}
+
+    private record ToolsResult(ImmutableList<ToolDefinition> tools) {}
+
+    private record ToolDefinition(String name, String description, Map<String, Object> inputSchema) {}
+
+    private record ToolCallParams(String name, JsonNode arguments)
+    {
+        private ToolCallParams
+        {
+            requireNonNull(name, "name is null");
+            requireNonNull(arguments, "arguments is null");
+        }
+    }
+
+    private record PermissionArguments(
+            @JsonProperty("tool_name") String toolName,
+            JsonNode input)
+    {
+        private PermissionArguments
+        {
+            requireNonNull(toolName, "toolName is null");
+            requireNonNull(input, "input is null");
+        }
+    }
+
+    private record PermissionResult(
+            String behavior,
+            @JsonProperty("updatedInput") Optional<JsonNode> updatedInput,
+            Optional<String> message) {}
+
+    private record ToolResult(ImmutableList<TextContent> content, @JsonProperty("isError") boolean error) {}
+
+    private record TextContent(String type, String text) {}
+
+    private record McpResponse(String jsonrpc, JsonNode id, Object result) {}
+
+    private record McpErrorResponse(String jsonrpc, JsonNode id, McpError error) {}
+
+    private record McpError(int code, String message) {}
+}

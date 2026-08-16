@@ -84,7 +84,7 @@ public final class DefaultAgentApprovalService
                     new ProviderAgentEvent.Approval(
                             Optional.of(request.providerRequest().providerRequestId()),
                             Optional.of(request.providerRequest().requestedAt()),
-                            request.providerRequest().providerRequestId(),
+                            request.id().toString(),
                             request.providerRequest().title(),
                             request.providerRequest().detail())));
             ScheduledFuture<?> timeoutFuture = scheduler.schedule(

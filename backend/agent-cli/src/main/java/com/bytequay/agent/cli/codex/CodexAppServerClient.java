@@ -20,13 +20,13 @@ import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -40,7 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -64,8 +63,8 @@ final class CodexAppServerClient
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
-    private final LineBuffer protocolLines = new LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
-    private final LineBuffer diagnosticLines;
+    private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
+    private final Utf8LineBuffer diagnosticLines;
 
     private volatile ManagedProcess process;
     private volatile boolean closed;
@@ -80,7 +79,7 @@ final class CodexAppServerClient
         this.processSpec = requireNonNull(processSpec, "processSpec is null");
         this.redactor = requireNonNull(redactor, "redactor is null");
         this.codec = new CodexProtocolCodec(objectMapper);
-        this.diagnosticLines = new LineBuffer(
+        this.diagnosticLines = new Utf8LineBuffer(
                 MAX_DIAGNOSTIC_LINE_BYTES,
                 false,
                 line -> log.warn("Codex App Server: {}", this.redactor.redact(line)));
@@ -396,62 +395,5 @@ final class CodexAppServerClient
         CompletionStage<?> onRequest(CodexProtocol.ServerRequest request);
 
         void onDisconnect(Throwable failure);
-    }
-
-    private static final class LineBuffer
-    {
-        private final int maximumBytes;
-        private final boolean rejectOverflow;
-        private final Consumer<String> lines;
-        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        private boolean overflow;
-
-        private LineBuffer(int maximumBytes, boolean rejectOverflow, Consumer<String> lines)
-        {
-            this.maximumBytes = maximumBytes;
-            this.rejectOverflow = rejectOverflow;
-            this.lines = requireNonNull(lines, "lines is null");
-        }
-
-        private synchronized void accept(ByteBuffer bytes)
-        {
-            while (bytes.hasRemaining()) {
-                byte next = bytes.get();
-                if (next == '\n') {
-                    emit();
-                }
-                else if (next != '\r') {
-                    if (buffer.size() < maximumBytes) {
-                        buffer.write(next);
-                    }
-                    else {
-                        overflow = true;
-                    }
-                }
-            }
-        }
-
-        private synchronized void finish()
-        {
-            if (buffer.size() > 0 || overflow) {
-                emit();
-            }
-        }
-
-        private void emit()
-        {
-            if (overflow && rejectOverflow) {
-                throw new AgentUnavailableException("Codex protocol line exceeds " + maximumBytes + " bytes");
-            }
-            String line = buffer.toString(StandardCharsets.UTF_8);
-            buffer.reset();
-            if (overflow) {
-                line += " [truncated]";
-                overflow = false;
-            }
-            if (!line.isEmpty()) {
-                lines.accept(line);
-            }
-        }
     }
 }

@@ -4,19 +4,33 @@ set -euo pipefail
 
 interactive=false
 minimal_worktree=false
-for argument in "$@"; do
-    case "$argument" in
-        --interactive) interactive=true ;;
-        --minimal-worktree) minimal_worktree=true ;;
+provider=codex
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --interactive)
+            interactive=true
+            ;;
+        --minimal-worktree)
+            minimal_worktree=true
+            ;;
+        --provider)
+            shift
+            if [[ $# -eq 0 || ("$1" != codex && "$1" != claude) ]]; then
+                echo "--provider requires codex or claude" >&2
+                exit 2
+            fi
+            provider="$1"
+            ;;
         --help)
-            echo "Usage: $0 [--interactive] [--minimal-worktree]"
+            echo "Usage: $0 [--interactive] [--provider codex|claude] [--minimal-worktree]"
             exit 0
             ;;
         *)
-            echo "Usage: $0 [--interactive] [--minimal-worktree]" >&2
+            echo "Usage: $0 [--interactive] [--provider codex|claude] [--minimal-worktree]" >&2
             exit 2
             ;;
     esac
+    shift
 done
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -77,6 +91,8 @@ print_event()
             .payload.items[] | "plan> \(.state | ascii_downcase): \(.text)"
         elif .type == "error" then
             "error> \(.payload.message)"
+        elif .type == "approval" then
+            "approval> \(.payload.title)"
         elif .type == "lifecycle" then
             "status> \(.payload.message)"
         else
@@ -86,6 +102,8 @@ print_event()
 
 read_turn_events()
 {
+    local approval_decision
+    local approval_id
     local data
     local line
     local phase
@@ -97,6 +115,21 @@ read_turn_events()
             print_event "$data"
             type="$(printf '%s\n' "$data" | jq -r '.type')"
             phase="$(printf '%s\n' "$data" | jq -r '.payload.phase // ""')"
+            if [[ "$type" == approval ]]; then
+                approval_id="$(printf '%s\n' "$data" | jq -er '.payload.approvalId')"
+                printf 'approval> %s\n' "$(printf '%s\n' "$data" | jq -r '.payload.detail')"
+                if IFS= read -r -p "allow? [y/N] " approval_decision \
+                        && [[ "$approval_decision" =~ ^[Yy]$ ]]; then
+                    approval_decision=ALLOW
+                else
+                    approval_decision=DENY
+                fi
+                curl -fsS --connect-timeout 2 --max-time 30 \
+                    -H "X-ByteQuay-Session: $session_token" \
+                    -H 'Content-Type: application/json' \
+                    -d "$(jq -n --arg decision "$approval_decision" '{decision: $decision}')" \
+                    "$base_url/agent/approvals/$approval_id" >/dev/null
+            fi
             if [[ "$type" == "lifecycle" && ("$phase" == "TURN_COMPLETED" || "$phase" == "INTERRUPTED") ]]; then
                 return 0
             fi
@@ -142,7 +175,7 @@ interactive_session()
     event_stream_open=true
     interactive_started=true
 
-    echo "ByteQuay Codex agent shell"
+    echo "ByteQuay $provider agent shell"
     echo "Task: $task_id"
     echo "Commands: /events, /backend-log, /help, /quit; Ctrl-C also quits"
     while IFS= read -r -p "you> " message; do
@@ -188,8 +221,8 @@ for command in curl git java jq mvn; do
     }
 done
 if [[ "$interactive" == true ]]; then
-    command -v codex >/dev/null || {
-        echo "Missing required command: codex" >&2
+    command -v "$provider" >/dev/null || {
+        echo "Missing required command: $provider" >&2
         exit 1
     }
 fi
@@ -200,8 +233,16 @@ if [[ "$interactive" == true && "$minimal_worktree" == false ]]; then
     }
 fi
 codex_executable=codex
-if [[ "$interactive" == true ]]; then
+claude_executable=claude
+codex_enabled=false
+claude_enabled=false
+if [[ "$interactive" == true && "$provider" == codex ]]; then
     codex_executable="$(command -v codex)"
+    codex_enabled=true
+fi
+if [[ "$interactive" == true && "$provider" == claude ]]; then
+    claude_executable="$(command -v claude)"
+    claude_enabled=true
 fi
 
 worktree="$temporary_directory/worktree"
@@ -234,8 +275,10 @@ java -jar "$backend_root/app/target/bytequay-backend.jar" \
     --bytequay.scheduling.enabled=false \
     --bytequay.agent.desktop-session-token="$session_token" \
     --bytequay.agent.runtime-root="$temporary_directory/runtime" \
-    --bytequay.agent.codex-enabled="$interactive" \
+    --bytequay.agent.codex-enabled="$codex_enabled" \
     --bytequay.agent.codex-executable="$codex_executable" \
+    --bytequay.agent.claude-enabled="$claude_enabled" \
+    --bytequay.agent.claude-executable="$claude_executable" \
     --bytequay.agent.deterministic-enabled=true \
     > "$temporary_directory/process.log" 2>&1 &
 backend_pid=$!
@@ -263,7 +306,7 @@ curl -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
 
 lane_id=deterministic
 if [[ "$interactive" == true ]]; then
-    lane_id=codex
+    lane_id="$provider"
 fi
 task_request="$(jq -n \
     --arg laneId "$lane_id" \

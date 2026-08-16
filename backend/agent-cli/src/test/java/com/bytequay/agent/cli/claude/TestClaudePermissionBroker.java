@@ -1,0 +1,95 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.agent.cli.claude;
+
+import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class TestClaudePermissionBroker
+{
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @TempDir
+    private Path temporaryDirectory;
+
+    @Test
+    void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()
+            throws Exception
+    {
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        ClaudePermissionBroker.Registration registration = broker.register(
+                temporaryDirectory,
+                (request, timeout) -> {
+                    approval.set(request);
+                    return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
+                },
+                SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
+
+        JsonNode config = objectMapper.readTree(Files.readString(registration.configFile()));
+        String authorization = config.at("/mcpServers/bytequay/headers/Authorization").asText();
+        String token = authorization.substring("Bearer ".length());
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(registration.configFile())))
+                .isEqualTo("rw-------");
+
+        ClaudePermissionBroker.McpHttpResponse initialized = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize",
+                "params":{"protocolVersion":"2025-03-26","capabilities":{},
+                "clientInfo":{"name":"claude-code","version":"2.1.233"}}}
+                """));
+        assertThat(initialized.status()).isEqualTo(200);
+        assertThat(initialized.body().orElseThrow().at("/result/protocolVersion").asText())
+                .isEqualTo("2025-03-26");
+
+        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+                """));
+        assertThat(listed.body().orElseThrow().at("/result/tools/0/name").asText())
+                .isEqualTo("permission_prompt");
+
+        ClaudePermissionBroker.McpHttpResponse called = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+                "name":"permission_prompt","arguments":{"tool_name":"Bash",
+                "input":{"command":"echo known-secret"}}}}
+                """));
+        JsonNode permission = objectMapper.readTree(
+                called.body().orElseThrow().at("/result/content/0/text").asText());
+        assertThat(permission.get("behavior").asText()).isEqualTo("allow");
+        assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
+        assertThat(approval.get().detail()).contains("[REDACTED]").doesNotContain("known-secret");
+
+        assertThat(broker.handle("wrong", objectMapper.createObjectNode()).status()).isEqualTo(401);
+        registration.close();
+        assertThat(registration.configFile()).doesNotExist();
+        assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+}

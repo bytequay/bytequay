@@ -3,6 +3,8 @@
 This document specifies local, worktree-scoped development tasks driven by
 Codex CLI or Claude Code. The whole-system shape and Maven module boundaries
 are defined in [ByteQuay Architecture](architecture.md).
+The exact service and method sequence is defined in
+[Create-to-close lifecycle](#7-create-to-close-lifecycle).
 
 ## 1. Decision summary
 
@@ -442,7 +444,7 @@ public interface AgentMetricsService
      * Returns durable totals across all turns in a task.
      *
      * @param taskId task whose totals are requested
-     * @return token, provider-reported cost when available, elapsed time, and provenance totals
+     * @return token, cost when available, elapsed time, and provenance totals
      */
     TaskMetrics taskTotals(TaskId taskId);
 }
@@ -450,12 +452,14 @@ public interface AgentMetricsService
 
 Cost values require provenance:
 
-- `PROVIDER_REPORTED`: the provider supplied a monetary amount.
+- `PROVIDER_REPORTED`: the provider identifies the amount as billing data.
+- `CLI_ESTIMATE`: the CLI calculated an approximate amount locally.
 - `UNAVAILABLE`: subscription/account use cannot be translated into an API
   invoice.
 
 ByteQuay does not estimate subscription-backed Codex cost from a local price
-table. If the provider does not report cost, the UI displays `unavailable`.
+table. If the provider does not report an amount, the UI displays
+`unavailable`; a CLI estimate is visibly labeled as approximate.
 
 ### 3.8 AgentCompletionService
 
@@ -921,103 +925,336 @@ public interface TaskLogStore
 
 ## 7. Create-to-close lifecycle
 
-The main task loop uses the public services as orchestration boundaries. The
-indented calls in each node are calls to the narrower interfaces already
-defined above.
+This is the normative lifecycle. The frontend calls only the public service
+entry points through HTTP controllers. Each public service implementation then
+coordinates the narrower interfaces shown in the last column.
+
+| Step | Frontend action | Public service method | Required internal calls and result |
+| --- | --- | --- | --- |
+| 1. Create | `POST /agent/tasks` | `AgentTaskService.create(CreateAgentTaskCommand)` | `AgentWorkspaceService.acquire(...)`, `AgentResourceService.allocate(...)`, `AgentDriverRegistry.require(...)`, `AgentDriver.probe()`, then `AgentTaskStore.insert(...)`; returns `READY` |
+| 2. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted events and then publishes live events without a gap |
+| 3. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Inserts `ACCEPTED`, opens or resumes the provider session, persists `AgentSession.reference()`, begins metrics, calls `AgentSession.start(...)`, then records `RUNNING` |
+| 4. Run | Keep SSE open; resolve approvals when requested | `AgentApprovalService.resolve(ResolveApprovalCommand)` | Provider calls `AgentEventSink.emit(...)`; normalized events pass through `AgentEventService.append(...)` and `TaskLogStore.append(...)`; usage passes through `AgentMetricsService.record(...)` |
+| 5. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | `RunningTurn.completion()` triggers `AgentApprovalService.denyPending(...)`, `AgentMetricsService.finishTurn(...)`, and `AgentTurnStore.update(...)` |
+| 6. Continue | Send another message to the same task | `AgentTurnService.start(StartAgentTurnCommand)` | Reuses the task's stored `AgentSessionRef`; steps 3–5 repeat with a new `TurnId` |
+| 7. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, closes the session, collects Git/turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
+| 8. Delete logs | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `TaskLogStore.delete(...)` and `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
+
+The method calls and ownership are shown end to end below. Calls below
+`AgentTaskService`, `AgentTurnService`, and `AgentCompletionService` are
+internal orchestration, not additional frontend requests.
 
 ```mermaid
-flowchart TD
-    CREATE["Frontend<br/>POST /agent/tasks"] --> TASK_CREATE["AgentTaskService.create(command)"]
-    TASK_CREATE --> LEASE["AgentWorkspaceService.acquire()<br/>require clean worktree"]
-    LEASE --> ALLOCATE["AgentResourceService.allocate()"]
-    ALLOCATE --> DRIVER_CHECK["AgentDriverRegistry.require()<br/>AgentDriver.probe()"]
-    DRIVER_CHECK --> TASK_READY["AgentTaskStore.insert()<br/>task = READY"]
+sequenceDiagram
+    autonumber
+    actor User
+    participant Web as HTTP/SSE controller
+    participant Tasks as AgentTaskService
+    participant Workspace as AgentWorkspaceService
+    participant Resources as AgentResourceService
+    participant Drivers as AgentDriverRegistry
+    participant Driver as AgentDriver
+    participant TaskStore as AgentTaskStore
+    participant Events as AgentEventService
+    participant Sink as AgentEventSink
+    participant Turns as AgentTurnService
+    participant TurnStore as AgentTurnStore
+    participant Session as AgentSession
+    participant Run as RunningTurn
+    participant Metrics as AgentMetricsService
+    participant Approvals as AgentApprovalService
+    participant Logs as TaskLogStore
+    participant Completion as AgentCompletionService
 
-    TASK_READY --> STREAM["AgentEventService.subscribe()<br/>replay then live SSE"]
-    STREAM --> START["AgentTurnService.start(command)"]
-    START --> TURN_ACCEPTED["AgentTurnStore.insert()<br/>turn = ACCEPTED"]
-    TURN_ACCEPTED --> OPEN["AgentDriver.open()"]
-    OPEN --> SAVE_SESSION["AgentSession.reference()<br/>AgentTaskStore.update()"]
-    SAVE_SESSION --> BASELINE["AgentMetricsService.beginTurn()"]
-    BASELINE --> RUN["AgentSession.start()<br/>turn = RUNNING"]
+    User->>Web: POST /agent/tasks
+    Web->>Tasks: create(CreateAgentTaskCommand)
+    Tasks->>Workspace: acquire(taskId, worktree, repository)
+    Workspace-->>Tasks: WorkspaceLease
+    Tasks->>Resources: allocate(taskId)
+    Resources-->>Tasks: TaskResources
+    Tasks->>Drivers: require(laneId)
+    Drivers-->>Tasks: AgentDriver
+    Tasks->>Driver: probe()
+    Driver-->>Tasks: AgentProviderStatus
+    Tasks->>TaskStore: insert(readyTask)
+    Tasks-->>Web: AgentTask(READY)
+    Web-->>User: 201 Created
 
-    RUN --> EVENT["AgentEventSink.emit()"]
-    EVENT --> APPEND["AgentEventService.append()<br/>TaskLogStore.append()<br/>publish SSE"]
-    APPEND --> EVENT_KIND{"Event kind?"}
-    EVENT_KIND -- "approval" --> REQUEST["AgentApprovalService.request()"]
-    REQUEST --> RESOLVE["Frontend decision<br/>AgentApprovalService.resolve()"]
-    RESOLVE --> TERMINAL{"Turn terminal?"}
-    EVENT_KIND -- "usage" --> USAGE["AgentMetricsService.record()"]
-    USAGE --> TERMINAL
-    EVENT_KIND -- "other" --> TERMINAL
-    TERMINAL -- "no" --> EVENT
-    TERMINAL -- "yes" --> RESULT["RunningTurn.completion()"]
-    RESULT --> FINISH["AgentMetricsService.finishTurn()<br/>AgentTurnStore.update()"]
+    User->>Web: GET /agent/tasks/{taskId}/stream?after=0
+    Web->>Events: subscribe(taskId, 0)
+    Events-->>Web: replay followed by live events
 
-    FINISH --> MORE{"Another user turn?"}
-    MORE -- "yes: resume same AgentSessionRef" --> START
-    MORE -- "no: close task" --> COMPLETE["AgentCompletionService.complete()"]
-    COMPLETE --> CLOSE["AgentSession.close()<br/>AgentMetricsService.taskTotals()<br/>AgentWorkspaceService.inspect()"]
-    CLOSE --> SUMMARY["AgentTaskStore.update()<br/>COMPLETED + summary + deleteAfter"]
-    SUMMARY --> RELEASE["AgentWorkspaceService.release()"]
-    RELEASE --> RETAIN["Retain events and blobs for 7 days"]
-    RETAIN --> CLEANUP["Retention job<br/>AgentCompletionService.cleanup()"]
-    CLEANUP --> DELETE["TaskLogStore.delete()<br/>AgentResourceService.delete()"]
-    DELETE --> CLEAN["AgentTaskStore.update()<br/>cleanup = DELETED"]
+    loop Each user turn in the same task
+        User->>Web: POST /agent/tasks/{taskId}/turns
+        Web->>Turns: start(StartAgentTurnCommand)
+        Turns->>TurnStore: findByIdempotencyKey(taskId, key)
+        Turns->>TurnStore: findActive(taskId)
+        Turns->>TurnStore: insert(acceptedTurn)
+        Turns->>Drivers: require(task.laneId())
+        Drivers-->>Turns: AgentDriver
+        Turns->>Driver: open(sessionContext, eventSink)
+        Driver-->>Turns: AgentSession
+        Turns->>Session: reference()
+        Session-->>Turns: AgentSessionRef
+        Turns->>TaskStore: update(taskWithSessionRef)
+        Turns->>Metrics: beginTurn(taskId, turnId)
+        Turns->>Session: start(AgentTurnCommand)
+        Session-->>Turns: RunningTurn
+        Turns->>Run: reference()
+        Run-->>Turns: ProviderTurnRef
+        Turns->>TurnStore: update(runningTurn)
+        Turns-->>Web: AgentTurn(RUNNING)
+
+        loop Provider output
+            Session->>Sink: emit(providerEvent)
+            Sink->>Events: append(unsequencedEvent)
+            Events->>Logs: append(envelope)
+            Logs-->>Events: flushed
+            Events-->>Web: publish persisted envelope
+            opt Usage event
+                Events->>Metrics: record(taskId, turnId, usageSample)
+            end
+            opt Approval event
+                Session->>Approvals: request(request, timeout)
+                Approvals-->>Web: approval event
+                User->>Web: POST /agent/approvals/{approvalId}
+                Web->>Approvals: resolve(ResolveApprovalCommand)
+                Approvals-->>Session: ApprovalDecision
+            end
+        end
+
+        Turns->>Run: completion()
+        Run-->>Turns: AgentTurnResult
+        Turns->>Approvals: denyPending(turnId)
+        Turns->>Metrics: finishTurn(turnId, terminalState)
+        Turns->>TurnStore: update(terminalTurn)
+        Turns-->>Web: terminal turn state and metrics
+    end
+
+    User->>Web: POST /agent/tasks/{taskId}/complete
+    Web->>Completion: complete(CompleteAgentTaskCommand)
+    Completion->>TurnStore: findActive(taskId)
+    Completion->>Session: close()
+    Completion->>Workspace: inspect(worktree)
+    Completion->>TurnStore: list(taskId)
+    Completion->>Metrics: taskTotals(taskId)
+    Completion->>TaskStore: update(completedTaskWithSummaryAndDeleteAfter)
+    Completion->>Workspace: release(taskId)
+    Completion-->>Web: TaskCompletion
+    Web-->>User: task closed; logs retained for seven days
 ```
 
-The cancellation branch calls `AgentTurnService.cancel()`,
-`RunningTurn.cancel()`, `AgentApprovalService.denyPending()`, and
-`AgentMetricsService.finishTurn()` in order. A failed cleanup leaves the
-terminal task and summary unchanged, records `RETRY_PENDING`, and retries
-`AgentCompletionService.cleanup()` later.
+After the seven-day deadline, the retention job calls
+`AgentCompletionService.cleanup(TaskId)`. Cleanup calls
+`TaskLogStore.delete(TaskId)` and `AgentResourceService.delete(TaskId)` before
+`AgentTaskStore.update(...)` records `DELETED`. A deletion failure leaves the
+terminal task and summary unchanged, records `RETRY_PENDING`, and retries the
+same cleanup method later.
 
-If creation fails after resource allocation, it calls
-`AgentResourceService.delete()` and `AgentWorkspaceService.release()` before
-`AgentTaskService.create()` returns the error.
+The cancellation branch calls `AgentTurnService.cancel(TurnId)`,
+`RunningTurn.cancel()`, `AgentApprovalService.denyPending(TurnId)`, and
+`AgentMetricsService.finishTurn(TurnId, terminalState)` in order.
+
+If creation fails after resource allocation,
+`AgentTaskService.create(CreateAgentTaskCommand)` calls
+`AgentResourceService.delete(TaskId)` and
+`AgentWorkspaceService.release(TaskId)` before returning the error.
 
 ## 8. Provider implementations
 
 ### 8.1 CodexCliDriver
 
-- Start one App Server process for the ByteQuay backend and multiplex tasks by
-  Codex thread ID.
-- Generate or vendor protocol bindings for the installed supported CLI
-  version; do not pass raw JSON maps into core.
-- Start or resume a thread using the stored `AgentSessionRef`.
-- Route thread/turn notifications, approval requests, messages, tool activity,
-  file changes, and token-usage updates to the correct task.
-- Treat token usage as snapshots containing total and last-turn counters;
-  deduplicate before persistence.
-- If the App Server disconnects, mark live turns `INTERRUPTED`, reconnect the
-  shared process, and resume only after an explicit retry.
+The Codex lane uses the documented
+[Codex App Server protocol](https://developers.openai.com/codex/app-server),
+not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
+long-lived process and multiplexes tasks by Codex thread ID:
+
+```text
+codex app-server --listen stdio://
+```
+
+Stdout is newline-delimited JSON-RPC and must never be merged with stderr.
+Stderr is a bounded diagnostic stream. The WebSocket transport is experimental
+and is not used by the localhost sidecar.
+
+The connection and task sequence is:
+
+1. Send `initialize` once with ByteQuay `clientInfo`, wait for its response,
+   then send the `initialized` notification. No other request is legal before
+   this handshake finishes.
+2. For a new ByteQuay task, call `thread/start` with the canonical `cwd`, the
+   selected model when explicitly configured, `approvalPolicy`, and a
+   `workspaceWrite` sandbox limited to the leased worktree. Persist the returned
+   `thread.id` as the provider value in `AgentSessionRef`.
+3. For a later backend process or unloaded task, call `thread/resume` with the
+   stored `threadId`. Do not infer a session ID from provider files.
+4. Start each user turn with `turn/start`; store the returned `turn.id` as the
+   `ProviderTurnRef`.
+5. Keep reading notifications until `turn/completed`. Treat
+   `item/completed` as authoritative when a streamed delta differs from the
+   final item.
+6. Cancel with `turn/interrupt`. Closing a ByteQuay task sends
+   `thread/unsubscribe`; it does not call `thread/archive` or `thread/delete`
+   because provider-owned history is retained.
+
+The driver normalizes these App Server events:
+
+| App Server event | ByteQuay event |
+| --- | --- |
+| `item/agentMessage/delta` and completed `agentMessage` | Partial and final assistant message |
+| `turn/plan/updated`, `item/plan/delta`, and completed `plan` | Structured plan/progress |
+| `item/started` and `item/completed` for `commandExecution` | Command start and terminal result |
+| `item/commandExecution/outputDelta` | Incremental stdout/stderr output |
+| `fileChange` items and `turn/diff/updated` | File change and aggregated diff |
+| `mcpToolCall`, `dynamicToolCall`, and `collabToolCall` items | Tool lifecycle |
+| `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` | Frontend approval request |
+| `thread/tokenUsage/updated` | Cumulative usage snapshot |
+| `error` and failed `turn/completed` | Error and terminal failure |
+
+Readable reasoning summaries may be exposed as progress when the provider emits
+them. Raw reasoning text is not persisted or shown, even if a model or protocol
+version emits `item/reasoning/textDelta`; hidden chain-of-thought remains outside
+the ByteQuay contract.
+
+Protocol bindings are generated with the supported Codex binary and committed
+or vendored with the driver:
+
+```text
+codex app-server generate-json-schema --out <schema-directory>
+```
+
+The driver probe runs `codex --version`, checks it against the supported
+protocol range, and rejects an incompatible binary instead of silently dropping
+unknown required events. Token updates are cumulative snapshots, so the driver
+deduplicates by provider event identity and derives turn usage from the baseline
+captured by `AgentMetricsService.beginTurn(...)`.
+
+If App Server disconnects, all live turns become `INTERRUPTED`. ByteQuay may
+restart and initialize the shared process, but it resumes a thread and starts a
+new turn only after an explicit user retry.
 
 ### 8.2 ClaudeCliDriver
 
-- Run `claude -p --output-format stream-json` for each ByteQuay turn.
-- Use the stored Claude session ID with `--resume` for later turns.
-- Parse stdout as provider events and keep stderr as bounded diagnostic output.
-- Use manual permission behavior; never enable
-  `--dangerously-skip-permissions` as the product default.
-- Treat the terminal result's usage and cost as final for that invocation.
-- Cancellation terminates the entire process tree and records the eventual
-  terminal result.
+The Claude lane follows the official
+[Claude Code CLI](https://code.claude.com/docs/en/cli-usage) and
+[programmatic streaming](https://code.claude.com/docs/en/headless) contracts.
+One process runs per ByteQuay turn. The full-fidelity argv for a new session is:
+
+```text
+claude
+  --print
+  --output-format stream-json
+  --verbose
+  --include-partial-messages
+  --include-hook-events
+  --forward-subagent-text
+  --permission-mode manual
+  --mcp-config <task-provider-directory>/bytequay-mcp.json
+  --permission-prompt-tool mcp__bytequay__permission_prompt
+```
+
+`ProcessSupervisor` supplies this as an argv list without a shell. It writes the
+UTF-8 user message to stdin and then closes stdin; prompts are not placed in the
+process list or interpolated into a command string. The process working
+directory is the task's canonical leased worktree.
+
+For every later turn, insert the stored session ID into the same argv:
+
+```text
+--resume <claude-session-id>
+```
+
+Use the exact stored ID rather than `--continue`, because multiple ByteQuay
+tasks can share a worktree over time. Do not pass `--fork-session` because a
+ByteQuay task continues the same provider conversation. Capture `session_id`
+from the initialization/result stream before reporting the first turn as
+resumable.
+
+The output flags have distinct purposes:
+
+| Flag | Required behavior |
+| --- | --- |
+| `--output-format stream-json` | Emits one structured JSON object per line instead of terminal UI text |
+| `--verbose` | Emits the complete turn-by-turn structured stream rather than only the compact result |
+| `--include-partial-messages` | Adds raw streaming events for partial assistant text and tool-input deltas |
+| `--include-hook-events` | Adds hook start, progress, output, and response events when hooks run |
+| `--forward-subagent-text` | Adds subagent text with `parent_tool_use_id` so the frontend can reconstruct nested activity |
+
+`--include-partial-messages` produces both deltas and later completed assistant
+messages. The driver accumulates deltas for live display, uses the completed
+message as authoritative, and does not append duplicate final text. It keeps
+reading stdout through EOF even after a `result` object because trailing system
+events can follow the result.
+
+The driver normalizes at least these message classes:
+
+| Claude stream message | ByteQuay event |
+| --- | --- |
+| `system/init` | Session reference, CLI/model/tool capability facts |
+| `stream_event` text deltas | Partial assistant message |
+| `assistant` content blocks | Completed message plus `tool_use` starts |
+| `user` content containing `tool_result` | Tool result and bounded command output |
+| `tool_progress` | Running-tool elapsed-time update |
+| `system/hook_started`, `hook_progress`, and `hook_response` | Hook lifecycle and bounded output |
+| `system/task_started`, `task_progress`, and `task_notification` | Subagent/background-task progress |
+| `system/api_retry` and rate-limit messages | Retry/rate-limit progress |
+| `result` | Terminal status, response, duration, usage, session ID, and cost estimate |
+
+Subagent messages retain `parent_tool_use_id` for nesting. Raw thinking blocks
+are discarded; only provider-supported user-facing messages, tool activity, and
+progress summaries enter the ByteQuay log. Hook and tool output is bounded and
+redacted before persistence.
+
+Headless manual approval needs a callback path; a terminal dialog is not a
+frontend integration. ByteQuay writes an owner-only MCP configuration under the
+task's provider directory and points `--permission-prompt-tool` at a
+`mcp__bytequay__permission_prompt` tool. That adapter delegates to
+`AgentApprovalService.request(...)`, waits for the frontend decision, and
+returns allow or deny to Claude. The task-scoped MCP endpoint uses an ephemeral
+capability token stored in the owner-only config file. ByteQuay does not pass
+the token on the command line.
+
+The driver never enables `--dangerously-skip-permissions`. It also does not use
+`--bare`: bare mode does not read Claude subscription OAuth or keychain
+credentials and therefore would break the supported no-API-key deployment.
+`--debug` and `--debug-file` are troubleshooting options, not task-event
+sources, and remain off by default.
+
+The driver probe runs `claude --version` and checks each optional observability
+flag. `--forward-subagent-text` requires a sufficiently recent Claude Code
+version; when unavailable, the driver omits it and reports subagent transcript
+streaming as unsupported rather than failing the entire lane. Required
+streaming or permission flags failing the probe make the lane unavailable.
+
+The terminal `result` contains usage for that invocation and, when present,
+`total_cost_usd`. Claude documents that monetary field as a client-side
+estimate, not authoritative billing data; ByteQuay labels it as a CLI estimate
+and never uses it for billing decisions. Cancellation sends graceful
+termination, then forcefully terminates the process tree after the configured
+grace period, and records the observed terminal result or process exit.
 
 ### 8.3 Capability differences
 
-`AgentCapabilities` advertises actual driver behavior, including:
+`AgentCapabilities` advertises event fidelity rather than one generic
+"streaming" boolean:
 
-- resumable sessions;
-- streaming messages;
-- structured plans;
-- structured tool events;
-- interactive approvals;
-- token usage;
-- provider-reported cost;
-- attachment types; and
-- supported cancellation behavior.
+| Capability | Codex App Server | Claude Code CLI |
+| --- | --- | --- |
+| Session resume | `thread/resume` with stored thread ID | New process with `--resume <session-id>` |
+| Partial assistant text | Native `item/agentMessage/delta` | `stream_event` text deltas with `--include-partial-messages` |
+| Structured plans | Native `turn/plan/updated` and plan items | No guaranteed dedicated plan event; render provider messages/tool activity only |
+| Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
+| Incremental command output | Native `item/commandExecution/outputDelta` | Not guaranteed for Bash; terminal tool results are authoritative |
+| Hook lifecycle | `hook/started` and `hook/completed` | Available with `--include-hook-events` |
+| Nested agent activity | `collabToolCall` items | Parent-linked subagent messages with `--forward-subagent-text` |
+| Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
+| Token usage | Cumulative `thread/tokenUsage/updated` snapshots | Per-step assistant usage and terminal invocation totals |
+| Monetary cost | `UNAVAILABLE` unless a future protocol field supplies it | `CLI_ESTIMATE` from terminal `total_cost_usd` when present |
+| Cancellation | `turn/interrupt` | Graceful then forced process-tree termination |
 
-The UI must render missing capabilities honestly rather than synthesize data.
+Capabilities also describe supported attachment types and version-gated event
+classes. The UI must render missing capabilities honestly rather than
+synthesize data.
 
 ## 9. Event and frontend contract
 
@@ -1064,7 +1301,7 @@ processes.
 - task ID, title, lane ID, repository identity, and canonical worktree;
 - task state, optimistic version, timestamps, and terminal reason;
 - provider session reference and its contract version;
-- token totals, provider-reported cost or unavailable, elapsed time, and
+- token totals, cost amount when available, cost provenance, elapsed time, and
   provenance;
 - final summary, Git/test facts, cleanup state, and runtime deletion deadline.
 

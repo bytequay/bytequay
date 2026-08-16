@@ -13,17 +13,21 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessOutputSink;
+import com.bytequay.agent.cli.process.ProcessSpec;
+import com.bytequay.agent.cli.process.ProcessStream;
+import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStreamWriter;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -36,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -44,10 +49,13 @@ final class CodexAppServerClient
 {
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final Duration START_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
 
-    private final String executable;
+    private final ProcessSupervisor supervisor;
+    private final ProcessSpec processSpec;
+    private final SecretRedactor redactor;
     private final CodexProtocolCodec codec;
     private final Object lifecycleLock = new Object();
     private final Object writeLock = new Object();
@@ -56,15 +64,26 @@ final class CodexAppServerClient
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
+    private final LineBuffer protocolLines = new LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
+    private final LineBuffer diagnosticLines;
 
-    private volatile Process process;
-    private volatile BufferedWriter input;
+    private volatile ManagedProcess process;
     private volatile boolean closed;
 
-    CodexAppServerClient(String executable, ObjectMapper objectMapper)
+    CodexAppServerClient(
+            ProcessSupervisor supervisor,
+            ProcessSpec processSpec,
+            ObjectMapper objectMapper,
+            SecretRedactor redactor)
     {
-        this.executable = requireNonNull(executable, "executable is null");
+        this.supervisor = requireNonNull(supervisor, "supervisor is null");
+        this.processSpec = requireNonNull(processSpec, "processSpec is null");
+        this.redactor = requireNonNull(redactor, "redactor is null");
         this.codec = new CodexProtocolCodec(objectMapper);
+        this.diagnosticLines = new LineBuffer(
+                MAX_DIAGNOSTIC_LINE_BYTES,
+                false,
+                line -> log.warn("Codex App Server: {}", this.redactor.redact(line)));
     }
 
     <T> T request(String method, Object params, Class<T> responseType, Duration timeout)
@@ -98,7 +117,7 @@ final class CodexAppServerClient
     private void start()
     {
         synchronized (lifecycleLock) {
-            if (process != null && process.isAlive()) {
+            if (process != null && !process.exit().toCompletableFuture().isDone()) {
                 return;
             }
             if (closed) {
@@ -107,25 +126,34 @@ final class CodexAppServerClient
             if (process != null) {
                 throw new AgentUnavailableException("Codex App Server disconnected");
             }
-            try {
-                process = new ProcessBuilder(executable, "app-server", "--listen", "stdio://")
-                        .redirectErrorStream(false)
-                        .start();
-                input = new BufferedWriter(new OutputStreamWriter(
-                        process.getOutputStream(),
-                        StandardCharsets.UTF_8));
-                Thread.ofVirtual().name("bytequay-codex-stdout").start(this::readOutput);
-                Thread.ofVirtual().name("bytequay-codex-stderr").start(this::readDiagnostics);
-            }
-            catch (IOException e) {
-                throw new AgentUnavailableException("Unable to start Codex App Server", e);
-            }
+            process = supervisor.start(processSpec, new ProcessOutputSink()
+            {
+                @Override
+                public void onOutput(ProcessStream stream, ByteBuffer bytes)
+                {
+                    receiveOutput(stream, bytes);
+                }
 
-            CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
-                    new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
-                    ImmutableMap.of());
-            await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
-            sendNotification("initialized", new CodexProtocol.EmptyParams());
+                @Override
+                public void onTruncated(ProcessStream stream)
+                {
+                    outputTruncated(stream);
+                }
+            });
+            process.exit().whenComplete((result, failure) -> processExited(result, failure));
+
+            try {
+                CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
+                        new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
+                        ImmutableMap.of());
+                await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
+                sendNotification("initialized", new CodexProtocol.EmptyParams());
+            }
+            catch (RuntimeException failure) {
+                process.cancel();
+                disconnect(new AgentUnavailableException("Unable to initialize Codex App Server", failure));
+                throw failure;
+            }
         }
     }
 
@@ -152,51 +180,68 @@ final class CodexAppServerClient
     private void send(Object message)
     {
         synchronized (writeLock) {
-            BufferedWriter writer = input;
-            if (writer == null) {
+            ManagedProcess current = process;
+            if (current == null) {
                 throw new AgentUnavailableException("Codex App Server input is unavailable");
             }
+            byte[] bytes = (codec.encode(message) + "\n").getBytes(StandardCharsets.UTF_8);
             try {
-                writer.write(codec.encode(message));
-                writer.newLine();
-                writer.flush();
+                await(current.write(ByteBuffer.wrap(bytes)).toCompletableFuture(), WRITE_TIMEOUT, "input write");
             }
-            catch (IOException e) {
-                disconnect(new AgentUnavailableException("Unable to write to Codex App Server", e));
-                throw new AgentUnavailableException("Unable to write to Codex App Server", e);
+            catch (RuntimeException failure) {
+                AgentUnavailableException unavailable =
+                        new AgentUnavailableException("Unable to write to Codex App Server", failure);
+                disconnect(unavailable);
+                throw unavailable;
             }
         }
     }
 
-    private void readOutput()
+    private void receiveOutput(ProcessStream stream, ByteBuffer bytes)
     {
-        Process current = process;
-        try (InputStream output = current.getInputStream()) {
-            String line;
-            while ((line = readLine(output, MAX_PROTOCOL_LINE_BYTES, true)) != null) {
-                receive(line);
+        try {
+            if (stream == ProcessStream.STDOUT) {
+                protocolLines.accept(bytes);
             }
-            disconnect(new AgentUnavailableException("Codex App Server closed its output"));
+            else {
+                diagnosticLines.accept(bytes);
+            }
         }
-        catch (IOException | RuntimeException failure) {
+        catch (RuntimeException failure) {
+            ManagedProcess current = process;
+            if (current != null) {
+                current.cancel();
+            }
             disconnect(new AgentUnavailableException("Codex App Server protocol failed", failure));
         }
     }
 
-    private void readDiagnostics()
+    private void outputTruncated(ProcessStream stream)
     {
-        Process current = process;
-        try (InputStream diagnostics = current.getErrorStream()) {
-            String line;
-            while ((line = readLine(diagnostics, MAX_DIAGNOSTIC_LINE_BYTES, false)) != null) {
-                log.warn("Codex App Server: {}", line);
-            }
+        if (stream == ProcessStream.STDERR) {
+            log.warn("Codex App Server diagnostics were truncated");
+            return;
         }
-        catch (IOException e) {
-            if (!closed) {
-                log.warn("Unable to read Codex App Server diagnostics", e);
-            }
+        ManagedProcess current = process;
+        if (current != null) {
+            current.cancel();
         }
+        disconnect(new AgentUnavailableException("Codex App Server protocol output was truncated"));
+    }
+
+    private void processExited(ProcessExit result, Throwable failure)
+    {
+        try {
+            protocolLines.finish();
+            diagnosticLines.finish();
+        }
+        catch (RuntimeException protocolFailure) {
+            failure = protocolFailure;
+        }
+        String message = failure == null
+                ? "Codex App Server exited with code " + result.exitCode()
+                : "Codex App Server process failed: " + failureMessage(failure);
+        disconnect(new AgentUnavailableException(message, failure));
     }
 
     private void receive(String line)
@@ -287,7 +332,7 @@ final class CodexAppServerClient
     @Override
     public void close()
     {
-        Process current;
+        ManagedProcess current;
         synchronized (lifecycleLock) {
             if (closed) {
                 return;
@@ -295,21 +340,8 @@ final class CodexAppServerClient
             closed = true;
             current = process;
         }
-        if (current == null) {
-            return;
-        }
-        current.descendants().forEach(ProcessHandle::destroy);
-        current.destroy();
-        try {
-            if (!current.waitFor(3, TimeUnit.SECONDS)) {
-                current.descendants().forEach(ProcessHandle::destroyForcibly);
-                current.destroyForcibly();
-            }
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            current.descendants().forEach(ProcessHandle::destroyForcibly);
-            current.destroyForcibly();
+        if (current != null) {
+            current.close();
         }
         disconnect(new AgentUnavailableException("Codex App Server closed"));
     }
@@ -338,35 +370,6 @@ final class CodexAppServerClient
         }
     }
 
-    private static String readLine(InputStream input, int maximumBytes, boolean rejectOverflow)
-            throws IOException
-    {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.min(4096, maximumBytes));
-        boolean overflow = false;
-        int next;
-        while ((next = input.read()) != -1) {
-            if (next == '\n') {
-                break;
-            }
-            if (next != '\r') {
-                if (buffer.size() < maximumBytes) {
-                    buffer.write(next);
-                }
-                else {
-                    overflow = true;
-                }
-            }
-        }
-        if (next == -1 && buffer.size() == 0 && !overflow) {
-            return null;
-        }
-        if (overflow && rejectOverflow) {
-            throw new IOException("Codex protocol line exceeds " + maximumBytes + " bytes");
-        }
-        String line = buffer.toString(StandardCharsets.UTF_8);
-        return overflow ? line + " [truncated]" : line;
-    }
-
     private static String failureMessage(Throwable failure)
     {
         Throwable cause = failure;
@@ -393,5 +396,62 @@ final class CodexAppServerClient
         CompletionStage<?> onRequest(CodexProtocol.ServerRequest request);
 
         void onDisconnect(Throwable failure);
+    }
+
+    private static final class LineBuffer
+    {
+        private final int maximumBytes;
+        private final boolean rejectOverflow;
+        private final Consumer<String> lines;
+        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        private boolean overflow;
+
+        private LineBuffer(int maximumBytes, boolean rejectOverflow, Consumer<String> lines)
+        {
+            this.maximumBytes = maximumBytes;
+            this.rejectOverflow = rejectOverflow;
+            this.lines = requireNonNull(lines, "lines is null");
+        }
+
+        private synchronized void accept(ByteBuffer bytes)
+        {
+            while (bytes.hasRemaining()) {
+                byte next = bytes.get();
+                if (next == '\n') {
+                    emit();
+                }
+                else if (next != '\r') {
+                    if (buffer.size() < maximumBytes) {
+                        buffer.write(next);
+                    }
+                    else {
+                        overflow = true;
+                    }
+                }
+            }
+        }
+
+        private synchronized void finish()
+        {
+            if (buffer.size() > 0 || overflow) {
+                emit();
+            }
+        }
+
+        private void emit()
+        {
+            if (overflow && rejectOverflow) {
+                throw new AgentUnavailableException("Codex protocol line exceeds " + maximumBytes + " bytes");
+            }
+            String line = buffer.toString(StandardCharsets.UTF_8);
+            buffer.reset();
+            if (overflow) {
+                line += " [truncated]";
+                overflow = false;
+            }
+            if (!line.isEmpty()) {
+                lines.accept(line);
+            }
+        }
     }
 }

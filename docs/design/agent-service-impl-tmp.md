@@ -119,16 +119,16 @@ before provider rollout.
 ## Checkpoint 5 — Codex CLI lane
 
 - [x] Recheck the supported official App Server schema and CLI version range.
-- [ ] Implement the shared streaming process supervisor with separate bounded
+- [x] Implement the shared streaming process supervisor with separate bounded
   stdout/stderr, stdin, exit, and process-tree cancellation.
-- [ ] Implement schema bindings, JSON-RPC initialization, thread start/resume,
+- [x] Implement schema bindings, JSON-RPC initialization, thread start/resume,
   turn start/interrupt, approval responses, event mapping, and unsubscribe.
-- [ ] Fixture-test session resume, events, final-item authority, cumulative
+- [x] Fixture-test session resume, events, final-item authority, cumulative
   usage, disconnect, interruption, redaction, and cancellation.
-- [ ] Exercise repeated interactive turns through the backend HTTP/SSE API
+- [x] Exercise repeated interactive turns through the backend HTTP/SSE API
   against the real Codex CLI, including command output, final responses, and
   Ctrl-C cleanup.
-- [ ] Run `mvn verify`.
+- [x] Run `mvn verify`.
 
 Review gate: ship no Claude behavior in the Codex change.
 

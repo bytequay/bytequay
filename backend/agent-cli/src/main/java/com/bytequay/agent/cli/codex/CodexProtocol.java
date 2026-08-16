@@ -44,6 +44,9 @@ final class CodexProtocol
             @JsonSubTypes.Type(
                     name = "item/commandExecution/outputDelta",
                     value = CommandOutputNotification.class),
+            @JsonSubTypes.Type(
+                    name = "item/agentMessage/delta",
+                    value = AgentMessageDeltaNotification.class),
             @JsonSubTypes.Type(name = "turn/plan/updated", value = PlanUpdatedNotification.class),
             @JsonSubTypes.Type(
                     name = "thread/tokenUsage/updated",
@@ -53,7 +56,7 @@ final class CodexProtocol
     sealed interface Notification
             permits TurnStartedNotification, TurnCompletedNotification,
             ItemStartedNotification, ItemCompletedNotification,
-            CommandOutputNotification, PlanUpdatedNotification,
+            CommandOutputNotification, AgentMessageDeltaNotification, PlanUpdatedNotification,
             TokenUsageUpdatedNotification, ErrorNotification, UnknownNotification
     {
         Optional<Long> emittedAtMs();
@@ -157,10 +160,32 @@ final class CodexProtocol
         }
     }
 
-    record CommandOutputNotification(CommandOutputParams params, Optional<Long> emittedAtMs)
+    record CommandOutputNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
             implements Notification
     {
         CommandOutputNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return params.threadId();
+        }
+
+        @Override
+        public Optional<String> turnId()
+        {
+            return Optional.of(params.turnId());
+        }
+    }
+
+    record AgentMessageDeltaNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        AgentMessageDeltaNotification
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
@@ -280,9 +305,9 @@ final class CodexProtocol
         }
     }
 
-    record CommandOutputParams(String threadId, String turnId, String itemId, String delta)
+    record ItemDeltaParams(String threadId, String turnId, String itemId, String delta)
     {
-        CommandOutputParams
+        ItemDeltaParams
         {
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
@@ -337,12 +362,13 @@ final class CodexProtocol
     @JsonSubTypes({
             @JsonSubTypes.Type(name = "agentMessage", value = AgentMessageItem.class),
             @JsonSubTypes.Type(name = "commandExecution", value = CommandExecutionItem.class),
+            @JsonSubTypes.Type(name = "fileChange", value = FileChangeItem.class),
             @JsonSubTypes.Type(name = "mcpToolCall", value = McpToolCallItem.class),
             @JsonSubTypes.Type(name = "dynamicToolCall", value = DynamicToolCallItem.class),
             @JsonSubTypes.Type(name = "collabAgentToolCall", value = CollabAgentToolCallItem.class),
     })
     sealed interface ThreadItem
-            permits AgentMessageItem, CommandExecutionItem, McpToolCallItem,
+            permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
             DynamicToolCallItem, CollabAgentToolCallItem, UnknownThreadItem
     {
         String id();
@@ -377,6 +403,39 @@ final class CodexProtocol
             requireNonNull(status, "status is null");
             requireNonNull(aggregatedOutput, "aggregatedOutput is null");
             requireNonNull(exitCode, "exitCode is null");
+        }
+    }
+
+    record FileChangeItem(
+            String id,
+            List<FileUpdateChange> changes,
+            ActivityStatus status)
+            implements ThreadItem
+    {
+        FileChangeItem
+        {
+            checkIdentifier(id, "id");
+            changes = ImmutableList.copyOf(requireNonNull(changes, "changes is null"));
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    record FileUpdateChange(String path, FileChangeKind kind, String diff)
+    {
+        FileUpdateChange
+        {
+            checkIdentifier(path, "path");
+            requireNonNull(kind, "kind is null");
+            requireNonNull(diff, "diff is null");
+        }
+    }
+
+    record FileChangeKind(String type, @JsonProperty("move_path") Optional<String> movePath)
+    {
+        FileChangeKind
+        {
+            checkIdentifier(type, "type");
+            requireNonNull(movePath, "movePath is null");
         }
     }
 

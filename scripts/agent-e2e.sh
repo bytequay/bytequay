@@ -3,22 +3,21 @@
 set -euo pipefail
 
 interactive=false
-case "${1:-}" in
-    "") ;;
-    --interactive) interactive=true ;;
-    --help)
-        echo "Usage: $0 [--interactive]"
-        exit 0
-        ;;
-    *)
-        echo "Usage: $0 [--interactive]" >&2
-        exit 2
-        ;;
-esac
-if [[ "$#" -gt 1 ]]; then
-    echo "Usage: $0 [--interactive]" >&2
-    exit 2
-fi
+minimal_worktree=false
+for argument in "$@"; do
+    case "$argument" in
+        --interactive) interactive=true ;;
+        --minimal-worktree) minimal_worktree=true ;;
+        --help)
+            echo "Usage: $0 [--interactive] [--minimal-worktree]"
+            exit 0
+            ;;
+        *)
+            echo "Usage: $0 [--interactive] [--minimal-worktree]" >&2
+            exit 2
+            ;;
+    esac
+done
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 backend_root="$repository_root/backend"
@@ -57,13 +56,20 @@ print_event()
 {
     local data="$1"
     printf '%s\n' "$data" | jq -r '
-        if .type == "message" then
+        if .type == "message" and .payload.phase == "FINAL" then
             "agent> \(.payload.text)"
+        elif .type == "message" then
+            empty
         elif .type == "command" and .payload.state == "STARTED" then
             "command> \(.payload.argv | join(" "))"
         elif .type == "command" and .payload.state == "PROGRESS" then
             "output> \(.payload.output // "")"
         elif .type == "command" then
+            (if (.payload.output // "") != "" then
+                "output> \(.payload.output)"
+            else
+                empty
+            end),
             "command> \(.payload.state | ascii_downcase) (exit \(.payload.exitCode // "unknown"))"
         elif .type == "tool" then
             "tool> \(.payload.name) \(.payload.state | ascii_downcase)"
@@ -182,12 +188,16 @@ for command in curl git java jq mvn; do
     }
 done
 if [[ "$interactive" == true ]]; then
-    for command in codex rsync; do
-        command -v "$command" >/dev/null || {
-            echo "Missing required command: $command" >&2
-            exit 1
-        }
-    done
+    command -v codex >/dev/null || {
+        echo "Missing required command: codex" >&2
+        exit 1
+    }
+fi
+if [[ "$interactive" == true && "$minimal_worktree" == false ]]; then
+    command -v rsync >/dev/null || {
+        echo "Missing required command: rsync" >&2
+        exit 1
+    }
 fi
 codex_executable=codex
 if [[ "$interactive" == true ]]; then
@@ -195,7 +205,7 @@ if [[ "$interactive" == true ]]; then
 fi
 
 worktree="$temporary_directory/worktree"
-if [[ "$interactive" == true ]]; then
+if [[ "$interactive" == true && "$minimal_worktree" == false ]]; then
     mkdir "$worktree"
     git -C "$repository_root" ls-files -co --exclude-standard \
         | rsync -a --files-from=- "$repository_root/" "$worktree/"

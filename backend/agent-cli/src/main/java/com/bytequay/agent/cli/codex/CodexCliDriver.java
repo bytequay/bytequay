@@ -13,6 +13,12 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessSpec;
+import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -31,12 +37,15 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -53,6 +62,32 @@ public final class CodexCliDriver
     private static final String SUPPORTED_VERSION_PREFIX = "0.145.";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
+    private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
+    private static final int MAX_APP_SERVER_STDOUT_BYTES = 64 * 1024 * 1024;
+    private static final int MAX_APP_SERVER_STDERR_BYTES = 1024 * 1024;
+    private static final int MAX_PROBE_OUTPUT_BYTES = 16 * 1024;
+    private static final ImmutableSet<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
+            "ALL_PROXY",
+            "CODEX_HOME",
+            "HOME",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "LANG",
+            "LC_ALL",
+            "LOGNAME",
+            "NODE_EXTRA_CA_CERTS",
+            "NO_PROXY",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "PATH",
+            "SHELL",
+            "SSL_CERT_DIR",
+            "SSL_CERT_FILE",
+            "TERM",
+            "TMPDIR",
+            "USER",
+            "XDG_CONFIG_HOME");
 
     private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
             true,
@@ -68,13 +103,39 @@ public final class CodexCliDriver
             ImmutableSet.of());
 
     private final String executable;
+    private final ProcessSupervisor supervisor;
+    private final Map<String, String> environment;
+    private final SecretRedactor redactor;
     private final CodexAppServerClient client;
-    private final CodexEventMapper eventMapper = new CodexEventMapper();
 
     public CodexCliDriver(String executable, ObjectMapper objectMapper)
     {
+        this(
+                executable,
+                objectMapper,
+                new DefaultProcessSupervisor(),
+                inheritedEnvironment());
+    }
+
+    CodexCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            Map<String, String> environment)
+    {
         this.executable = requireNonNull(executable, "executable is null");
-        this.client = new CodexAppServerClient(executable, objectMapper);
+        this.supervisor = requireNonNull(supervisor, "supervisor is null");
+        this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
+        this.redactor = SecretRedactor.fromEnvironment(this.environment);
+        this.client = new CodexAppServerClient(
+                supervisor,
+                processSpec(
+                        ImmutableList.of(executable, "app-server", "--listen", "stdio://"),
+                        APP_SERVER_RUNTIME,
+                        MAX_APP_SERVER_STDOUT_BYTES,
+                        MAX_APP_SERVER_STDERR_BYTES),
+                objectMapper,
+                redactor);
     }
 
     @Override
@@ -126,18 +187,18 @@ public final class CodexCliDriver
             }
             return status(AgentProviderStatus.Health.AVAILABLE, Optional.of(version), login.output());
         }
-        catch (IOException e) {
-            return status(
-                    AgentProviderStatus.Health.UNAVAILABLE,
-                    Optional.empty(),
-                    "Codex CLI is not available: " + e.getMessage());
-        }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return status(
                     AgentProviderStatus.Health.UNAVAILABLE,
                     Optional.empty(),
                     "Codex CLI probe was interrupted");
+        }
+        catch (RuntimeException e) {
+            return status(
+                    AgentProviderStatus.Health.UNAVAILABLE,
+                    Optional.empty(),
+                    "Codex CLI is not available: " + e.getMessage());
         }
     }
 
@@ -199,20 +260,63 @@ public final class CodexCliDriver
         return new AgentProviderStatus(LANE_ID, health, version, message, capabilities());
     }
 
-    private static CommandResult run(String... command)
-            throws IOException, InterruptedException
+    private CommandResult run(String... command)
+            throws InterruptedException
     {
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
-        byte[] output = process.getInputStream().readNBytes(16 * 1024);
-        if (!process.waitFor(10, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            return new CommandResult(-1, "Codex CLI probe timed out");
+        StringBuilder output = new StringBuilder();
+        ManagedProcess process = supervisor.start(
+                processSpec(
+                        ImmutableList.copyOf(command),
+                        Duration.ofSeconds(10),
+                        MAX_PROBE_OUTPUT_BYTES,
+                        MAX_PROBE_OUTPUT_BYTES),
+                (stream, bytes) -> append(output, bytes));
+        try {
+            ProcessExit result = process.exit().toCompletableFuture().get(12, TimeUnit.SECONDS);
+            if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
+                return new CommandResult(-1, "Codex CLI probe timed out");
+            }
+            return new CommandResult(result.exitCode(), output.toString().trim());
         }
-        return new CommandResult(
-                process.exitValue(),
-                new String(output, StandardCharsets.UTF_8).trim());
+        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            process.cancel();
+            return new CommandResult(-1, "Codex CLI probe failed: " + e.getMessage());
+        }
+    }
+
+    private ProcessSpec processSpec(
+            ImmutableList<String> argv,
+            Duration maximumRuntime,
+            int maximumStdoutBytes,
+            int maximumStderrBytes)
+    {
+        return new ProcessSpec(
+                argv,
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                environment,
+                maximumStdoutBytes,
+                maximumStderrBytes,
+                maximumRuntime,
+                PROCESS_CANCELLATION_GRACE);
+    }
+
+    private static void append(StringBuilder output, ByteBuffer bytes)
+    {
+        synchronized (output) {
+            output.append(StandardCharsets.UTF_8.decode(bytes));
+        }
+    }
+
+    private static Map<String, String> inheritedEnvironment()
+    {
+        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
+        for (String name : INHERITED_ENVIRONMENT) {
+            String value = System.getenv(name);
+            if (value != null) {
+                environment.put(name, value);
+            }
+        }
+        return environment.buildOrThrow();
     }
 
     private record CommandResult(int exitCode, String output) {}
@@ -223,6 +327,7 @@ public final class CodexCliDriver
         private final AgentSessionRef reference;
         private final AgentSessionContext context;
         private final AgentEventSink events;
+        private final CodexEventMapper eventMapper;
         private CodexRunningTurn running;
         private boolean closed;
 
@@ -234,6 +339,7 @@ public final class CodexCliDriver
             this.reference = requireNonNull(reference, "reference is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
+            this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
         }
 
         @Override
@@ -282,7 +388,7 @@ public final class CodexCliDriver
             try {
                 if (notification instanceof CodexProtocol.ItemCompletedNotification completed
                         && completed.params().item() instanceof CodexProtocol.AgentMessageItem message) {
-                    running.observeMessage(message.phase(), message.text());
+                    running.observeMessage(message.phase(), redactor.redact(message.text()));
                 }
                 eventMapper.map(notification).forEach(events::emit);
                 if (notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
@@ -312,6 +418,7 @@ public final class CodexCliDriver
                         .filter(value -> !value.isBlank())
                         .or(() -> approval.params().reason().filter(value -> !value.isBlank()))
                         .orElse("Command approval");
+                detail = redactor.redact(detail);
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
@@ -320,6 +427,7 @@ public final class CodexCliDriver
                 detail = approval.params().reason()
                         .filter(value -> !value.isBlank())
                         .orElse("File change approval");
+                detail = redactor.redact(detail);
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
@@ -454,6 +562,7 @@ public final class CodexCliDriver
                     : Optional.of(turn.error()
                             .map(CodexProtocol.TurnError::message)
                             .filter(value -> !value.isBlank())
+                            .map(redactor::redact)
                             .orElse("Codex turn " + turn.status().name().toLowerCase()));
             completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn)));
         }
@@ -464,7 +573,9 @@ public final class CodexCliDriver
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.INTERRUPTED,
                     finalResponse,
-                    Optional.of(message == null || message.isBlank() ? "Codex disconnected" : message),
+                    Optional.of(message == null || message.isBlank()
+                            ? "Codex disconnected"
+                            : redactor.redact(message)),
                     Duration.between(startedAt, Instant.now())));
         }
 

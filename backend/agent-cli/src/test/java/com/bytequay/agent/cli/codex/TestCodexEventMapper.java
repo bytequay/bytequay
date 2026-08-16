@@ -13,10 +13,14 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +30,9 @@ class TestCodexEventMapper
 {
     private final CodexProtocolCodec codec = new CodexProtocolCodec(new ObjectMapper());
     private final CodexEventMapper mapper = new CodexEventMapper();
+
+    @TempDir
+    private Path worktree;
 
     @Test
     void mapsRealAppServerCommandMessageUsageAndCompletionFixtures()
@@ -121,6 +128,70 @@ class TestCodexEventMapper
         CodexProtocol.CommandApprovalRequest approval = (CodexProtocol.CommandApprovalRequest) request;
         assertThat(approval.params().command()).contains("mvn verify");
         assertThat(approval.params().reason()).isEmpty();
+    }
+
+    @Test
+    void mapsPartialMessagesAndUsesCompletedItemsAsAuthoritativeEvents()
+    {
+        ProviderAgentEvent.Message partial = only("""
+                {"method":"item/agentMessage/delta","params":{"threadId":"thread-1",
+                "turnId":"turn-1","itemId":"message-1","delta":"draft answer"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(partial.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
+        assertThat(partial.text()).isEqualTo("draft answer");
+        assertThat(partial.providerEventId()).isEmpty();
+
+        ProviderAgentEvent.Message completed = only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-1","text":"authoritative answer","phase":"final_answer"},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(completed.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(completed.text()).isEqualTo("authoritative answer");
+        assertThat(completed.providerEventId()).contains("message-1:completed");
+    }
+
+    @Test
+    void mapsCompletedFileChangesInsideTheWorktree()
+    {
+        CodexEventMapper worktreeMapper = new CodexEventMapper(
+                worktree,
+                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        String file = worktree.resolve("src/App.java").toString();
+        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
+                {"method":"item/completed","params":{"item":{"type":"fileChange",
+                "id":"patch-1","status":"completed","changes":[
+                {"path":"%s","kind":{"type":"add"},"diff":"+class App {}"},
+                {"path":"/outside/secret","kind":{"type":"delete"},"diff":"-secret"}]},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(file)));
+
+        assertThat(events).singleElement().isInstanceOfSatisfying(
+                ProviderAgentEvent.FileChange.class,
+                change -> {
+                    assertThat(change.relativePath()).isEqualTo("src/App.java");
+                    assertThat(change.change()).isEqualTo(ProviderAgentEvent.ChangeKind.ADDED);
+                    assertThat(change.diff()).contains("+class App {}");
+                });
+    }
+
+    @Test
+    void redactsKnownEnvironmentCredentialsFromMappedEvents()
+    {
+        CodexEventMapper redactingMapper = new CodexEventMapper(
+                worktree,
+                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
+        List<ProviderAgentEvent> events = redactingMapper.map(codec.decodeNotification("""
+                {"method":"item/completed","params":{"item":{"type":"commandExecution",
+                "id":"exec-1","command":"echo known-secret","status":"completed",
+                "aggregatedOutput":"known-secret","exitCode":0},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """));
+
+        ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
+        assertThat(command.argv()).containsExactly("echo [REDACTED]");
+        assertThat(command.output()).contains("[REDACTED]");
+        assertThat(command.toString()).doesNotContain("known-secret");
     }
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)

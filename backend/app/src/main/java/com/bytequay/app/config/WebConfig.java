@@ -45,7 +45,24 @@ public class WebConfig
                 .defaultHeader("Accept", GITHUB_ACCEPT)
                 .defaultHeader("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
+                .requestFactory(newTimeoutRequestFactory(
+                        CONNECT_TIMEOUT,
+                        READ_TIMEOUT,
+                        HttpClient.Redirect.NEVER))
+                .build();
+    }
+
+    @Bean
+    public RestClient gitHubLogRestClient()
+    {
+        // The authenticated Actions endpoint returns a short-lived HTTPS URL.
+        // This client follows storage redirects but has no GitHub defaults or
+        // credentials, so the bearer token cannot cross the host boundary.
+        return RestClient.builder()
+                .requestFactory(newTimeoutRequestFactory(
+                        CONNECT_TIMEOUT,
+                        READ_TIMEOUT,
+                        HttpClient.Redirect.NORMAL))
                 .build();
     }
 
@@ -63,26 +80,26 @@ public class WebConfig
                 .defaultHeader("Accept", "application/json")
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
+                .requestFactory(newTimeoutRequestFactory(
+                        CONNECT_TIMEOUT,
+                        READ_TIMEOUT,
+                        HttpClient.Redirect.NEVER))
                 .build();
     }
 
-    private static ClientHttpRequestFactory newTimeoutRequestFactory(Duration connect, Duration read)
+    private static ClientHttpRequestFactory newTimeoutRequestFactory(
+            Duration connect,
+            Duration read,
+            HttpClient.Redirect redirects)
     {
         // JdkClientHttpRequestFactory wraps the JDK 11+ HttpClient. We use it
         // instead of SimpleClientHttpRequestFactory because the latter is
         // backed by HttpURLConnection, whose setRequestMethod rejects PATCH —
         // breaking GitHub PR edits (PATCH /repos/{o}/{r}/pulls/{n}).
         //
-        // followRedirects(NORMAL) is required for GitHub Actions log fetch:
-        // /actions/jobs/{id}/logs always returns 302 → presigned blob URL,
-        // and the JDK HttpClient default is NEVER (don't follow). Without
-        // this the log endpoint silently returns an empty body and the
-        // merge card permanently shows "No log available". NORMAL also
-        // blocks HTTPS → HTTP downgrades, which is what we want.
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(connect)
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(redirects)
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(read);

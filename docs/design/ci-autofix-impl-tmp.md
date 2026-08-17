@@ -108,34 +108,34 @@ agent, Git command, or GitHub write runs yet.
 
 ## Checkpoint 2 — GitHub Actions facts, logs, and rerun contract
 
-- [ ] **C2.1** Add the `com.bytequay.app.ci.GitHubActionsClient` interface and
+- [x] **C2.1** Add the `com.bytequay.app.ci.GitHubActionsClient` interface and
   command/result records exactly as documented. Make the existing
   `com.bytequay.app.repository.github.GitHubActionsClient` implement it without
   regressing `fetchPrCheckRuns(...)` used by ordinary PR detail sync.
-- [ ] **C2.2** Implement `inspect(...)` using the authenticated GitHub account
+- [x] **C2.2** Implement `inspect(...)` using the authenticated GitHub account
   and PR/Actions APIs. Return open/closed state, author, same-repository fact,
   head ref/SHA, base ref/SHA, workflow/run/job attempt identities, status,
   conclusion, and URLs for the exact current head.
-- [ ] **C2.3** Normalize multiple workflow/job pages to the latest attempt for
+- [x] **C2.3** Normalize multiple workflow/job pages to the latest attempt for
   each job. A completed actionable failure is returned immediately even while
   unrelated jobs are queued or running; an old attempt must never replace a
   newer attempt.
-- [ ] **C2.4** Implement bounded raw job-log reads. Follow GitHub's log response
+- [x] **C2.4** Implement bounded raw job-log reads. Follow GitHub's log response
   safely, stream only up to the command's byte limit, return truncation facts,
   redact authorization material, and persist accepted bytes through
   `TaskLogStore.writeBlob(...)`. Store only the returned task-relative
   `BlobRef` and evidence metadata in the attempt.
-- [ ] **C2.5** Derive the failure signature in program code from stable workflow,
+- [x] **C2.5** Derive the failure signature in program code from stable workflow,
   job, step, attempt, and normalized terminal-error facts. The algorithm is
   deterministic and bounded; it never uses an agent classification.
-- [ ] **C2.6** Implement `rerunFailedJobs(...)` for one exact completed workflow
+- [x] **C2.6** Implement `rerunFailedJobs(...)` for one exact completed workflow
   run. It returns accepted/obsolete/rejected facts only; the caller journals
   intent before the call and later GitHub attempt numbers remain authoritative.
-- [ ] **C2.7** Fixture-test pagination, duplicate and out-of-order attempts,
+- [x] **C2.7** Fixture-test pagination, duplicate and out-of-order attempts,
   early actionable failure, all-pending/all-green heads, missing/expired logs,
   redirect handling, log truncation, signature stability, rerun acceptance,
   permission rejection, and existing PR check-run reads.
-- [ ] **C2.8** Run `mvn verify`.
+- [x] **C2.8** Run `mvn verify`.
 
 Exit: the program can reconstruct exact current Actions evidence and store a
 bounded task log, but it still does not start an agent or mutate GitHub.

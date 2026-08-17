@@ -16,6 +16,10 @@ The design deliberately separates current behavior from future implementation.
 - [Agent Service](agent-service.md) specifies worktree-scoped Codex and Claude
   tasks, Java service and provider interfaces, event streaming, approvals,
   metrics, storage, cleanup, recovery, and a future API-driver seam.
+- [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
+  bounded fix/commit/push/monitor loop for failing GitHub Actions checks. Review
+  comment triage is intentionally outside that service and will be designed
+  separately.
 
 ## Design principles
 

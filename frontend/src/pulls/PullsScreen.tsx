@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import Avatar from '../Avatar';
 import type { DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
+import PullChanges from './PullChanges';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { PULL_TABS, rowsForTab, type PullRow, type PullTab } from './model';
 import '../css/pulls.css';
@@ -289,17 +290,7 @@ function DetailBody({
 
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
-    return (
-      <div className="pull-detail__body pull-detail__changes">
-        {diffs.map(file => (
-          <article className="pull-card pull-diff" key={file.filename}>
-            <header><strong>{file.filename}</strong><span>+{file.additions} −{file.deletions}</span></header>
-            <pre>{file.patch ?? 'Binary file or diff unavailable.'}</pre>
-          </article>
-        ))}
-        {diffs.length === 0 && <div className="hp-empty">No changed files reported.</div>}
-      </div>
-    );
+    return <div className="pull-detail__body pull-detail__changes"><PullChanges files={diffs} /></div>;
   }
 
   const submitComment = async () => {

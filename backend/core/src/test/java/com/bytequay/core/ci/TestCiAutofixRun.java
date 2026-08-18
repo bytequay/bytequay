@@ -173,7 +173,8 @@ class TestCiAutofixRun
         assertThatThrownBy(() -> new CiAutofixAttempt.GitResult(
                 HEAD,
                 "fingerprint",
-                ImmutableList.of("../escape")))
+                ImmutableList.of("../escape"),
+                ImmutableList.of("Fix feature")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe");
     }
@@ -186,7 +187,8 @@ class TestCiAutofixRun
         GitResult gitResult = new GitResult(
                 "c".repeat(40),
                 "fingerprint",
-                ImmutableList.of("src/Main.java"));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature"));
         run = run.addAttempt(attempt, NOW.plusSeconds(1))
                 .linkAttemptTurn(attempt.id(), "turn-1", NOW.plusSeconds(2))
                 .clearCurrentTurn("turn-1", NOW.plusSeconds(3));

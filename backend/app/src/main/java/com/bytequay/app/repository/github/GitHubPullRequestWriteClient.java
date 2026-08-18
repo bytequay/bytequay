@@ -84,6 +84,7 @@ public class GitHubPullRequestWriteClient
                 "commented",
                 Optional.ofNullable(comment.user()).map(GitHubIssueComment.User::login).orElse(null),
                 comment.createdAt(),
-                comment.body());
+                comment.body(),
+                Optional.empty());
     }
 }

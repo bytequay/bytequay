@@ -74,10 +74,14 @@ final class CiGitOperations
                 return CiGitInspection.noChange();
             }
             List<String> changedPaths = changedPaths(worktree, command.baseSha(), head);
+            List<String> commitSubjects = commits(worktree, command.baseSha(), head).stream()
+                    .map(Commit::subject)
+                    .toList();
             return CiGitInspection.ready(
                     head,
                     fingerprint(worktree, command.headRef(), head),
-                    changedPaths);
+                    changedPaths,
+                    commitSubjects);
         }
         catch (GitProblem problem) {
             return CiGitInspection.invalid(problem.getMessage());

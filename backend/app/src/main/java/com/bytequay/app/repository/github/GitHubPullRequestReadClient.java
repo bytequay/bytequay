@@ -280,7 +280,8 @@ public class GitHubPullRequestReadClient
                 "commented",
                 Optional.ofNullable(c.user()).map(GitHubIssueComment.User::login).orElse(null),
                 c.createdAt(),
-                c.body());
+                c.body(),
+                Optional.empty());
     }
 
     private static PrTimelineEvent toTimelineEvent(GitHubTimelineEvent event)
@@ -311,7 +312,8 @@ public class GitHubPullRequestReadClient
                 event.event(),
                 actor,
                 timestamp,
-                event.body());
+                event.body(),
+                Optional.empty());
     }
 
     public PullRequest getPullRequest(String pat, PullRequestRef pr) {

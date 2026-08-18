@@ -20,15 +20,37 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface PrTimelineJpaRepository
         extends JpaRepository<PrTimelineEntity, Long>
 {
-    List<PrTimelineEntity> findByPrId(Long prId);
+    List<PrTimelineEntity> findByPrIdOrderByTimestampAscIdAsc(Long prId);
+
+    Optional<PrTimelineEntity> findByPrIdAndLocalEventKey(Long prId, String localEventKey);
+
+    @Modifying
+    @Query(value = """
+            INSERT OR IGNORE INTO pr_timeline
+                (pr_id, event, actor, timestamp, body, github_id, local_event_key)
+            VALUES
+                (:prId, :event, :actor, :timestamp, :body, NULL, :localEventKey)
+            """, nativeQuery = true)
+    void insertLocalEvent(
+            @Param("prId") Long prId,
+            @Param("event") String event,
+            @Param("actor") String actor,
+            @Param("timestamp") String timestamp,
+            @Param("body") String body,
+            @Param("localEventKey") String localEventKey);
 
     @Modifying
     @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
+
+    @Modifying
+    @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId AND e.localEventKey IS NULL")
+    void deleteRemoteByPrId(@Param("prId") Long prId);
 
     /**
      * Returns the GitHub event ids already stored for this PR. Used by

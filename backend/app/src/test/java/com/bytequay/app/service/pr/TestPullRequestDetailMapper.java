@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,7 +50,12 @@ class TestPullRequestDetailMapper
                 raw(),
                 List.of(new PrReviewState("alice", "APPROVED")),
                 List.of(new PrTimelineEvent(
-                        7L, "commented", "bob", Instant.parse("2026-01-01T00:00:00Z"), "hello")),
+                        null,
+                        "ci_autofix",
+                        "bob",
+                        Instant.parse("2026-01-01T00:00:00Z"),
+                        "verified push",
+                        Optional.of("ci-autofix:event"))),
                 List.of(check("build", "completed", "success")));
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 5, stored, true);
@@ -60,7 +66,8 @@ class TestPullRequestDetailMapper
         assertThat(detail.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         assertThat(detail.recentActivity()).singleElement().satisfies(item -> {
             assertThat(item.actor()).isEqualTo("bob");
-            assertThat(item.body()).isEqualTo("hello");
+            assertThat(item.eventType()).isEqualTo("ci_autofix");
+            assertThat(item.body()).isEqualTo("verified push");
         });
         assertThat(detail.checkRuns()).singleElement().satisfies(check ->
                 assertThat(check.name()).isEqualTo("build"));

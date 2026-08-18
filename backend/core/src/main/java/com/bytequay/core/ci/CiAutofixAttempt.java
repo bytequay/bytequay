@@ -287,7 +287,11 @@ public record CiAutofixAttempt(
         }
     }
 
-    public record GitResult(String localHead, String fingerprint, List<String> changedPaths)
+    public record GitResult(
+            String localHead,
+            String fingerprint,
+            List<String> changedPaths,
+            List<String> commitSubjects)
     {
         private static final int MAX_CHANGED_PATHS = 1000;
 
@@ -306,6 +310,11 @@ public record CiAutofixAttempt(
                 checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith("..") && paths.add(path),
                         "changedPaths contains an unsafe or duplicate path");
             }
+            requireNonNull(commitSubjects, "commitSubjects is null");
+            commitSubjects = ImmutableList.copyOf(commitSubjects);
+            checkArgument(commitSubjects.size() <= MAX_CHANGED_PATHS,
+                    "commitSubjects exceeds " + MAX_CHANGED_PATHS + " values");
+            commitSubjects.forEach(subject -> checkText(subject, "commitSubject", 500));
         }
     }
 }

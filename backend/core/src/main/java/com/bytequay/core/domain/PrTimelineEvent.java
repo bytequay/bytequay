@@ -14,6 +14,9 @@
 package com.bytequay.core.domain;
 
 import java.time.Instant;
+import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
 
 /** A pull-request timeline event used by the activity view and attention detection. */
 public record PrTimelineEvent(
@@ -21,4 +24,11 @@ public record PrTimelineEvent(
         String event,
         String actor,
         Instant timestamp,
-        String body) {}
+        String body,
+        Optional<String> localEventKey)
+{
+    public PrTimelineEvent
+    {
+        requireNonNull(localEventKey, "localEventKey is null");
+    }
+}

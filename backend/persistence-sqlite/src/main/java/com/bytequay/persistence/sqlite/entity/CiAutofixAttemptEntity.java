@@ -86,6 +86,10 @@ public class CiAutofixAttemptEntity
     @Convert(converter = StringListConverter.class)
     private List<String> changedPaths;
 
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = StringListConverter.class)
+    private List<String> commitSubjects;
+
     private String expectedRemoteSha;
 
     private String pushedSha;
@@ -136,6 +140,7 @@ public class CiAutofixAttemptEntity
         inspectedLocalHead = attempt.gitResult().map(GitResult::localHead).orElse(null);
         localFingerprint = attempt.gitResult().map(GitResult::fingerprint).orElse(null);
         changedPaths = attempt.gitResult().map(GitResult::changedPaths).orElse(List.of());
+        commitSubjects = attempt.gitResult().map(GitResult::commitSubjects).orElse(List.of());
         expectedRemoteSha = attempt.expectedRemoteSha().orElse(null);
         pushedSha = attempt.pushedSha().orElse(null);
         pushedAt = attempt.pushedAt().orElse(null);
@@ -148,7 +153,11 @@ public class CiAutofixAttemptEntity
     public CiAutofixAttempt toDomain()
     {
         Optional<GitResult> gitResult = Optional.ofNullable(inspectedLocalHead)
-                .map(head -> new GitResult(head, localFingerprint, changedPaths));
+                .map(head -> new GitResult(
+                        head,
+                        localFingerprint,
+                        changedPaths,
+                        commitSubjects == null ? List.of() : commitSubjects));
         return new CiAutofixAttempt(
                 CiAutofixAttemptId.valueOf(id),
                 CiAutofixRunId.valueOf(runId),

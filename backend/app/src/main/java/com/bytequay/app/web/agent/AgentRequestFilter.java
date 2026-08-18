@@ -48,7 +48,8 @@ public final class AgentRequestFilter
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request)
     {
-        return !request.getServletPath().startsWith("/agent");
+        String path = request.getRequestURI();
+        return !path.startsWith("/agent") && !path.startsWith("/api/ci-autofix");
     }
 
     @Override

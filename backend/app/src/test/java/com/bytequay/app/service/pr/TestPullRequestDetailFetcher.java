@@ -139,7 +139,7 @@ class TestPullRequestDetailFetcher
     {
         Instant commentedAt = Instant.parse("2026-08-15T10:00:00Z");
         PrTimelineEvent timelineCopy = comment(1L, "alice", commentedAt, "plain copy");
-        PrTimelineEvent labeled = new PrTimelineEvent(2L, "labeled", "bob", commentedAt, null);
+        PrTimelineEvent labeled = new PrTimelineEvent(2L, "labeled", "bob", commentedAt, null, Optional.empty());
         PrTimelineEvent issueCopy = comment(3L, "alice", commentedAt, "copy with reactions");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
@@ -177,6 +177,6 @@ class TestPullRequestDetailFetcher
 
     private static PrTimelineEvent comment(Long githubId, String actor, Instant timestamp, String body)
     {
-        return new PrTimelineEvent(githubId, "commented", actor, timestamp, body);
+        return new PrTimelineEvent(githubId, "commented", actor, timestamp, body, Optional.empty());
     }
 }

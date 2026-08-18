@@ -29,6 +29,8 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.pr.PullRequestTimelineService;
+import com.bytequay.app.pr.RecordPrTimelineEventCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -85,6 +87,7 @@ public class DefaultCiAutofixService
     private final CiAutofixLogReader logReader;
     private final CiMemoryService memoryService;
     private final CiGitService gitService;
+    private final PullRequestTimelineService timelineService;
     private final CredentialService credentials;
     private final GitHubAccountClient accounts;
     private final Clock clock;
@@ -101,6 +104,7 @@ public class DefaultCiAutofixService
             CiAutofixLogReader logReader,
             CiMemoryService memoryService,
             CiGitService gitService,
+            PullRequestTimelineService timelineService,
             CredentialService credentials,
             GitHubAccountClient accounts,
             Clock clock)
@@ -114,6 +118,7 @@ public class DefaultCiAutofixService
         this.logReader = requireNonNull(logReader, "logReader is null");
         this.memoryService = requireNonNull(memoryService, "memoryService is null");
         this.gitService = requireNonNull(gitService, "gitService is null");
+        this.timelineService = requireNonNull(timelineService, "timelineService is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -208,7 +213,7 @@ public class DefaultCiAutofixService
     @Override
     public List<CiAutofixRun> list(int limit)
     {
-        checkArgument(limit > 0, "limit must be positive");
+        checkArgument(limit > 0 && limit <= 200, "limit must be between 1 and 200");
         return store.listRecent(limit);
     }
 
@@ -334,6 +339,12 @@ public class DefaultCiAutofixService
         if (run.rerunJournal().isPresent()) {
             return reconcileRerun(run, now);
         }
+        Optional<CiAutofixAttempt> unpublishedTimeline = run.attempts().stream()
+                .filter(attempt -> attempt.pushedSha().isPresent() && attempt.timelineEventKey().isEmpty())
+                .findFirst();
+        if (unpublishedTimeline.isPresent()) {
+            return recordTimelineEvent(run, unpublishedTimeline.orElseThrow(), now);
+        }
         if (!now.isBefore(run.authorization().expiresAt())) {
             return finishRun(run,
                     FinishReason.AUTHORIZATION_EXPIRED,
@@ -387,6 +398,22 @@ public class DefaultCiAutofixService
             case PASSED -> finishGreenOrCheckFixups(run, now);
             case PENDING, UNKNOWN -> run;
         };
+    }
+
+    private CiAutofixRun recordTimelineEvent(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
+    {
+        GitResult git = attempt.gitResult().orElseThrow();
+        String eventKey = "ci-autofix:" + run.id() + ":" + attempt.id() + ":" + attempt.pushedSha().orElseThrow();
+        timelineService.record(new RecordPrTimelineEventCommand(
+                run.scope().pullRequest(),
+                eventKey,
+                run.scope().author(),
+                attempt.pushedAt().orElseThrow(),
+                attempt.expectedRemoteSha().orElseThrow(),
+                attempt.pushedSha().orElseThrow(),
+                git.commitSubjects(),
+                git.changedPaths()));
+        return store.update(run.updateAttempt(attempt.withTimelineEvent(eventKey, now), now));
     }
 
     private CiAutofixRun observeCurrentTurn(CiAutofixRun run, Instant now)
@@ -447,7 +474,8 @@ public class DefaultCiAutofixService
         GitResult gitResult = new GitResult(
                 inspection.localHead().orElseThrow(),
                 inspection.fingerprint().orElseThrow(),
-                inspection.changedPaths());
+                inspection.changedPaths(),
+                inspection.commitSubjects());
         PushJournal journal = new PushJournal(
                 attempt.id(),
                 run.expectedRemoteHead(),

@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.store;
 
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 
 import java.time.Instant;
@@ -28,6 +30,9 @@ public interface PrDetailStore
     void save(long prId, StoredPrDetail detail);
 
     void saveIncremental(long prId, StoredPrDetail detail);
+
+    /** Records or returns one local timeline event identified by its stable local event key. */
+    PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event);
 
     void deleteByPrIds(Set<Long> prIds);
 }

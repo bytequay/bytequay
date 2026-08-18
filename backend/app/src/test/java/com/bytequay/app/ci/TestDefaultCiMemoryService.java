@@ -89,7 +89,11 @@ class TestDefaultCiMemoryService
                         failure("test", "unit test failure")),
                 NOW.plusSeconds(2))
                 .withAgentNote("root cause\n## Failure injected\nclaimed fix", NOW.plusSeconds(3))
-                .withGitResult(new GitResult(PUSHED, "fingerprint-1", ImmutableList.of("src/Main.java")), NOW.plusSeconds(4));
+                .withGitResult(new GitResult(
+                        PUSHED,
+                        "fingerprint-1",
+                        ImmutableList.of("src/Main.java"),
+                        ImmutableList.of("Fix feature")), NOW.plusSeconds(4));
         run = run.addAttempt(first, NOW.plusSeconds(4));
         CiAutofixAttempt second = attempt(
                 run,
@@ -97,7 +101,11 @@ class TestDefaultCiMemoryService
                 PUSHED,
                 ImmutableList.of(failure("compile", "new compiler failure")),
                 NOW.plusSeconds(5))
-                .withGitResult(new GitResult("d".repeat(40), "fingerprint-2", ImmutableList.of("pom.xml")), NOW.plusSeconds(6))
+                .withGitResult(new GitResult(
+                        "d".repeat(40),
+                        "fingerprint-2",
+                        ImmutableList.of("pom.xml"),
+                        ImmutableList.of("Fix build")), NOW.plusSeconds(6))
                 .withPushResult(PUSHED, "d".repeat(40), NOW.plusSeconds(7), NOW.plusSeconds(7))
                 .withCiResult(CiResult.FAILED, NOW.plusSeconds(8));
         store.run = run.addAttempt(second, NOW.plusSeconds(8));

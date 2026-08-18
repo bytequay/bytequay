@@ -134,7 +134,7 @@ class TestPullRequestService
     @Test
     void postsCommentAndPatchesCachedTimeline()
     {
-        PrTimelineEvent posted = new PrTimelineEvent(99L, "commented", "me", Instant.now(), "hello");
+        PrTimelineEvent posted = new PrTimelineEvent(99L, "commented", "me", Instant.now(), "hello", Optional.empty());
         when(writes.createIssueComment("pat", PullRequestRef.of("owner", "repo", 7), "hello"))
                 .thenReturn(posted);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));

@@ -17,6 +17,7 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.persistence.sqlite.entity.PrCheckRunEntity;
@@ -76,7 +77,9 @@ public class SqlitePrDetailStore
         return detailRepo.findById(prId).map(detail -> new StoredPrDetail(
                 toRawDetail(detail),
                 reviewRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toReview).toList(),
-                timelineRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toTimeline).toList(),
+                timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
+                        .map(SqlitePrDetailStore::toTimeline)
+                        .toList(),
                 checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).toList()));
     }
 
@@ -89,11 +92,33 @@ public class SqlitePrDetailStore
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).toList());
 
-        timelineRepo.deleteByPrId(prId);
+        timelineRepo.deleteRemoteByPrId(prId);
         timelineRepo.saveAll(detail.timeline().stream().map(event -> toEntity(prId, event)).toList());
 
         checkRunRepo.deleteByPrId(prId);
         checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).toList());
+    }
+
+    @Override
+    @Transactional
+    public PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event)
+    {
+        requireNonNull(pullRequest, "pullRequest is null");
+        requireNonNull(event, "event is null");
+        String eventKey = event.localEventKey()
+                .orElseThrow(() -> new IllegalArgumentException("local timeline event has no event key"));
+        long prId = pullRequestRepo.findIdByRepoAndNumber(pullRequest.repoFullName(), pullRequest.number())
+                .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
+        timelineRepo.insertLocalEvent(
+                prId,
+                event.event(),
+                event.actor(),
+                event.timestamp().toString(),
+                event.body(),
+                eventKey);
+        return timelineRepo.findByPrIdAndLocalEventKey(prId, eventKey)
+                .map(SqlitePrDetailStore::toTimeline)
+                .orElseThrow(() -> new IllegalStateException("Local timeline event was not stored"));
     }
 
     @Override
@@ -209,7 +234,8 @@ public class SqlitePrDetailStore
                 entity.getEvent(),
                 entity.getActor(),
                 entity.getTimestamp(),
-                entity.getBody());
+                entity.getBody(),
+                Optional.ofNullable(entity.getLocalEventKey()));
     }
 
     private static PrTimelineEntity toEntity(long prId, PrTimelineEvent event)
@@ -221,6 +247,7 @@ public class SqlitePrDetailStore
         entity.setActor(event.actor());
         entity.setTimestamp(event.timestamp());
         entity.setBody(event.body());
+        entity.setLocalEventKey(event.localEventKey().orElse(null));
         return entity;
     }
 }

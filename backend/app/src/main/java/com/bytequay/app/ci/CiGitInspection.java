@@ -29,6 +29,7 @@ public record CiGitInspection(
         Optional<String> localHead,
         Optional<String> fingerprint,
         List<String> changedPaths,
+        List<String> commitSubjects,
         String diagnostics)
 {
     public CiGitInspection
@@ -41,32 +42,45 @@ public record CiGitInspection(
         changedPaths = ImmutableList.copyOf(changedPaths);
         checkArgument(changedPaths.size() <= 1000, "changedPaths exceeds 1000 values");
         changedPaths.forEach(path -> checkText(path, "changedPath", 500));
+        requireNonNull(commitSubjects, "commitSubjects is null");
+        commitSubjects = ImmutableList.copyOf(commitSubjects);
+        checkArgument(commitSubjects.size() <= 1000, "commitSubjects exceeds 1000 values");
+        commitSubjects.forEach(subject -> checkText(subject, "commitSubject", 500));
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(diagnostics.length() <= 8 * 1024, "diagnostics exceeds 8192 characters");
         checkArgument((outcome == Outcome.READY) == (localHead.isPresent() && fingerprint.isPresent()),
                 "only READY contains a local head and fingerprint");
         checkArgument(outcome == Outcome.READY || changedPaths.isEmpty(),
                 "only READY contains changed paths");
+        checkArgument(outcome == Outcome.READY || commitSubjects.isEmpty(),
+                "only READY contains commit subjects");
     }
 
     public static CiGitInspection noChange()
     {
-        return new CiGitInspection(Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), "");
+        return new CiGitInspection(
+                Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), "");
     }
 
-    public static CiGitInspection ready(String localHead, String fingerprint, List<String> changedPaths)
+    public static CiGitInspection ready(
+            String localHead,
+            String fingerprint,
+            List<String> changedPaths,
+            List<String> commitSubjects)
     {
         return new CiGitInspection(
                 Outcome.READY,
                 Optional.of(localHead),
                 Optional.of(fingerprint),
                 changedPaths,
+                commitSubjects,
                 "");
     }
 
     public static CiGitInspection invalid(String diagnostics)
     {
-        return new CiGitInspection(Outcome.INVALID, Optional.empty(), Optional.empty(), ImmutableList.of(), diagnostics);
+        return new CiGitInspection(
+                Outcome.INVALID, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), diagnostics);
     }
 
     public enum Outcome

@@ -20,6 +20,8 @@ import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.core.ci.CiAutofixConflictException;
+import com.bytequay.core.ci.CiAutofixNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,15 +81,19 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler({AgentTaskNotFoundException.class, AgentTurnNotFoundException.class, ApprovalNotFoundException.class})
+    @ExceptionHandler({
+            AgentTaskNotFoundException.class,
+            AgentTurnNotFoundException.class,
+            ApprovalNotFoundException.class,
+            CiAutofixNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleAgentNotFound(RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler(AgentConflictException.class)
+    @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class})
     public ResponseEntity<ErrorResponse> handleAgentConflict(
-            AgentConflictException exception, HttpServletRequest request)
+            RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
     }

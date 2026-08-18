@@ -31,7 +31,7 @@ final class PullRequestDetailMapper
 {
     private static final Set<String> INTERESTING_EVENTS = Set.of(
             "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
-            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue");
+            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue", "ci_autofix");
     private static final Set<String> FAILED_CHECK_CONCLUSIONS = Set.of(
             "failure", "timed_out", "cancelled", "action_required", "startup_failure");
 

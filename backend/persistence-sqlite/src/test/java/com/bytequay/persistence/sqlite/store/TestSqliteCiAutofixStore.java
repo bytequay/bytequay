@@ -103,7 +103,11 @@ class TestSqliteCiAutofixStore
         CiAutofixAttempt completed = run.attempts().getFirst()
                 .withAgentNote("Untrusted explanation", NOW.plusSeconds(5))
                 .withGitResult(
-                        new GitResult(FIXED_HEAD, "fingerprint-1", ImmutableList.of("src/Main.java")),
+                        new GitResult(
+                                FIXED_HEAD,
+                                "fingerprint-1",
+                                ImmutableList.of("src/Main.java"),
+                                ImmutableList.of("Fix feature")),
                         NOW.plusSeconds(6))
                 .withPushResult(HEAD, FIXED_HEAD, NOW.plusSeconds(7), NOW.plusSeconds(7))
                 .withCiResult(CiResult.PASSED, NOW.plusSeconds(8))

@@ -1,11 +1,9 @@
 # CI Autofix Service Design
 
-> **Status: locked for backend implementation on 2026-08-17.** All CI Autofix
-> implementation work must follow the mandatory checkbox ledger in
-> [CI Autofix Backend Implementation Ledger](ci-autofix-impl-tmp.md). A change
-> to this design's scope, authority boundary, services, durable status model,
-> or program control facts requires explicit user approval before code or the
-> ledger is changed.
+> **Status: backend implemented on 2026-08-18.** The implementation follows the
+> locked scope, authority boundary, services, durable status model, and program
+> control facts approved on 2026-08-17. Verification evidence is recorded in
+> [Implementation status](#12-implementation-status).
 
 This document designs CI Autofix only. Review-comment triage is a different,
 read-only service and is not covered here.
@@ -691,7 +689,7 @@ These files use the agent task's existing seven-day retention policy.
 - failure signatures, normalized failure summaries, workflow/job attempt
   references, and raw-log blob references;
 - agent turn ID;
-- inspected local head, fingerprint, and actual changed paths;
+- inspected local head, fingerprint, actual changed paths, and commit subjects;
 - expected remote SHA, pushed SHA, and push time; and
 - observed CI result and timeline event key.
 
@@ -747,3 +745,25 @@ event stream and are labeled display-only.
 The first implementation is complete when one consented authored PR can move
 from a failing GitHub Actions head to green, survive backend restart, and never
 use agent response text to control the program.
+
+## 12. Implementation status
+
+The backend implementation completed on 2026-08-18.
+
+Verification evidence:
+
+- `mvn verify` passed all reactor modules with zero Checkstyle violations;
+  the `app` module ran 129 tests with no failures or errors.
+- The integration proof uses SQLite, a deterministic test agent, mocked GitHub
+  Actions, and a temporary worktree/bare remote. It reconstructs the
+  orchestrator after start, creates a real fixup commit, lease-pushes it,
+  observes green CI, records the local timeline event, performs the final
+  position check, and completes the agent task.
+- A hostile-agent integration proof claims CI is green and requests a force
+  push while leaving invalid Git state. The program pauses from inspected Git
+  facts and leaves the remote unchanged.
+- The repackaged `bytequay-backend.jar` started on a random localhost port with
+  Codex, Claude, and deterministic agent lanes disabled, then shut down cleanly.
+- The final authority audit found no review-triage coupling, response parser,
+  GitHub comment/review/merge write, agent credential, unleased push, raw CI log
+  in SQLite, new Maven module, Flyway, or additional durable workflow state.

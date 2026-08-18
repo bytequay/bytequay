@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,7 +79,7 @@ class TestPrAttention
 
     private static PrTimelineEvent comment(String actor, String body, Instant timestamp)
     {
-        return new PrTimelineEvent(null, "commented", actor, timestamp, body);
+        return new PrTimelineEvent(null, "commented", actor, timestamp, body, Optional.empty());
     }
 
     private static PrRawDetail raw(boolean mergeable, String mergeableState)

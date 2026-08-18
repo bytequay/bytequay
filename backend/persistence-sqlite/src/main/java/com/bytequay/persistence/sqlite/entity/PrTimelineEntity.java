@@ -32,7 +32,7 @@ public class PrTimelineEntity
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "pr_id", nullable = false)
     private Long prId;
 
     private String event;
@@ -47,6 +47,9 @@ public class PrTimelineEntity
 
     @Column(name = "github_id")
     private Long githubId;
+
+    @Column(name = "local_event_key", unique = true)
+    private String localEventKey;
 
     public PrTimelineEntity() {}
 
@@ -69,4 +72,7 @@ public class PrTimelineEntity
 
     public Long getGithubId() { return githubId; }
     public void setGithubId(Long githubId) { this.githubId = githubId; }
+
+    public String getLocalEventKey() { return localEventKey; }
+    public void setLocalEventKey(String localEventKey) { this.localEventKey = localEventKey; }
 }

@@ -39,6 +39,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -113,6 +114,7 @@ class TestDefaultCiAutofixService
     private CiAutofixLogReader logReader;
     private CiMemoryService memoryService;
     private CiGitService gitService;
+    private PullRequestTimelineService timelineService;
     private CredentialService credentials;
     private GitHubAccountClient accounts;
     private DefaultCiAutofixService service;
@@ -138,6 +140,7 @@ class TestDefaultCiAutofixService
         eventService = mock(AgentEventService.class);
         memoryService = mock(CiMemoryService.class);
         gitService = mock(CiGitService.class);
+        timelineService = mock(PullRequestTimelineService.class);
         credentials = mock(CredentialService.class);
         accounts = mock(GitHubAccountClient.class);
         worktree = Files.createDirectory(temporaryDirectory.resolve("worktree")).toRealPath();
@@ -194,6 +197,7 @@ class TestDefaultCiAutofixService
                 logReader,
                 memoryService,
                 gitService,
+                timelineService,
                 credentials,
                 accounts,
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -436,7 +440,8 @@ class TestDefaultCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                 FIXED_HEAD,
                 "fingerprint-1",
-                ImmutableList.of("src/Main.java")));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         assertThat(run.pushJournal()).isPresent();
         verify(gitService, never()).push(any());
@@ -446,6 +451,8 @@ class TestDefaultCiAutofixService
         assertThat(run.expectedRemoteHead()).isEqualTo(FIXED_HEAD);
         assertThat(run.pushJournal()).isEmpty();
         assertThat(run.attempts().getFirst().pushedSha()).contains(FIXED_HEAD);
+        run = service.advance(run.id());
+        assertThat(run.attempts().getFirst().timelineEventKey()).isPresent();
 
         when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
@@ -538,7 +545,8 @@ class TestDefaultCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                 FIXED_HEAD,
                 "fingerprint-1",
-                ImmutableList.of("src/Main.java")));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.failed(
                 CiPushResult.Outcome.UNCERTAIN,
@@ -593,9 +601,11 @@ class TestDefaultCiAutofixService
             when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                     fixedHead,
                     "fingerprint-" + index,
-                    ImmutableList.of("src/Main.java")));
+                    ImmutableList.of("src/Main.java"),
+                    ImmutableList.of("Fix feature")));
             run = service.advance(run.id());
             when(gitService.push(any())).thenReturn(CiPushResult.pushed(fixedHead));
+            run = service.advance(run.id());
             run = service.advance(run.id());
 
             when(gitHub.inspect(any())).thenReturn(failedSnapshot(fixedHead, BASE, 1));
@@ -630,7 +640,8 @@ class TestDefaultCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                 FIXED_HEAD,
                 "fingerprint-1",
-                ImmutableList.of("src/Main.java")));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         assertThat(run.pushJournal()).isPresent();
 
@@ -694,9 +705,11 @@ class TestDefaultCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                 FIXED_HEAD,
                 "fingerprint",
-                ImmutableList.of("src/Main.java")));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
+        run = service.advance(run.id());
         run = service.advance(run.id());
         when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
@@ -732,9 +745,11 @@ class TestDefaultCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
                 FIXED_HEAD,
                 "fingerprint",
-                ImmutableList.of("src/Main.java")));
+                ImmutableList.of("src/Main.java"),
+                ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
+        run = service.advance(run.id());
         run = service.advance(run.id());
         when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
@@ -767,7 +782,11 @@ class TestDefaultCiAutofixService
             inspecting.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             active.decrementAndGet();
-            return CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"));
+            return CiGitInspection.ready(
+                    FIXED_HEAD,
+                    "fingerprint",
+                    ImmutableList.of("src/Main.java"),
+                    ImmutableList.of("Fix feature"));
         }).when(gitService).inspectAgentResult(any());
         doAnswer(invocation -> {
             maximum.accumulateAndGet(active.incrementAndGet(), Math::max);
@@ -935,6 +954,7 @@ class TestDefaultCiAutofixService
                 logReader,
                 memoryService,
                 gitService,
+                timelineService,
                 credentials,
                 accounts,
                 requestedClock);

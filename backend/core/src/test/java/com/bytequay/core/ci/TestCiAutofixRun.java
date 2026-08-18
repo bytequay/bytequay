@@ -13,13 +13,16 @@
  */
 package com.bytequay.core.ci;
 
+import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
+import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.CheckResult;
 import com.bytequay.core.ci.CiAutofixRun.FinalFixupCheck;
 import com.bytequay.core.ci.CiAutofixRun.FinishReason;
 import com.bytequay.core.ci.CiAutofixRun.PauseReason;
+import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Status;
@@ -120,7 +123,7 @@ class TestCiAutofixRun
     }
 
     @Test
-    void boundsRerunsPerUnchangedHeadAndResetsOnNewHead()
+    void boundsRerunsPerUnchangedHeadAndRejectsAnUnobservedNewHead()
     {
         CiAutofixRun run = newRun("start-3", "feature-3", NOW);
         CiAutofixAttempt attempt = newAttempt(run, 1, NOW.plusSeconds(1));
@@ -145,11 +148,12 @@ class TestCiAutofixRun
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("rerun limit");
 
-        CiAutofixRun reset = run.recordRerunJournal(
+        CiAutofixRun unchanged = run;
+        assertThatThrownBy(() -> unchanged.recordRerunJournal(
                 new RerunJournal(attempt.id(), 200, "c".repeat(40), 1, NOW.plusSeconds(5), Optional.empty()),
-                NOW.plusSeconds(5));
-        assertThat(reset.rerunCounter().used()).isEqualTo(1);
-        assertThat(reset.rerunCounter().headSha()).contains("c".repeat(40));
+                NOW.plusSeconds(5)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("expected remote head");
     }
 
     @Test
@@ -172,6 +176,56 @@ class TestCiAutofixRun
                 ImmutableList.of("../escape")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe");
+    }
+
+    @Test
+    void resolvesPublishedHeadsAndObservedRerunsFromDurableJournals()
+    {
+        CiAutofixRun run = newRun("journal-resolution", "feature-journal", NOW);
+        CiAutofixAttempt attempt = newAttempt(run, 1, NOW.plusSeconds(1));
+        GitResult gitResult = new GitResult(
+                "c".repeat(40),
+                "fingerprint",
+                ImmutableList.of("src/Main.java"));
+        run = run.addAttempt(attempt, NOW.plusSeconds(1))
+                .linkAttemptTurn(attempt.id(), "turn-1", NOW.plusSeconds(2))
+                .clearCurrentTurn("turn-1", NOW.plusSeconds(3));
+        attempt = run.attempts().getFirst().withGitResult(gitResult, NOW.plusSeconds(3));
+        run = run.updateAttempt(attempt, NOW.plusSeconds(3))
+                .recordPushJournal(
+                        new PushJournal(
+                                attempt.id(),
+                                HEAD,
+                                gitResult.localHead(),
+                                gitResult.fingerprint(),
+                                NOW.plusSeconds(4),
+                                0),
+                        NOW.plusSeconds(4));
+
+        run = run.recordPublishedAttempt(
+                gitResult.localHead(),
+                NOW.plusSeconds(5),
+                NOW.plusSeconds(5));
+        assertThat(run.expectedRemoteHead()).isEqualTo(gitResult.localHead());
+        assertThat(run.pushJournal()).isEmpty();
+        assertThat(run.rerunCounter()).isEqualTo(CiAutofixRun.RerunCounter.empty());
+        assertThat(run.attempts().getFirst().observedCiResult()).isEqualTo(CiResult.PENDING);
+
+        run = run.recordRerunJournal(
+                        new RerunJournal(
+                                attempt.id(),
+                                100,
+                                gitResult.localHead(),
+                                1,
+                                NOW.plusSeconds(6),
+                                Optional.empty()),
+                        NOW.plusSeconds(6))
+                .observeRerunAttempt(2, NOW.plusSeconds(7))
+                .resolveRerun(CiResult.FAILED, "d".repeat(40), NOW.plusSeconds(8));
+
+        assertThat(run.rerunJournal()).isEmpty();
+        assertThat(run.latestObservedBaseSha()).isEqualTo("d".repeat(40));
+        assertThat(run.attempts().getFirst().observedCiResult()).isEqualTo(CiResult.FAILED);
     }
 
     private static CiAutofixRun newRun(String key, String headRef, Instant now)

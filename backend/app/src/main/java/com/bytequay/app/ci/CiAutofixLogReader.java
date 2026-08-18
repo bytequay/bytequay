@@ -60,14 +60,6 @@ final class CiAutofixLogReader
         this.eventService = requireNonNull(eventService, "eventService is null");
     }
 
-    public FixTurnInput readFixTurn(TaskId taskId, CiHeadSnapshot snapshot)
-    {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(snapshot, "snapshot is null");
-        List<FailureEvidence> failures = readFailures(taskId, snapshot);
-        return new FixTurnInput(failures, readAttachments(taskId, failures));
-    }
-
     public Optional<String> readFinalMessage(TaskId taskId, TurnId turnId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -99,8 +91,10 @@ final class CiAutofixLogReader
         return Optional.of(truncate(result.strip(), MAXIMUM_NOTE_CHARACTERS, "…"));
     }
 
-    private List<FailureEvidence> readFailures(TaskId taskId, CiHeadSnapshot snapshot)
+    List<FailureEvidence> readFailures(TaskId taskId, CiHeadSnapshot snapshot)
     {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(snapshot, "snapshot is null");
         ImmutableList.Builder<FailureEvidence> failures = ImmutableList.builder();
         int count = 0;
         for (CiWorkflowRun workflow : snapshot.workflowRuns()) {
@@ -136,7 +130,7 @@ final class CiAutofixLogReader
         return failures.build();
     }
 
-    private List<AgentAttachment> readAttachments(TaskId taskId, List<FailureEvidence> failures)
+    List<AgentAttachment> attachments(TaskId taskId, List<FailureEvidence> failures)
     {
         TaskResources resources = resourceService.require(taskId);
         Path root = requireRealDirectory(resources.runtimeDirectory(), "task runtime directory");
@@ -154,16 +148,5 @@ final class CiAutofixLogReader
                     path));
         }
         return attachments.build();
-    }
-
-    record FixTurnInput(List<FailureEvidence> failures, List<AgentAttachment> attachments)
-    {
-        FixTurnInput
-        {
-            requireNonNull(failures, "failures is null");
-            failures = ImmutableList.copyOf(failures);
-            requireNonNull(attachments, "attachments is null");
-            attachments = ImmutableList.copyOf(attachments);
-        }
     }
 }

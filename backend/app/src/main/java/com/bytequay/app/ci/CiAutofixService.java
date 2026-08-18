@@ -75,9 +75,11 @@ public interface CiAutofixService
     /**
      * Reconciles one run and performs at most one next action.
      *
-     * <p>The first implementation observes the current agent turn. Later
-     * checkpoints add Git inspection, push, rerun, and CI monitoring without
-     * changing this entry point.
+     * <p>Uses only durable program facts: provider turn state, inspected Git,
+     * exact push and rerun journals, and GitHub checks for the expected head.
+     * Agent prose is retained for display but cannot select a branch. Calls
+     * for one run are serialized in-process and every store update remains
+     * optimistic for restart and cross-process safety.
      *
      * @param runId run selected by the monitor
      * @return run after reconciliation

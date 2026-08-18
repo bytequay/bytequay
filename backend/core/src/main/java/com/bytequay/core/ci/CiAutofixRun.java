@@ -301,6 +301,8 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(journal, "journal is null");
         requireAttempt(attempts, journal.attemptId());
+        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead),
+                "push journal expected SHA differs from expected remote head");
         return copy(
                 agentTaskId,
                 status,
@@ -324,6 +326,8 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(journal, "journal is null");
         requireAttempt(attempts, journal.attemptId());
+        checkArgument(journal.headSha().equals(expectedRemoteHead),
+                "rerun journal head differs from expected remote head");
         RerunCounter updatedCounter = rerunCounter.record(journal.headSha());
         return copy(
                 agentTaskId,
@@ -339,6 +343,196 @@ public record CiAutofixRun(
                 Optional.of(journal),
                 warnings,
                 attempts,
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun clearPushJournal(Instant now)
+    {
+        requireActive(now);
+        return copy(
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                Optional.empty(),
+                rerunJournal,
+                warnings,
+                attempts,
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun clearRerunJournal(Instant now)
+    {
+        requireActive(now);
+        return copy(
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                pushJournal,
+                Optional.empty(),
+                warnings,
+                attempts,
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun observeBase(String headSha, String baseSha, Instant now)
+    {
+        requireActive(now);
+        checkSha(headSha, "headSha");
+        checkSha(baseSha, "baseSha");
+        checkArgument(headSha.equals(expectedRemoteHead), "observed head differs from expected remote head");
+        return copyWithRemote(
+                expectedRemoteHead,
+                baseSha,
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                pushJournal,
+                rerunJournal,
+                warnings,
+                attempts,
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun recordPublishedAttempt(String pushedSha, Instant pushedAt, Instant now)
+    {
+        requireActive(now);
+        checkSha(pushedSha, "pushedSha");
+        requireNonNull(pushedAt, "pushedAt is null");
+        PushJournal journal = pushJournal.orElseThrow(() -> new IllegalStateException("run has no push journal"));
+        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead),
+                "push journal expected SHA differs from the run");
+        checkArgument(journal.localHeadSha().equals(pushedSha), "pushed SHA differs from the push journal");
+        CiAutofixAttempt attempt = requireAttempt(attempts, journal.attemptId());
+        CiAutofixAttempt published = attempt
+                .withPushResult(journal.expectedRemoteSha(), pushedSha, pushedAt, now)
+                .withCiResult(CiAutofixAttempt.CiResult.PENDING, now);
+        return copyWithRemote(
+                pushedSha,
+                latestObservedBaseSha,
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                RerunCounter.empty(),
+                Optional.empty(),
+                currentTurnId,
+                Optional.empty(),
+                rerunJournal,
+                warnings,
+                replaceAttempt(attempts, published),
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun observeCiResult(
+            CiAutofixAttemptId attemptId,
+            CiAutofixAttempt.CiResult result,
+            String baseSha,
+            Instant now)
+    {
+        requireActive(now);
+        requireNonNull(result, "result is null");
+        checkSha(baseSha, "baseSha");
+        CiAutofixAttempt attempt = requireAttempt(attempts, attemptId);
+        return copyWithRemote(
+                expectedRemoteHead,
+                baseSha,
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                pushJournal,
+                rerunJournal,
+                warnings,
+                replaceAttempt(attempts, attempt.withCiResult(result, now)),
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun observeRerunAttempt(int observedAttempt, Instant now)
+    {
+        requireActive(now);
+        RerunJournal journal = rerunJournal.orElseThrow(() -> new IllegalStateException("run has no rerun journal"));
+        checkArgument(observedAttempt > journal.previousAttempt(),
+                "observed rerun attempt must be later than the previous attempt");
+        RerunJournal observed = new RerunJournal(
+                journal.attemptId(),
+                journal.workflowRunId(),
+                journal.headSha(),
+                journal.previousAttempt(),
+                journal.startedAt(),
+                Optional.of(observedAttempt));
+        return copy(
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                pushJournal,
+                Optional.of(observed),
+                warnings,
+                attempts,
+                now,
+                terminalAt);
+    }
+
+    public CiAutofixRun resolveRerun(CiAutofixAttempt.CiResult result, String baseSha, Instant now)
+    {
+        requireActive(now);
+        requireNonNull(result, "result is null");
+        checkSha(baseSha, "baseSha");
+        RerunJournal journal = rerunJournal.orElseThrow(() -> new IllegalStateException("run has no rerun journal"));
+        checkArgument(journal.observedAttempt().isPresent(), "rerun has not been observed");
+        CiAutofixAttempt attempt = requireAttempt(attempts, journal.attemptId());
+        return copyWithRemote(
+                expectedRemoteHead,
+                baseSha,
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                currentTurnId,
+                pushJournal,
+                Optional.empty(),
+                warnings,
+                replaceAttempt(attempts, attempt.withCiResult(result, now)),
                 now,
                 terminalAt);
     }
@@ -505,6 +699,45 @@ public record CiAutofixRun(
             Instant now,
             Optional<Instant> updatedTerminalAt)
     {
+        return copyWithRemote(
+                expectedRemoteHead,
+                latestObservedBaseSha,
+                updatedAgentTaskId,
+                updatedStatus,
+                updatedPauseReason,
+                updatedFinishReason,
+                updatedSummary,
+                updatedAttemptsUsed,
+                updatedRerunCounter,
+                updatedFinalCheck,
+                updatedCurrentTurnId,
+                updatedPushJournal,
+                updatedRerunJournal,
+                updatedWarnings,
+                updatedAttempts,
+                now,
+                updatedTerminalAt);
+    }
+
+    private CiAutofixRun copyWithRemote(
+            String updatedExpectedRemoteHead,
+            String updatedLatestObservedBaseSha,
+            Optional<String> updatedAgentTaskId,
+            Status updatedStatus,
+            Optional<PauseReason> updatedPauseReason,
+            Optional<FinishReason> updatedFinishReason,
+            Optional<String> updatedSummary,
+            int updatedAttemptsUsed,
+            RerunCounter updatedRerunCounter,
+            Optional<FinalFixupCheck> updatedFinalCheck,
+            Optional<String> updatedCurrentTurnId,
+            Optional<PushJournal> updatedPushJournal,
+            Optional<RerunJournal> updatedRerunJournal,
+            List<Warning> updatedWarnings,
+            List<CiAutofixAttempt> updatedAttempts,
+            Instant now,
+            Optional<Instant> updatedTerminalAt)
+    {
         return new CiAutofixRun(
                 id,
                 startIdempotencyKey,
@@ -514,8 +747,8 @@ public record CiAutofixRun(
                 updatedPauseReason,
                 updatedFinishReason,
                 updatedSummary,
-                expectedRemoteHead,
-                latestObservedBaseSha,
+                updatedExpectedRemoteHead,
+                updatedLatestObservedBaseSha,
                 authorization,
                 updatedAttemptsUsed,
                 updatedRerunCounter,

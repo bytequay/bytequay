@@ -122,7 +122,7 @@ class TestSqliteCiAutofixStore
                         new RerunJournal(
                                 attempt.id(),
                                 100,
-                                FIXED_HEAD,
+                                HEAD,
                                 1,
                                 NOW.plusSeconds(11),
                                 Optional.of(2)),

@@ -268,48 +268,48 @@ publish an accepted head once with an exact lease.
 
 ## Checkpoint 6 — Complete reconciliation loop and restart recovery
 
-- [ ] **C6.1** Implement `advance(runId)` as the locked ordered reconciliation
+- [x] **C6.1** Implement `advance(runId)` as the locked ordered reconciliation
   and make it perform at most one side effect: expire/finish, reconcile a
   journal, observe a turn, inspect Git, push, rerun, start one turn, run the
   final check, pause, or complete. Serialize advancement per run and use
   optimistic store updates across processes/restarts.
-- [ ] **C6.2** Select an actionable completed failed job for the exact head even
+- [x] **C6.2** Select an actionable completed failed job for the exact head even
   when other jobs are running. Persist its latest-attempt evidence and bounded
   logs, update memory best-effort, and consume one of at most three fix attempts
   only when the idempotent turn is accepted.
-- [ ] **C6.3** After a completed turn, branch only on `CiGitInspection`: ready is
+- [x] **C6.3** After a completed turn, branch only on `CiGitInspection`: ready is
   journaled and pushed; no-change journals then requests an eligible failed-job
   rerun; invalid pauses with Git diagnostics. Agent text, claimed local checks,
   and claimed stale CI cannot alter these branches.
-- [ ] **C6.4** Bound no-change recovery to three reruns for one unchanged head.
+- [x] **C6.4** Bound no-change recovery to three reruns for one unchanged head.
   Journal before `rerunFailedJobs(...)`, reconcile acceptance from the later
   GitHub attempt number, reset the per-head count only after an observed new
   head, and pause when rerun is unavailable/rejected/exhausted.
-- [ ] **C6.5** Monitor the pushed SHA: wait while there is no actionable result,
+- [x] **C6.5** Monitor the pushed SHA: wait while there is no actionable result,
   start another fix attempt for a failure while budget remains, finish
   `MAX_ATTEMPTS` when exhausted, finish `STALE_HEAD` for an unrelated remote
   head, and on green run the one persisted final fixup-position check.
-- [ ] **C6.6** On a valid green head, record `GREEN` and call
+- [x] **C6.6** On a valid green head, record `GREEN` and call
   `AgentCompletionService.complete(...)` with verified summaries/metrics. On an
   invalid final check, pause `INVALID_FIXUP_POSITION`; do not create an
   automatic organization/correction turn.
-- [ ] **C6.7** Update CI memory best-effort after stored failure evidence, Git
+- [x] **C6.7** Update CI memory best-effort after stored failure evidence, Git
   inspection, push reconciliation, rerun observation, and later CI result.
   Warning persistence may affect display only and never the next action.
-- [ ] **C6.8** Add a small scheduled monitor in `app` that selects bounded
+- [x] **C6.8** Add a small scheduled monitor in `app` that selects bounded
   non-finished batches and calls `advance(...)`; it owns no state machine and
   does not create runs. Make interval/batch configurable with conservative
   defaults and prevent overlapping advancement of one run.
-- [ ] **C6.9** Implement restart cases for live-turn interruption, uncertain
+- [x] **C6.9** Implement restart cases for live-turn interruption, uncertain
   push, uncertain rerun, completed-but-uninspected turn, authorization expiry,
   final-check replay, and active/paused run reconstruction. There is no blind
   retry and no automatic recovery turn after interruption.
-- [ ] **C6.10** Add orchestration tests for the complete decision matrix,
+- [x] **C6.10** Add orchestration tests for the complete decision matrix,
   including early failure, slow unrelated jobs, compile failure priority in the
   prompt, empty result then rerun, stale false/true claims in agent prose,
   repeated failures, all attempt/rerun limits, cancellation at each write
   boundary, expiry, concurrent advance, and all restart journals.
-- [ ] **C6.11** Run `mvn verify`.
+- [x] **C6.11** Run `mvn verify`.
 
 Exit: the bounded fix/push/monitor loop is deterministic, restart-safe, and
 never controlled by agent output.

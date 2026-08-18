@@ -22,6 +22,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -47,9 +48,12 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -63,6 +67,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 public final class ClaudeCliDriver
         implements AgentDriver, AutoCloseable
@@ -79,6 +84,7 @@ public final class ClaudeCliDriver
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
     private static final int MAX_PROBE_OUTPUT_BYTES = 32 * 1024;
     private static final ImmutableSet<String> REQUIRED_FLAGS = ImmutableSet.of(
+            "--add-dir",
             "--include-hook-events",
             "--include-partial-messages",
             "--mcp-config",
@@ -169,7 +175,7 @@ public final class ClaudeCliDriver
                 true,
                 CostProvenance.CLI_ESTIMATE,
                 ImmutableSet.of(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX),
-                ImmutableSet.of());
+                ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
     }
 
     @Override
@@ -280,9 +286,11 @@ public final class ClaudeCliDriver
             ClaudePermissionBroker.Registration registration,
             AgentPermissionPolicy permissionPolicy,
             String sessionId,
-            boolean resume)
+            boolean resume,
+            List<AgentAttachment> attachments)
     {
         ImmutableList.Builder<String> argv = ImmutableList.builder();
+        ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
         argv.add(
                 executable,
                 "--print",
@@ -297,8 +305,25 @@ public final class ClaudeCliDriver
             argv.add(
                     "--strict-mcp-config",
                     "--setting-sources=",
-                    "--settings", registration.settingsFile().orElseThrow().toString(),
-                    "--allowedTools", "mcp__bytequay__read_ci_memory");
+                    "--settings", registration.settingsFile().orElseThrow().toString());
+            allowedTools.add("mcp__bytequay__read_ci_memory");
+        }
+        if (!attachments.isEmpty()) {
+            argv.add("--add-dir");
+            attachments.stream()
+                    .map(AgentAttachment::path)
+                    .map(Path::getParent)
+                    .distinct()
+                    .map(Path::toString)
+                    .forEach(argv::add);
+            allowedTools.addAll(attachments.stream()
+                    .map(AgentAttachment::path)
+                    .map(ClaudeCliDriver::absoluteReadRule)
+                    .iterator());
+        }
+        ImmutableList<String> allowed = allowedTools.build();
+        if (!allowed.isEmpty()) {
+            argv.add("--allowedTools", allowed.stream().collect(joining(",")));
         }
         argv.add(
                 "--permission-mode", "manual",
@@ -461,9 +486,6 @@ public final class ClaudeCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Claude session already has a running turn");
             }
-            if (!command.attachments().isEmpty()) {
-                throw new AgentUnavailableException("Claude attachments are not enabled");
-            }
             running = new ClaudeRunningTurn(this, command, resume);
             return running;
         }
@@ -519,12 +541,14 @@ public final class ClaudeCliDriver
         {
             this.session = requireNonNull(session, "session is null");
             this.reference = new ProviderTurnRef(command.turnId());
+            List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
                     argv(
                             session.registration,
                             session.context.permissionPolicy(),
                             session.reference.providerValue(),
-                            resume),
+                            resume,
+                            attachments),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     MAX_STDOUT_BYTES,
@@ -535,7 +559,7 @@ public final class ClaudeCliDriver
                 started.cancel();
             }
             started.exit().whenComplete(this::processExited);
-            byte[] prompt = (command.message() + "\n").getBytes(StandardCharsets.UTF_8);
+            byte[] prompt = prompt(command.message(), attachments).getBytes(StandardCharsets.UTF_8);
             started.write(ByteBuffer.wrap(prompt)).whenComplete((ignored, failure) -> {
                 if (failure != null) {
                     interruptionReason = "Unable to write Claude prompt: " + failureMessage(failure);
@@ -736,6 +760,58 @@ public final class ClaudeCliDriver
                 current.cancel();
             }
         }
+    }
+
+    private static ImmutableList<AgentAttachment> attachments(
+            AgentSessionContext context,
+            List<AgentAttachment> requested)
+    {
+        if (requested.isEmpty()) {
+            return ImmutableList.of();
+        }
+        try {
+            Path taskRoot = context.runtimeDirectory().toRealPath();
+            ImmutableList.Builder<AgentAttachment> attachments = ImmutableList.builder();
+            for (AgentAttachment attachment : requested) {
+                String mediaType = attachment.mediaType().toLowerCase(Locale.ROOT);
+                if (!mediaType.equals("text/plain") && !mediaType.startsWith("text/plain;")) {
+                    throw new AgentUnavailableException(
+                            "Claude does not support attachment type " + attachment.mediaType());
+                }
+                Path path = attachment.path().toRealPath();
+                if (!Files.isRegularFile(path) || !path.startsWith(taskRoot)) {
+                    throw new AgentUnavailableException("Claude attachment is outside the task runtime");
+                }
+                if (attachment.name().contains("\n") || attachment.name().contains("\r")
+                        || path.toString().contains("\n") || path.toString().contains("\r")) {
+                    throw new AgentUnavailableException("Claude attachment name or path contains a line break");
+                }
+                attachments.add(new AgentAttachment(attachment.name(), attachment.mediaType(), path));
+            }
+            return attachments.build();
+        }
+        catch (java.io.IOException e) {
+            throw new AgentUnavailableException("Cannot resolve Claude attachment", e);
+        }
+    }
+
+    private static String prompt(String message, List<AgentAttachment> attachments)
+    {
+        StringBuilder prompt = new StringBuilder(message);
+        if (!attachments.isEmpty()) {
+            prompt.append("\n\nRead-only attachment files:\n");
+            attachments.forEach(attachment -> prompt.append("- ")
+                    .append(attachment.name())
+                    .append(": ")
+                    .append(attachment.path())
+                    .append('\n'));
+        }
+        return prompt.append('\n').toString();
+    }
+
+    private static String absoluteReadRule(Path path)
+    {
+        return "Read(/" + path + ")";
     }
 
     private static String failureMessage(Throwable failure)

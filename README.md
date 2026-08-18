@@ -69,6 +69,9 @@ cd bytequay
 Electron frontend. The backend uses SQLite with Hibernate managing the current
 schema directly; there is no migration framework.
 
+To start and monitor a CI Autofix run from a pull request worktree, see the
+[CI Autofix shell](docs/ci-autofix-shell.md).
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
 
 ## License

@@ -23,6 +23,7 @@ import static java.util.Objects.requireNonNull;
 public record AgentSessionContext(
         String taskId,
         Path worktree,
+        Path runtimeDirectory,
         Path providerDirectory,
         AgentPermissionPolicy permissionPolicy,
         Optional<AgentSessionRef> sessionReference,
@@ -32,11 +33,16 @@ public record AgentSessionContext(
     {
         checkNotBlank(taskId, "taskId");
         requireNonNull(worktree, "worktree is null");
+        requireNonNull(runtimeDirectory, "runtimeDirectory is null");
         requireNonNull(providerDirectory, "providerDirectory is null");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(approvals, "approvals is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        checkArgument(providerDirectory.isAbsolute(), "providerDirectory is not absolute");
+        checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(),
+                "runtime directories are not absolute");
+        checkArgument(providerDirectory.toAbsolutePath().normalize()
+                        .startsWith(runtimeDirectory.toAbsolutePath().normalize()),
+                "providerDirectory escapes runtimeDirectory");
     }
 }

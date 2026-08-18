@@ -138,7 +138,9 @@ public record AgentTask(
         if (state == TaskState.COMPLETING) {
             return this;
         }
-        requireState(TaskState.ACTIVE);
+        if (state != TaskState.READY && state != TaskState.ACTIVE) {
+            throw new IllegalStateException("expected task state READY or ACTIVE but was " + state);
+        }
         return copy(TaskState.COMPLETING, version, now, terminalAt, terminalReason, sessionReference, metrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }

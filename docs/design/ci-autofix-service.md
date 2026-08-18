@@ -62,6 +62,8 @@ The initial limits are:
 - authored, same-repository PRs only;
 - one active run per PR head branch;
 - one agent task and one active turn per run;
+- an agent lane that advertises and enforces `CI_AUTOFIX`; the first
+  implementation supports Claude, while Codex remains manual-task only;
 - at most three code-fix attempts;
 - at most three failed-job reruns for an unchanged head;
 - an eight-hour authorization window;

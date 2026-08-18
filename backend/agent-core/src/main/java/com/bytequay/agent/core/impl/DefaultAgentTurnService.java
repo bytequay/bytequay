@@ -205,6 +205,7 @@ public final class DefaultAgentTurnService
                 new AgentSessionContext(
                         task.id().toString(),
                         task.worktree(),
+                        resources.runtimeDirectory(),
                         resources.providerDirectory(),
                         task.permissionPolicy(),
                         task.sessionReference(),

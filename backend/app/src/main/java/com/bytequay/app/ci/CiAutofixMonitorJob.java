@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import org.slf4j.Logger;
@@ -21,6 +24,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.google.common.base.Ascii.truncate;
@@ -34,16 +38,19 @@ final class CiAutofixMonitorJob
     private static final int MAXIMUM_LOG_MESSAGE_CHARACTERS = 1000;
 
     private final CiAutofixStore store;
+    private final AgentTaskStore taskStore;
     private final CiAutofixService service;
     private final int batchSize;
     private final AtomicBoolean running = new AtomicBoolean();
 
     CiAutofixMonitorJob(
             CiAutofixStore store,
+            AgentTaskStore taskStore,
             CiAutofixService service,
             @Value("${bytequay.ci-autofix.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.service = requireNonNull(service, "service is null");
         checkArgument(batchSize > 0, "batchSize must be positive");
         this.batchSize = batchSize;
@@ -59,19 +66,39 @@ final class CiAutofixMonitorJob
         }
         try {
             for (CiAutofixRun run : store.listNonFinished(batchSize)) {
-                try {
-                    service.advance(run.id());
+                advance(run);
+            }
+            int reconciled = 0;
+            for (AgentTask task : taskStore.listLive()) {
+                if (reconciled >= batchSize) {
+                    break;
                 }
-                catch (RuntimeException failure) {
-                    log.warn(
-                            "Cannot advance CI Autofix run {}: {}",
-                            run.id(),
-                            truncate(failureMessage(failure), MAXIMUM_LOG_MESSAGE_CHARACTERS, "…"));
+                if (task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX) {
+                    continue;
+                }
+                Optional<CiAutofixRun> run = store.findByAgentTaskId(task.id().toString())
+                        .filter(value -> value.status() == CiAutofixRun.Status.FINISHED);
+                if (run.isPresent()) {
+                    advance(run.orElseThrow());
+                    reconciled++;
                 }
             }
         }
         finally {
             running.set(false);
+        }
+    }
+
+    private void advance(CiAutofixRun run)
+    {
+        try {
+            service.advance(run.id());
+        }
+        catch (RuntimeException failure) {
+            log.warn(
+                    "Cannot advance CI Autofix run {}: {}",
+                    run.id(),
+                    truncate(failureMessage(failure), MAXIMUM_LOG_MESSAGE_CHARACTERS, "…"));
         }
     }
 

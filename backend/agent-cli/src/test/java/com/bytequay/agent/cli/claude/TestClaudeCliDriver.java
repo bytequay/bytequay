@@ -19,6 +19,7 @@ import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -79,6 +81,8 @@ class TestClaudeCliDriver
         assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactlyInAnyOrder(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX);
+        assertThat(driver.capabilities().attachmentMediaTypes())
+                .contains("text/plain; charset=utf-8");
         AgentSession session = driver.open(context(Optional.empty()), events::add);
         AgentSessionRef reference = session.reference();
 
@@ -114,19 +118,33 @@ class TestClaudeCliDriver
         cancelled.cancel();
         assertThat(await(cancelled).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
 
-        Path configFile = worktree.resolve("provider/bytequay-mcp.json");
+        Path configFile = runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json");
         assertThat(configFile).exists();
         session.close();
         assertThat(configFile).doesNotExist();
 
         AgentSession ciSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.CI_AUTOFIX), events::add);
-        assertThat(await(ciSession.start(command("ci-fix"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        Path log = runtimeDirectory().resolve("blobs/ci.log");
+        Files.createDirectories(log.getParent());
+        Files.writeString(log, "failure");
+        Path realLog = log.toRealPath();
+        AgentAttachment attachment = new AgentAttachment(
+                "github-actions.log",
+                "text/plain; charset=utf-8",
+                log);
+        assertThat(await(ciSession.start(command("ci-fix", ImmutableList.of(attachment)))).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec ciSpec = supervisor.turns().getLast().spec();
         assertThat(ciSpec.argv()).contains("--strict-mcp-config");
         assertThat(ciSpec.argv()).contains("--setting-sources=");
-        assertThat(ciSpec.argv()).containsSequence("--allowedTools", "mcp__bytequay__read_ci_memory");
+        assertThat(ciSpec.argv()).containsSequence("--add-dir", realLog.getParent().toString());
+        int allowedTools = ciSpec.argv().indexOf("--allowedTools");
+        assertThat(allowedTools).isGreaterThanOrEqualTo(0);
+        assertThat(ciSpec.argv().get(allowedTools + 1))
+                .contains("mcp__bytequay__read_ci_memory", "Read(/" + realLog + ")");
+        assertThat(supervisor.turns().getLast().prompt()).contains(realLog.toString());
         assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
-        Path settingsFile = worktree.resolve("provider/ci-autofix-settings.json");
+        Path settingsFile = runtimeDirectory().resolve("provider/scratch/ci-autofix-settings.json");
         assertThat(settingsFile).exists();
         ciSession.close();
         assertThat(settingsFile).doesNotExist();
@@ -145,15 +163,26 @@ class TestClaudeCliDriver
         return new AgentSessionContext(
                 "task-1",
                 worktree,
-                worktree.resolve("provider"),
+                runtimeDirectory(),
+                runtimeDirectory().resolve("provider/scratch"),
                 permissionPolicy,
                 reference,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
     }
 
+    private Path runtimeDirectory()
+    {
+        return worktree.resolve("task-runtime");
+    }
+
     private static AgentTurnCommand command(String message)
     {
-        return new AgentTurnCommand("turn-" + message, message, ImmutableList.of(), Duration.ofMinutes(1));
+        return command(message, ImmutableList.of());
+    }
+
+    private static AgentTurnCommand command(String message, List<AgentAttachment> attachments)
+    {
+        return new AgentTurnCommand("turn-" + message, message, attachments, Duration.ofMinutes(1));
     }
 
     private static AgentTurnResult await(RunningTurn turn)
@@ -190,7 +219,7 @@ class TestClaudeCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("""
                         --output-format --include-partial-messages --include-hook-events
                         --forward-subagent-text --permission-mode --mcp-config
-                        --settings --setting-sources --strict-mcp-config
+                        --settings --setting-sources --strict-mcp-config --add-dir
                         """));
                 return ImmediateProcess.success();
             }

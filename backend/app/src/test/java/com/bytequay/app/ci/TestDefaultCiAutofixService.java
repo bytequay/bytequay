@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentResourceService;
@@ -83,6 +84,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -629,6 +631,7 @@ class TestDefaultCiAutofixService
         assertThat(run.finishReason()).contains(FinishReason.MAX_ATTEMPTS);
         assertThat(run.attemptsUsed()).isEqualTo(3);
         verify(turnService, times(3)).start(any());
+        verify(completionService).complete(any());
     }
 
     @Test
@@ -813,15 +816,38 @@ class TestDefaultCiAutofixService
     @Test
     void cancelsIdempotentlyAndSignalsAnActiveTurn()
     {
+        doThrow(new AgentConflictException("Task has an active turn"))
+                .doThrow(new AgentConflictException("Task has an active turn"))
+                .doReturn(completion(HEAD))
+                .when(completionService).complete(any());
         CiAutofixRun run = service.start(startCommand("cancel"));
 
         CiAutofixRun cancelled = service.cancel(run.id());
         assertThat(cancelled.status()).isEqualTo(Status.FINISHED);
         assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
         verify(turnService).cancel(turnId);
+        verify(completionService).complete(any());
 
         assertThat(service.cancel(run.id())).isEqualTo(cancelled);
         verify(turnService, times(1)).cancel(turnId);
+        verify(completionService, times(2)).complete(any());
+
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.CANCELLED, Optional.of("cancelled")));
+        assertThat(service.advance(run.id())).isEqualTo(cancelled);
+        verify(completionService, times(3)).complete(any());
+    }
+
+    @Test
+    void cancellationClosesTheTaskAfterATurnAlreadyFailed()
+    {
+        CiAutofixRun run = service.start(startCommand("cancel-failed-turn"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("provider failed")));
+        CiAutofixRun paused = service.advance(run.id());
+
+        CiAutofixRun cancelled = service.cancel(paused.id());
+
+        assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
+        verify(completionService).complete(any());
     }
 
     @Test

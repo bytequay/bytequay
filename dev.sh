@@ -110,6 +110,17 @@ if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
   exit 1
 fi
 
+SESSION_DIRECTORY="$HOME/Library/Application Support/ByteQuay"
+SESSION_TOKEN_FILE="$SESSION_DIRECTORY/desktop-session-token"
+session_token="${BYTEQUAY_DESKTOP_SESSION_TOKEN:-}"
+if [[ -z "$session_token" ]]; then
+  session_token="$(/usr/bin/uuidgen | tr -d '-')$(/usr/bin/uuidgen | tr -d '-')"
+fi
+mkdir -p "$SESSION_DIRECTORY"
+(umask 077 && printf '%s\n' "$session_token" > "$SESSION_TOKEN_FILE")
+chmod 600 "$SESSION_TOKEN_FILE"
+export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"
+
 if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
   echo "[dev] frontend/node_modules missing — running 'npm install' first..."
   ( cd "$ROOT/frontend" && npm install )

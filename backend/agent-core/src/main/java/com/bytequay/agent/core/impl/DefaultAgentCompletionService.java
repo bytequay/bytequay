@@ -85,7 +85,7 @@ public final class DefaultAgentCompletionService
                 workspaceService.release(task.id());
                 return completion(task);
             }
-            if (task.state() != TaskState.ACTIVE) {
+            if (task.state() != TaskState.READY && task.state() != TaskState.ACTIVE) {
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
             turnStore.findActive(task.id()).ifPresent(turn -> {

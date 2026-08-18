@@ -28,6 +28,7 @@ import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -119,6 +120,27 @@ class TestDefaultAgentCompletionService
         assertThat(stored.version()).isEqualTo(1);
         assertThat(session.closed).isTrue();
         assertThat(workspace.releases).isEqualTo(2);
+    }
+
+    @Test
+    void completesAReadyTaskThatNeverStartedATurn()
+    {
+        TaskId readyTaskId = TaskId.random();
+        stores.insert(AgentTask.created(
+                        readyTaskId,
+                        "Unused task",
+                        AgentLaneId.CODEX_CLI,
+                        REPOSITORY,
+                        WORKTREE,
+                        AgentPermissionPolicy.MANUAL,
+                        NOW)
+                .ready(NOW));
+
+        TaskCompletion completion = service(Clock.fixed(NOW, ZoneOffset.UTC))
+                .complete(new CompleteAgentTaskCommand(readyTaskId, Optional.of("cancelled before first turn")));
+
+        assertThat(stores.find(readyTaskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(completion.summary().notes()).contains("cancelled before first turn");
     }
 
     @Test

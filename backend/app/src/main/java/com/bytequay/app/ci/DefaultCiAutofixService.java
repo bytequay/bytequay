@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
@@ -55,6 +56,8 @@ import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -72,6 +75,8 @@ import static java.util.Objects.requireNonNull;
 public class DefaultCiAutofixService
         implements CiAutofixService
 {
+    private static final Logger log = LoggerFactory.getLogger(DefaultCiAutofixService.class);
+
     static final Duration AUTHORIZATION_PERIOD = Duration.ofHours(8);
     static final int MAXIMUM_MESSAGE_CHARACTERS = 16 * 1024;
 
@@ -181,6 +186,7 @@ public class DefaultCiAutofixService
                     AgentPermissionPolicy.CI_AUTOFIX));
         }
         catch (RuntimeException failure) {
+            log.error("Cannot create agent task for CI Autofix run {}", run.id(), failure);
             return store.update(run.finish(
                     FinishReason.ERROR,
                     failureSummary("Agent task creation failed", failure),
@@ -192,6 +198,7 @@ public class DefaultCiAutofixService
             return startFixTurn(run, task, snapshot);
         }
         catch (RuntimeException failure) {
+            log.error("Cannot start first agent turn for CI Autofix run {} task {}", run.id(), task.id(), failure);
             CiAutofixRun current = store.find(run.id()).orElse(run);
             if (current.status() == Status.ACTIVE) {
                 return store.update(current.pause(
@@ -293,15 +300,10 @@ public class DefaultCiAutofixService
     {
         CiAutofixRun run = get(runId);
         if (run.status() == Status.FINISHED) {
+            completeFinishedTask(run);
             return run;
         }
-        run.currentTurnId().ifPresent(value -> {
-            AgentTurn turn = turnService.get(TurnId.valueOf(value));
-            if (turn.state().active()) {
-                turnService.cancel(turn.id());
-            }
-        });
-        return store.update(run.finish(FinishReason.CANCELLED, "CI Autofix cancelled by user", Instant.now(clock)));
+        return finishRun(run, FinishReason.CANCELLED, "CI Autofix cancelled by user", Instant.now(clock));
     }
 
     @Override
@@ -323,6 +325,7 @@ public class DefaultCiAutofixService
         CiAutofixRun run = get(runId);
         Instant now = Instant.now(clock);
         if (run.status() == Status.FINISHED) {
+            completeFinishedTask(run);
             return run;
         }
         if (run.status() == Status.PAUSED) {
@@ -735,7 +738,33 @@ public class DefaultCiAutofixService
                 turnService.cancel(turn.id());
             }
         });
-        return store.update(run.finish(reason, message, now));
+        CiAutofixRun finished = store.update(run.finish(reason, message, now));
+        completeFinishedTask(finished);
+        return finished;
+    }
+
+    private void completeFinishedTask(CiAutofixRun run)
+    {
+        if (run.agentTaskId().isEmpty()) {
+            return;
+        }
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        try {
+            AgentTask task = taskService.get(taskId);
+            if (task.state().terminal()) {
+                return;
+            }
+            completionService.complete(new CompleteAgentTaskCommand(
+                    taskId,
+                    Optional.of("CI Autofix finished with " + run.finishReason().orElseThrow()
+                            + ": " + run.summary().orElse("No summary"))));
+        }
+        catch (AgentConflictException deferred) {
+            log.debug("CI Autofix task {} is not ready to close: {}", taskId, deferred.getMessage());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Cannot close finished CI Autofix task {}: {}", taskId, failureSummary(failure));
+        }
     }
 
     private CiAutofixRun pauseAndRefresh(
@@ -966,6 +995,11 @@ public class DefaultCiAutofixService
             detail = failure.getClass().getSimpleName();
         }
         return truncate(prefix + ": " + detail, MAXIMUM_SUMMARY_CHARACTERS, "…");
+    }
+
+    private static String failureSummary(RuntimeException failure)
+    {
+        return failureSummary("Task completion failed", failure);
     }
 
     private static void validateText(String value, String name, int maximumLength)

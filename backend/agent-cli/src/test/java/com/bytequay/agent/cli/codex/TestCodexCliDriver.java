@@ -149,6 +149,7 @@ class TestCodexCliDriver
         return new AgentSessionContext(
                 "task-1",
                 worktree,
+                worktree,
                 worktree.resolve("provider"),
                 AgentPermissionPolicy.MANUAL,
                 reference,

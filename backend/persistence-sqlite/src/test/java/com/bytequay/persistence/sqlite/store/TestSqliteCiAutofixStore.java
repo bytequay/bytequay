@@ -182,6 +182,21 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
+    void allowsSamePullRequestNumberAndBranchInDifferentRepositories()
+    {
+        CiAutofixRun first = newRun(
+                "repository-1", "same-feature", PullRequestRef.of("owner-1", "sample", 2234), NOW);
+        CiAutofixRun second = newRun(
+                "repository-2", "same-feature", PullRequestRef.of("owner-2", "sample", 2234), NOW);
+
+        store.insert(first);
+        store.insert(second);
+
+        assertThat(store.find(first.id())).contains(first);
+        assertThat(store.find(second.id())).contains(second);
+    }
+
+    @Test
     void releasesActiveBranchSlotAfterFinish()
     {
         CiAutofixRun first = newRun("finished-1", "reusable", NOW);
@@ -227,11 +242,20 @@ class TestSqliteCiAutofixStore
 
     private static CiAutofixRun newRun(String key, String headRef, Instant now)
     {
+        return newRun(key, headRef, PullRequestRef.of("bytequay", "sample", 7), now);
+    }
+
+    private static CiAutofixRun newRun(
+            String key,
+            String headRef,
+            PullRequestRef pullRequest,
+            Instant now)
+    {
         return CiAutofixRun.create(
                 CiAutofixRunId.random(),
                 key,
                 new Scope(
-                        PullRequestRef.of("bytequay", "sample", 7),
+                        pullRequest,
                         "author",
                         headRef,
                         "main",

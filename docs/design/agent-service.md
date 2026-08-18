@@ -38,6 +38,7 @@ provider does not report a monetary amount.
 | `ApprovalId` | One pending permission decision |
 | `AgentLaneId` | Stable driver ID such as `codex-cli` or `claude-cli` |
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
+| `AgentTurnCompletion` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
 | `AgentTask` | Durable task state, lane, worktree, timestamps, totals, and summary |
 | `AgentTurn` | Durable per-turn state, provider turn reference, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
@@ -46,9 +47,11 @@ provider does not report a monetary amount.
 ### 2.2 State
 
 ```text
-Task: CREATED -> READY -> ACTIVE -> COMPLETING -> COMPLETED
-                  |        |             |
-                  +------> FAILED <------+
+Task:
+  CREATED -> READY
+  READY <-> ACTIVE
+  READY -> COMPLETING -> COMPLETED
+  READY | ACTIVE | COMPLETING -> FAILED
 
 Turn: ACCEPTED -> RUNNING -> COMPLETED
                     |-----> FAILED
@@ -73,6 +76,14 @@ The implementation must enforce these invariants:
 - Runtime logs are retained until seven days after the task becomes terminal.
 - Cleanup failure changes cleanup state, never the terminal task state.
 - Missing cost is `unavailable`, never zero.
+
+A terminal turn does not by itself make its task terminal. After a
+`COMPLETED`, `FAILED`, `CANCELLED`, or `INTERRUPTED` turn, the task returns to
+`READY` when its worktree lease, runtime files, and provider session reference
+remain usable. This permits an explicit later retry on the same task. Task
+`FAILED` is reserved for an unrecoverable task-level problem such as lost task
+resources, an invalid lease, or an unusable persisted session contract; it is
+never inferred from assistant message text.
 
 ## 3. Core service interfaces
 
@@ -161,14 +172,21 @@ public interface AgentTurnService
      * session, captures a usage baseline, starts the run, and returns without
      * waiting for provider completion.
      *
+     * <p>An exception means no turn was accepted. If provider open/start fails
+     * after the accepted row exists, the implementation records that turn as
+     * {@code FAILED}, returns the task to {@code READY}, and returns the
+     * terminal turn. This keeps idempotency lookup and recovery unambiguous.
+     *
      * <p>Repeating the same idempotency key returns the previously accepted
      * turn. A different request while a turn is active fails with a conflict.
      *
      * @param command task ID, message content, attachments, and idempotency key
-     * @return the accepted turn
+     * @return the accepted/running turn, or the durable failed turn when setup
+     * failed after acceptance
      * @throws AgentTaskNotFoundException when the task does not exist
      * @throws AgentConflictException when another turn is active
-     * @throws AgentUnavailableException when the provider session cannot start
+     * @throws AgentUnavailableException when availability fails before a turn
+     * is accepted
      */
     AgentTurn start(StartAgentTurnCommand command);
 
@@ -475,10 +493,12 @@ public interface AgentCompletionService
      * Completes and closes a task while retaining its runtime log for seven days.
      *
      * <p>The implementation rejects active turns, closes the provider session,
-     * collects the final agent response, Git snapshot, test facts, task
-     * metrics, and learnings, commits the summary, {@code COMPLETED} state,
-     * and deletion deadline in one transaction, and releases the worktree
-     * lease. It does not delete retained runtime data.
+     * collects the Git snapshot, durable turn/test facts, task metrics, and an
+     * optional display-only final agent message, commits the summary,
+     * {@code COMPLETED} state, and deletion deadline in one transaction, and
+     * releases the worktree lease. Agent message text is never interpreted and
+     * its absence or format cannot prevent completion. The method does not
+     * delete retained runtime data.
      *
      * @param command task ID plus optional user-supplied completion notes
      * @return the durable completion summary and retention deadline
@@ -573,7 +593,8 @@ public interface AgentDriver
      * A resumed reference must belong to the same lane and supported contract
      * version.
      *
-     * @param context task identity, canonical worktree, policy, and optional session reference
+     * @param context task identity, canonical worktree, validated task runtime,
+     * provider scratch directory, policy, and optional session reference
      * @param events sink for normalized provider events
      * @return an open provider session
      * @throws AgentUnavailableException when the provider cannot open or resume
@@ -637,11 +658,11 @@ public interface RunningTurn
     ProviderTurnRef reference();
 
     /**
-     * Returns a stage completed exactly once with the terminal provider result.
+     * Returns a stage completed exactly once with the terminal execution fact.
      *
-     * @return completion stage for success, failure, cancellation, or interruption
+     * @return lifecycle completion for success, failure, cancellation, or interruption
      */
-    CompletionStage<AgentTurnResult> completion();
+    CompletionStage<AgentTurnCompletion> completion();
 
     /**
      * Requests cancellation of the provider turn.
@@ -652,6 +673,14 @@ public interface RunningTurn
     void cancel();
 }
 ```
+
+`AgentTurnCompletion` is consumed inside `AgentTurnService`; application
+services do not receive it. It contains lifecycle and operational diagnostics,
+not assistant response text. The service maps only provider-protocol and
+process facts to the durable turn lifecycle: an official terminal success or
+failure, an explicit cancellation, or a lost/uncertain execution. Assistant
+messages are separate events and are never inspected to decide whether a turn
+completed or failed.
 
 ### 4.5 AgentEventSink
 
@@ -927,7 +956,7 @@ coordinates the narrower interfaces shown in the last column.
 | 2. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted events and then publishes live events without a gap |
 | 3. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Inserts `ACCEPTED`, opens or resumes the provider session, persists `AgentSession.reference()`, begins metrics, calls `AgentSession.start(...)`, then records `RUNNING` |
 | 4. Run | Keep SSE open; resolve approvals when requested | `AgentApprovalService.resolve(ResolveApprovalCommand)` | Provider calls `AgentEventSink.emit(...)`; normalized events pass through `AgentEventService.append(...)` and `TaskLogStore.append(...)`; usage passes through `AgentMetricsService.record(...)` |
-| 5. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | `RunningTurn.completion()` triggers `AgentApprovalService.denyPending(...)`, `AgentMetricsService.finishTurn(...)`, and `AgentTurnStore.update(...)` |
+| 5. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | `RunningTurn.completion()` triggers `AgentApprovalService.denyPending(...)`, `AgentMetricsService.finishTurn(...)`, `AgentTurnStore.update(...)`, and returns the task to `READY` when task resources remain usable |
 | 6. Continue | Send another message to the same task | `AgentTurnService.start(StartAgentTurnCommand)` | Reuses the task's stored `AgentSessionRef`; steps 3–5 repeat with a new `TurnId` |
 | 7. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, closes the session, collects Git/turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
 | 8. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
@@ -1016,10 +1045,11 @@ sequenceDiagram
         end
 
         Turns->>Run: completion()
-        Run-->>Turns: AgentTurnResult
+        Run-->>Turns: AgentTurnCompletion
         Turns->>Approvals: denyPending(turnId)
         Turns->>Metrics: finishTurn(turnId, terminalState)
         Turns->>TurnStore: update(terminalTurn)
+        Turns->>TaskStore: update(readyTaskWhenResumable)
         Turns-->>Web: terminal turn state and metrics
     end
 
@@ -1156,6 +1186,14 @@ UTF-8 user message to stdin and then closes stdin; prompts are not placed in the
 process list or interpolated into a command string. The process working
 directory is the task's canonical leased worktree.
 
+For a turn with text attachments, the driver canonicalizes each file and
+requires it to remain inside that task's runtime directory. It gives Claude the
+attachment parent directory with `--add-dir` and grants an exact `Read` rule for
+each file with `--allowedTools`. The prompt contains only the attachment name
+and canonical path; ByteQuay does not copy the file contents into the prompt.
+The initial Claude implementation advertises `text/plain` attachments, which is
+how CI Autofix exposes its bounded raw job logs.
+
 ByteQuay generates the first session ID so the provider reference can be
 persisted before the process starts, then verifies that Claude emits the same
 ID in its initialization and result messages. For every later turn, replace
@@ -1249,6 +1287,7 @@ grace period, and records the observed terminal result or process exit.
 | Hook lifecycle | `hook/started` and `hook/completed` | Available with `--include-hook-events` |
 | Nested agent activity | `collabToolCall` items | Parent-linked subagent messages with `--forward-subagent-text` |
 | Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
+| Text attachments | Not supported initially | Exact read-only paths inside the task runtime directory |
 | Token usage | Cumulative `thread/tokenUsage/updated` snapshots | Per-step assistant usage and terminal invocation totals |
 | Monetary cost | `UNAVAILABLE` unless a future protocol field supplies it | `CLI_ESTIMATE` from terminal `total_cost_usd` when present |
 | Cancellation | `turn/interrupt` | Graceful then forced process-tree termination |
@@ -1335,7 +1374,8 @@ child is checked to remain under the configured runtime root.
 On successful completion:
 
 1. Stop and close the provider session owned by the task.
-2. Collect final response, Git facts, tests, metrics, and learnings.
+2. Collect Git facts, tests, metrics, and an optional uninterpreted final
+   response for display.
 3. Commit summary, totals, `COMPLETED`, and
    `deleteAfter = completedAt + 7 days` in SQLite.
 4. Release the worktree lease.
@@ -1382,3 +1422,88 @@ requires a separate explicit user action and design decision.
 - Known secrets are redacted before an event or diagnostic blob is persisted.
 - Approval timeout and disconnect default to denial.
 - Output, blob size, runtime, and cancellation grace periods are bounded.
+
+## 12. Workspace settings and provider readiness
+
+Provider authentication readiness is a release blocker for the next release
+that exposes agent-backed development tasks. Installing a CLI and opening its
+interactive screen does not prove that it can make an authenticated remote
+request. ByteQuay must not discover a missing or expired login only after a
+task has acquired resources and started a turn.
+
+### 12.1 Backend gate
+
+`AgentDriver.probe()` is the authoritative check for the exact executable and
+environment that ByteQuay will use. `AgentDriverRegistry.statuses()` supplies
+the same results to Workspace settings. A driver probe must distinguish, with
+machine-readable status rather than by parsing diagnostic text:
+
+- CLI missing;
+- unsupported CLI version or protocol;
+- authentication required or expired;
+- ready;
+- degraded but usable; and
+- temporarily unavailable.
+
+For Claude CLI, the authentication portion runs the equivalent of
+`claude auth status` in the driver's allowlisted environment. Opening the
+interactive `claude` screen is not an authentication check. Other drivers own
+their provider-specific readiness checks behind the same SPI.
+
+Task creation and every later turn start perform a fresh readiness check before
+accepting a turn, acquiring a new task resource, or consuming a CI Autofix
+attempt. An authentication-required result returns an actionable typed error;
+it does not create a failed turn or leave a worktree lease behind.
+
+If authentication expires during a running turn, ByteQuay records the turn's
+operational failure and pauses the owning workflow as authentication required.
+It preserves the task, worktree, session reference, logs, and remaining attempt
+budget. After a successful readiness recheck, the user can retry in the same
+task. Authentication failure must never be reported as a GitHub login problem.
+
+ByteQuay does not read, persist, or send provider OAuth credentials. The CLI
+continues to own its credentials; ByteQuay stores only readiness state,
+timestamps, and redacted diagnostics.
+
+### 12.2 Workspace settings UI
+
+Workspace settings contains an **Agent providers** section with one row for
+each configured lane, initially Codex CLI and Claude CLI. Although CLI login is
+machine-user scoped, it is shown here because readiness determines whether the
+selected provider can work in this workspace.
+
+| UI state | Display | Primary action |
+| --- | --- | --- |
+| Checking | Checking provider… | None |
+| Ready | Connected, CLI version, last checked time | Check again |
+| Authentication required | Sign in required; tasks cannot start | Sign in / show provider login command |
+| CLI missing | CLI not installed | Show installation instructions |
+| Unsupported | Installed version is unsupported | Show update instructions |
+| Degraded | Available with named capability limitations | Check again |
+| Unavailable | Redacted actionable diagnostic | Check again |
+
+The sign-in action is a direct user action. It starts or clearly presents the
+provider-owned login flow, such as `claude auth login`, in a visible context;
+ByteQuay must not attempt a hidden interactive login. When that flow ends, the
+UI automatically checks readiness again and also provides a manual **Check
+again** action.
+
+Attempting to start a task while sign-in is required navigates or links to this
+settings section and explains that the task has not started. Raw messages such
+as `OAuth session expired and could not be refreshed` may remain in diagnostic
+details, but the primary message is **Claude sign-in required**.
+
+### 12.3 Release acceptance
+
+Before the release blocker can be closed, automated tests must demonstrate:
+
+1. A new installation with Claude CLI present but logged out is blocked before
+   task/turn creation, lease acquisition, and CI attempt consumption.
+2. Workspace settings renders the typed authentication-required state and its
+   sign-in action without exposing credentials.
+3. Successful login plus readiness refresh enables task start without an app
+   restart.
+4. Authentication expiry during a turn pauses the workflow, preserves its
+   retry budget and task resources, and supports an explicit retry after login.
+5. Provider authentication failures are logged once with task/run context and
+   a redacted diagnostic, and are never labeled as GitHub failures.

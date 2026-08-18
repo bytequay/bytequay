@@ -32,3 +32,15 @@ The design deliberately separates current behavior from future implementation.
 - Add modules only for real dependency, replacement, or testing boundaries.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
+
+## Release blockers
+
+The next release that exposes agent-backed development tasks must not ship
+until provider authentication readiness is implemented end to end. A fresh or
+expired Claude installation currently opens the local CLI successfully but
+fails only after ByteQuay starts a turn, because CLI presence and remote
+authentication are different checks.
+
+The required backend gate, workspace-settings behavior, UI states, recovery,
+and acceptance criteria are defined in
+[Agent Service: Workspace settings and provider readiness](agent-service.md#12-workspace-settings-and-provider-readiness).

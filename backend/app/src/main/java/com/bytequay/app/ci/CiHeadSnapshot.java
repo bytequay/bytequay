@@ -22,6 +22,7 @@ import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
 import static com.bytequay.app.ci.CiActionsChecks.checkSha;
 import static com.bytequay.app.ci.CiActionsChecks.checkText;
 import static com.bytequay.app.ci.CiActionsChecks.checkUrl;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -48,12 +49,9 @@ public record CiHeadSnapshot(
         checkUrl(url, "url");
         requireNonNull(workflowRuns, "workflowRuns is null");
         workflowRuns = ImmutableList.copyOf(workflowRuns);
-        if (workflowRuns.size() > 1000) {
-            throw new IllegalArgumentException("workflowRuns exceeds 1000 values");
-        }
-        if (workflowRuns.stream().anyMatch(run -> !run.headSha().equals(headSha))) {
-            throw new IllegalArgumentException("workflow run belongs to another head");
-        }
+        checkArgument(workflowRuns.size() <= 1000, "workflowRuns exceeds 1000 values");
+        checkArgument(workflowRuns.stream().allMatch(run -> run.headSha().equals(headSha)),
+                "workflow run belongs to another head");
     }
 
     public List<CiJob> jobs()

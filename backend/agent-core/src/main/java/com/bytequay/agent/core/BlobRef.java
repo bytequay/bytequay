@@ -16,6 +16,7 @@ package com.bytequay.agent.core;
 import java.nio.file.Path;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public record BlobRef(String relativePath, String mediaType, long size)
 {
@@ -24,11 +25,7 @@ public record BlobRef(String relativePath, String mediaType, long size)
         checkNotBlank(relativePath, "relativePath");
         checkNotBlank(mediaType, "mediaType");
         Path path = Path.of(relativePath);
-        if (path.isAbsolute() || path.normalize().startsWith("..")) {
-            throw new IllegalArgumentException("relativePath is unsafe");
-        }
-        if (size < 0) {
-            throw new IllegalArgumentException("size is negative");
-        }
+        checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
+        checkArgument(size >= 0, "size is negative");
     }
 }

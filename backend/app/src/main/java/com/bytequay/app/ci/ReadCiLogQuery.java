@@ -17,6 +17,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.core.domain.PullRequestRef;
 
 import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ReadCiLogQuery(
@@ -34,11 +35,9 @@ public record ReadCiLogQuery(
         checkPullRequest(pullRequest);
         requireNonNull(workflowRun, "workflowRun is null");
         requireNonNull(job, "job is null");
-        if (job.workflowRunId() != workflowRun.id() || job.attempt() > workflowRun.attempt()) {
-            throw new IllegalArgumentException("job does not belong to workflowRun");
-        }
-        if (maximumBytes <= 0 || maximumBytes > MAXIMUM_BYTES) {
-            throw new IllegalArgumentException("maximumBytes must be between 1 and " + MAXIMUM_BYTES);
-        }
+        checkArgument(job.workflowRunId() == workflowRun.id() && job.attempt() <= workflowRun.attempt(),
+                "job does not belong to workflowRun");
+        checkArgument(maximumBytes > 0 && maximumBytes <= MAXIMUM_BYTES,
+                "maximumBytes must be between 1 and " + MAXIMUM_BYTES);
     }
 }

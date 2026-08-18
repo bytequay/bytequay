@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
@@ -64,9 +65,7 @@ public class SqliteCiAutofixStore
     public void insert(CiAutofixRun run)
     {
         requireNonNull(run, "run is null");
-        if (run.version() != 0) {
-            throw new IllegalArgumentException("new run version must be zero");
-        }
+        checkArgument(run.version() == 0, "new run version must be zero");
         if (runRepository.existsById(run.id().toString())) {
             throw new CiAutofixConflictException("CI Autofix run already exists: " + run.id());
         }
@@ -99,14 +98,28 @@ public class SqliteCiAutofixStore
     public Optional<CiAutofixRun> findByIdempotencyKey(String key)
     {
         requireNonNull(key, "key is null");
-        if (key.isBlank() || key.length() > 200) {
-            throw new IllegalArgumentException("key must contain between 1 and 200 characters");
-        }
+        checkArgument(!key.isBlank() && key.length() <= 200,
+                "key must contain between 1 and 200 characters");
         try {
             return runRepository.findByStartIdempotencyKey(key).map(this::toProjection);
         }
         catch (DataAccessException e) {
             throw new CiAutofixStorageException("Cannot read CI Autofix idempotency key", e);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CiAutofixRun> findByAgentTaskId(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        checkArgument(!taskId.isBlank() && taskId.length() <= 128,
+                "taskId must contain between 1 and 128 characters");
+        try {
+            return runRepository.findByAgentTaskId(taskId).map(this::toProjection);
+        }
+        catch (DataAccessException e) {
+            throw new CiAutofixStorageException("Cannot read CI Autofix agent task", e);
         }
     }
 
@@ -226,8 +239,6 @@ public class SqliteCiAutofixStore
 
     private static void checkLimit(int limit)
     {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("limit must be positive");
-        }
+        checkArgument(limit > 0, "limit must be positive");
     }
 }

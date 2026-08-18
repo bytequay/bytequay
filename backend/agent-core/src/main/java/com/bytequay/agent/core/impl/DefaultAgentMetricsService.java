@@ -54,12 +54,9 @@ public final class DefaultAgentMetricsService
 
     public DefaultAgentMetricsService(AgentTaskStore taskStore, AgentTurnStore turnStore, Clock clock)
     {
-        requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(turnStore, "turnStore is null");
-        requireNonNull(clock, "clock is null");
-        this.taskStore = taskStore;
-        this.turnStore = turnStore;
-        this.clock = clock;
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override

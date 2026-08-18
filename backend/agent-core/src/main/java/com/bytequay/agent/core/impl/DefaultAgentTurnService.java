@@ -55,6 +55,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentTurnService
@@ -83,29 +84,18 @@ public final class DefaultAgentTurnService
             Clock clock,
             Duration maximumTurnRuntime)
     {
-        requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(turnStore, "turnStore is null");
-        requireNonNull(resourceService, "resourceService is null");
-        requireNonNull(driverRegistry, "driverRegistry is null");
-        requireNonNull(eventService, "eventService is null");
-        requireNonNull(metricsService, "metricsService is null");
-        requireNonNull(approvalService, "approvalService is null");
-        requireNonNull(runtimeRegistry, "runtimeRegistry is null");
-        requireNonNull(clock, "clock is null");
-        requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
-        if (maximumTurnRuntime.isZero() || maximumTurnRuntime.isNegative()) {
-            throw new IllegalArgumentException("maximumTurnRuntime must be positive");
-        }
-        this.taskStore = taskStore;
-        this.turnStore = turnStore;
-        this.resourceService = resourceService;
-        this.driverRegistry = driverRegistry;
-        this.eventService = eventService;
-        this.metricsService = metricsService;
-        this.approvalService = approvalService;
-        this.runtimeRegistry = runtimeRegistry;
-        this.clock = clock;
-        this.maximumTurnRuntime = maximumTurnRuntime;
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.resourceService = requireNonNull(resourceService, "resourceService is null");
+        this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
+        this.eventService = requireNonNull(eventService, "eventService is null");
+        this.metricsService = requireNonNull(metricsService, "metricsService is null");
+        this.approvalService = requireNonNull(approvalService, "approvalService is null");
+        this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
+        this.clock = requireNonNull(clock, "clock is null");
+        this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
+        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(),
+                "maximumTurnRuntime must be positive");
     }
 
     @Override

@@ -14,6 +14,7 @@
 package com.bytequay.agent.spi;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentSessionRef(AgentLaneId laneId, int contractVersion, String providerValue)
@@ -22,8 +23,6 @@ public record AgentSessionRef(AgentLaneId laneId, int contractVersion, String pr
     {
         requireNonNull(laneId, "laneId is null");
         checkNotBlank(providerValue, "providerValue");
-        if (contractVersion <= 0) {
-            throw new IllegalArgumentException("contractVersion must be positive");
-        }
+        checkArgument(contractVersion > 0, "contractVersion must be positive");
     }
 }

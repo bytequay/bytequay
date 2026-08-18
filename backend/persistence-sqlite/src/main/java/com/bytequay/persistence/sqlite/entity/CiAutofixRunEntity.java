@@ -47,6 +47,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 @Entity
 @Table(name = "ci_autofix_run")
 public class CiAutofixRunEntity
@@ -82,6 +84,7 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private String laneId;
 
+    @Column(unique = true)
     private String agentTaskId;
 
     @Column(nullable = false)
@@ -206,9 +209,7 @@ public class CiAutofixRunEntity
 
     public void updateFrom(CiAutofixRun run)
     {
-        if (!id.equals(run.id().toString())) {
-            throw new IllegalArgumentException("run identity changed");
-        }
+        checkArgument(id.equals(run.id().toString()), "run identity changed");
         Scope scope = run.scope();
         startIdempotencyKey = run.startIdempotencyKey();
         repositoryOwner = scope.pullRequest().owner();

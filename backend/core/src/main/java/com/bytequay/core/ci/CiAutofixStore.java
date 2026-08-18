@@ -48,6 +48,15 @@ public interface CiAutofixStore
     Optional<CiAutofixRun> findByIdempotencyKey(String key);
 
     /**
+     * Finds the run owned by one agent task.
+     *
+     * @param taskId durable agent task identifier
+     * @return matching complete run projection, or empty
+     * @throws CiAutofixStorageException when persistence fails
+     */
+    Optional<CiAutofixRun> findByAgentTaskId(String taskId);
+
+    /**
      * Lists complete runs in reverse update order.
      *
      * @param limit positive result limit

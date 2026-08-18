@@ -64,7 +64,8 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudePermissionBroker permissions = new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper);
+                objectMapper,
+                (taskId, query) -> "memory");
         ClaudeCliDriver driver = new ClaudeCliDriver(
                 "/fake/claude",
                 objectMapper,
@@ -76,6 +77,8 @@ class TestClaudeCliDriver
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
 
         assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(driver.capabilities().permissionPolicies())
+                .containsExactlyInAnyOrder(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX);
         AgentSession session = driver.open(context(Optional.empty()), events::add);
         AgentSessionRef reference = session.reference();
 
@@ -115,16 +118,35 @@ class TestClaudeCliDriver
         assertThat(configFile).exists();
         session.close();
         assertThat(configFile).doesNotExist();
+
+        AgentSession ciSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.CI_AUTOFIX), events::add);
+        assertThat(await(ciSession.start(command("ci-fix"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        ProcessSpec ciSpec = supervisor.turns().getLast().spec();
+        assertThat(ciSpec.argv()).contains("--strict-mcp-config");
+        assertThat(ciSpec.argv()).contains("--setting-sources=");
+        assertThat(ciSpec.argv()).containsSequence("--allowedTools", "mcp__bytequay__read_ci_memory");
+        assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+        Path settingsFile = worktree.resolve("provider/ci-autofix-settings.json");
+        assertThat(settingsFile).exists();
+        ciSession.close();
+        assertThat(settingsFile).doesNotExist();
         driver.close();
     }
 
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
     {
+        return context(reference, AgentPermissionPolicy.MANUAL);
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AgentPermissionPolicy permissionPolicy)
+    {
         return new AgentSessionContext(
                 "task-1",
                 worktree,
                 worktree.resolve("provider"),
-                AgentPermissionPolicy.MANUAL,
+                permissionPolicy,
                 reference,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
     }
@@ -168,6 +190,7 @@ class TestClaudeCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("""
                         --output-format --include-partial-messages --include-hook-events
                         --forward-subagent-text --permission-mode --mcp-config
+                        --settings --setting-sources --strict-mcp-config
                         """));
                 return ImmediateProcess.success();
             }

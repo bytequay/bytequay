@@ -15,6 +15,7 @@ package com.bytequay.agent.core;
 
 import java.time.Instant;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record TaskCompletion(TaskId taskId, TaskSummary summary, Instant completedAt, Instant deleteAfter)
@@ -25,8 +26,6 @@ public record TaskCompletion(TaskId taskId, TaskSummary summary, Instant complet
         requireNonNull(summary, "summary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deleteAfter, "deleteAfter is null");
-        if (!deleteAfter.isAfter(completedAt)) {
-            throw new IllegalArgumentException("deleteAfter must be after completedAt");
-        }
+        checkArgument(deleteAfter.isAfter(completedAt), "deleteAfter must be after completedAt");
     }
 }

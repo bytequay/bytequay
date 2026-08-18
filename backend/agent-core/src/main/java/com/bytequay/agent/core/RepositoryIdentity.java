@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public record RepositoryIdentity(String owner, String name)
 {
@@ -27,9 +28,7 @@ public record RepositoryIdentity(String owner, String name)
     {
         checkNotBlank(value, "value");
         String[] parts = value.split("/", -1);
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("repository must use owner/name format");
-        }
+        checkArgument(parts.length == 2, "repository must use owner/name format");
         return new RepositoryIdentity(parts[0], parts[1]);
     }
 
@@ -42,8 +41,6 @@ public record RepositoryIdentity(String owner, String name)
     private static void checkPart(String value, String name)
     {
         checkNotBlank(value, name);
-        if (value.contains("/")) {
-            throw new IllegalArgumentException(name + " is invalid");
-        }
+        checkArgument(!value.contains("/"), name + " is invalid");
     }
 }

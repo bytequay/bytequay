@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -65,9 +66,7 @@ public class SqliteCredentialStore
     public void save(String token, String source)
     {
         String trimmed = requireNonNull(token, "token is null").trim();
-        if (trimmed.isEmpty()) {
-            throw new IllegalArgumentException("credential value must not be blank");
-        }
+        checkArgument(!trimmed.isEmpty(), "credential value must not be blank");
 
         CredentialEntity entity = jpaRepository.findFirstByOrderByIdAsc().orElseGet(CredentialEntity::new);
         entity.setCiphertext(cipher.encrypt(trimmed));

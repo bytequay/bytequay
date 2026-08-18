@@ -26,6 +26,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -82,7 +83,10 @@ public final class ClaudeCliDriver
             "--include-partial-messages",
             "--mcp-config",
             "--output-format",
-            "--permission-mode");
+            "--permission-mode",
+            "--settings",
+            "--setting-sources",
+            "--strict-mcp-config");
     private static final ImmutableSet<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
             "ALL_PROXY",
             "ANTHROPIC_API_KEY",
@@ -164,6 +168,7 @@ public final class ClaudeCliDriver
                 true,
                 true,
                 CostProvenance.CLI_ESTIMATE,
+                ImmutableSet.of(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of());
     }
 
@@ -248,7 +253,12 @@ public final class ClaudeCliDriver
         String sessionId = existing.map(AgentSessionRef::providerValue)
                 .orElseGet(() -> UUID.randomUUID().toString());
         ClaudePermissionBroker.Registration registration = permissions.register(
-                context.providerDirectory(), context.approvals(), redactor);
+                context.taskId(),
+                context.worktree(),
+                context.providerDirectory(),
+                context.permissionPolicy(),
+                context.approvals(),
+                redactor);
         ClaudeSession session = new ClaudeSession(
                 new AgentSessionRef(LANE_ID, CONTRACT_VERSION, sessionId),
                 context,
@@ -266,7 +276,11 @@ public final class ClaudeCliDriver
         ImmutableList.copyOf(sessions).forEach(ClaudeSession::close);
     }
 
-    private ImmutableList<String> argv(Path configFile, String sessionId, boolean resume)
+    private ImmutableList<String> argv(
+            ClaudePermissionBroker.Registration registration,
+            AgentPermissionPolicy permissionPolicy,
+            String sessionId,
+            boolean resume)
     {
         ImmutableList.Builder<String> argv = ImmutableList.builder();
         argv.add(
@@ -279,9 +293,16 @@ public final class ClaudeCliDriver
         if (forwardSubagentText) {
             argv.add("--forward-subagent-text");
         }
+        if (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX) {
+            argv.add(
+                    "--strict-mcp-config",
+                    "--setting-sources=",
+                    "--settings", registration.settingsFile().orElseThrow().toString(),
+                    "--allowedTools", "mcp__bytequay__read_ci_memory");
+        }
         argv.add(
                 "--permission-mode", "manual",
-                "--mcp-config", configFile.toString(),
+                "--mcp-config", registration.configFile().toString(),
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
         return argv.build();
@@ -499,7 +520,11 @@ public final class ClaudeCliDriver
             this.session = requireNonNull(session, "session is null");
             this.reference = new ProviderTurnRef(command.turnId());
             ProcessSpec spec = processSpec(
-                    argv(session.registration.configFile(), session.reference.providerValue(), resume),
+                    argv(
+                            session.registration,
+                            session.context.permissionPolicy(),
+                            session.reference.providerValue(),
+                            resume),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     MAX_STDOUT_BYTES,

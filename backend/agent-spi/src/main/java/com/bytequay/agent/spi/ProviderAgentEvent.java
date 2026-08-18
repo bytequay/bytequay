@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -155,9 +156,7 @@ public sealed interface ProviderAgentEvent
             argv = ImmutableList.copyOf(argv);
             requireNonNull(output, "output is null");
             requireNonNull(exitCode, "exitCode is null");
-            if (argv.stream().anyMatch(String::isBlank)) {
-                throw new IllegalArgumentException("argv contains a blank value");
-            }
+            checkArgument(argv.stream().noneMatch(String::isBlank), "argv contains a blank value");
         }
 
         @Override
@@ -183,9 +182,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(change, "change is null");
             requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
-            if (path.isAbsolute() || path.normalize().startsWith("..")) {
-                throw new IllegalArgumentException("relativePath is unsafe");
-            }
+            checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
         }
 
         @Override

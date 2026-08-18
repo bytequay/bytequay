@@ -27,6 +27,8 @@ public interface CiAutofixRunJpaRepository
 {
     Optional<CiAutofixRunEntity> findByStartIdempotencyKey(String startIdempotencyKey);
 
+    Optional<CiAutofixRunEntity> findByAgentTaskId(String agentTaskId);
+
     List<CiAutofixRunEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
     List<CiAutofixRunEntity> findByStatusInOrderByUpdatedAtAsc(Collection<Status> statuses, Pageable pageable);

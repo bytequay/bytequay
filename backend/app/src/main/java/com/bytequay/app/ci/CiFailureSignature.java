@@ -18,6 +18,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class CiFailureSignature
@@ -29,9 +30,7 @@ public final class CiFailureSignature
         requireNonNull(workflowRun, "workflowRun is null");
         requireNonNull(job, "job is null");
         requireNonNull(log, "log is null");
-        if (job.workflowRunId() != workflowRun.id()) {
-            throw new IllegalArgumentException("job does not belong to workflowRun");
-        }
+        checkArgument(job.workflowRunId() == workflowRun.id(), "job does not belong to workflowRun");
 
         StringBuilder canonical = new StringBuilder()
                 .append(workflowRun.workflowId()).append('\n')

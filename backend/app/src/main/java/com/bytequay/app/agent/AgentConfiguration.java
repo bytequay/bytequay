@@ -24,6 +24,7 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentWorkspaceService;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.impl.DefaultAgentApprovalService;
@@ -42,6 +43,8 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.bytequay.app.ci.CiMemoryService;
+import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -70,12 +73,15 @@ public class AgentConfiguration
     @ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
     public ClaudePermissionBroker claudePermissionBroker(
             ObjectMapper objectMapper,
-            ServletWebServerApplicationContext context)
+            ServletWebServerApplicationContext context,
+            CiMemoryService ciMemoryService)
     {
         return new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:" + context.getWebServer().getPort()
                         + "/internal/agent/claude/mcp"),
-                objectMapper);
+                objectMapper,
+                (taskId, query) -> ciMemoryService.read(
+                        new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown());
     }
 
     @Bean(destroyMethod = "close")

@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record TurnMetrics(
@@ -34,18 +35,12 @@ public record TurnMetrics(
         requireNonNull(cost, "cost is null");
         requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(elapsed, "elapsed is null");
-        if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0) {
-            throw new IllegalArgumentException("token counts must not be negative");
-        }
-        if (cost.stream().anyMatch(value -> value.signum() < 0)) {
-            throw new IllegalArgumentException("cost must not be negative");
-        }
-        if (cost.isEmpty() != (costProvenance == CostProvenance.UNAVAILABLE)) {
-            throw new IllegalArgumentException("cost and costProvenance disagree");
-        }
-        if (elapsed.isNegative()) {
-            throw new IllegalArgumentException("elapsed is negative");
-        }
+        checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0,
+                "token counts must not be negative");
+        checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
+        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE),
+                "cost and costProvenance disagree");
+        checkArgument(!elapsed.isNegative(), "elapsed is negative");
     }
 
     public static TurnMetrics empty()

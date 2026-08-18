@@ -33,6 +33,8 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 /**
  * Encrypts and decrypts stored credentials using AES-256-GCM with a local
  * master key. The master key is a 32-byte random blob stored at
@@ -88,9 +90,7 @@ public class CredentialCipher
     {
         try {
             byte[] blob = Base64.getDecoder().decode(ciphertextB64);
-            if (blob.length <= IV_BYTES) {
-                throw new IllegalArgumentException("ciphertext too short");
-            }
+            checkArgument(blob.length > IV_BYTES, "ciphertext too short");
             byte[] iv = new byte[IV_BYTES];
             System.arraycopy(blob, 0, iv, 0, IV_BYTES);
             byte[] ct = new byte[blob.length - IV_BYTES];

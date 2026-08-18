@@ -15,5 +15,6 @@ package com.bytequay.agent.spi;
 
 public enum AgentPermissionPolicy
 {
-    MANUAL
+    MANUAL,
+    CI_AUTOFIX
 }

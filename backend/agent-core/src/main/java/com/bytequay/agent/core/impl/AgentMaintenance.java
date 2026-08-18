@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -107,9 +108,7 @@ public final class AgentMaintenance
 
     public List<CleanupResult> cleanupDue(int limit)
     {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("limit must be positive");
-        }
+        checkArgument(limit > 0, "limit must be positive");
         return taskStore.listCleanupDue(Instant.now(clock), limit).stream()
                 .map(AgentTask::id)
                 .map(completionService::cleanup)

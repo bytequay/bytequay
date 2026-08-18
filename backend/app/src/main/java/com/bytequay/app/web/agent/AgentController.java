@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -172,9 +173,7 @@ public class AgentController
             @PathVariable String approvalId,
             @RequestBody ResolveApprovalRequest request)
     {
-        if (request.decision() == null) {
-            throw new IllegalArgumentException("decision is null");
-        }
+        checkArgument(request.decision() != null, "decision is null");
         return AgentHttpModels.approval(approvalService.resolve(new ResolveApprovalCommand(
                 ApprovalId.valueOf(approvalId),
                 request.decision(),

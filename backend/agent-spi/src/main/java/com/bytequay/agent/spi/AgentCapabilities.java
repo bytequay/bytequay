@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentCapabilities(
@@ -30,16 +31,18 @@ public record AgentCapabilities(
         boolean interactiveApprovals,
         boolean tokenUsage,
         CostProvenance costProvenance,
+        Set<AgentPermissionPolicy> permissionPolicies,
         Set<String> attachmentMediaTypes)
 {
     public AgentCapabilities
     {
         requireNonNull(costProvenance, "costProvenance is null");
+        requireNonNull(permissionPolicies, "permissionPolicies is null");
         requireNonNull(attachmentMediaTypes, "attachmentMediaTypes is null");
+        permissionPolicies = ImmutableSet.copyOf(permissionPolicies);
         attachmentMediaTypes = ImmutableSet.copyOf(attachmentMediaTypes);
-        if (attachmentMediaTypes.stream().anyMatch(String::isBlank)) {
-            throw new IllegalArgumentException("attachmentMediaTypes contains a blank value");
-        }
+        checkArgument(attachmentMediaTypes.stream().noneMatch(String::isBlank),
+                "attachmentMediaTypes contains a blank value");
     }
 
     public static AgentCapabilities none()
@@ -55,6 +58,7 @@ public record AgentCapabilities(
                 false,
                 false,
                 CostProvenance.UNAVAILABLE,
+                ImmutableSet.of(AgentPermissionPolicy.MANUAL),
                 ImmutableSet.of());
     }
 }

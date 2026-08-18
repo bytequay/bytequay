@@ -47,6 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class FileTaskLogStore
@@ -69,11 +70,8 @@ public final class FileTaskLogStore
 
     public FileTaskLogStore(AgentResourceService resourceService, int maxEventBytes, int maxBlobBytes)
     {
-        requireNonNull(resourceService, "resourceService is null");
-        if (maxEventBytes <= 0 || maxBlobBytes <= 0) {
-            throw new IllegalArgumentException("Log size limits must be positive");
-        }
-        this.resourceService = resourceService;
+        this.resourceService = requireNonNull(resourceService, "resourceService is null");
+        checkArgument(maxEventBytes > 0 && maxBlobBytes > 0, "Log size limits must be positive");
         this.maxEventBytes = maxEventBytes;
         this.maxBlobBytes = maxBlobBytes;
         this.objectMapper = new ObjectMapper()
@@ -125,9 +123,8 @@ public final class FileTaskLogStore
     public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
     {
         requireNonNull(taskId, "taskId is null");
-        if (afterSequence < 0 || limit <= 0) {
-            throw new IllegalArgumentException("afterSequence must be non-negative and limit must be positive");
-        }
+        checkArgument(afterSequence >= 0 && limit > 0,
+                "afterSequence must be non-negative and limit must be positive");
         synchronized (lock(taskId)) {
             return readCompleteRecords(taskId, afterSequence, limit);
         }

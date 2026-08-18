@@ -15,6 +15,7 @@ package com.bytequay.core.domain;
 
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -34,9 +35,7 @@ public record PullRequestRef(String owner, String repo, int number)
     {
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
-        if (number <= 0) {
-            throw new IllegalArgumentException("number must be positive, got: " + number);
-        }
+        checkArgument(number > 0, "number must be positive, got: " + number);
     }
 
     public static PullRequestRef of(String owner, String repo, int number)

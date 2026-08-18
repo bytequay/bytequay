@@ -18,6 +18,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record WorkspaceSnapshot(
@@ -33,8 +34,6 @@ public record WorkspaceSnapshot(
         requireNonNull(repository, "repository is null");
         checkOptionalText(branch, "branch");
         checkNotBlank(head, "head");
-        if (!worktree.isAbsolute()) {
-            throw new IllegalArgumentException("worktree is not absolute");
-        }
+        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
     }
 }

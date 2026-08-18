@@ -17,6 +17,7 @@ import com.bytequay.core.domain.PullRequestRef;
 
 import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
 import static com.bytequay.app.ci.CiActionsChecks.checkSha;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public record RerunFailedJobsCommand(
         PullRequestRef pullRequest,
@@ -28,9 +29,8 @@ public record RerunFailedJobsCommand(
     public RerunFailedJobsCommand
     {
         checkPullRequest(pullRequest);
-        if (workflowRunId <= 0 || previousAttempt <= 0) {
-            throw new IllegalArgumentException("workflowRunId and previousAttempt must be positive");
-        }
+        checkArgument(workflowRunId > 0 && previousAttempt > 0,
+                "workflowRunId and previousAttempt must be positive");
         checkSha(headSha, "headSha");
     }
 }

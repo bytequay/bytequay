@@ -20,6 +20,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentTurn(
@@ -51,27 +52,19 @@ public record AgentTurn(
         checkOptionalText(model, "model");
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(metrics, "metrics is null");
-        if (version < 0) {
-            throw new IllegalArgumentException("version is negative");
-        }
-        if (state == TurnState.RUNNING && (startedAt.isEmpty() || providerTurnReference.isEmpty())) {
-            throw new IllegalArgumentException("a running turn requires start time and provider reference");
-        }
-        if (state.active() == endedAt.isPresent()) {
-            throw new IllegalArgumentException("endedAt and turn state disagree");
-        }
-        if ((state != TurnState.COMPLETED && state.terminal()) != terminalReason.isPresent()) {
-            throw new IllegalArgumentException("terminalReason and turn state disagree");
-        }
-        if (startedAt.isPresent() && startedAt.orElseThrow().isBefore(createdAt)) {
-            throw new IllegalArgumentException("startedAt is before createdAt");
-        }
-        if (endedAt.isPresent() && endedAt.orElseThrow().isBefore(startedAt.orElse(createdAt))) {
-            throw new IllegalArgumentException("endedAt is before turn start");
-        }
-        if (cancellationRequestedAt.isPresent() && cancellationRequestedAt.orElseThrow().isBefore(createdAt)) {
-            throw new IllegalArgumentException("cancellationRequestedAt is before createdAt");
-        }
+        checkArgument(version >= 0, "version is negative");
+        checkArgument(state != TurnState.RUNNING || (startedAt.isPresent() && providerTurnReference.isPresent()),
+                "a running turn requires start time and provider reference");
+        checkArgument(state.active() != endedAt.isPresent(), "endedAt and turn state disagree");
+        checkArgument((state != TurnState.COMPLETED && state.terminal()) == terminalReason.isPresent(),
+                "terminalReason and turn state disagree");
+        checkArgument(startedAt.isEmpty() || !startedAt.orElseThrow().isBefore(createdAt),
+                "startedAt is before createdAt");
+        checkArgument(endedAt.isEmpty() || !endedAt.orElseThrow().isBefore(startedAt.orElse(createdAt)),
+                "endedAt is before turn start");
+        checkArgument(cancellationRequestedAt.isEmpty()
+                        || !cancellationRequestedAt.orElseThrow().isBefore(createdAt),
+                "cancellationRequestedAt is before createdAt");
     }
 
     public static AgentTurn accepted(TurnId id, TaskId taskId, String idempotencyKey, Instant now)
@@ -118,9 +111,7 @@ public record AgentTurn(
         if (cancellationRequestedAt.isPresent()) {
             return this;
         }
-        if (now.isBefore(startedAt.orElse(createdAt))) {
-            throw new IllegalArgumentException("cancellation time is before turn start");
-        }
+        checkArgument(!now.isBefore(startedAt.orElse(createdAt)), "cancellation time is before turn start");
         return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference,
                 model, terminalReason, metrics);
     }
@@ -135,9 +126,7 @@ public record AgentTurn(
         requireNonNull(finalMetrics, "finalMetrics is null");
         checkOptionalText(reason, "reason");
         requireNonNull(now, "now is null");
-        if (!terminalState.terminal()) {
-            throw new IllegalArgumentException("terminalState is not terminal");
-        }
+        checkArgument(terminalState.terminal(), "terminalState is not terminal");
         if (state.terminal()) {
             if (state == terminalState) {
                 return this;
@@ -147,9 +136,8 @@ public record AgentTurn(
         if (state == TurnState.ACCEPTED && terminalState == TurnState.COMPLETED) {
             throw new IllegalStateException("an accepted turn cannot complete before running");
         }
-        if ((terminalState != TurnState.COMPLETED) != reason.isPresent()) {
-            throw new IllegalArgumentException("reason and terminalState disagree");
-        }
+        checkArgument((terminalState != TurnState.COMPLETED) == reason.isPresent(),
+                "reason and terminalState disagree");
         return copy(terminalState, version, startedAt, Optional.of(now), cancellationRequestedAt,
                 providerTurnReference, model, reason, finalMetrics);
     }

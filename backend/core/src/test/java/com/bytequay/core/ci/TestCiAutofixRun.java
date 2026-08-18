@@ -104,6 +104,22 @@ class TestCiAutofixRun
     }
 
     @Test
+    void linksAUserTurnWithoutConsumingAnotherFixAttempt()
+    {
+        CiAutofixRun run = newRun("start-message", "feature-message", NOW);
+        CiAutofixAttempt attempt = newAttempt(run, 1, NOW.plusSeconds(1));
+        run = run.addAttempt(attempt, NOW.plusSeconds(1))
+                .linkAttemptTurn(attempt.id(), "turn-1", NOW.plusSeconds(2))
+                .clearCurrentTurn("turn-1", NOW.plusSeconds(3))
+                .pause(PauseReason.TURN_FAILED, "turn failed", NOW.plusSeconds(4))
+                .resume(NOW.plusSeconds(5))
+                .linkUserTurn("turn-2", NOW.plusSeconds(5));
+
+        assertThat(run.currentTurnId()).contains("turn-2");
+        assertThat(run.attemptsUsed()).isEqualTo(1);
+    }
+
+    @Test
     void boundsRerunsPerUnchangedHeadAndResetsOnNewHead()
     {
         CiAutofixRun run = newRun("start-3", "feature-3", NOW);

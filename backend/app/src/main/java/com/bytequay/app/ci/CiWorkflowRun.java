@@ -23,6 +23,7 @@ import static com.bytequay.app.ci.CiActionsChecks.checkText;
 import static com.bytequay.app.ci.CiActionsChecks.checkUrl;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeState;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record CiWorkflowRun(
@@ -38,9 +39,7 @@ public record CiWorkflowRun(
 {
     public CiWorkflowRun
     {
-        if (id <= 0 || workflowId <= 0 || attempt <= 0) {
-            throw new IllegalArgumentException("workflow IDs and attempt must be positive");
-        }
+        checkArgument(id > 0 && workflowId > 0 && attempt > 0, "workflow IDs and attempt must be positive");
         checkText(name, "name", 500);
         status = normalizeState(status, "status");
         conclusion = normalizeConclusion(conclusion);
@@ -48,11 +47,8 @@ public record CiWorkflowRun(
         checkUrl(url, "url");
         requireNonNull(jobs, "jobs is null");
         jobs = ImmutableList.copyOf(jobs);
-        if (jobs.size() > 1000) {
-            throw new IllegalArgumentException("jobs exceeds 1000 values");
-        }
-        if (jobs.stream().anyMatch(job -> job.workflowRunId() != id || job.attempt() > attempt)) {
-            throw new IllegalArgumentException("job does not belong to this workflow attempt");
-        }
+        checkArgument(jobs.size() <= 1000, "jobs exceeds 1000 values");
+        checkArgument(jobs.stream().allMatch(job -> job.workflowRunId() == id && job.attempt() <= attempt),
+                "job does not belong to this workflow attempt");
     }
 }

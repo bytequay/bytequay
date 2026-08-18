@@ -40,6 +40,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 @Entity
 @Table(name = "ci_autofix_attempt")
 public class CiAutofixAttemptEntity
@@ -123,11 +125,10 @@ public class CiAutofixAttemptEntity
 
     public void updateFrom(CiAutofixAttempt attempt)
     {
-        if (!id.equals(attempt.id().toString())
-                || !runId.equals(attempt.runId().toString())
-                || attemptNumber != attempt.number()) {
-            throw new IllegalArgumentException("attempt identity changed");
-        }
+        checkArgument(id.equals(attempt.id().toString())
+                        && runId.equals(attempt.runId().toString())
+                        && attemptNumber == attempt.number(),
+                "attempt identity changed");
         inputSha = attempt.inputSha();
         failuresJson = CiAutofixJson.encodeFailures(attempt.failures());
         agentTurnId = attempt.agentTurnId().orElse(null);

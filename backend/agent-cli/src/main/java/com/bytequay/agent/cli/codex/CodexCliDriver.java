@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -100,6 +101,7 @@ public final class CodexCliDriver
             true,
             true,
             CostProvenance.UNAVAILABLE,
+            ImmutableSet.of(AgentPermissionPolicy.MANUAL),
             ImmutableSet.of());
 
     private final String executable;

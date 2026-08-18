@@ -43,8 +43,7 @@ public class SqliteAgentTurnStore
 
     public SqliteAgentTurnStore(AgentTurnJpaRepository repository)
     {
-        requireNonNull(repository, "repository is null");
-        this.repository = repository;
+        this.repository = requireNonNull(repository, "repository is null");
     }
 
     @Override

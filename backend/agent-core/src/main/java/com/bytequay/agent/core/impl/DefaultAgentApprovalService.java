@@ -37,6 +37,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentApprovalService
@@ -53,12 +54,9 @@ public final class DefaultAgentApprovalService
             ScheduledExecutorService scheduler,
             Clock clock)
     {
-        requireNonNull(eventService, "eventService is null");
-        requireNonNull(scheduler, "scheduler is null");
-        requireNonNull(clock, "clock is null");
-        this.eventService = eventService;
-        this.scheduler = scheduler;
-        this.clock = clock;
+        this.eventService = requireNonNull(eventService, "eventService is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
@@ -66,9 +64,7 @@ public final class DefaultAgentApprovalService
     {
         requireNonNull(request, "request is null");
         requireNonNull(timeout, "timeout is null");
-        if (timeout.isZero() || timeout.isNegative()) {
-            throw new IllegalArgumentException("timeout must be positive");
-        }
+        checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout must be positive");
         if (resolved.containsKey(request.id())) {
             throw new AgentConflictException("Approval identifier was already resolved: " + request.id());
         }

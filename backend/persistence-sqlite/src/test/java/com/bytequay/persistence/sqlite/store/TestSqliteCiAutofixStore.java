@@ -140,6 +140,8 @@ class TestSqliteCiAutofixStore
         SqliteCiAutofixStore restartedStore = new SqliteCiAutofixStore(runRepository, attemptRepository);
         assertThat(restartedStore.find(run.id())).contains(run);
         assertThat(restartedStore.findByIdempotencyKey("round-trip")).contains(run);
+        assertThat(restartedStore.findByAgentTaskId("task-1")).contains(run);
+        assertThat(restartedStore.findByAgentTaskId("missing-task")).isEmpty();
     }
 
     @Test

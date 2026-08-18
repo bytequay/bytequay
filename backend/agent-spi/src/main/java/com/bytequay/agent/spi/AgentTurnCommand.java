@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentTurnCommand(
@@ -34,8 +35,7 @@ public record AgentTurnCommand(
         requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         requireNonNull(maximumRuntime, "maximumRuntime is null");
-        if (maximumRuntime.isZero() || maximumRuntime.isNegative()) {
-            throw new IllegalArgumentException("maximumRuntime must be positive");
-        }
+        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(),
+                "maximumRuntime must be positive");
     }
 }

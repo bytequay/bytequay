@@ -15,7 +15,6 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
@@ -33,13 +32,11 @@ import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -49,11 +46,9 @@ public final class DefaultAgentCompletionService
 {
     static final Duration RETENTION_PERIOD = Duration.ofDays(7);
 
-    private static final int EVENT_PAGE_SIZE = 1000;
-
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
-    private final TaskLogStore logStore;
+    private final AgentFinalResponseReader finalResponseReader;
     private final AgentWorkspaceService workspaceService;
     private final AgentResourceService resourceService;
     private final AgentRuntimeRegistry runtimeRegistry;
@@ -72,7 +67,7 @@ public final class DefaultAgentCompletionService
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.logStore = requireNonNull(logStore, "logStore is null");
+        this.finalResponseReader = new AgentFinalResponseReader(logStore);
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
@@ -99,7 +94,7 @@ public final class DefaultAgentCompletionService
 
             runtimeRegistry.closeSession(task.id());
             TaskMetrics metrics = metricsService.taskTotals(task.id());
-            String finalResponse = finalResponse(task.id());
+            String finalResponse = finalResponseReader.read(task.id());
             WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
             Instant completedAt = Instant.now(clock);
             TaskSummary summary = new TaskSummary(
@@ -157,25 +152,6 @@ public final class DefaultAgentCompletionService
                     CleanupState.DELETED,
                     Optional.of(deleted.updatedAt()),
                     Optional.empty());
-        }
-    }
-
-    private String finalResponse(TaskId taskId)
-    {
-        String response = "";
-        long afterSequence = 0;
-        while (true) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
-            for (AgentEventEnvelope envelope : page) {
-                if (envelope.event() instanceof ProviderAgentEvent.Message message
-                        && message.phase() == ProviderAgentEvent.MessagePhase.FINAL) {
-                    response = message.text();
-                }
-            }
-            if (page.size() < EVENT_PAGE_SIZE) {
-                return response;
-            }
-            afterSequence = page.getLast().sequence();
         }
     }
 

@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ApprovalDecision(
@@ -32,12 +33,9 @@ public record ApprovalDecision(
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
         requireNonNull(resolvedAt, "resolvedAt is null");
-        if (decision == Decision.DENY && scopedPermission.isPresent()) {
-            throw new IllegalArgumentException("a denied decision cannot grant a scoped permission");
-        }
-        if (timedOut && decision != Decision.DENY) {
-            throw new IllegalArgumentException("an approval timeout must deny");
-        }
+        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(),
+                "a denied decision cannot grant a scoped permission");
+        checkArgument(!timedOut || decision == Decision.DENY, "an approval timeout must deny");
     }
 
     public enum Decision

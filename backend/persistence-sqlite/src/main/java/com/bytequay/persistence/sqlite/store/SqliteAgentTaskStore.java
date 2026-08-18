@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -48,8 +49,7 @@ public class SqliteAgentTaskStore
 
     public SqliteAgentTaskStore(AgentTaskJpaRepository repository)
     {
-        requireNonNull(repository, "repository is null");
-        this.repository = repository;
+        this.repository = requireNonNull(repository, "repository is null");
     }
 
     @Override
@@ -136,8 +136,6 @@ public class SqliteAgentTaskStore
 
     private static void checkLimit(int limit)
     {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("limit must be positive");
-        }
+        checkArgument(limit > 0, "limit must be positive");
     }
 }

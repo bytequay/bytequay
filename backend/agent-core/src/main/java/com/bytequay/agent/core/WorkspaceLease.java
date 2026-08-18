@@ -16,6 +16,7 @@ package com.bytequay.agent.core;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public final class WorkspaceLease
@@ -28,15 +29,10 @@ public final class WorkspaceLease
 
     public WorkspaceLease(TaskId taskId, Path worktree, Runnable release)
     {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(worktree, "worktree is null");
-        requireNonNull(release, "release is null");
-        this.taskId = taskId;
-        this.worktree = worktree;
-        this.release = release;
-        if (!worktree.isAbsolute()) {
-            throw new IllegalArgumentException("worktree is not absolute");
-        }
+        this.taskId = requireNonNull(taskId, "taskId is null");
+        this.worktree = requireNonNull(worktree, "worktree is null");
+        this.release = requireNonNull(release, "release is null");
+        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
     }
 
     public TaskId taskId()

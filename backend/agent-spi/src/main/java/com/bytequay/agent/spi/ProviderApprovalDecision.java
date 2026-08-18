@@ -16,6 +16,7 @@ package com.bytequay.agent.spi;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ProviderApprovalDecision(Decision decision, Optional<String> scopedPermission)
@@ -24,9 +25,8 @@ public record ProviderApprovalDecision(Decision decision, Optional<String> scope
     {
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
-        if (decision == Decision.DENY && scopedPermission.isPresent()) {
-            throw new IllegalArgumentException("a denied decision cannot grant a scoped permission");
-        }
+        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(),
+                "a denied decision cannot grant a scoped permission");
     }
 
     public static ProviderApprovalDecision allow(Optional<String> scopedPermission)

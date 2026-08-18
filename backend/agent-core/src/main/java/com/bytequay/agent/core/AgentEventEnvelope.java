@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentEventEnvelope(
@@ -36,12 +37,8 @@ public record AgentEventEnvelope(
         requireNonNull(turnId, "turnId is null");
         requireNonNull(occurredAt, "occurredAt is null");
         requireNonNull(event, "event is null");
-        if (schemaVersion != CURRENT_SCHEMA_VERSION) {
-            throw new IllegalArgumentException("Unsupported schemaVersion: " + schemaVersion);
-        }
-        if (sequence <= 0) {
-            throw new IllegalArgumentException("sequence must be positive");
-        }
+        checkArgument(schemaVersion == CURRENT_SCHEMA_VERSION, "Unsupported schemaVersion: " + schemaVersion);
+        checkArgument(sequence > 0, "sequence must be positive");
     }
 
     public ProviderAgentEvent.Kind type()

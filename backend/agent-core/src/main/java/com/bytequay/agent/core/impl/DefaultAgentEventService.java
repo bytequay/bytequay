@@ -47,12 +47,9 @@ public final class DefaultAgentEventService
 
     public DefaultAgentEventService(TaskLogStore logStore, AgentTaskStore taskStore, Clock clock)
     {
-        requireNonNull(logStore, "logStore is null");
-        requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(clock, "clock is null");
-        this.logStore = logStore;
-        this.taskStore = taskStore;
-        this.clock = clock;
+        this.logStore = requireNonNull(logStore, "logStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override

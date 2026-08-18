@@ -50,22 +50,22 @@ public final class DefaultAgentTaskService
             AgentDriverRegistry driverRegistry,
             Clock clock)
     {
-        requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(workspaceService, "workspaceService is null");
-        requireNonNull(resourceService, "resourceService is null");
-        requireNonNull(driverRegistry, "driverRegistry is null");
-        requireNonNull(clock, "clock is null");
-        this.taskStore = taskStore;
-        this.workspaceService = workspaceService;
-        this.resourceService = resourceService;
-        this.driverRegistry = driverRegistry;
-        this.clock = clock;
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.resourceService = requireNonNull(resourceService, "resourceService is null");
+        this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
+        AgentDriver driver = driverRegistry.require(command.laneId());
+        if (!driver.capabilities().permissionPolicies().contains(command.permissionPolicy())) {
+            throw new AgentUnavailableException(
+                    "Agent lane " + command.laneId() + " cannot enforce " + command.permissionPolicy());
+        }
         TaskId taskId = TaskId.random();
         WorkspaceLease lease = workspaceService.acquire(
                 taskId,
@@ -73,7 +73,6 @@ public final class DefaultAgentTaskService
                 command.repository());
         try {
             resourceService.allocate(taskId);
-            AgentDriver driver = driverRegistry.require(command.laneId());
             AgentProviderStatus status = driver.probe();
             if (!status.available()) {
                 throw new AgentUnavailableException(status.diagnostic());

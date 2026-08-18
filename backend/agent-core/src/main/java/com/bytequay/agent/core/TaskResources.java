@@ -15,6 +15,7 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record TaskResources(
@@ -30,13 +31,12 @@ public record TaskResources(
         requireNonNull(blobsDirectory, "blobsDirectory is null");
         requireNonNull(providerDirectory, "providerDirectory is null");
         Path root = runtimeDirectory.toAbsolutePath().normalize();
-        if (!runtimeDirectory.isAbsolute() || !eventsFile.isAbsolute() || !blobsDirectory.isAbsolute() || !providerDirectory.isAbsolute()) {
-            throw new IllegalArgumentException("task resource path is not absolute");
-        }
-        if (!eventsFile.toAbsolutePath().normalize().startsWith(root)
-                || !blobsDirectory.toAbsolutePath().normalize().startsWith(root)
-                || !providerDirectory.toAbsolutePath().normalize().startsWith(root)) {
-            throw new IllegalArgumentException("task resource escapes runtimeDirectory");
-        }
+        checkArgument(runtimeDirectory.isAbsolute() && eventsFile.isAbsolute()
+                        && blobsDirectory.isAbsolute() && providerDirectory.isAbsolute(),
+                "task resource path is not absolute");
+        checkArgument(eventsFile.toAbsolutePath().normalize().startsWith(root)
+                        && blobsDirectory.toAbsolutePath().normalize().startsWith(root)
+                        && providerDirectory.toAbsolutePath().normalize().startsWith(root),
+                "task resource escapes runtimeDirectory");
     }
 }

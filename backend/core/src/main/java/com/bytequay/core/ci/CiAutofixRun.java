@@ -26,6 +26,7 @@ import java.util.Set;
 import static com.bytequay.core.ci.CiAutofixChecks.checkOptionalText;
 import static com.bytequay.core.ci.CiAutofixChecks.checkSha;
 import static com.bytequay.core.ci.CiAutofixChecks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Complete durable projection of one consented CI Autofix run. */
@@ -71,9 +72,8 @@ public record CiAutofixRun(
         checkSha(expectedRemoteHead, "expectedRemoteHead");
         checkSha(latestObservedBaseSha, "latestObservedBaseSha");
         requireNonNull(authorization, "authorization is null");
-        if (attemptsUsed < 0 || attemptsUsed > authorization.maxFixAttempts()) {
-            throw new IllegalArgumentException("attemptsUsed exceeds authorization");
-        }
+        checkArgument(attemptsUsed >= 0 && attemptsUsed <= authorization.maxFixAttempts(),
+                "attemptsUsed exceeds authorization");
         requireNonNull(rerunCounter, "rerunCounter is null");
         requireNonNull(finalFixupCheck, "finalFixupCheck is null");
         checkOptionalText(currentTurnId, "currentTurnId", 128);
@@ -81,9 +81,7 @@ public record CiAutofixRun(
         requireNonNull(rerunJournal, "rerunJournal is null");
         requireNonNull(warnings, "warnings is null");
         warnings = ImmutableList.copyOf(warnings);
-        if (warnings.size() > MAX_WARNINGS) {
-            throw new IllegalArgumentException("warnings exceeds " + MAX_WARNINGS + " values");
-        }
+        checkArgument(warnings.size() <= MAX_WARNINGS, "warnings exceeds " + MAX_WARNINGS + " values");
         requireNonNull(attempts, "attempts is null");
         attempts = ImmutableList.copyOf(attempts);
         validateAttempts(id, authorization, attemptsUsed, attempts);
@@ -93,19 +91,13 @@ public record CiAutofixRun(
         if (rerunJournal.isPresent()) {
             requireAttempt(attempts, rerunJournal.orElseThrow().attemptId());
         }
-        if (version < 0) {
-            throw new IllegalArgumentException("version is negative");
-        }
+        checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(terminalAt, "terminalAt is null");
-        if (updatedAt.isBefore(createdAt)) {
-            throw new IllegalArgumentException("updatedAt is before createdAt");
-        }
+        checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
         terminalAt.ifPresent(value -> {
-            if (value.isBefore(createdAt)) {
-                throw new IllegalArgumentException("terminalAt is before createdAt");
-            }
+            checkArgument(!value.isBefore(createdAt), "terminalAt is before createdAt");
         });
         validateStatus(status, pauseReason, finishReason, summary, currentTurnId, terminalAt);
     }
@@ -174,16 +166,12 @@ public record CiAutofixRun(
     {
         requireActive(now);
         requireNonNull(attempt, "attempt is null");
-        if (!attempt.runId().equals(id)) {
-            throw new IllegalArgumentException("attempt belongs to another run");
-        }
+        checkArgument(attempt.runId().equals(id), "attempt belongs to another run");
         if (attempts.size() >= authorization.maxFixAttempts()) {
             throw new IllegalStateException("fix attempt limit is exhausted");
         }
         int expectedNumber = attempts.size() + 1;
-        if (attempt.number() != expectedNumber) {
-            throw new IllegalArgumentException("attempt number must be " + expectedNumber);
-        }
+        checkArgument(attempt.number() == expectedNumber, "attempt number must be " + expectedNumber);
         return copy(
                 agentTaskId,
                 status,
@@ -234,14 +222,38 @@ public record CiAutofixRun(
                 terminalAt);
     }
 
+    public CiAutofixRun linkUserTurn(String turnId, Instant now)
+    {
+        requireActive(now);
+        checkText(turnId, "turnId", 128);
+        if (currentTurnId.isPresent() && !currentTurnId.orElseThrow().equals(turnId)) {
+            throw new IllegalStateException("run already owns another current turn");
+        }
+        return copy(
+                agentTaskId,
+                status,
+                pauseReason,
+                finishReason,
+                summary,
+                attemptsUsed,
+                rerunCounter,
+                finalFixupCheck,
+                Optional.of(turnId),
+                pushJournal,
+                rerunJournal,
+                warnings,
+                attempts,
+                now,
+                terminalAt);
+    }
+
     public CiAutofixRun updateAttempt(CiAutofixAttempt attempt, Instant now)
     {
         requireMutable(now);
         requireNonNull(attempt, "attempt is null");
         CiAutofixAttempt current = requireAttempt(attempts, attempt.id());
-        if (!attempt.runId().equals(id) || attempt.number() != current.number()) {
-            throw new IllegalArgumentException("attempt identity changed");
-        }
+        checkArgument(attempt.runId().equals(id) && attempt.number() == current.number(),
+                "attempt identity changed");
         return copy(
                 agentTaskId,
                 status,
@@ -264,9 +276,8 @@ public record CiAutofixRun(
     {
         requireMutable(now);
         checkText(turnId, "turnId", 128);
-        if (currentTurnId.isPresent() && !currentTurnId.orElseThrow().equals(turnId)) {
-            throw new IllegalArgumentException("turnId is not the current turn");
-        }
+        checkArgument(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId),
+                "turnId is not the current turn");
         return copy(
                 agentTaskId,
                 status,
@@ -526,9 +537,7 @@ public record CiAutofixRun(
         if (status == Status.FINISHED) {
             throw new IllegalStateException("run is finished");
         }
-        if (now.isBefore(updatedAt)) {
-            throw new IllegalArgumentException("update time is before the previous update");
-        }
+        checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
     }
 
     private void requireActive(Instant now)
@@ -545,26 +554,19 @@ public record CiAutofixRun(
             int attemptsUsed,
             List<CiAutofixAttempt> attempts)
     {
-        if (attempts.size() > authorization.maxFixAttempts()) {
-            throw new IllegalArgumentException("attempts exceeds authorization");
-        }
+        checkArgument(attempts.size() <= authorization.maxFixAttempts(), "attempts exceeds authorization");
         Set<CiAutofixAttemptId> ids = new HashSet<>();
         int linkedTurns = 0;
         for (int index = 0; index < attempts.size(); index++) {
             CiAutofixAttempt attempt = requireNonNull(attempts.get(index), "attempt is null");
-            if (!attempt.runId().equals(runId)) {
-                throw new IllegalArgumentException("attempt belongs to another run");
-            }
-            if (attempt.number() != index + 1 || !ids.add(attempt.id())) {
-                throw new IllegalArgumentException("attempts are not uniquely and consecutively ordered");
-            }
+            checkArgument(attempt.runId().equals(runId), "attempt belongs to another run");
+            checkArgument(attempt.number() == index + 1 && ids.add(attempt.id()),
+                    "attempts are not uniquely and consecutively ordered");
             if (attempt.agentTurnId().isPresent()) {
                 linkedTurns++;
             }
         }
-        if (attemptsUsed != linkedTurns) {
-            throw new IllegalArgumentException("attemptsUsed disagrees with linked agent turns");
-        }
+        checkArgument(attemptsUsed == linkedTurns, "attemptsUsed disagrees with linked agent turns");
     }
 
     private static void validateStatus(
@@ -577,21 +579,19 @@ public record CiAutofixRun(
     {
         switch (status) {
             case ACTIVE -> {
-                if (pauseReason.isPresent() || finishReason.isPresent() || summary.isPresent() || terminalAt.isPresent()) {
-                    throw new IllegalArgumentException("active run carries terminal or pause facts");
-                }
+                checkArgument(pauseReason.isEmpty() && finishReason.isEmpty()
+                                && summary.isEmpty() && terminalAt.isEmpty(),
+                        "active run carries terminal or pause facts");
             }
             case PAUSED -> {
-                if (pauseReason.isEmpty() || finishReason.isPresent() || summary.isEmpty()
-                        || currentTurnId.isPresent() || terminalAt.isPresent()) {
-                    throw new IllegalArgumentException("paused run facts are inconsistent");
-                }
+                checkArgument(pauseReason.isPresent() && finishReason.isEmpty() && summary.isPresent()
+                                && currentTurnId.isEmpty() && terminalAt.isEmpty(),
+                        "paused run facts are inconsistent");
             }
             case FINISHED -> {
-                if (pauseReason.isPresent() || finishReason.isEmpty() || summary.isEmpty()
-                        || currentTurnId.isPresent() || terminalAt.isEmpty()) {
-                    throw new IllegalArgumentException("finished run facts are inconsistent");
-                }
+                checkArgument(pauseReason.isEmpty() && finishReason.isPresent() && summary.isPresent()
+                                && currentTurnId.isEmpty() && terminalAt.isPresent(),
+                        "finished run facts are inconsistent");
             }
         }
     }
@@ -664,9 +664,7 @@ public record CiAutofixRun(
             checkText(headRef, "headRef", 255);
             checkText(baseRef, "baseRef", 255);
             requireNonNull(worktree, "worktree is null");
-            if (!worktree.isAbsolute()) {
-                throw new IllegalArgumentException("worktree is not absolute");
-            }
+            checkArgument(worktree.isAbsolute(), "worktree is not absolute");
             worktree = worktree.normalize();
             checkText(laneId, "laneId", 100);
         }
@@ -687,14 +685,11 @@ public record CiAutofixRun(
     {
         public Authorization
         {
-            if (maxFixAttempts <= 0 || maxFixAttempts > MAX_FIX_ATTEMPTS) {
-                throw new IllegalArgumentException("maxFixAttempts must be between 1 and " + MAX_FIX_ATTEMPTS);
-            }
+            checkArgument(maxFixAttempts > 0 && maxFixAttempts <= MAX_FIX_ATTEMPTS,
+                    "maxFixAttempts must be between 1 and " + MAX_FIX_ATTEMPTS);
             requireNonNull(authorizedAt, "authorizedAt is null");
             requireNonNull(expiresAt, "expiresAt is null");
-            if (!expiresAt.isAfter(authorizedAt)) {
-                throw new IllegalArgumentException("expiresAt must be after authorizedAt");
-            }
+            checkArgument(expiresAt.isAfter(authorizedAt), "expiresAt must be after authorizedAt");
         }
     }
 
@@ -704,12 +699,8 @@ public record CiAutofixRun(
         {
             requireNonNull(headSha, "headSha is null");
             headSha.ifPresent(sha -> checkSha(sha, "headSha"));
-            if (used < 0 || used > MAX_RERUNS_PER_HEAD) {
-                throw new IllegalArgumentException("rerun count is outside the limit");
-            }
-            if (headSha.isPresent() != (used > 0)) {
-                throw new IllegalArgumentException("rerun head and count disagree");
-            }
+            checkArgument(used >= 0 && used <= MAX_RERUNS_PER_HEAD, "rerun count is outside the limit");
+            checkArgument(headSha.isPresent() == (used > 0), "rerun head and count disagree");
         }
 
         public static RerunCounter empty()
@@ -743,9 +734,7 @@ public record CiAutofixRun(
             checkSha(localHeadSha, "localHeadSha");
             checkText(localFingerprint, "localFingerprint", 200);
             requireNonNull(startedAt, "startedAt is null");
-            if (retries < 0 || retries > 1) {
-                throw new IllegalArgumentException("push retries must be 0 or 1");
-            }
+            checkArgument(retries >= 0 && retries <= 1, "push retries must be 0 or 1");
         }
     }
 
@@ -760,15 +749,13 @@ public record CiAutofixRun(
         public RerunJournal
         {
             requireNonNull(attemptId, "attemptId is null");
-            if (workflowRunId <= 0 || previousAttempt <= 0) {
-                throw new IllegalArgumentException("workflow run and previous attempt must be positive");
-            }
+            checkArgument(workflowRunId > 0 && previousAttempt > 0,
+                    "workflow run and previous attempt must be positive");
             checkSha(headSha, "headSha");
             requireNonNull(startedAt, "startedAt is null");
             requireNonNull(observedAttempt, "observedAttempt is null");
-            if (observedAttempt.isPresent() && observedAttempt.orElseThrow() <= previousAttempt) {
-                throw new IllegalArgumentException("observedAttempt must be later than previousAttempt");
-            }
+            checkArgument(observedAttempt.isEmpty() || observedAttempt.orElseThrow() > previousAttempt,
+                    "observedAttempt must be later than previousAttempt");
         }
     }
 
@@ -779,9 +766,7 @@ public record CiAutofixRun(
             checkSha(headSha, "headSha");
             requireNonNull(result, "result is null");
             requireNonNull(diagnostics, "diagnostics is null");
-            if (diagnostics.length() > 8 * 1024) {
-                throw new IllegalArgumentException("diagnostics exceeds 8192 characters");
-            }
+            checkArgument(diagnostics.length() <= 8 * 1024, "diagnostics exceeds 8192 characters");
             requireNonNull(checkedAt, "checkedAt is null");
         }
     }

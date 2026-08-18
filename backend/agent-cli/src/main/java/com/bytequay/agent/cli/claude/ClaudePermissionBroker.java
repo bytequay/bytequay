@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -48,7 +49,7 @@ import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
-/** Serves the task-scoped Claude permission-prompt MCP tool. */
+/** Serves ByteQuay's task-scoped Claude MCP tools. */
 public final class ClaudePermissionBroker
 {
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
@@ -57,28 +58,42 @@ public final class ClaudePermissionBroker
 
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
+    private final CiMemoryReader ciMemoryReader;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
-    public ClaudePermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper)
+    public ClaudePermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader)
     {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
                 .registerModule(new Jdk8Module())
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        this.ciMemoryReader = requireNonNull(ciMemoryReader, "ciMemoryReader is null");
     }
 
     Registration register(
+            String taskId,
+            Path worktree,
             Path providerDirectory,
+            AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
             SecretRedactor redactor)
     {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(worktree, "worktree is null");
         requireNonNull(providerDirectory, "providerDirectory is null");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
-        contexts.put(token, new PermissionContext(approvals, redactor));
+        Optional<Path> settingsFile = permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
+                ? Optional.of(providerDirectory.resolve("ci-autofix-settings.json"))
+                : Optional.empty();
+        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor));
         try {
             Files.createDirectories(providerDirectory);
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
@@ -87,12 +102,16 @@ public final class ClaudePermissionBroker
                             "http",
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token)))));
-            Files.writeString(configFile, json, StandardCharsets.UTF_8);
-            Files.setPosixFilePermissions(configFile, PosixFilePermissions.fromString("rw-------"));
-            return new Registration(configFile, token);
+            writeOwnerOnly(configFile, json);
+            if (settingsFile.isPresent()) {
+                writeOwnerOnly(settingsFile.orElseThrow(), ciAutofixSettings());
+            }
+            return new Registration(configFile, settingsFile, token);
         }
         catch (IOException e) {
             contexts.remove(token);
+            delete(configFile);
+            settingsFile.ifPresent(ClaudePermissionBroker::delete);
             throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
         }
     }
@@ -121,7 +140,7 @@ public final class ClaudePermissionBroker
                         new ServerInfo("bytequay", "1")));
                 case "notifications/initialized" -> new McpHttpResponse(202, Optional.empty());
                 case "ping" -> response(request.id(), ImmutableMap.of());
-                case "tools/list" -> response(request.id(), new ToolsResult(ImmutableList.of(permissionTool())));
+                case "tools/list" -> response(request.id(), new ToolsResult(tools(context)));
                 case "tools/call" -> callTool(request, context);
                 default -> error(request.id(), -32601, "Method not found");
             };
@@ -135,10 +154,23 @@ public final class ClaudePermissionBroker
             throws JsonProcessingException
     {
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
-        if (!params.name().equals("permission_prompt")) {
-            return error(request.id(), -32602, "Unknown tool");
+        return switch (params.name()) {
+            case "permission_prompt" -> permission(request.id(), params.arguments(), context);
+            case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
+            default -> error(request.id(), -32602, "Unknown tool");
+        };
+    }
+
+    private McpHttpResponse permission(JsonNode id, JsonNode input, PermissionContext context)
+            throws JsonProcessingException
+    {
+        PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
+        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+            PermissionResult decision = ciAutofixPermission(arguments, context.worktree());
+            return response(id, new ToolResult(
+                    ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))),
+                    false));
         }
-        PermissionArguments arguments = objectMapper.treeToValue(params.arguments(), PermissionArguments.class);
         String detail = bounded(context.redactor().redact(objectMapper.writeValueAsString(arguments.input())));
         ProviderApprovalRequest approval = new ProviderApprovalRequest(
                 UUID.randomUUID().toString(),
@@ -166,7 +198,22 @@ public final class ClaudePermissionBroker
                 ? new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty())
                 : new PermissionResult("deny", Optional.empty(), Optional.of("Denied by user"));
         String text = objectMapper.writeValueAsString(result);
-        return response(request.id(), new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+    }
+
+    private McpHttpResponse readCiMemory(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || !validMemoryArguments(arguments)) {
+            return error(id, -32602, "Invalid read_ci_memory arguments");
+        }
+        Optional<String> query = Optional.ofNullable(arguments.get("query"))
+                .filter(node -> !node.isNull())
+                .map(JsonNode::asText)
+                .map(String::trim)
+                .map(value -> value.length() <= 200 ? value : value.substring(0, 200))
+                .filter(value -> !value.isEmpty());
+        String markdown = ciMemoryReader.read(context.taskId(), query);
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));
     }
 
     private McpHttpResponse response(JsonNode id, Object result)
@@ -204,6 +251,112 @@ public final class ClaudePermissionBroker
                         "additionalProperties", true));
     }
 
+    private static ImmutableList<ToolDefinition> tools(PermissionContext context)
+    {
+        ImmutableList.Builder<ToolDefinition> tools = ImmutableList.builder();
+        tools.add(permissionTool());
+        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+            tools.add(new ToolDefinition(
+                    "read_ci_memory",
+                    "Read recent or matching CI Autofix history for this task",
+                    ImmutableMap.of(
+                            "type", "object",
+                            "properties", ImmutableMap.of(
+                                    "query", ImmutableMap.of("type", "string", "maxLength", 200)),
+                            "additionalProperties", false)));
+        }
+        return tools.build();
+    }
+
+    private static PermissionResult ciAutofixPermission(PermissionArguments arguments, Path worktree)
+    {
+        if (arguments.toolName().equalsIgnoreCase("Edit")
+                || arguments.toolName().equalsIgnoreCase("Write")
+                || arguments.toolName().equalsIgnoreCase("NotebookEdit")) {
+            Optional<Path> requested = requestedPath(arguments.input(), worktree);
+            if (requested.isPresent() && requested.orElseThrow().startsWith(worktree.toAbsolutePath().normalize())) {
+                return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
+            }
+        }
+        return new PermissionResult(
+                "deny",
+                Optional.empty(),
+                Optional.of("CI Autofix permits only sandboxed commands and file edits inside its worktree"));
+    }
+
+    private static Optional<Path> requestedPath(JsonNode input, Path worktree)
+    {
+        for (String field : ImmutableList.of("file_path", "notebook_path", "path")) {
+            JsonNode value = input.get(field);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                try {
+                    Path path = Path.of(value.asText());
+                    return Optional.of((path.isAbsolute() ? path : worktree.resolve(path)).toAbsolutePath().normalize());
+                }
+                catch (RuntimeException ignored) {
+                    return Optional.empty();
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean validMemoryArguments(JsonNode arguments)
+    {
+        if (!arguments.isObject() || arguments.size() > 1 || (arguments.size() == 1 && !arguments.has("query"))) {
+            return false;
+        }
+        JsonNode query = arguments.get("query");
+        return query == null || query.isNull() || query.isTextual();
+    }
+
+    private String ciAutofixSettings()
+            throws JsonProcessingException
+    {
+        return objectMapper.writeValueAsString(ImmutableMap.of(
+                "autoMemoryEnabled", false,
+                "permissions", ImmutableMap.of("deny", ImmutableList.of(
+                        "WebFetch",
+                        "WebSearch",
+                        "Bash(git credential)",
+                        "Bash(git credential:*)",
+                        "Bash(git push:*)",
+                        "Bash(gh:*)",
+                        "Read(~/.config/gh/**)",
+                        "Read(~/.git-credentials)",
+                        "Read(~/.netrc)",
+                        "Read(~/.ssh/**)")),
+                "sandbox", ImmutableMap.of(
+                        "enabled", true,
+                        "failIfUnavailable", true,
+                        "autoAllowBashIfSandboxed", true,
+                        "allowUnsandboxedCommands", false,
+                        "excludedCommands", ImmutableList.of(),
+                        "filesystem", ImmutableMap.of("denyRead", ImmutableList.of(
+                                "~/.config/gh",
+                                "~/.git-credentials",
+                                "~/.netrc",
+                                "~/.ssh")),
+                        "network", ImmutableMap.of("allowedDomains", ImmutableList.of()))));
+    }
+
+    private static void writeOwnerOnly(Path path, String content)
+            throws IOException
+    {
+        Files.writeString(path, content, StandardCharsets.UTF_8);
+        Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+    }
+
+    private static void delete(Path path)
+    {
+        try {
+            Files.deleteIfExists(path);
+        }
+        catch (IOException ignored) {
+            // Task resource cleanup owns the final deletion retry.
+        }
+    }
+
     private static ProviderApprovalRequest.Kind kind(String toolName)
     {
         if (toolName.equalsIgnoreCase("Bash")) {
@@ -233,11 +386,13 @@ public final class ClaudePermissionBroker
             implements AutoCloseable
     {
         private final Path configFile;
+        private final Optional<Path> settingsFile;
         private final String token;
 
-        private Registration(Path configFile, String token)
+        private Registration(Path configFile, Optional<Path> settingsFile, String token)
         {
             this.configFile = requireNonNull(configFile, "configFile is null");
+            this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
             this.token = requireNonNull(token, "token is null");
         }
 
@@ -246,16 +401,17 @@ public final class ClaudePermissionBroker
             return configFile;
         }
 
+        Optional<Path> settingsFile()
+        {
+            return settingsFile;
+        }
+
         @Override
         public void close()
         {
             contexts.remove(token);
-            try {
-                Files.deleteIfExists(configFile);
-            }
-            catch (IOException ignored) {
-                // Task resource cleanup owns the final deletion retry.
-            }
+            delete(configFile);
+            settingsFile.ifPresent(ClaudePermissionBroker::delete);
         }
     }
 
@@ -268,10 +424,18 @@ public final class ClaudePermissionBroker
         }
     }
 
-    private record PermissionContext(AgentApprovalHandler approvals, SecretRedactor redactor)
+    private record PermissionContext(
+            String taskId,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor)
     {
         private PermissionContext
         {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(worktree, "worktree is null");
+            requireNonNull(permissionPolicy, "permissionPolicy is null");
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
         }
@@ -363,4 +527,10 @@ public final class ClaudePermissionBroker
     private record McpErrorResponse(String jsonrpc, JsonNode id, McpError error) {}
 
     private record McpError(int code, String message) {}
+
+    @FunctionalInterface
+    public interface CiMemoryReader
+    {
+        String read(String taskId, Optional<String> query);
+    }
 }

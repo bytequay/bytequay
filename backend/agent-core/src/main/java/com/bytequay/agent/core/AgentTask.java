@@ -23,6 +23,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentTask(
@@ -64,39 +65,25 @@ public record AgentTask(
         requireNonNull(cleanupState, "cleanupState is null");
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
-        if (!worktree.isAbsolute()) {
-            throw new IllegalArgumentException("worktree is not absolute");
-        }
-        if (version < 0) {
-            throw new IllegalArgumentException("version is negative");
-        }
-        if (updatedAt.isBefore(createdAt)) {
-            throw new IllegalArgumentException("updatedAt is before createdAt");
-        }
-        if (sessionReference.stream().anyMatch(reference -> !reference.laneId().equals(laneId))) {
-            throw new IllegalArgumentException("session reference belongs to another lane");
-        }
-        if (state.terminal() != terminalAt.isPresent() || state.terminal() != deleteAfter.isPresent()) {
-            throw new IllegalArgumentException("terminal timestamps and task state disagree");
-        }
-        if ((state == TaskState.FAILED) != terminalReason.isPresent()) {
-            throw new IllegalArgumentException("terminalReason and task state disagree");
-        }
-        if ((state == TaskState.COMPLETED) != summary.isPresent()) {
-            throw new IllegalArgumentException("summary and task state disagree");
-        }
-        if (summary.stream().anyMatch(value -> !value.metrics().equals(metrics))) {
-            throw new IllegalArgumentException("summary metrics and task metrics disagree");
-        }
-        if (terminalAt.isPresent() && !deleteAfter.orElseThrow().isAfter(terminalAt.orElseThrow())) {
-            throw new IllegalArgumentException("deleteAfter must be after terminalAt");
-        }
-        if (!state.terminal() && cleanupState != CleanupState.RETAINED) {
-            throw new IllegalArgumentException("a live task cannot enter cleanup");
-        }
-        if ((cleanupState == CleanupState.RETRY_PENDING) != cleanupFailure.isPresent()) {
-            throw new IllegalArgumentException("cleanupFailure and cleanupState disagree");
-        }
+        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
+        checkArgument(version >= 0, "version is negative");
+        checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
+        checkArgument(sessionReference.stream().allMatch(reference -> reference.laneId().equals(laneId)),
+                "session reference belongs to another lane");
+        checkArgument(state.terminal() == terminalAt.isPresent() && state.terminal() == deleteAfter.isPresent(),
+                "terminal timestamps and task state disagree");
+        checkArgument((state == TaskState.FAILED) == terminalReason.isPresent(),
+                "terminalReason and task state disagree");
+        checkArgument((state == TaskState.COMPLETED) == summary.isPresent(),
+                "summary and task state disagree");
+        checkArgument(summary.stream().allMatch(value -> value.metrics().equals(metrics)),
+                "summary metrics and task metrics disagree");
+        checkArgument(terminalAt.isEmpty() || deleteAfter.orElseThrow().isAfter(terminalAt.orElseThrow()),
+                "deleteAfter must be after terminalAt");
+        checkArgument(state.terminal() || cleanupState == CleanupState.RETAINED,
+                "a live task cannot enter cleanup");
+        checkArgument((cleanupState == CleanupState.RETRY_PENDING) == cleanupFailure.isPresent(),
+                "cleanupFailure and cleanupState disagree");
     }
 
     public static AgentTask created(
@@ -254,9 +241,7 @@ public record AgentTask(
             Optional<Instant> updatedDeleteAfter,
             Optional<String> updatedCleanupFailure)
     {
-        if (updateTime.isBefore(updatedAt)) {
-            throw new IllegalArgumentException("updateTime is before the current update time");
-        }
+        checkArgument(!updateTime.isBefore(updatedAt), "updateTime is before the current update time");
         return new AgentTask(
                 id,
                 title,

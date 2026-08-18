@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentTurnResult(
@@ -31,15 +32,11 @@ public record AgentTurnResult(
         checkOptionalText(finalResponse, "finalResponse");
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(elapsed, "elapsed is null");
-        if (elapsed.isNegative()) {
-            throw new IllegalArgumentException("elapsed is negative");
-        }
-        if (state == State.COMPLETED && terminalReason.isPresent()) {
-            throw new IllegalArgumentException("a completed turn cannot have a terminal reason");
-        }
-        if (state != State.COMPLETED && terminalReason.isEmpty()) {
-            throw new IllegalArgumentException("a non-completed turn requires a terminal reason");
-        }
+        checkArgument(!elapsed.isNegative(), "elapsed is negative");
+        checkArgument(state != State.COMPLETED || terminalReason.isEmpty(),
+                "a completed turn cannot have a terminal reason");
+        checkArgument(state == State.COMPLETED || terminalReason.isPresent(),
+                "a non-completed turn requires a terminal reason");
     }
 
     public enum State

@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentSessionContext(
@@ -35,11 +36,7 @@ public record AgentSessionContext(
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(approvals, "approvals is null");
-        if (!worktree.isAbsolute()) {
-            throw new IllegalArgumentException("worktree is not absolute");
-        }
-        if (!providerDirectory.isAbsolute()) {
-            throw new IllegalArgumentException("providerDirectory is not absolute");
-        }
+        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
+        checkArgument(providerDirectory.isAbsolute(), "providerDirectory is not absolute");
     }
 }

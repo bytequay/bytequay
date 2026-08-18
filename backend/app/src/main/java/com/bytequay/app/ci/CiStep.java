@@ -19,6 +19,7 @@ import static com.bytequay.app.ci.CiActionsChecks.checkText;
 import static com.bytequay.app.ci.CiActionsChecks.isActionableConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeState;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public record CiStep(
         int number,
@@ -28,9 +29,7 @@ public record CiStep(
 {
     public CiStep
     {
-        if (number <= 0) {
-            throw new IllegalArgumentException("number must be positive");
-        }
+        checkArgument(number > 0, "number must be positive");
         checkText(name, "name", 500);
         status = normalizeState(status, "status");
         conclusion = normalizeConclusion(conclusion);

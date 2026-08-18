@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 final class CiActionsChecks
@@ -46,9 +47,8 @@ final class CiActionsChecks
     static String checkText(String value, String name, int maximumLength)
     {
         requireNonNull(value, name + " is null");
-        if (value.isBlank() || value.length() > maximumLength) {
-            throw new IllegalArgumentException(name + " must contain between 1 and " + maximumLength + " characters");
-        }
+        checkArgument(!value.isBlank() && value.length() <= maximumLength,
+                name + " must contain between 1 and " + maximumLength + " characters");
         return value;
     }
 
@@ -62,9 +62,8 @@ final class CiActionsChecks
     static String checkSha(String value, String name)
     {
         requireNonNull(value, name + " is null");
-        if (!value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")) {
-            throw new IllegalArgumentException(name + " is not a full lowercase Git SHA");
-        }
+        checkArgument(value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"),
+                name + " is not a full lowercase Git SHA");
         return value;
     }
 
@@ -72,9 +71,9 @@ final class CiActionsChecks
     {
         checkText(value, name, 2048);
         URI uri = URI.create(value);
-        if (!uri.isAbsolute() || uri.getHost() == null || !("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))) {
-            throw new IllegalArgumentException(name + " is not an absolute HTTP URL");
-        }
+        checkArgument(uri.isAbsolute() && uri.getHost() != null
+                        && ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())),
+                name + " is not an absolute HTTP URL");
         return value;
     }
 

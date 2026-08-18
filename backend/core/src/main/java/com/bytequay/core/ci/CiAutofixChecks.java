@@ -16,6 +16,7 @@ package com.bytequay.core.ci;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 final class CiAutofixChecks
@@ -27,12 +28,8 @@ final class CiAutofixChecks
     public static String checkText(String value, String name, int maximumLength)
     {
         requireNonNull(value, name + " is null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(name + " is blank");
-        }
-        if (value.length() > maximumLength) {
-            throw new IllegalArgumentException(name + " exceeds " + maximumLength + " characters");
-        }
+        checkArgument(!value.isBlank(), name + " is blank");
+        checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
         return value;
     }
 
@@ -46,9 +43,7 @@ final class CiAutofixChecks
     public static String checkSha(String value, String name)
     {
         requireNonNull(value, name + " is null");
-        if (!SHA.matcher(value).matches()) {
-            throw new IllegalArgumentException(name + " is not a full Git SHA");
-        }
+        checkArgument(SHA.matcher(value).matches(), name + " is not a full Git SHA");
         return value;
     }
 }

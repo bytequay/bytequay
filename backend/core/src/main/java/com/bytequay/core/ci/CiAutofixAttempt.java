@@ -25,6 +25,7 @@ import java.util.Set;
 import static com.bytequay.core.ci.CiAutofixChecks.checkOptionalText;
 import static com.bytequay.core.ci.CiAutofixChecks.checkSha;
 import static com.bytequay.core.ci.CiAutofixChecks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Durable facts for one bounded code-fix attempt. */
@@ -51,19 +52,16 @@ public record CiAutofixAttempt(
     {
         requireNonNull(id, "id is null");
         requireNonNull(runId, "runId is null");
-        if (number <= 0 || number > CiAutofixRun.MAX_FIX_ATTEMPTS) {
-            throw new IllegalArgumentException("number must be between 1 and " + CiAutofixRun.MAX_FIX_ATTEMPTS);
-        }
+        checkArgument(number > 0 && number <= CiAutofixRun.MAX_FIX_ATTEMPTS,
+                "number must be between 1 and " + CiAutofixRun.MAX_FIX_ATTEMPTS);
         checkSha(inputSha, "inputSha");
         requireNonNull(failures, "failures is null");
         failures = ImmutableList.copyOf(failures);
-        if (failures.isEmpty() || failures.size() > MAX_FAILURES) {
-            throw new IllegalArgumentException("failures must contain between 1 and " + MAX_FAILURES + " values");
-        }
+        checkArgument(!failures.isEmpty() && failures.size() <= MAX_FAILURES,
+                "failures must contain between 1 and " + MAX_FAILURES + " values");
         Set<String> signatures = new HashSet<>();
-        if (failures.stream().anyMatch(failure -> !signatures.add(failure.signature()))) {
-            throw new IllegalArgumentException("failures contains a duplicate signature");
-        }
+        checkArgument(failures.stream().allMatch(failure -> signatures.add(failure.signature())),
+                "failures contains a duplicate signature");
         checkOptionalText(agentTurnId, "agentTurnId", 128);
         checkOptionalText(untrustedAgentNote, "untrustedAgentNote", 16 * 1024);
         requireNonNull(gitResult, "gitResult is null");
@@ -72,23 +70,17 @@ public record CiAutofixAttempt(
         requireNonNull(pushedSha, "pushedSha is null");
         pushedSha.ifPresent(sha -> checkSha(sha, "pushedSha"));
         requireNonNull(pushedAt, "pushedAt is null");
-        if (pushedAt.isPresent() != pushedSha.isPresent()) {
-            throw new IllegalArgumentException("pushedAt and pushedSha must both be present or absent");
-        }
-        if (pushedSha.isPresent() && expectedRemoteSha.isEmpty()) {
-            throw new IllegalArgumentException("a pushed SHA requires the expected remote SHA");
-        }
+        checkArgument(pushedAt.isPresent() == pushedSha.isPresent(),
+                "pushedAt and pushedSha must both be present or absent");
+        checkArgument(pushedSha.isEmpty() || expectedRemoteSha.isPresent(),
+                "a pushed SHA requires the expected remote SHA");
         requireNonNull(observedCiResult, "observedCiResult is null");
         checkOptionalText(timelineEventKey, "timelineEventKey", 200);
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
-        if (updatedAt.isBefore(createdAt)) {
-            throw new IllegalArgumentException("updatedAt is before createdAt");
-        }
+        checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
         pushedAt.ifPresent(value -> {
-            if (value.isBefore(createdAt)) {
-                throw new IllegalArgumentException("pushedAt is before createdAt");
-            }
+            checkArgument(!value.isBefore(createdAt), "pushedAt is before createdAt");
         });
     }
 
@@ -251,9 +243,7 @@ public record CiAutofixAttempt(
     private void requireUpdateTime(Instant now)
     {
         requireNonNull(now, "now is null");
-        if (now.isBefore(updatedAt)) {
-            throw new IllegalArgumentException("update time is before the previous update");
-        }
+        checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
     }
 
     public enum CiResult
@@ -270,13 +260,10 @@ public record CiAutofixAttempt(
         {
             checkText(path, "path", 500);
             Path relative = Path.of(path);
-            if (relative.isAbsolute() || relative.normalize().startsWith("..")) {
-                throw new IllegalArgumentException("path is not task-relative");
-            }
+            checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith(".."),
+                    "path is not task-relative");
             checkText(mediaType, "mediaType", 100);
-            if (size < 0 || size > 10 * 1024 * 1024) {
-                throw new IllegalArgumentException("size is outside the task blob limit");
-            }
+            checkArgument(size >= 0 && size <= 10 * 1024 * 1024, "size is outside the task blob limit");
         }
     }
 
@@ -293,12 +280,9 @@ public record CiAutofixAttempt(
         {
             checkText(signature, "signature", 200);
             checkText(summary, "summary", 4 * 1024);
-            if (workflowRunId <= 0 || jobId <= 0) {
-                throw new IllegalArgumentException("GitHub workflow and job IDs must be positive");
-            }
-            if (workflowAttempt <= 0 || jobAttempt <= 0) {
-                throw new IllegalArgumentException("workflow and job attempts must be positive");
-            }
+            checkArgument(workflowRunId > 0 && jobId > 0, "GitHub workflow and job IDs must be positive");
+            checkArgument(workflowAttempt > 0 && jobAttempt > 0,
+                    "workflow and job attempts must be positive");
             requireNonNull(log, "log is null");
         }
     }
@@ -313,16 +297,14 @@ public record CiAutofixAttempt(
             checkText(fingerprint, "fingerprint", 200);
             requireNonNull(changedPaths, "changedPaths is null");
             changedPaths = ImmutableList.copyOf(changedPaths);
-            if (changedPaths.size() > MAX_CHANGED_PATHS) {
-                throw new IllegalArgumentException("changedPaths exceeds " + MAX_CHANGED_PATHS + " values");
-            }
+            checkArgument(changedPaths.size() <= MAX_CHANGED_PATHS,
+                    "changedPaths exceeds " + MAX_CHANGED_PATHS + " values");
             Set<String> paths = new HashSet<>();
             for (String path : changedPaths) {
                 checkText(path, "changedPath", 500);
                 Path relative = Path.of(path);
-                if (relative.isAbsolute() || relative.normalize().startsWith("..") || !paths.add(path)) {
-                    throw new IllegalArgumentException("changedPaths contains an unsafe or duplicate path");
-                }
+                checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith("..") && paths.add(path),
+                        "changedPaths contains an unsafe or duplicate path");
             }
         }
     }

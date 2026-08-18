@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ProviderApprovalRequest(
@@ -38,9 +39,8 @@ public record ProviderApprovalRequest(
         requireNonNull(requestedPermissions, "requestedPermissions is null");
         requestedPermissions = ImmutableList.copyOf(requestedPermissions);
         requireNonNull(requestedAt, "requestedAt is null");
-        if (requestedPermissions.stream().anyMatch(String::isBlank)) {
-            throw new IllegalArgumentException("requestedPermissions contains a blank value");
-        }
+        checkArgument(requestedPermissions.stream().noneMatch(String::isBlank),
+                "requestedPermissions contains a blank value");
     }
 
     public enum Kind

@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record CleanupResult(
@@ -31,11 +32,9 @@ public record CleanupResult(
         requireNonNull(state, "state is null");
         requireNonNull(deletedAt, "deletedAt is null");
         checkOptionalText(failure, "failure");
-        if ((state == CleanupState.DELETED) != deletedAt.isPresent()) {
-            throw new IllegalArgumentException("deletedAt and cleanup state disagree");
-        }
-        if ((state == CleanupState.RETRY_PENDING) != failure.isPresent()) {
-            throw new IllegalArgumentException("failure and cleanup state disagree");
-        }
+        checkArgument((state == CleanupState.DELETED) == deletedAt.isPresent(),
+                "deletedAt and cleanup state disagree");
+        checkArgument((state == CleanupState.RETRY_PENDING) == failure.isPresent(),
+                "failure and cleanup state disagree");
     }
 }

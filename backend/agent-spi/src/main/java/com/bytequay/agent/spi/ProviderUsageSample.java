@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ProviderUsageSample(
@@ -37,15 +38,11 @@ public record ProviderUsageSample(
         requireNonNull(cost, "cost is null");
         requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(observedAt, "observedAt is null");
-        if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0) {
-            throw new IllegalArgumentException("token counts must not be negative");
-        }
-        if (cost.stream().anyMatch(value -> value.signum() < 0)) {
-            throw new IllegalArgumentException("cost must not be negative");
-        }
-        if (cost.isEmpty() != (costProvenance == CostProvenance.UNAVAILABLE)) {
-            throw new IllegalArgumentException("cost and costProvenance disagree");
-        }
+        checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0,
+                "token counts must not be negative");
+        checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
+        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE),
+                "cost and costProvenance disagree");
     }
 
     public enum Semantics

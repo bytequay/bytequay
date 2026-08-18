@@ -112,14 +112,31 @@ class TestDefaultAgentTaskService
         assertThat(workspace.released).hasSize(1);
     }
 
+    @Test
+    void rejectsPermissionPolicyTheLaneCannotEnforceBeforeAllocatingResources()
+    {
+        assertThatThrownBy(() -> service.create(command(AgentPermissionPolicy.CI_AUTOFIX)))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("cannot enforce CI_AUTOFIX");
+
+        assertThat(resources.allocated).isEmpty();
+        assertThat(workspace.released).isEmpty();
+        assertThat(stores.tasks()).isEmpty();
+    }
+
     private CreateAgentTaskCommand command()
+    {
+        return command(AgentPermissionPolicy.MANUAL);
+    }
+
+    private CreateAgentTaskCommand command(AgentPermissionPolicy permissionPolicy)
     {
         return new CreateAgentTaskCommand(
                 DeterministicAgentDriver.LANE_ID,
                 workspace.worktree,
                 REPOSITORY,
                 "Test task",
-                AgentPermissionPolicy.MANUAL);
+                permissionPolicy);
     }
 
     private static final class RecordingWorkspaceService

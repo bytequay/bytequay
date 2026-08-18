@@ -142,83 +142,83 @@ bounded task log, but it still does not start an agent or mutate GitHub.
 
 ## Checkpoint 3 — CI agent policy, memory, and task tool
 
-- [ ] **C3.1** Add a dedicated `CI_AUTOFIX` agent permission policy and provider
+- [x] **C3.1** Add a dedicated `CI_AUTOFIX` agent permission policy and provider
   capability check. It permits worktree edits, local compile/test commands, and
   local Git history operations required by the prompt, but it cannot expose a
   PAT or approve `git push`, GitHub comments/reviews/merge, branch deletion, or
   another GitHub write path. Reject `start(...)` for a lane that cannot enforce
   this policy.
-- [ ] **C3.2** Add provider-lane tests proving the CI policy is mapped to an
+- [x] **C3.2** Add provider-lane tests proving the CI policy is mapped to an
   enforceable workspace boundary, credentials are not added to turn context or
   attachments, prohibited remote-write requests are denied, and existing
   `MANUAL` tasks retain their behavior.
-- [ ] **C3.3** Implement `CiMemoryService.update(...)` as a full rebuild from
+- [x] **C3.3** Implement `CiMemoryService.update(...)` as a full rebuild from
   `CiAutofixStore`: group by program failure signature, newest first, at most 50
   signatures and five attempts per signature, include verified GitHub/Git
   outcomes, escape the optional untrusted agent note, cap at 256 KiB, write a
   sibling temporary file, and atomically replace `ci-memory.md`.
-- [ ] **C3.4** Treat memory update failure as a bounded warning on the run and a
+- [x] **C3.4** Treat memory update failure as a bounded warning on the run and a
   warning log only. Preserve the previous valid file when replacement fails and
   never pause, finish, or skip the next turn because memory is unavailable.
-- [ ] **C3.5** Implement `CiMemoryService.read(...)`: resolve the run only from
+- [x] **C3.5** Implement `CiMemoryService.read(...)`: resolve the run only from
   the authenticated `TaskId`, reject cross-task access, trim and cap a query at
   200 characters, split only at program-written `## Failure` boundaries,
   return the ten newest sections or ten newest case-insensitive substring
   matches, cap output at 32 KiB, and return a bounded no-match/unavailable view.
-- [ ] **C3.6** Generalize the existing task-scoped ByteQuay MCP registration
+- [x] **C3.6** Generalize the existing task-scoped ByteQuay MCP registration
   only as much as needed to expose `read_ci_memory` beside existing provider
   tools. The capability token injects `TaskId`; tool arguments contain only the
   optional query; the agent cannot name a run/task or call `update(...)`; no
   public memory HTTP API or separate MCP process is added.
-- [ ] **C3.7** Wire the task tool through every agent lane admitted by C3.1.
+- [x] **C3.7** Wire the task tool through every agent lane admitted by C3.1.
   Preserve Claude's `permission_prompt` behavior and add protocol-fixture tests
   for tool list/call, bad token, malformed/oversized query, unavailable memory,
   registration cleanup, and task isolation.
-- [ ] **C3.8** Test memory rebuild idempotency, chronological grouping,
+- [x] **C3.8** Test memory rebuild idempotency, chronological grouping,
   untrusted-heading escaping, file/result size caps, atomic failure recovery,
   missing files, recent reads, substring search, no match, and best-effort
   warnings.
-- [ ] **C3.9** Run `mvn verify`.
+- [x] **C3.9** Run `mvn verify`.
 
 Exit: a CI task can safely search disposable prior CI history on demand, and
 memory availability cannot control the run.
 
 ## Checkpoint 4 — Start one task and one fix turn
 
-- [ ] **C4.1** Implement the basic `CiAutofixService` methods `start`, `get`,
+- [x] **C4.1** Implement the basic `CiAutofixService` methods `start`, `get`,
   `list`, and `cancel`. Start requires a direct request with all locked consent
   flags, `maxAttempts` from 1 through 3, an eight-hour expiry, the current user
   as PR author, an open same-repository PR, one branch slot, and a clean leased
   worktree whose repository/branch/HEAD match the GitHub head.
-- [ ] **C4.2** Make start failure and idempotency recoverable across the run/task
+- [x] **C4.2** Make start failure and idempotency recoverable across the run/task
   boundary: persist authorization before autonomous work, create exactly one
   task with the `CI_AUTOFIX` policy, store its ID, return the existing run for a
   repeated key, and finish a partially created run with a bounded error if task
   creation cannot be completed. Never leave an unowned live task after a
   database uniqueness race.
-- [ ] **C4.3** Implement one prompt builder containing the locked prompt text
+- [x] **C4.3** Implement one prompt builder containing the locked prompt text
   plus current head/base SHAs and normalized failed-job summaries. Resolve
   current log `BlobRef`s to safe absolute task paths and attach them with their
   media type. Do not attach `ci-memory.md`.
-- [ ] **C4.4** Before starting a fix turn, persist the attempt and evidence,
+- [x] **C4.4** Before starting a fix turn, persist the attempt and evidence,
   update memory best-effort, then call `AgentTurnService.start(...)` with the
   attempt ID as the turn idempotency key. Store only the returned turn ID/state;
   never wait for or parse an assistant response inside `start(...)`.
-- [ ] **C4.5** Reconcile turn lifecycle only through `AgentTurnService.get(...)`:
+- [x] **C4.5** Reconcile turn lifecycle only through `AgentTurnService.get(...)`:
   wait for `ACCEPTED`/`RUNNING`, inspect Git after `COMPLETED`, pause after
   `FAILED`/`INTERRUPTED`, and treat `CANCELLED` according to the stored run
   cancellation request. Mechanically copy a bounded final message to an
   **Untrusted agent note** only after the state is terminal; no condition may
   read that note.
-- [ ] **C4.6** Implement `sendMessage(...)` only for `PAUSED`: recheck author,
+- [x] **C4.6** Implement `sendMessage(...)` only for `PAUSED`: recheck author,
   authorization, exact remote head, task readiness, lease, message bound, and
   idempotency before starting a turn on the same task. It cannot change the
   GitHub-write scope or reset partial local work.
-- [ ] **C4.7** Unit-test author/PR/consent/worktree rejection, start races,
+- [x] **C4.7** Unit-test author/PR/consent/worktree rejection, start races,
   repeated keys, task rollback/finish behavior, exact prompt and attachments,
   every durable turn state, cancellation, paused messages, and a malicious
   final response that claims success/failure without affecting control.
-- [ ] **C4.8** Run `mvn verify`.
+- [x] **C4.8** Run `mvn verify`.
 
 Exit: one consented authored PR creates one durable CI task and one correctly
 scoped fix turn; remote state is unchanged.

@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record TaskSummary(
@@ -39,8 +40,6 @@ public record TaskSummary(
         requireNonNull(learnings, "learnings is null");
         learnings = ImmutableList.copyOf(learnings);
         checkOptionalText(notes, "notes");
-        if (learnings.stream().anyMatch(String::isBlank)) {
-            throw new IllegalArgumentException("learnings contains a blank value");
-        }
+        checkArgument(learnings.stream().noneMatch(String::isBlank), "learnings contains a blank value");
     }
 }

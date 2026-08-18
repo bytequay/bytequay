@@ -24,6 +24,7 @@ import static com.bytequay.app.ci.CiActionsChecks.isActionableConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.isPassingConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeState;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -39,18 +40,14 @@ public record CiJob(
 {
     public CiJob
     {
-        if (id <= 0 || workflowRunId <= 0 || attempt <= 0) {
-            throw new IllegalArgumentException("job IDs and attempt must be positive");
-        }
+        checkArgument(id > 0 && workflowRunId > 0 && attempt > 0, "job IDs and attempt must be positive");
         checkText(name, "name", 500);
         status = normalizeState(status, "status");
         conclusion = normalizeConclusion(conclusion);
         checkUrl(url, "url");
         requireNonNull(steps, "steps is null");
         steps = ImmutableList.copyOf(steps);
-        if (steps.size() > 500) {
-            throw new IllegalArgumentException("steps exceeds 500 values");
-        }
+        checkArgument(steps.size() <= 500, "steps exceeds 500 values");
     }
 
     public boolean actionableFailure()

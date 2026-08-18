@@ -18,6 +18,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @ConfigurationProperties("bytequay.agent")
@@ -38,14 +39,9 @@ public record AgentProperties(
         requireNonNull(desktopSessionToken, "desktopSessionToken is null");
         requireNonNull(codexExecutable, "codexExecutable is null");
         requireNonNull(claudeExecutable, "claudeExecutable is null");
-        if (codexExecutable.isBlank()) {
-            throw new IllegalArgumentException("codexExecutable is blank");
-        }
-        if (claudeExecutable.isBlank()) {
-            throw new IllegalArgumentException("claudeExecutable is blank");
-        }
-        if (maximumTurnRuntime.isZero() || maximumTurnRuntime.isNegative()) {
-            throw new IllegalArgumentException("maximumTurnRuntime must be positive");
-        }
+        checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
+        checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");
+        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(),
+                "maximumTurnRuntime must be positive");
     }
 }

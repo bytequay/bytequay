@@ -225,43 +225,43 @@ scoped fix turn; remote state is unchanged.
 
 ## Checkpoint 5 — Inspect and publish agent-owned Git history
 
-- [ ] **C5.1** Implement the concrete `CiGitService` with argv-based Git
+- [x] **C5.1** Implement the concrete `CiGitService` with argv-based Git
   commands, explicit worktree, bounded output/time, `GIT_TERMINAL_PROMPT=0`,
   and no shell. Reuse small existing process/Git utilities only where their
   behavior matches; do not add a Git framework.
-- [ ] **C5.2** Implement `inspectAgentResult(...)` from actual repository facts.
+- [x] **C5.2** Implement `inspectAgentResult(...)` from actual repository facts.
   Return no-change only when HEAD equals the attempt input and index/worktree are
   clean. Return ready only for a changed committed HEAD, clean index/worktree,
   no unmerged paths or open merge/rebase/cherry-pick, a linear PR range, no
   commits outside the allowed range, and a reproducible local fingerprint.
-- [ ] **C5.3** Return bounded invalid diagnostics for dirty/staged/untracked
+- [x] **C5.3** Return bounded invalid diagnostics for dirty/staged/untracked
   files, conflict markers reported by Git, unresolved entries, open operations,
   detached/wrong branch, non-linear history, out-of-range commits, or an unsafe
   publish relationship. The program pauses; it does not start an automatic
   correction turn.
-- [ ] **C5.4** Implement `push(...)` so the caller persists local HEAD,
+- [x] **C5.4** Implement `push(...)` so the caller persists local HEAD,
   fingerprint, expected remote SHA, branch, and intent before the process
   starts. Recheck consent/expiry/repository/branch/fingerprint and exact remote
   head immediately before pushing `HEAD:refs/heads/<authorized-head-ref>`.
-- [ ] **C5.5** Use a normal push only when local HEAD descends from the expected
+- [x] **C5.5** Use a normal push only when local HEAD descends from the expected
   remote head. For agent-rewritten PR history, use only an exact
   `--force-with-lease=<ref>:<expected-sha>`. Reject plain force, multiple
   refspecs, tags, deletion, another branch, and any credential in argv/logs.
-- [ ] **C5.6** Reconcile uncertain pushes: remote equals journaled local HEAD is
+- [x] **C5.6** Reconcile uncertain pushes: remote equals journaled local HEAD is
   success; remote equals expected old SHA permits one identical retry while
   authorization and fingerprint remain valid; any other SHA finishes
   `STALE_HEAD`. Never create, amend, squash, reorder, or choose a fixup target in
   program code.
-- [ ] **C5.7** Implement read-only `checkFixupPositions(...)` for the linear PR
+- [x] **C5.7** Implement read-only `checkFixupPositions(...)` for the linear PR
   range: exact subject match, fixup immediately after a non-fixup target, at
   most one fixup per target, and no unresolved Git state. Persist the checked
   head/result so the same history is checked once.
-- [ ] **C5.8** Test with temporary real repositories and bare remotes: no-change,
+- [x] **C5.8** Test with temporary real repositories and bare remotes: no-change,
   one valid committed fixup, dirty/staged/untracked state, unresolved conflict,
   open rebase/cherry-pick/merge, detached/wrong branch, merge commit,
   out-of-range commit, normal push, lease rewrite, stale lease, uncertain push
   reconciliation, duplicate/misplaced fixups, output bounds, and argv safety.
-- [ ] **C5.9** Run `mvn verify`.
+- [x] **C5.9** Run `mvn verify`.
 
 Exit: the program can accept or reject actual agent-owned local history and
 publish an accepted head once with an exact lease.

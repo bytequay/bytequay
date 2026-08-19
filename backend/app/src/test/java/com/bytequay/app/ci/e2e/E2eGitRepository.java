@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 final class E2eGitRepository
@@ -43,7 +44,6 @@ final class E2eGitRepository
     private final Path bareRemote;
     private final Path worktree;
     private String baseSha;
-    private final String targetSha;
     private final String initialHeadSha;
 
     private E2eGitRepository(
@@ -51,14 +51,12 @@ final class E2eGitRepository
             Path bareRemote,
             Path worktree,
             String baseSha,
-            String targetSha,
             String initialHeadSha)
     {
         this.pullRequest = requireNonNull(pullRequest, "pullRequest is null");
         this.bareRemote = requireNonNull(bareRemote, "bareRemote is null");
         this.worktree = requireNonNull(worktree, "worktree is null");
         this.baseSha = requireNonNull(baseSha, "baseSha is null");
-        this.targetSha = requireNonNull(targetSha, "targetSha is null");
         this.initialHeadSha = requireNonNull(initialHeadSha, "initialHeadSha is null");
     }
 
@@ -66,46 +64,27 @@ final class E2eGitRepository
     {
         requireNonNull(root, "root is null");
         requireNonNull(pullRequest, "pullRequest is null");
+        Path template = requireTemplate(root.getParent());
         Path bareRemote = root.resolve("origin.git");
         Path worktree = root.resolve("worktree");
         createDirectory(root);
-        git(root, "init", "--bare", bareRemote.toString());
-        git(bareRemote, "config", "core.logAllRefUpdates", "true");
-        git(root, "init", "-b", HEAD_REF, worktree.toString());
-        git(worktree, "config", "user.name", "ByteQuay E2E");
-        git(worktree, "config", "user.email", "ci-e2e@bytequay.local");
-
         String remoteUrl = "https://github.com/" + pullRequest.repoFullName() + ".git";
-        git(worktree, "remote", "add", "origin", remoteUrl);
+        String rewrite = "url." + bareRemote.toUri() + ".insteadOf=" + remoteUrl;
+        git(root,
+                "clone", "--bare", "--config", "core.logAllRefUpdates=true",
+                template.toString(), bareRemote.toString());
+        git(root,
+                "-c", rewrite,
+                "clone", "--branch", HEAD_REF, remoteUrl, worktree.toString());
         git(worktree, "config", "url." + bareRemote.toUri() + ".insteadOf", remoteUrl);
-
-        write(worktree.resolve("source.txt"), "base\n");
-        git(worktree, "add", "source.txt");
-        git(worktree, "commit", "-m", "Base");
-        String baseSha = head(worktree);
-        git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
-
-        write(worktree.resolve("first.txt"), "first\n");
-        git(worktree, "add", "first.txt");
-        git(worktree, "commit", "-m", "First change");
-
-        write(worktree.resolve("target.txt"), "target\n");
-        git(worktree, "add", "target.txt");
-        git(worktree, "commit", "-m", "Target change");
-        String targetSha = head(worktree);
-
-        write(worktree.resolve("last.txt"), "last\n");
-        git(worktree, "add", "last.txt");
-        git(worktree, "commit", "-m", "Last change");
+        String baseSha = git(worktree, "rev-parse", "origin/" + BASE_REF);
         String headSha = head(worktree);
-        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
         try {
             return new E2eGitRepository(
                     pullRequest,
                     bareRemote.toRealPath(),
                     worktree.toRealPath(),
                     baseSha,
-                    targetSha,
                     headSha);
         }
         catch (IOException e) {
@@ -138,11 +117,6 @@ final class E2eGitRepository
         return initialHeadSha;
     }
 
-    String targetSha()
-    {
-        return targetSha;
-    }
-
     String localHead()
     {
         return head(worktree);
@@ -163,6 +137,25 @@ final class E2eGitRepository
     {
         String output = git(worktree, "log", "--reverse", "--format=%s", baseSha + "..HEAD");
         return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().toList());
+    }
+
+    int headRefUpdates()
+    {
+        Path reflog = bareRemote.resolve("logs/refs/heads/" + HEAD_REF);
+        if (!Files.isRegularFile(reflog)) {
+            return 0;
+        }
+        try (var lines = Files.lines(reflog)) {
+            return toIntExact(lines.count());
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Cannot read E2E ref updates", e);
+        }
+    }
+
+    String mergeBaseWithHead(String ref)
+    {
+        return git(worktree, "merge-base", ref, "HEAD");
     }
 
     String commitOnHead(String relativePath, String content, String subject)
@@ -186,15 +179,32 @@ final class E2eGitRepository
     void createPositionedFixup(String relativePath, String content)
     {
         String laterCommit = localHead();
+        String target = git(worktree, "rev-parse", "HEAD~1");
         write(worktree.resolve(relativePath), content);
         git(worktree, "add", relativePath);
         git(worktree, "commit", "-m", "fixup! Target change");
         String fixup = localHead();
 
-        git(worktree, "checkout", "--detach", targetSha);
+        git(worktree, "checkout", "--detach", target);
         git(worktree, "cherry-pick", fixup);
         git(worktree, "cherry-pick", laterCommit);
         moveFeatureToHead();
+    }
+
+    void rebaseOntoBaseAndCreatePositionedFixup(String relativePath, String content)
+    {
+        try {
+            git(worktree, "rebase", BASE_REF);
+        }
+        catch (IllegalStateException conflict) {
+            if (!conflict.getMessage().contains("CONFLICT")) {
+                throw conflict;
+            }
+            write(worktree.resolve("target.txt"), "base target\ntarget\n");
+            git(worktree, "add", "target.txt");
+            git(worktree, "-c", "core.editor=true", "rebase", "--continue");
+        }
+        createPositionedFixup(relativePath, content);
     }
 
     void foldPositionedFixup(String relativePath, String content)
@@ -207,6 +217,34 @@ final class E2eGitRepository
         git(worktree, "commit", "--amend", "--no-edit");
         git(worktree, "cherry-pick", laterCommit);
         moveFeatureToHead();
+    }
+
+    void createMisplacedFixup(String relativePath, String content)
+    {
+        write(worktree.resolve(relativePath), content);
+        git(worktree, "add", relativePath);
+        git(worktree, "commit", "-m", "fixup! Target change");
+    }
+
+    void commitInvalidConflictMarkers()
+    {
+        write(worktree.resolve("target.txt"), "<<<<<<< ours\ntarget\n=======\nother\n>>>>>>> theirs\n");
+        git(worktree, "add", "target.txt");
+        git(worktree, "commit", "-m", "fixup! Target change");
+    }
+
+    void restoreInitialHead()
+    {
+        git(worktree, "reset", "--hard", initialHeadSha);
+    }
+
+    String pushExternalHeadCommit()
+    {
+        git(worktree, "checkout", "--detach", initialHeadSha);
+        String external = commitOnHead("external.txt", "external\n", "External update");
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        git(worktree, "checkout", HEAD_REF);
+        return external;
     }
 
     void checkout(String ref)
@@ -231,6 +269,10 @@ final class E2eGitRepository
             ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
             builder.environment().put("GIT_TERMINAL_PROMPT", "0");
             builder.environment().put("LC_ALL", "C");
+            builder.environment().put("GIT_AUTHOR_NAME", "ByteQuay E2E");
+            builder.environment().put("GIT_AUTHOR_EMAIL", "ci-e2e@bytequay.local");
+            builder.environment().put("GIT_COMMITTER_NAME", "ByteQuay E2E");
+            builder.environment().put("GIT_COMMITTER_EMAIL", "ci-e2e@bytequay.local");
             process = builder.start();
         }
         catch (IOException e) {
@@ -288,6 +330,37 @@ final class E2eGitRepository
     private static String head(Path worktree)
     {
         return git(worktree, "rev-parse", "HEAD");
+    }
+
+    private static synchronized Path requireTemplate(Path suiteDirectory)
+    {
+        Path templateRoot = suiteDirectory.resolve("_git-template");
+        Path bareRemote = templateRoot.resolve("origin.git");
+        if (Files.isDirectory(bareRemote)) {
+            return bareRemote;
+        }
+        Path worktree = templateRoot.resolve("worktree");
+        createDirectory(templateRoot);
+        git(templateRoot, "init", "--bare", bareRemote.toString());
+        git(templateRoot, "init", "-b", HEAD_REF, worktree.toString());
+        git(worktree, "remote", "add", "origin", bareRemote.toString());
+
+        write(worktree.resolve("source.txt"), "base\n");
+        git(worktree, "add", "source.txt");
+        git(worktree, "commit", "-m", "Base");
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
+
+        write(worktree.resolve("first.txt"), "first\n");
+        git(worktree, "add", "first.txt");
+        git(worktree, "commit", "-m", "First change");
+        write(worktree.resolve("target.txt"), "target\n");
+        git(worktree, "add", "target.txt");
+        git(worktree, "commit", "-m", "Target change");
+        write(worktree.resolve("last.txt"), "last\n");
+        git(worktree, "add", "last.txt");
+        git(worktree, "commit", "-m", "Last change");
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        return bareRemote;
     }
 
     private static void createDirectory(Path directory)

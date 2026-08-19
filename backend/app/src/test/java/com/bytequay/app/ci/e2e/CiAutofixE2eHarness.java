@@ -25,6 +25,7 @@ import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.InspectCiHeadQuery;
@@ -171,6 +172,39 @@ final class CiAutofixE2eHarness
         agent.bind(fixture.repository().pullRequest(), fixture.repository().worktree());
     }
 
+    void scriptUnauthorizedCi(Fixture fixture, String author, boolean sameRepository)
+    {
+        CiHeadSnapshot snapshot = failingSnapshot(fixture);
+        gitHub.setSnapshot(new CiHeadSnapshot(
+                snapshot.pullRequest(),
+                snapshot.open(),
+                author,
+                sameRepository,
+                snapshot.headRef(),
+                snapshot.headSha(),
+                snapshot.baseRef(),
+                snapshot.baseSha(),
+                snapshot.url(),
+                snapshot.workflowRuns()));
+    }
+
+    RerunFailedJobsCommand allowRerun(Fixture fixture, int previousAttempt)
+    {
+        RerunFailedJobsCommand command = new RerunFailedJobsCommand(
+                fixture.repository().pullRequest(),
+                fixture.workflowRunId(),
+                fixture.repository().initialHeadSha(),
+                previousAttempt,
+                true);
+        gitHub.enqueueRerun(command, new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted by test"));
+        return command;
+    }
+
+    void scriptRerunCi(Fixture fixture, int attempt, boolean passing)
+    {
+        gitHub.setSnapshot(rerunSnapshot(fixture, attempt, passing));
+    }
+
     void scriptTestFailure(Fixture fixture, String headSha)
     {
         gitHub.setSnapshot(failingSnapshot(
@@ -212,13 +246,35 @@ final class CiAutofixE2eHarness
         return new StartResult(runId, response);
     }
 
-    int startWithoutSession(Fixture fixture)
+    int startStatus(
+            Fixture fixture,
+            String idempotencyKey,
+            boolean allowFailedJobReruns,
+            boolean allowHistoryRewrites,
+            boolean allowExactLeasePush)
+            throws Exception
+    {
+        return mvc.perform(post("/api/ci-autofix/runs")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .header("Idempotency-Key", idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(startBody(
+                                fixture,
+                                allowFailedJobReruns,
+                                allowHistoryRewrites,
+                                allowExactLeasePush)))
+                .andReturn()
+                .getResponse()
+                .getStatus();
+    }
+
+    int startWithoutSession()
             throws Exception
     {
         return mvc.perform(post("/api/ci-autofix/runs")
                         .header("Idempotency-Key", "missing-session-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(startBody(fixture)))
+                        .content("{}"))
                 .andReturn()
                 .getResponse()
                 .getStatus();
@@ -354,15 +410,25 @@ final class CiAutofixE2eHarness
     private String startBody(Fixture fixture)
             throws Exception
     {
+        return startBody(fixture, true, true, true);
+    }
+
+    private String startBody(
+            Fixture fixture,
+            boolean allowFailedJobReruns,
+            boolean allowHistoryRewrites,
+            boolean allowExactLeasePush)
+            throws Exception
+    {
         return objectMapper.writeValueAsString(Map.of(
                 "repository", fixture.repository().pullRequest().repoFullName(),
                 "pullRequestNumber", fixture.repository().pullRequest().number(),
                 "worktree", fixture.repository().worktree().toString(),
                 "laneId", ScriptedAgentDriver.LANE.toString(),
                 "maxAttempts", 3,
-                "allowFailedJobReruns", true,
-                "allowHistoryRewrites", true,
-                "allowExactLeasePush", true));
+                "allowFailedJobReruns", allowFailedJobReruns,
+                "allowHistoryRewrites", allowHistoryRewrites,
+                "allowExactLeasePush", allowExactLeasePush));
     }
 
     private void seedPullRequest(long prId, E2eGitRepository repository)
@@ -513,6 +579,44 @@ final class CiAutofixE2eHarness
                 true,
                 E2eGitRepository.HEAD_REF,
                 headSha,
+                E2eGitRepository.BASE_REF,
+                repository.baseSha(),
+                "https://github.com/" + repository.pullRequest().fullName(),
+                ImmutableList.of(workflow));
+    }
+
+    private static CiHeadSnapshot rerunSnapshot(Fixture fixture, int attempt, boolean passing)
+    {
+        E2eGitRepository repository = fixture.repository();
+        String conclusion = passing ? "success" : "failure";
+        CiJob job = new CiJob(
+                fixture.jobId(),
+                fixture.workflowRunId(),
+                "Backend compile",
+                attempt,
+                "completed",
+                Optional.of(conclusion),
+                "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
+                        + fixture.jobId(),
+                ImmutableList.of(new CiStep(1, "Compile", "completed", Optional.of(conclusion))));
+        CiWorkflowRun workflow = new CiWorkflowRun(
+                fixture.workflowRunId(),
+                fixture.workflowRunId() + 1,
+                "CI",
+                attempt,
+                "completed",
+                Optional.of(conclusion),
+                repository.initialHeadSha(),
+                "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/runs/"
+                        + fixture.workflowRunId(),
+                ImmutableList.of(job));
+        return new CiHeadSnapshot(
+                repository.pullRequest(),
+                true,
+                "author",
+                true,
+                E2eGitRepository.HEAD_REF,
+                repository.initialHeadSha(),
                 E2eGitRepository.BASE_REF,
                 repository.baseSha(),
                 "https://github.com/" + repository.pullRequest().fullName(),

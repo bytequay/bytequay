@@ -241,70 +241,73 @@ scenario.
 
 ### 3.1 Start authorization
 
-- [ ] Reject a PR whose author differs from the authenticated test user.
-- [ ] Reject a fork PR.
-- [ ] Reject a request missing any required consent flag.
-- [ ] For every rejection, assert zero CI Autofix rows, agent tasks, job reruns,
+- [x] Reject a PR whose author differs from the authenticated test user.
+- [x] Reject a fork PR.
+- [x] Reject a request missing any required consent flag.
+- [x] For every rejection, assert zero CI Autofix rows, agent tasks, job reruns,
   Git branch writes, and timeline events.
 
 ### 3.2 Empty-result handling
 
-- [ ] Complete a turn with clean, unchanged Git and false success prose. Assert
+- [x] Complete a turn with clean, unchanged Git and false success prose. Assert
   one journaled failed-job rerun, no push, and completion only after a later
   GitHub green snapshot.
-- [ ] Repeat empty results for one unchanged head until the stored limit of
+- [x] After one empty result, repeat failed-job reruns for the unchanged head
+  until the stored limit of
   three reruns is reached. Assert `RERUN_EXHAUSTED`, no fourth rerun, no push,
-  and no dependence on the three different final messages.
-- [ ] Assert each rerun command carries the exact PR, workflow run, head SHA,
+  and no dependence on the agent final message.
+- [x] Assert each rerun command carries the exact PR, workflow run, head SHA,
   previous attempt, and stored authorization.
 
 ### 3.3 Invalid Git and repair
 
-- [ ] Leave unresolved conflict markers/open Git state after the first turn.
+- [x] Leave unresolved conflict markers/open Git state after the first turn.
   Assert the run pauses immediately, no journal or remote write is created, and
   no automatic repair turn starts.
-- [ ] In one journey, send one user message through HTTP and make that recovery
+- [x] In one journey, send one user message through HTTP and make that recovery
   turn produce valid positioned fixup history and continue to green.
-- [ ] In another journey, leave invalid Git again and assert
+- [x] In another journey, leave invalid Git again and assert
   `INVALID_GIT_RESULT`, no automatic follow-up turn, no failed-job rerun, and no
   push.
-- [ ] Give both invalid turns final prose claiming CI is green and requesting a
+- [x] Give both invalid turns final prose claiming CI is green and requesting a
   force push. Assert the program result is unchanged.
 
 ### 3.4 Moving branches
 
-- [ ] Move the target branch and script the agent to rebase, resolve, and create
+- [x] Move the target branch and script the agent to rebase, resolve, and create
   correctly positioned fixup history. Assert the program accepts only the
   resulting clean/linear Git facts and exact-lease pushes the PR branch.
-- [ ] Move the PR head in the bare remote after local inspection but before
+- [x] Move the PR head in the bare remote after local inspection but before
   publish. Assert `STALE_HEAD`, preservation of the external commit, and no
   ByteQuay branch rewrite or timeline event.
 
 ### 3.5 User interaction and cancellation
 
-- [ ] Pause a run, send a message through the real HTTP endpoint, and assert a
+- [x] Pause a run, send a message through the real HTTP endpoint, and assert a
   turn starts on the same task/session with the supplied message.
-- [ ] Repeat the message idempotency key and assert no duplicate turn. Let the
+- [x] Repeat the message idempotency key and assert no duplicate turn. Let the
   turn create a valid fixup and drive the run to green.
-- [ ] Start a controlled blocked turn, cancel it through HTTP, and assert its
+- [x] Start a controlled blocked turn, cancel it through HTTP, and assert its
   future becomes cancelled, the run finishes `CANCELLED`, and later ticks
   perform no rerun, push, or timeline write.
 
 ### 3.6 Final position check
 
-- [ ] Reach green GitHub checks with a clean but misplaced fixup and assert the
+- [x] Reach green GitHub checks with a clean but misplaced fixup and assert the
   final check records `INVALID`, pauses, and starts no automatic correction
   turn.
-- [ ] Tick repeatedly and assert the same final SHA is not checked twice and the
+- [x] Tick repeatedly and assert the same final SHA is not checked twice and the
   task is not marked complete.
 
 ### Checkpoint 3 exit
 
-- [ ] Every required non-restart journey in section 13.5 has a named test and
+- [x] Every required non-restart journey in section 13.5 has a named test and
   exact negative assertions for forbidden reruns/pushes/timeline writes.
-- [ ] The complete `TestCiAutofixEndToEnd` class passes in at most 15 seconds.
-- [ ] Run `mvn -pl app -am test` successfully.
-- [ ] Commit the safety/interaction journeys only after these checks pass.
+- [x] The complete `TestCiAutofixEndToEnd` class passes in at most 15 seconds
+  (13 journeys in 13.97 seconds).
+- [x] Run `mvn -pl app -am test` successfully (all 144 `app` tests passed;
+  total Maven time 24.153 seconds).
+- [x] Commit the safety/interaction journeys only after these checks pass.
 
 ## Checkpoint 4 — Full restart with an uncertain push
 

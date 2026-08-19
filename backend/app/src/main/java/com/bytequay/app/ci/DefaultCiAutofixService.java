@@ -514,7 +514,9 @@ public class DefaultCiAutofixService
             Instant now)
     {
         if (snapshot.green()) {
-            return observeCi(run, attempt, CiResult.PASSED, snapshot, now);
+            return attempt.observedCiResult() == CiResult.PASSED
+                    ? finishGreenOrCheckFixups(run, now)
+                    : observeCi(run, attempt, CiResult.PASSED, snapshot, now);
         }
         Optional<CiWorkflowRun> failedWorkflow = failedWorkflow(snapshot);
         if (failedWorkflow.isEmpty()) {

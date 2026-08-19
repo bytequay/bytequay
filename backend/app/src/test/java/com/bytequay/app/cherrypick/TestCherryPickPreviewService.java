@@ -66,7 +66,7 @@ class TestCherryPickPreviewService
         git(clone, "remote", "add", "origin", upstream.toString());
         git(clone, "remote", "add", "fork", fork.toString());
         clock = new MutableClock(NOW);
-        service = new CherryPickPreviewService(GIT, clock);
+        service = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), clock);
     }
 
     @Test

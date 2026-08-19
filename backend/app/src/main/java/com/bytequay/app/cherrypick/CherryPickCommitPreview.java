@@ -37,7 +37,8 @@ public record CherryPickCommitPreview(
         List<String> changedPaths,
         boolean originallyEmpty,
         Optional<TargetMatch> targetMatch,
-        boolean patchEquivalent)
+        boolean patchEquivalent,
+        ConflictPreview conflict)
 {
     public CherryPickCommitPreview
     {
@@ -48,6 +49,7 @@ public record CherryPickCommitPreview(
         requireNonNull(committedAt, "committedAt is null");
         changedPaths = ImmutableList.copyOf(requireNonNull(changedPaths, "changedPaths is null"));
         requireNonNull(targetMatch, "targetMatch is null");
+        requireNonNull(conflict, "conflict is null");
     }
 
     /** Derived from evidence, never from a title or a patch-similarity guess. */

@@ -39,6 +39,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -63,12 +64,14 @@ public class CherryPickPreviewService
             Pattern.compile("^\\(cherry picked from commit ([0-9a-f]{40}|[0-9a-f]{64})\\)$");
 
     private final GitCommandRunner git;
+    private final CherryPickConflictScout conflictScout;
     private final Clock clock;
     private final Map<String, CherryPickPreview> cache = new LinkedHashMap<>();
 
-    public CherryPickPreviewService(GitCommandRunner git, Clock clock)
+    public CherryPickPreviewService(GitCommandRunner git, CherryPickConflictScout conflictScout, Clock clock)
     {
         this.git = requireNonNull(git, "git is null");
+        this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -103,9 +106,18 @@ public class CherryPickPreviewService
         List<String> warnings = new ArrayList<>();
         Set<String> patchEquivalent = readPatchEquivalent(repository, targetSha, tipSha, baseSha, warnings);
 
+        // Only commits execution would actually attempt are simulated; a commit
+        // already on the target is never picked, so it cannot conflict.
+        List<String> planned = range.stream()
+                .map(RangeCommit::sha)
+                .filter(sha -> evidence(sha, targetAncestors, originLines).isEmpty())
+                .collect(toImmutableList());
+        Map<String, ConflictPreview> conflicts = conflictScout.scout(repository, targetSha, planned);
+
         ImmutableList.Builder<CherryPickCommitPreview> commits = ImmutableList.builderWithExpectedSize(range.size());
         int position = 1;
         for (RangeCommit commit : range) {
+            Optional<TargetMatch> match = evidence(commit.sha(), targetAncestors, originLines);
             commits.add(new CherryPickCommitPreview(
                     position++,
                     commit.sha(),
@@ -115,8 +127,15 @@ public class CherryPickPreviewService
                     commit.committedAt(),
                     commit.changedPaths(),
                     commit.changedPaths().isEmpty(),
-                    evidence(commit.sha(), targetAncestors, originLines),
-                    patchEquivalent.contains(commit.sha())));
+                    match,
+                    patchEquivalent.contains(commit.sha()),
+                    match.isPresent()
+                            ? ConflictPreview.clean()
+                            : conflicts.getOrDefault(commit.sha(), ConflictPreview.notAnalyzed())));
+        }
+        if (conflicts.values().stream().anyMatch(preview -> preview.status() == ConflictPreview.Status.CONFLICT)) {
+            warnings.add("Conflict scope is exact up to the first conflict. Commits after it are not analyzed, "
+                    + "because the resolution you choose decides what they meet.");
         }
 
         Instant now = clock.instant();

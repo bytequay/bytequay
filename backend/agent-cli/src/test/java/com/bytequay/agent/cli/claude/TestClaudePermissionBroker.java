@@ -54,7 +54,8 @@ class TestClaudePermissionBroker
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
-                AgentPermissionPolicy.MANUAL,
+                temporaryDirectory,
+                AgentPermissionPolicy.AUTO,
                 (request, timeout) -> {
                     approval.set(request);
                     return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
@@ -121,13 +122,14 @@ class TestClaudePermissionBroker
         ClaudePermissionBroker.Registration registration = broker.register(
                 "task-ci",
                 worktree,
+                temporaryDirectory,
                 provider,
                 AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String token = token(registration);
 
-        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/failIfUnavailable").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
@@ -172,11 +174,105 @@ class TestClaudePermissionBroker
         assertThat(permission(broker, token, "Bash", "command", "git push origin HEAD"))
                 .isEqualTo("deny");
 
-        Path settingsFile = registration.settingsFile().orElseThrow();
+        Path settingsFile = registration.settingsFile();
         registration.close();
         assertThat(registration.configFile()).doesNotExist();
         assertThat(settingsFile).doesNotExist();
         assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+
+    @Test
+    void sandboxesCherryPickWithoutExposingCiMemory()
+            throws Exception
+    {
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory must not reach cherry-pick");
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("cherry-pick-worktree"));
+        ClaudePermissionBroker.Registration registration = broker.register(
+                "task-cherry-pick",
+                worktree,
+                temporaryDirectory,
+                temporaryDirectory.resolve("cherry-pick-provider"),
+                AgentPermissionPolicy.CHERRY_PICK,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        String token = token(registration);
+
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+        assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+        assertThat(settings.at("/sandbox/network/allowedDomains")).isEmpty();
+        assertThat(settings.at("/permissions/deny").toString())
+                .contains("WebFetch", "Bash(git push:*)", "Bash(gh:*)", "Read(~/.ssh/**)");
+
+        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                """));
+        assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
+        assertThat(listed.body().orElseThrow().at("/result/tools/0/name").asText()).isEqualTo("permission_prompt");
+
+        ClaudePermissionBroker.McpHttpResponse memory = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                "name":"read_ci_memory","arguments":{}}}
+                """));
+        assertThat(memory.body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+
+        // A sandboxed policy decides tool calls from a fixed rule, so the approval handler above never runs.
+        assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("core/Main.java").toString()))
+                .isEqualTo("allow");
+        assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
+                .isEqualTo("deny");
+        assertThat(permission(broker, token, "Bash", "command", "git push origin HEAD"))
+                .isEqualTo("deny");
+    }
+
+    @Test
+    void sandboxesAutoTasksWhileStillEscalatingToTheUser()
+            throws Exception
+    {
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory must not reach auto");
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("auto-worktree"));
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        ClaudePermissionBroker.Registration registration = broker.register(
+                "task-auto",
+                worktree,
+                temporaryDirectory,
+                temporaryDirectory.resolve("auto-provider"),
+                AgentPermissionPolicy.AUTO,
+                (request, timeout) -> {
+                    approval.set(request);
+                    return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+                },
+                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        String token = token(registration);
+
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+        assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
+        assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(".ssh");
+        assertThat(settings.at("/sandbox/filesystem/denyWrite").toString())
+                .contains(temporaryDirectory.toRealPath().toString());
+        assertThat(settings.at("/permissions/deny").toString())
+                .contains("Bash(git push:*)", "Bash(gh:*)", "Read(~/.ssh/**)")
+                .doesNotContain("WebFetch", "WebSearch");
+
+        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                """));
+        assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
+
+        // An attended policy escalates past the sandbox to the user instead of deciding from a rule.
+        assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
+                .isEqualTo("deny");
+        assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE);
+        registration.close();
     }
 
     private String permission(

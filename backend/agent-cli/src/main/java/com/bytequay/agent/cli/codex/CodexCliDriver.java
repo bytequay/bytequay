@@ -101,7 +101,7 @@ public final class CodexCliDriver
             true,
             true,
             CostProvenance.UNAVAILABLE,
-            ImmutableSet.of(AgentPermissionPolicy.MANUAL),
+            ImmutableSet.of(AgentPermissionPolicy.AUTO),
             ImmutableSet.of());
 
     private final String executable;

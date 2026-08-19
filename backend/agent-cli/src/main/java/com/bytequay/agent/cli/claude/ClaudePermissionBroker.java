@@ -77,6 +77,7 @@ public final class ClaudePermissionBroker
     Registration register(
             String taskId,
             Path worktree,
+            Path runtimeDirectory,
             Path providerDirectory,
             AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
@@ -84,15 +85,14 @@ public final class ClaudePermissionBroker
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
+        requireNonNull(runtimeDirectory, "runtimeDirectory is null");
         requireNonNull(providerDirectory, "providerDirectory is null");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
-        Optional<Path> settingsFile = permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
-                ? Optional.of(providerDirectory.resolve("ci-autofix-settings.json"))
-                : Optional.empty();
+        Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor));
         try {
             Files.createDirectories(providerDirectory);
@@ -103,15 +103,13 @@ public final class ClaudePermissionBroker
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token)))));
             writeOwnerOnly(configFile, json);
-            if (settingsFile.isPresent()) {
-                writeOwnerOnly(settingsFile.orElseThrow(), ciAutofixSettings());
-            }
+            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, runtimeDirectory.toRealPath()));
             return new Registration(configFile, settingsFile, token);
         }
         catch (IOException e) {
             contexts.remove(token);
             delete(configFile);
-            settingsFile.ifPresent(ClaudePermissionBroker::delete);
+            delete(settingsFile);
             throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
         }
     }
@@ -165,8 +163,8 @@ public final class ClaudePermissionBroker
             throws JsonProcessingException
     {
         PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
-        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
-            PermissionResult decision = ciAutofixPermission(arguments, context.worktree());
+        if (context.permissionPolicy().unattended()) {
+            PermissionResult decision = sandboxedPermission(arguments, context.worktree());
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))),
                     false));
@@ -268,7 +266,7 @@ public final class ClaudePermissionBroker
         return tools.build();
     }
 
-    private static PermissionResult ciAutofixPermission(PermissionArguments arguments, Path worktree)
+    private static PermissionResult sandboxedPermission(PermissionArguments arguments, Path worktree)
     {
         if (arguments.toolName().equalsIgnoreCase("Edit")
                 || arguments.toolName().equalsIgnoreCase("Write")
@@ -281,7 +279,7 @@ public final class ClaudePermissionBroker
         return new PermissionResult(
                 "deny",
                 Optional.empty(),
-                Optional.of("CI Autofix permits only sandboxed commands and file edits inside its worktree"));
+                Optional.of("This task permits only sandboxed commands and file edits inside its leased worktree"));
     }
 
     private static Optional<Path> requestedPath(JsonNode input, Path worktree)
@@ -310,34 +308,43 @@ public final class ClaudePermissionBroker
         return query == null || query.isNull() || query.isTextual();
     }
 
-    private String ciAutofixSettings()
-            throws JsonProcessingException
+    private String sandboxSettings(AgentPermissionPolicy permissionPolicy, Path runtimeDirectory)
+            throws IOException
     {
-        return objectMapper.writeValueAsString(ImmutableMap.of(
-                "autoMemoryEnabled", false,
-                "permissions", ImmutableMap.of("deny", ImmutableList.of(
-                        "WebFetch",
-                        "WebSearch",
-                        "Bash(git credential)",
-                        "Bash(git credential:*)",
-                        "Bash(git push:*)",
-                        "Bash(gh:*)",
-                        "Read(~/.config/gh/**)",
-                        "Read(~/.git-credentials)",
-                        "Read(~/.netrc)",
-                        "Read(~/.ssh/**)")),
-                "sandbox", ImmutableMap.of(
-                        "enabled", true,
-                        "failIfUnavailable", true,
-                        "autoAllowBashIfSandboxed", true,
-                        "allowUnsandboxedCommands", false,
-                        "excludedCommands", ImmutableList.of(),
-                        "filesystem", ImmutableMap.of("denyRead", ImmutableList.of(
+        ImmutableList.Builder<String> deny = ImmutableList.builder();
+        deny.add(
+                "Bash(git credential)",
+                "Bash(git credential:*)",
+                "Bash(git push:*)",
+                "Bash(gh:*)",
+                "Read(~/.config/gh/**)",
+                "Read(~/.git-credentials)",
+                "Read(~/.netrc)",
+                "Read(~/.ssh/**)");
+        ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
+        sandbox.put("enabled", true)
+                .put("failIfUnavailable", true)
+                .put("autoAllowBashIfSandboxed", true)
+                .put("allowUnsandboxedCommands", !permissionPolicy.unattended())
+                .put("excludedCommands", ImmutableList.of())
+                .put("filesystem", ImmutableMap.of(
+                        "denyRead", ImmutableList.of(
                                 "~/.config/gh",
                                 "~/.git-credentials",
                                 "~/.netrc",
-                                "~/.ssh")),
-                        "network", ImmutableMap.of("allowedDomains", ImmutableList.of()))));
+                                "~/.ssh"),
+                        // The task runtime directory holds the CI logs, the event log, and this
+                        // settings file. The agent reads its attachments from there and must not
+                        // be able to rewrite the evidence its own work is judged on.
+                        "denyWrite", ImmutableList.of(runtimeDirectory.toString())));
+        if (permissionPolicy.unattended()) {
+            deny.add("WebFetch", "WebSearch");
+            sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
+        }
+        return objectMapper.writeValueAsString(ImmutableMap.of(
+                "autoMemoryEnabled", false,
+                "permissions", ImmutableMap.of("deny", deny.build()),
+                "sandbox", sandbox.buildOrThrow()));
     }
 
     private static void writeOwnerOnly(Path path, String content)
@@ -386,10 +393,10 @@ public final class ClaudePermissionBroker
             implements AutoCloseable
     {
         private final Path configFile;
-        private final Optional<Path> settingsFile;
+        private final Path settingsFile;
         private final String token;
 
-        private Registration(Path configFile, Optional<Path> settingsFile, String token)
+        private Registration(Path configFile, Path settingsFile, String token)
         {
             this.configFile = requireNonNull(configFile, "configFile is null");
             this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
@@ -401,7 +408,7 @@ public final class ClaudePermissionBroker
             return configFile;
         }
 
-        Optional<Path> settingsFile()
+        Path settingsFile()
         {
             return settingsFile;
         }
@@ -411,7 +418,7 @@ public final class ClaudePermissionBroker
         {
             contexts.remove(token);
             delete(configFile);
-            settingsFile.ifPresent(ClaudePermissionBroker::delete);
+            delete(settingsFile);
         }
     }
 

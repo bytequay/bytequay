@@ -150,7 +150,7 @@ class TestAgentMaintenance
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,
                         WORKTREE.resolve(taskId.toString()),
-                        AgentPermissionPolicy.MANUAL,
+                        AgentPermissionPolicy.AUTO,
                         NOW)
                 .ready(NOW)
                 .activate(NOW);

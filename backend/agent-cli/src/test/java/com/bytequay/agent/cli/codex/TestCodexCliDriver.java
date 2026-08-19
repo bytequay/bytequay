@@ -101,6 +101,11 @@ class TestCodexCliDriver
         assertThat(events.toString()).doesNotContain("known-secret");
 
         resumed.close();
+
+        assertThat(driver.capabilities().permissionPolicies())
+                .containsExactly(AgentPermissionPolicy.AUTO);
+        assertThat(supervisor.server().approvalPolicies()).containsExactly("on-request", "on-request");
+
         driver.close();
     }
 
@@ -150,7 +155,7 @@ class TestCodexCliDriver
                 worktree,
                 worktree,
                 worktree.resolve("provider"),
-                AgentPermissionPolicy.MANUAL,
+                AgentPermissionPolicy.AUTO,
                 reference,
                 (request, timeout) -> {
                     approval.set(request);
@@ -205,6 +210,7 @@ class TestCodexCliDriver
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
+        private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
         private volatile String activeTurn;
         private volatile String approvalDecision = "";
 
@@ -240,8 +246,12 @@ class TestCodexCliDriver
             switch (method) {
                 case "initialize" -> respond(id, "{}");
                 case "initialized" -> {}
-                case "thread/start" -> respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                case "thread/start" -> {
+                    approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
+                    respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                }
                 case "thread/resume" -> {
+                    approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
                     resumes.incrementAndGet();
                     respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
                 }
@@ -295,6 +305,11 @@ class TestCodexCliDriver
         private int resumeCount()
         {
             return resumes.get();
+        }
+
+        private List<String> approvalPolicies()
+        {
+            return approvalPolicies;
         }
 
         private String approvalDecision()

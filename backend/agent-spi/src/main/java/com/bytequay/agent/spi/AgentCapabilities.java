@@ -57,7 +57,7 @@ public record AgentCapabilities(
                 false,
                 false,
                 CostProvenance.UNAVAILABLE,
-                ImmutableSet.of(AgentPermissionPolicy.MANUAL),
+                ImmutableSet.of(AgentPermissionPolicy.AUTO),
                 ImmutableSet.of());
     }
 }

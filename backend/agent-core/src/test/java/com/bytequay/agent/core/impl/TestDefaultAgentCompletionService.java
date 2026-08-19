@@ -94,7 +94,7 @@ class TestDefaultAgentCompletionService
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,
                         WORKTREE,
-                        AgentPermissionPolicy.MANUAL,
+                        AgentPermissionPolicy.AUTO,
                         NOW)
                 .ready(NOW)
                 .activate(NOW));
@@ -132,7 +132,7 @@ class TestDefaultAgentCompletionService
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,
                         WORKTREE,
-                        AgentPermissionPolicy.MANUAL,
+                        AgentPermissionPolicy.AUTO,
                         NOW)
                 .ready(NOW));
 

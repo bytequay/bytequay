@@ -214,7 +214,7 @@ class TestSqliteAgentStores
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-worktree"),
-                AgentPermissionPolicy.MANUAL,
+                AgentPermissionPolicy.AUTO,
                 now);
     }
 }

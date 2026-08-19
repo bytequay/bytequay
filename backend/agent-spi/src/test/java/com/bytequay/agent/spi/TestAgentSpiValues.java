@@ -45,7 +45,7 @@ class TestAgentSpiValues
     void capabilitiesCopyCallerOwnedCollections()
     {
         Set<String> mediaTypes = Sets.newHashSet("text/plain");
-        Set<AgentPermissionPolicy> permissionPolicies = Sets.newHashSet(AgentPermissionPolicy.MANUAL);
+        Set<AgentPermissionPolicy> permissionPolicies = Sets.newHashSet(AgentPermissionPolicy.AUTO);
         AgentCapabilities capabilities = new AgentCapabilities(
                 true,
                 true,
@@ -63,7 +63,7 @@ class TestAgentSpiValues
         mediaTypes.add("image/png");
         permissionPolicies.add(AgentPermissionPolicy.CI_AUTOFIX);
 
-        assertThat(capabilities.permissionPolicies()).containsExactly(AgentPermissionPolicy.MANUAL);
+        assertThat(capabilities.permissionPolicies()).containsExactly(AgentPermissionPolicy.AUTO);
         assertThat(capabilities.attachmentMediaTypes()).isInstanceOf(ImmutableSet.class);
         assertThat(capabilities.attachmentMediaTypes()).containsExactly("text/plain");
         assertThatThrownBy(() -> capabilities.attachmentMediaTypes().add("image/png"))

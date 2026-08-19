@@ -70,7 +70,7 @@ class TestDefaultAgentMetricsService
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/worktree"),
-                AgentPermissionPolicy.MANUAL,
+                AgentPermissionPolicy.AUTO,
                 NOW);
         taskStore.insert(task);
     }

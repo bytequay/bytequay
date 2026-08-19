@@ -59,7 +59,9 @@ final class DeterministicAgentDriver
             true,
             true,
             CostProvenance.UNAVAILABLE,
-            ImmutableSet.of(com.bytequay.agent.spi.AgentPermissionPolicy.MANUAL),
+            ImmutableSet.of(
+                    com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,
+                    com.bytequay.agent.spi.AgentPermissionPolicy.AUTO),
             ImmutableSet.of());
 
     private final List<AgentSessionRef> openedReferences = new ArrayList<>();

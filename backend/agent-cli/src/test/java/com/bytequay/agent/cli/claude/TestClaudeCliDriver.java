@@ -80,7 +80,7 @@ class TestClaudeCliDriver
 
         assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
         assertThat(driver.capabilities().permissionPolicies())
-                .containsExactlyInAnyOrder(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX);
+                .containsExactlyInAnyOrder(AgentPermissionPolicy.values());
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .contains("text/plain; charset=utf-8");
         AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -92,6 +92,7 @@ class TestClaudeCliDriver
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
         assertThat(firstSpec.argv()).containsSequence("--session-id", reference.providerValue());
         assertThat(firstSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
+        assertThat(firstSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(firstSpec.argv()).doesNotContain("first");
         assertThat(supervisor.turns().getFirst().prompt()).isEqualTo("first\n");
         assertThat(events).anyMatch(ProviderAgentEvent.Error.class::isInstance);
@@ -135,6 +136,7 @@ class TestClaudeCliDriver
         assertThat(await(ciSession.start(command("ci-fix", ImmutableList.of(attachment)))).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec ciSpec = supervisor.turns().getLast().spec();
+        assertThat(ciSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(ciSpec.argv()).contains("--strict-mcp-config");
         assertThat(ciSpec.argv()).contains("--setting-sources=");
         assertThat(ciSpec.argv()).containsSequence("--add-dir", realLog.getParent().toString());
@@ -144,16 +146,36 @@ class TestClaudeCliDriver
                 .contains("mcp__bytequay__read_ci_memory", "Read(/" + realLog + ")");
         assertThat(supervisor.turns().getLast().prompt()).contains(realLog.toString());
         assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
-        Path settingsFile = runtimeDirectory().resolve("provider/scratch/ci-autofix-settings.json");
+        Path settingsFile = runtimeDirectory().resolve("provider/scratch/sandbox-settings.json");
         assertThat(settingsFile).exists();
         ciSession.close();
+        assertThat(settingsFile).doesNotExist();
+
+        AgentSession cherryPickSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.CHERRY_PICK), events::add);
+        assertThat(await(cherryPickSession.start(command("resolve"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        ProcessSpec cherryPickSpec = supervisor.turns().getLast().spec();
+        assertThat(cherryPickSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
+        assertThat(cherryPickSpec.argv()).doesNotContain("--allowedTools");
+        assertThat(String.join(" ", cherryPickSpec.argv())).doesNotContain("read_ci_memory");
+        assertThat(settingsFile).exists();
+        cherryPickSession.close();
+        assertThat(settingsFile).doesNotExist();
+
+        AgentSession autoSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO), events::add);
+        assertThat(await(autoSession.start(command("auto"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        ProcessSpec autoSpec = supervisor.turns().getLast().spec();
+        assertThat(autoSpec.argv()).containsSequence("--permission-mode", "auto");
+        assertThat(autoSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
+        assertThat(autoSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
+        assertThat(settingsFile).exists();
+        autoSession.close();
         assertThat(settingsFile).doesNotExist();
         driver.close();
     }
 
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
     {
-        return context(reference, AgentPermissionPolicy.MANUAL);
+        return context(reference, AgentPermissionPolicy.AUTO);
     }
 
     private AgentSessionContext context(

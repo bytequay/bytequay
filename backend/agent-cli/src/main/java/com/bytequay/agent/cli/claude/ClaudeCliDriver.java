@@ -174,7 +174,7 @@ public final class ClaudeCliDriver
                 true,
                 true,
                 CostProvenance.CLI_ESTIMATE,
-                ImmutableSet.of(AgentPermissionPolicy.MANUAL, AgentPermissionPolicy.CI_AUTOFIX),
+                ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
     }
 
@@ -261,6 +261,7 @@ public final class ClaudeCliDriver
         ClaudePermissionBroker.Registration registration = permissions.register(
                 context.taskId(),
                 context.worktree(),
+                context.runtimeDirectory(),
                 context.providerDirectory(),
                 context.permissionPolicy(),
                 context.approvals(),
@@ -301,11 +302,11 @@ public final class ClaudeCliDriver
         if (forwardSubagentText) {
             argv.add("--forward-subagent-text");
         }
+        argv.add(
+                "--strict-mcp-config",
+                "--setting-sources=",
+                "--settings", registration.settingsFile().toString());
         if (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX) {
-            argv.add(
-                    "--strict-mcp-config",
-                    "--setting-sources=",
-                    "--settings", registration.settingsFile().orElseThrow().toString());
             allowedTools.add("mcp__bytequay__read_ci_memory");
         }
         if (!attachments.isEmpty()) {
@@ -326,7 +327,7 @@ public final class ClaudeCliDriver
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));
         }
         argv.add(
-                "--permission-mode", "manual",
+                "--permission-mode", "auto",
                 "--mcp-config", registration.configFile().toString(),
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);

@@ -113,7 +113,7 @@ class TestAgentTaskLifecycle
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "bytequay"),
                 WORKTREE,
-                AgentPermissionPolicy.MANUAL,
+                AgentPermissionPolicy.AUTO,
                 CREATED_AT);
     }
 

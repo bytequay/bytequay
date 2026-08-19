@@ -1110,8 +1110,8 @@ The connection and task sequence is:
    then send the `initialized` notification. No other request is legal before
    this handshake finishes.
 2. For a new ByteQuay task, call `thread/start` with the canonical `cwd`, the
-   selected model when explicitly configured, `approvalPolicy`, and a
-   `workspaceWrite` sandbox limited to the leased worktree. Persist the returned
+   selected model when explicitly configured, an `on-request` `approvalPolicy`,
+   and a `workspaceWrite` sandbox limited to the leased worktree. Persist the returned
    `thread.id` as the provider value in `AgentSessionRef`.
 3. For a later backend process or unloaded task, call `thread/resume` with the
    stored `threadId`. Do not infer a session ID from provider files.
@@ -1175,7 +1175,7 @@ claude
   --include-partial-messages
   --include-hook-events
   --forward-subagent-text
-  --permission-mode manual
+  --permission-mode auto
   --mcp-config <task-provider-directory>/bytequay-mcp.json
   --permission-prompt-tool mcp__bytequay__permission_prompt
   --session-id <generated-claude-session-id>
@@ -1252,6 +1252,17 @@ task's provider directory and points `--permission-prompt-tool` at a
 returns allow or deny to Claude. The task-scoped MCP endpoint uses an ephemeral
 capability token stored in the owner-only config file. ByteQuay does not pass
 the token on the command line.
+
+Every policy runs `--permission-mode auto`: Claude approves its own work inside
+the leased worktree and escalates anything past the sandbox to the
+permission-prompt tool. `AUTO` sends that escalation to the user. `CI_AUTOFIX`
+and `CHERRY_PICK` are unattended, so the broker answers instead, allowing an
+edit only when its path resolves inside the worktree.
+
+Containment does not depend on that answer. The sandbox denies writes to the
+whole task runtime directory, so the CI logs the agent reads through `--add-dir`,
+the task event log, and the generated settings file stay read-only even though
+Claude approves its own in-sandbox work.
 
 The driver never enables `--dangerously-skip-permissions`. It also does not use
 `--bare`: bare mode does not read Claude subscription OAuth or keychain

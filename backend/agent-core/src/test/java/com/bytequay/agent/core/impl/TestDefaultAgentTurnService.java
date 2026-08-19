@@ -93,7 +93,7 @@ class TestDefaultAgentTurnService
                 worktree,
                 new RepositoryIdentity("bytequay", "bytequay"),
                 "Lifecycle test",
-                AgentPermissionPolicy.MANUAL));
+                AgentPermissionPolicy.AUTO));
         events = new DefaultAgentEventService(new FileTaskLogStore(resources), stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();

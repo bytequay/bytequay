@@ -15,6 +15,21 @@ package com.bytequay.agent.spi;
 
 public enum AgentPermissionPolicy
 {
-    MANUAL,
-    CI_AUTOFIX
+    AUTO,
+    CI_AUTOFIX,
+    CHERRY_PICK;
+
+    /**
+     * Reports whether the policy decides tool calls from a fixed rule instead of asking the user.
+     *
+     * <p>{@link #AUTO} is attended: the provider approves its own work inside the leased worktree
+     * and escalates anything past the sandbox to the user. The remaining policies never reach a
+     * user, so ByteQuay answers every escalation itself.
+     *
+     * @return true when no user decision is ever requested
+     */
+    public boolean unattended()
+    {
+        return this != AUTO;
+    }
 }

@@ -96,7 +96,7 @@ public class AgentController
                         Path.of(request.worktree()),
                         RepositoryIdentity.valueOf(request.repository()),
                         request.title(),
-                        AgentPermissionPolicy.MANUAL))));
+                        AgentPermissionPolicy.AUTO))));
     }
 
     @GetMapping("/tasks/{taskId}")

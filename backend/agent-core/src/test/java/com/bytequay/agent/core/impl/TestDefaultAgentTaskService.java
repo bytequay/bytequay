@@ -31,6 +31,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -112,12 +114,13 @@ class TestDefaultAgentTaskService
         assertThat(workspace.released).hasSize(1);
     }
 
-    @Test
-    void rejectsPermissionPolicyTheLaneCannotEnforceBeforeAllocatingResources()
+    @ParameterizedTest
+    @EnumSource(value = AgentPermissionPolicy.class, names = {"CI_AUTOFIX", "CHERRY_PICK"})
+    void rejectsPermissionPolicyTheLaneCannotEnforceBeforeAllocatingResources(AgentPermissionPolicy permissionPolicy)
     {
-        assertThatThrownBy(() -> service.create(command(AgentPermissionPolicy.CI_AUTOFIX)))
+        assertThatThrownBy(() -> service.create(command(permissionPolicy)))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("cannot enforce CI_AUTOFIX");
+                .hasMessageContaining("cannot enforce " + permissionPolicy);
 
         assertThat(resources.allocated).isEmpty();
         assertThat(workspace.released).isEmpty();
@@ -126,7 +129,7 @@ class TestDefaultAgentTaskService
 
     private CreateAgentTaskCommand command()
     {
-        return command(AgentPermissionPolicy.MANUAL);
+        return command(AgentPermissionPolicy.AUTO);
     }
 
     private CreateAgentTaskCommand command(AgentPermissionPolicy permissionPolicy)

@@ -31,7 +31,6 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.pr.PullRequestTimelineService;
-import com.bytequay.app.pr.RecordPrTimelineEventCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -63,6 +62,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
@@ -141,8 +141,7 @@ public class DefaultCiAutofixService
         CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(command.pullRequest()));
         String currentUser = currentUser();
         validatePullRequest(snapshot, command.pullRequest(), currentUser);
-        checkArgument(!snapshot.actionableFailures().isEmpty(),
-                "Pull request has no actionable GitHub Actions failure");
+        checkArgument(!snapshot.actionableFailures().isEmpty(), "Pull request has no actionable GitHub Actions failure");
 
         RepositoryIdentity repository = repository(command.pullRequest());
         WorkspaceSnapshot workspace = workspaceService.inspect(command.worktree());
@@ -407,7 +406,7 @@ public class DefaultCiAutofixService
     {
         GitResult git = attempt.gitResult().orElseThrow();
         String eventKey = "ci-autofix:" + run.id() + ":" + attempt.id() + ":" + attempt.pushedSha().orElseThrow();
-        timelineService.record(new RecordPrTimelineEventCommand(
+        timelineService.record(
                 run.scope().pullRequest(),
                 eventKey,
                 run.scope().author(),
@@ -415,7 +414,7 @@ public class DefaultCiAutofixService
                 attempt.expectedRemoteSha().orElseThrow(),
                 attempt.pushedSha().orElseThrow(),
                 git.commitSubjects(),
-                git.changedPaths()));
+                git.changedPaths());
         return store.update(run.updateAttempt(attempt.withTimelineEvent(eventKey, now), now));
     }
 
@@ -640,7 +639,7 @@ public class DefaultCiAutofixService
         Optional<CiWorkflowRun> later = snapshot.workflowRuns().stream()
                 .filter(workflow -> workflow.id() == journal.workflowRunId())
                 .filter(workflow -> workflow.attempt() > journal.previousAttempt())
-                .max(java.util.Comparator.comparingInt(CiWorkflowRun::attempt));
+                .max(Comparator.comparingInt(CiWorkflowRun::attempt));
         if (journal.observedAttempt().isEmpty()) {
             if (later.isPresent()) {
                 return refreshMemory(store.update(run.observeRerunAttempt(later.orElseThrow().attempt(), now)));
@@ -918,8 +917,7 @@ public class DefaultCiAutofixService
     private static void validateStartCommand(StartCiAutofixCommand command)
     {
         requireNonNull(command, "command is null");
-        checkArgument(!command.pullRequest().owner().isBlank() && !command.pullRequest().repo().isBlank(),
-                "pullRequest repository is blank");
+        checkArgument(!command.pullRequest().owner().isBlank() && !command.pullRequest().repo().isBlank(), "pullRequest repository is blank");
         checkArgument(command.worktree().isAbsolute(), "worktree is not absolute");
         checkArgument(command.maxAttempts() > 0
                         && command.maxAttempts() <= CiAutofixRun.MAX_FIX_ATTEMPTS,
@@ -946,9 +944,7 @@ public class DefaultCiAutofixService
         checkArgument(snapshot.pullRequest().equals(expectedPullRequest), "GitHub returned another pull request");
         checkArgument(snapshot.open(), "Pull request is not open");
         checkArgument(snapshot.sameRepository(), "Pull request is from a fork");
-        checkArgument(
-                snapshot.author().equalsIgnoreCase(currentUser),
-                "CI Autofix is available only to the pull request author");
+        checkArgument(snapshot.author().equalsIgnoreCase(currentUser), "CI Autofix is available only to the pull request author");
     }
 
     private static void validateStartWorkspace(
@@ -956,13 +952,10 @@ public class DefaultCiAutofixService
             RepositoryIdentity repository,
             CiHeadSnapshot snapshot)
     {
-        checkArgument(workspace.repository().toString().equalsIgnoreCase(repository.toString()),
-                "Worktree repository does not match the pull request");
+        checkArgument(workspace.repository().toString().equalsIgnoreCase(repository.toString()), "Worktree repository does not match the pull request");
         checkArgument(!workspace.dirty(), "Worktree must be clean before CI Autofix starts");
-        checkArgument(workspace.branch().filter(snapshot.headRef()::equals).isPresent(),
-                "Worktree branch does not match the pull request head branch");
-        checkArgument(workspace.head().equals(snapshot.headSha()),
-                "Worktree HEAD does not match the pull request head SHA");
+        checkArgument(workspace.branch().filter(snapshot.headRef()::equals).isPresent(), "Worktree branch does not match the pull request head branch");
+        checkArgument(workspace.head().equals(snapshot.headSha()), "Worktree HEAD does not match the pull request head SHA");
     }
 
     private static void validateMessageWorkspace(
@@ -1008,7 +1001,6 @@ public class DefaultCiAutofixService
     {
         requireNonNull(value, name + " is null");
         checkArgument(!value.isBlank(), name + " is blank");
-        checkArgument(value.length() <= maximumLength,
-                name + " exceeds " + maximumLength + " characters");
+        checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
     }
 }

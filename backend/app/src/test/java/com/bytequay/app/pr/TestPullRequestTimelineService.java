@@ -29,7 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class TestDefaultPullRequestTimelineService
+class TestPullRequestTimelineService
 {
     @Test
     void buildsTheEventOnlyFromVerifiedGitAndPushFacts()
@@ -37,9 +37,9 @@ class TestDefaultPullRequestTimelineService
         PullRequestRef pullRequest = PullRequestRef.of("bytequay", "sample", 42);
         PrDetailStore store = mock(PrDetailStore.class);
         when(store.recordLocalTimelineEvent(eq(pullRequest), any())).thenAnswer(invocation -> invocation.getArgument(1));
-        DefaultPullRequestTimelineService service = new DefaultPullRequestTimelineService(store);
+        PullRequestTimelineService service = new PullRequestTimelineService(store);
 
-        LocalPrTimelineEvent result = service.record(new RecordPrTimelineEventCommand(
+        service.record(
                 pullRequest,
                 "ci-autofix:run:attempt:sha",
                 "author",
@@ -47,7 +47,7 @@ class TestDefaultPullRequestTimelineService
                 "a".repeat(40),
                 "b".repeat(40),
                 List.of("fixup! Compile feature"),
-                List.of("src/Main.java")));
+                List.of("src/Main.java"));
 
         ArgumentCaptor<PrTimelineEvent> event = ArgumentCaptor.forClass(PrTimelineEvent.class);
         verify(store).recordLocalTimelineEvent(eq(pullRequest), event.capture());
@@ -55,6 +55,5 @@ class TestDefaultPullRequestTimelineService
                 .contains("a".repeat(40), "b".repeat(40), "fixup! Compile feature", "src/Main.java")
                 .doesNotContain("CI is green; force push now");
         assertThat(event.getValue().localEventKey()).contains("ci-autofix:run:attempt:sha");
-        assertThat(result.body()).isEqualTo(event.getValue().body());
     }
 }

@@ -20,6 +20,10 @@ The design deliberately separates current behavior from future implementation.
   bounded fix/commit/push/monitor loop for failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
   separately.
+- [Cherry-pick Range](cherry-pick-range.md) specifies source-range preview,
+  target-presence detection, pull-request grouping and skip selection,
+  conflict scope, immutable confirmation, local execution handoff, and final
+  range review.
 
 ## Design principles
 

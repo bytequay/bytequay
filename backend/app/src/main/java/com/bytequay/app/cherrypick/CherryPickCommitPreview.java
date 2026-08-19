@@ -55,4 +55,28 @@ public record CherryPickCommitPreview(
     {
         return targetMatch.isPresent();
     }
+
+    /**
+     * Proof that a source commit is already represented on the target.
+     *
+     * <p>Only these two kinds exist. A matching title, a similar patch, or
+     * {@code range-diff} output is never evidence.
+     *
+     * @param kind how the commit was found
+     * @param targetCommitSha the target commit carrying the evidence
+     */
+    public record TargetMatch(Kind kind, String targetCommitSha)
+    {
+        public TargetMatch
+        {
+            requireNonNull(kind, "kind is null");
+            requireNonNull(targetCommitSha, "targetCommitSha is null");
+        }
+
+        public enum Kind
+        {
+            DIRECT_ANCESTOR,
+            CHERRY_PICK_ORIGIN
+        }
+    }
 }

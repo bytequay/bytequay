@@ -76,13 +76,10 @@ public record PreviewCherryPickRangeCommand(
         if (value.length() > MAX_REF_LENGTH) {
             throw new CherryPickInvalidRequestException(name + " exceeds " + MAX_REF_LENGTH + " characters");
         }
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            // Refs reach Git as argv values, so a shell cannot see them; these
-            // characters would still corrupt the record-separated output parsing.
-            if (character == '\0' || character == '\n' || character == '\r') {
-                throw new CherryPickInvalidRequestException(name + " contains a control character");
-            }
+        // Refs reach Git as argv values, so a shell cannot see them; these
+        // characters would still corrupt the record-separated output parsing.
+        if (value.indexOf('\0') >= 0 || value.contains("\n") || value.contains("\r")) {
+            throw new CherryPickInvalidRequestException(name + " contains a control character");
         }
         if (value.startsWith("-")) {
             throw new CherryPickInvalidRequestException(name + " looks like a command-line option");

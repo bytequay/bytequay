@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.cherrypick.CherryPickConflictException;

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
@@ -28,8 +29,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,9 +84,11 @@ class TestCherryPickPreviewService
 
         assertThat(preview.commits()).hasSize(12);
         assertThat(preview.commits().stream().map(CherryPickCommitPreview::position))
-                .containsExactlyElementsOf(rangeOfPositions(12));
+                .containsExactlyElementsOf(IntStream.rangeClosed(1, 12).boxed().toList());
         assertThat(preview.commits().stream().map(CherryPickCommitPreview::title))
-                .containsExactly(titles(12));
+                .containsExactly(IntStream.rangeClosed(1, 12)
+                        .mapToObj(index -> "Upstream change " + index)
+                        .toArray(String[]::new));
         assertThat(preview.sourceBaseSha()).isEqualTo(base);
         assertThat(preview.sourceTipSha()).isEqualTo(upstreamHead);
         assertThat(preview.localTargetBranch()).isEqualTo("fork-main");
@@ -313,18 +316,6 @@ class TestCherryPickPreviewService
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("commit not in preview: " + sourceSha))
                 .targetMatch();
-    }
-
-    private static List<Integer> rangeOfPositions(int count)
-    {
-        return java.util.stream.IntStream.rangeClosed(1, count).boxed().toList();
-    }
-
-    private static String[] titles(int count)
-    {
-        return java.util.stream.IntStream.rangeClosed(1, count)
-                .mapToObj(index -> "Upstream change " + index)
-                .toArray(String[]::new);
     }
 
     private Path init(String name)

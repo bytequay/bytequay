@@ -59,9 +59,4 @@ public record CherryPickPreview(
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(expiresAt, "expiresAt is null");
     }
-
-    public long alreadyOnTargetCount()
-    {
-        return commits.stream().filter(CherryPickCommitPreview::alreadyOnTarget).count();
-    }
 }

@@ -34,8 +34,6 @@ public record CherryPickPreviewResponse(
         String sourceBaseSha,
         String sourceTipSha,
         String targetSha,
-        int totalCommits,
-        long alreadyOnTargetCommits,
         List<CommitResponse> commits,
         List<String> warnings,
         Instant expiresAt)
@@ -52,8 +50,6 @@ public record CherryPickPreviewResponse(
                 preview.sourceBaseSha(),
                 preview.sourceTipSha(),
                 preview.targetSha(),
-                preview.commits().size(),
-                preview.alreadyOnTargetCount(),
                 preview.commits().stream().map(CommitResponse::of).collect(toImmutableList()),
                 ImmutableList.copyOf(preview.warnings()),
                 preview.expiresAt());

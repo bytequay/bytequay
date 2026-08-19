@@ -769,3 +769,176 @@ Verification evidence:
 - The final authority audit found no review-triage coupling, response parser,
   GitHub comment/review/merge write, agent credential, unleased push, raw CI log
   in SQLite, new Maven module, Flyway, or additional durable workflow state.
+
+## 13. End-to-end test
+
+The CI Autofix end-to-end suite verifies the complete local backend journey
+without contacting GitHub or starting a real agent CLI. It belongs in the
+existing `app` test tree; it does not add a Maven module, production test hook,
+workflow DSL, or general-purpose fake framework.
+
+### 13.1 Boundary
+
+One fast Spring test context uses the real:
+
+- desktop-session filter, JSON mapping, controller, and exception mapping;
+- `DefaultCiAutofixService`, monitor advancement, prompts, and validation;
+- agent task, turn, event, metric, completion, and resource services;
+- SQLite stores and restart projections;
+- task log files and `ci-memory.md`;
+- `GitAgentWorkspaceService`, `DefaultCiGitService`, a real worktree, and a
+  local bare Git remote; and
+- pull-request timeline storage.
+
+Only external nondeterminism is replaced:
+
+- `ScriptedGitHubActionsClient` supplies ordered head/check/log snapshots and
+  records every failed-job rerun; and
+- `ScriptedAgentDriver` supplies ordered turn outcomes and performs the exact
+  Git actions declared by a test scenario.
+
+The authenticated GitHub identity is a fixed test value. It is not a scenario
+engine and performs no network call.
+
+```mermaid
+flowchart LR
+    TEST["JUnit scenario"] --> HTTP["MockMvc + desktop-session filter"]
+    HTTP --> API["CiAutofixController"]
+    API --> SERVICE["Real CI Autofix and agent services"]
+    SERVICE --> DB[("SQLite")]
+    SERVICE --> FILES["Task logs + CI memory"]
+    SERVICE --> GIT["Real worktree + bare origin"]
+    SERVICE --> GH["Scripted GitHub Actions"]
+    SERVICE --> AGENT["Scripted agent driver"]
+    SERVICE --> TIMELINE["PR timeline"]
+```
+
+The ordinary suite shares one context for speed and gives every scenario a
+unique repository, PR number, idempotency key, worktree, and bare remote. Tests
+run on one thread because the agent workspace lease is process-local. One
+separate restart test closes and reopens a full application context against the
+same SQLite file, task runtime, worktree, and remote.
+
+### 13.2 Test package and responsibilities
+
+The test-only package is `com.bytequay.app.ci.e2e`.
+
+| Test type | Responsibility |
+| --- | --- |
+| `TestCiAutofixEndToEnd` | HTTP-started journeys that share one Spring context |
+| `TestCiAutofixRestartEndToEnd` | The one close/reopen uncertain-push journey |
+| `CiAutofixE2eHarness` | Creates isolated fixtures, makes HTTP requests, advances the real service, and exposes snapshots |
+| `E2eGitRepository` | Creates the authored commit range, local worktree, target branch, and local bare origin |
+| `ScriptedGitHubActionsClient` | Returns explicit snapshots/logs and keeps a rerun call ledger |
+| `ScriptedAgentDriver` | Emits real agent events/usage and applies scripted Git operations in the leased worktree |
+| `CiAutofixMonitorTestDriver` | Test-source bridge in `com.bytequay.app.ci` that invokes the package-private real monitor job |
+
+These helpers are package-private and may be used only by the two E2E test
+classes. The harness coordinates production entry points; it must not duplicate
+CI Autofix decisions such as whether to rerun, pause, push, or finish.
+
+### 13.3 Harness contract
+
+The harness exposes only operations used by a user or by the existing monitor:
+
+```java
+E2eGitRepository createRepository(RepositoryPlan plan);
+void scriptCi(PullRequestRef pullRequest, CiSnapshot... snapshots);
+void scriptAgent(PullRequestRef pullRequest, AgentAction... actions);
+CiAutofixRunId startViaHttp(StartRequest request);
+void tick();
+CiAutofixRun driveUntil(Predicate<CiAutofixRun> condition, int maximumTicks);
+CiAutofixRun sendMessageViaHttp(CiAutofixRunId runId, String key, String message);
+CiAutofixRun cancelViaHttp(CiAutofixRunId runId);
+E2eSnapshot snapshot(CiAutofixRunId runId);
+```
+
+`tick()` calls `CiAutofixMonitorJob.monitor()` once through the test-source
+bridge. This exercises the real non-finished-run selection, bounded batching,
+per-run failure isolation, and service advancement, including CI inspection and
+log handling. The scheduled timer is delayed during the test; repeated manual
+ticks represent later polling intervals without making the suite wait for wall
+clock time.
+
+`driveUntil` repeats bounded ticks without sleeping and fails with one
+diagnostic snapshot when the bound is exhausted. The snapshot contains
+run/attempt state, turn state, scripted call ledgers, local and remote heads,
+status output, recent events, and relevant runtime-file names; it never prints
+credentials or full raw logs.
+
+An unscripted GitHub or agent call fails the test immediately. Scripted GitHub
+writes and Git pushes have call ledgers so exact-once assertions do not depend
+on Mockito invocation order.
+
+### 13.4 Agent/program boundary under test
+
+The scripted agent may inspect the repository, read a bounded CI-memory result,
+edit files, run local commands, create/reorder/fold fixup commits, rebase, emit
+events, and complete/fail/cancel a turn. It never updates a CI Autofix row,
+calls GitHub, or publishes a branch.
+
+The program alone reads the terminal `AgentTurn` state, inspects Git, validates
+fixup history, journals and exact-lease pushes, interprets GitHub checks, writes
+memory and timeline records, and chooses the next action. Agent final-message
+text is captured for display only. At least one test must return prose that
+claims success and requests a force push while Git is invalid; the expected
+result is still determined only from terminal turn state and inspected Git
+facts.
+
+The test driver may call `CiMemoryService.read` to represent the task-scoped
+`read_ci_memory` tool and record the query/result. Provider protocol exposure
+remains covered by the focused Claude permission-broker tests; the E2E suite
+does not reproduce MCP or CLI protocols.
+
+### 13.5 Required journeys
+
+| Journey | Required proof |
+| --- | --- |
+| Authorization guard | A non-author, fork, or missing consent is rejected through HTTP before task creation, rerun, or push |
+| Early actionable failure | A failed compile job starts fixing while an unrelated slow job remains pending |
+| Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |
+| Target branch moved | The agent may rebase and resolve conflicts; the program accepts only a clean, linear, correctly positioned result and then lease-pushes it |
+| Empty agent result | No Git change causes a failed-job rerun, not a push; a later green snapshot finishes the run |
+| Empty-result bound | Three empty results for one head consume the stored rerun allowance and then pause without a fourth rerun |
+| Invalid Git recovery | An invalid result pauses immediately with no push; a user HTTP message may start a repair turn on the same task; another invalid result remains paused |
+| Stale PR head | An external head update before push finishes `STALE_HEAD` and preserves the external commit |
+| User message | A paused run accepts an idempotent HTTP message on the same task and can continue to green |
+| Cancellation | Cancelling a blocked active turn prevents every later rerun and push |
+| Final position rejection | Green CI with misplaced fixups runs the final check once and pauses without an automatic turn; agent prose cannot override it |
+| Lost push and restart | A push reaches the bare remote but its result is lost; after full context restart the journal and remote head reconcile without another push or timeline event, and the run finishes green |
+
+Repeated start/message idempotency keys are asserted in the journeys that use
+them. Timeline keys, workflow reruns, final checks, and branch pushes are also
+asserted exactly once where restart or repeated advancement could duplicate
+them.
+
+### 13.6 Layering and performance
+
+The E2E suite owns cross-service wiring and durable outcomes. Focused tests
+continue to own combinatorial details such as Git command rejection cases,
+failure-signature normalization, memory size/search bounds, prompt wording,
+HTTP validation permutations, and each domain transition. A covered focused
+test is not copied into E2E unless it protects a service boundary.
+
+The suite has these execution rules:
+
+- no `Thread.sleep`, live scheduler wait, network call, real agent CLI, or
+  GitHub credential;
+- real `CiAutofixMonitorJob.monitor()` calls for polling logic, with only its
+  wall-clock scheduler trigger disabled;
+- immediate or test-controlled futures for agent turns;
+- one shared context for non-restart journeys and one explicit two-context
+  restart journey;
+- bounded advancement, bounded fake queues, and immediate failure on an
+  unexpected call; and
+- scenario cleanup limited to its own temporary worktree, remote, runtime, and
+  identifiers.
+
+The target is at most 15 seconds for all non-restart journeys together, at most
+8 seconds for the restart journey, and at most 35 seconds for backend
+`mvn verify` on the reference development machine. The non-restart E2E class
+must also pass 100 consecutive executions without an intermittent failure.
+
+The current `TestCiAutofixIntegration` is removed only after its successful and
+hostile-agent proofs are covered by the new suite. Existing focused tests stay
+in place.

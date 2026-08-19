@@ -313,52 +313,56 @@ scenario.
 
 ### 4.1 Build the restart harness
 
-- [ ] Keep restart support local to `TestCiAutofixRestartEndToEnd`; do not add
+- [x] Keep restart support local to `TestCiAutofixRestartEndToEnd`; do not add
   restart methods to the ordinary harness unless another test needs them.
-- [ ] Open a complete first Spring context with `SpringApplicationBuilder`
+- [x] Open a complete first Spring context with `SpringApplicationBuilder`
   against explicit SQLite, runtime-root, worktree, and bare-remote paths.
-- [ ] Register the same scripted GitHub/agent scenario objects as primary test
+- [x] Register the same scripted GitHub/agent scenario objects as primary test
   beans in each context using an application initializer. Do not use static
   global lookup from production code.
-- [ ] Use `spring.jpa.hibernate.ddl-auto=create` for the first context and
-  `validate` for the second so the second context reads the first context's
-  durable rows without migration behavior; delete its temporary database at
-  test cleanup.
-- [ ] Disable real lanes and the scheduled monitor in both contexts.
+- [x] Use `spring.jpa.hibernate.ddl-auto=create` for the first context and
+  `none` for the second so the second context reads the first context's durable
+  rows without any schema write; delete its temporary database at test cleanup.
+  Hibernate SQLite `validate` rejects Hibernate's own generated integer primary
+  keys as `BIGINT` mismatches, so the test proves compatibility by reading every
+  required durable record instead.
+- [x] Disable real lanes and the scheduled monitor in both contexts.
 
 ### 4.2 Simulate the lost result
 
-- [ ] Add a test-only primary `CiGitService` decorator that delegates the first
+- [x] Add a test-only primary `CiGitService` decorator that delegates the first
   push to `DefaultCiGitService`, verifies the remote reached the journaled local
   SHA, and returns `UNCERTAIN` once to simulate a lost response.
-- [ ] Assert the first context leaves a durable push journal and does not mark
+- [x] Assert the first context leaves a durable push journal and does not mark
   the attempt published.
-- [ ] Close the first context cleanly without changing SQLite, task runtime, or
+- [x] Close the first context cleanly without changing SQLite, task runtime, or
   either Git repository.
-- [ ] Open the second context with the ordinary real `DefaultCiGitService` (the
+- [x] Open the second context with the ordinary real `DefaultCiGitService` (the
   lost-response decorator disabled) and restore the scripted GitHub green
   snapshot for the remote SHA.
-- [ ] Advance the recovered run. Assert the program reconciles remote head to
+- [x] Advance the recovered run. Assert the program reconciles remote head to
   the journaled local head, records the attempt as published, clears the
   journal, performs the final check, and finishes green.
 
 ### 4.3 Prove exact-once effects
 
-- [ ] Assert the bare remote branch has one ref update for ByteQuay's fix, the
+- [x] Assert the bare remote branch has one ref update for ByteQuay's fix, the
   expected final SHA, and no rewritten external commit.
-- [ ] Assert one published-attempt record, one stable timeline event, one final
+- [x] Assert one published-attempt record, one stable timeline event, one final
   fixup check for the SHA, one completed task, and no duplicate agent turn.
-- [ ] Assert raw logs, CI memory, agent events, metrics, and summary created in
+- [x] Assert raw logs, CI memory, agent events, metrics, and summary created in
   the first context remain readable in the second.
-- [ ] Assert rerunning recovery ticks is a no-op for remote and timeline state.
+- [x] Assert rerunning recovery ticks is a no-op for remote and timeline state.
 
 ### Checkpoint 4 exit
 
-- [ ] `TestCiAutofixRestartEndToEnd#reconcilesAPushWhoseResponseWasLost` passes in
-  at most 8 seconds.
-- [ ] Run both E2E classes together successfully.
-- [ ] Run `mvn -pl app -am test` successfully.
-- [ ] Commit the restart proof only after these checks pass.
+- [x] `TestCiAutofixRestartEndToEnd#reconcilesAPushWhoseResponseWasLost` passes in
+  at most 8 seconds (4.932 seconds).
+- [x] Run both E2E classes together successfully (14 journeys; restart 4.848
+  seconds and non-restart 14.38 seconds).
+- [x] Run `mvn -pl app -am test` successfully (all 145 `app` tests passed;
+  total Maven time 23.850 seconds).
+- [x] Commit the restart proof only after these checks pass.
 
 ## Checkpoint 5 — Consolidate and finish
 

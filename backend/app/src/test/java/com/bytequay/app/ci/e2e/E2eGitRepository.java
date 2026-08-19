@@ -1,0 +1,264 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.ci.e2e;
+
+import com.bytequay.core.domain.PullRequestRef;
+import com.google.common.collect.ImmutableList;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import static java.util.Objects.requireNonNull;
+
+final class E2eGitRepository
+{
+    static final String BASE_REF = "main";
+    static final String HEAD_REF = "feature";
+
+    private static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
+    private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(10);
+
+    private final PullRequestRef pullRequest;
+    private final Path bareRemote;
+    private final Path worktree;
+    private String baseSha;
+    private final String initialHeadSha;
+
+    private E2eGitRepository(
+            PullRequestRef pullRequest,
+            Path bareRemote,
+            Path worktree,
+            String baseSha,
+            String initialHeadSha)
+    {
+        this.pullRequest = requireNonNull(pullRequest, "pullRequest is null");
+        this.bareRemote = requireNonNull(bareRemote, "bareRemote is null");
+        this.worktree = requireNonNull(worktree, "worktree is null");
+        this.baseSha = requireNonNull(baseSha, "baseSha is null");
+        this.initialHeadSha = requireNonNull(initialHeadSha, "initialHeadSha is null");
+    }
+
+    static E2eGitRepository create(Path root, PullRequestRef pullRequest)
+    {
+        requireNonNull(root, "root is null");
+        requireNonNull(pullRequest, "pullRequest is null");
+        Path bareRemote = root.resolve("origin.git");
+        Path worktree = root.resolve("worktree");
+        createDirectory(root);
+        git(root, "init", "--bare", bareRemote.toString());
+        git(bareRemote, "config", "core.logAllRefUpdates", "true");
+        git(root, "init", "-b", HEAD_REF, worktree.toString());
+        git(worktree, "config", "user.name", "ByteQuay E2E");
+        git(worktree, "config", "user.email", "ci-e2e@bytequay.local");
+
+        String remoteUrl = "https://github.com/" + pullRequest.repoFullName() + ".git";
+        git(worktree, "remote", "add", "origin", remoteUrl);
+        git(worktree, "config", "url." + bareRemote.toUri() + ".insteadOf", remoteUrl);
+
+        write(worktree.resolve("source.txt"), "base\n");
+        git(worktree, "add", "source.txt");
+        git(worktree, "commit", "-m", "Base");
+        String baseSha = head(worktree);
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
+
+        write(worktree.resolve("source.txt"), "base\ntarget\n");
+        git(worktree, "add", "source.txt");
+        git(worktree, "commit", "-m", "Target change");
+        String headSha = head(worktree);
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        try {
+            return new E2eGitRepository(
+                    pullRequest,
+                    bareRemote.toRealPath(),
+                    worktree.toRealPath(),
+                    baseSha,
+                    headSha);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Cannot resolve E2E Git repository", e);
+        }
+    }
+
+    PullRequestRef pullRequest()
+    {
+        return pullRequest;
+    }
+
+    Path bareRemote()
+    {
+        return bareRemote;
+    }
+
+    Path worktree()
+    {
+        return worktree;
+    }
+
+    String baseSha()
+    {
+        return baseSha;
+    }
+
+    String initialHeadSha()
+    {
+        return initialHeadSha;
+    }
+
+    String localHead()
+    {
+        return head(worktree);
+    }
+
+    String remoteHead()
+    {
+        String output = git(worktree, "ls-remote", "origin", "refs/heads/" + HEAD_REF);
+        return output.split("\\s+", 2)[0];
+    }
+
+    String status()
+    {
+        return git(worktree, "status", "--porcelain=v1", "--untracked-files=all");
+    }
+
+    List<String> commitSubjects()
+    {
+        String output = git(worktree, "log", "--reverse", "--format=%s", baseSha + "..HEAD");
+        return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().toList());
+    }
+
+    String commitOnHead(String relativePath, String content, String subject)
+    {
+        write(worktree.resolve(relativePath), content);
+        git(worktree, "add", relativePath);
+        git(worktree, "commit", "-m", subject);
+        return localHead();
+    }
+
+    String commitOnBase(String relativePath, String content, String subject)
+    {
+        git(worktree, "checkout", "-B", BASE_REF, baseSha);
+        String commit = commitOnHead(relativePath, content, subject);
+        git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
+        baseSha = commit;
+        git(worktree, "checkout", HEAD_REF);
+        return commit;
+    }
+
+    void checkout(String ref)
+    {
+        git(worktree, "checkout", ref);
+    }
+
+    static String git(Path directory, String... arguments)
+    {
+        ImmutableList<String> command = ImmutableList.<String>builder()
+                .add("git", "-C", directory.toString())
+                .add(arguments)
+                .build();
+        Process process;
+        try {
+            ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
+            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
+            builder.environment().put("LC_ALL", "C");
+            process = builder.start();
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Cannot start " + String.join(" ", command), e);
+        }
+
+        CompletableFuture<CommandOutput> output = new CompletableFuture<>();
+        Thread.ofVirtual().name("ci-e2e-git-output").start(() -> drain(process.getInputStream(), output));
+        try {
+            if (!process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                throw new IllegalStateException("Git timed out: " + String.join(" ", command));
+            }
+            CommandOutput result = output.get(1, TimeUnit.SECONDS);
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("Git failed: " + String.join(" ", command)
+                        + "\n" + result.text());
+            }
+            if (result.truncated()) {
+                throw new IllegalStateException("Git output exceeded " + MAXIMUM_OUTPUT_BYTES
+                        + " bytes: " + String.join(" ", command) + "\n" + result.text());
+            }
+            return result.text().strip();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+            throw new IllegalStateException("Interrupted while waiting for Git", e);
+        }
+        catch (ExecutionException | TimeoutException e) {
+            process.destroyForcibly();
+            throw new IllegalStateException("Cannot read Git output", e);
+        }
+    }
+
+    private static void drain(InputStream stream, CompletableFuture<CommandOutput> output)
+    {
+        try (stream; ByteArrayOutputStream captured = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            boolean truncated = false;
+            for (int read = stream.read(buffer); read >= 0; read = stream.read(buffer)) {
+                int remaining = MAXIMUM_OUTPUT_BYTES - captured.size();
+                if (remaining > 0) {
+                    captured.write(buffer, 0, Math.min(read, remaining));
+                }
+                truncated |= read > remaining;
+            }
+            output.complete(new CommandOutput(captured.toString(StandardCharsets.UTF_8), truncated));
+        }
+        catch (IOException e) {
+            output.completeExceptionally(e);
+        }
+    }
+
+    private static String head(Path worktree)
+    {
+        return git(worktree, "rev-parse", "HEAD");
+    }
+
+    private static void createDirectory(Path directory)
+    {
+        try {
+            Files.createDirectories(directory);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Cannot create E2E directory " + directory, e);
+        }
+    }
+
+    private static void write(Path path, String content)
+    {
+        try {
+            Files.writeString(path, content, StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Cannot write E2E fixture " + path, e);
+        }
+    }
+
+    private record CommandOutput(String text, boolean truncated) {}
+}

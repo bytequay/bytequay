@@ -92,6 +92,20 @@ class TestGitAgentWorkspaceService
     }
 
     @Test
+    void validatesTheConfiguredOriginBeforeGitUrlRewriting()
+            throws IOException, InterruptedException
+    {
+        runGit(
+                "-C",
+                worktree.toString(),
+                "config",
+                "url." + temporaryDirectory.resolve("origin.git").toUri() + ".insteadOf",
+                "https://github.com/bytequay/sample.git");
+
+        assertThat(service.inspect(worktree).repository()).isEqualTo(REPOSITORY);
+    }
+
+    @Test
     void rejectsRepositoryMismatchAndSymbolicLink()
             throws IOException
     {

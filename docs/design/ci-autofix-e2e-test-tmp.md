@@ -12,21 +12,21 @@ evidence, and this temporary file is removed.
 
 ## Locked test boundary
 
-- [ ] Keep all new code under
+- [x] Keep all new E2E code under
   `backend/app/src/test/java/com/bytequay/app/ci/e2e`, except the one
   package-access bridge
   `backend/app/src/test/java/com/bytequay/app/ci/CiAutofixMonitorTestDriver.java`.
-- [ ] Use the existing `app` module and installed Spring/JUnit/AssertJ/Mockito
+- [x] Use the existing `app` module and installed Spring/JUnit/AssertJ/Mockito
   dependencies; add no dependency or Maven module.
-- [ ] Use real HTTP request filtering and mapping, CI Autofix/agent services,
+- [x] Use real HTTP request filtering and mapping, CI Autofix/agent services,
   SQLite stores, runtime files, Git workspace inspection, Git publishing,
   timeline storage, events, metrics, and task completion.
-- [ ] Replace only GitHub Actions, the external agent process, and authenticated
+- [x] Replace only GitHub Actions, the external agent process, and authenticated
   GitHub identity with deterministic test values.
-- [ ] Never use an agent final response to select a program branch. The driver
+- [x] Never use an agent final response to select a program branch. The driver
   supplies terminal turn state; the program must still decide from that state,
   inspected Git facts, stored authorization, journals, and GitHub snapshots.
-- [ ] Use no `Thread.sleep`, scheduler wait, network call, GitHub credential,
+- [x] Use no `Thread.sleep`, scheduler wait, network call, GitHub credential,
   real Codex/Claude process, YAML scenario file, reflection into production
   state, or direct write to CI Autofix tables.
 
@@ -34,22 +34,21 @@ evidence, and this temporary file is removed.
 
 ### 1.1 Record the existing safety net
 
-- [ ] Run the current focused HTTP, monitor, and integration tests:
+- [x] Run the current focused HTTP, monitor, and integration tests:
 
   ```text
   cd backend
-  mvn -pl app -Dtest=TestCiAutofixHttpApi,TestCiAutofixMonitorJob,TestCiAutofixIntegration test
+  mvn -pl app -am -Dsurefire.failIfNoSpecifiedTests=false -Dtest=TestCiAutofixHttpApi,TestCiAutofixMonitorJob,TestCiAutofixIntegration test
   ```
 
-- [ ] Run `mvn verify` in `backend/` and record the elapsed time in the
-  checkpoint commit or review note.
-- [ ] Confirm the starting diff contains no unrelated user changes that the E2E
+- [x] Run `mvn verify` in `backend/`; the baseline completed in 21.286 seconds.
+- [x] Confirm the starting diff contains no unrelated user changes that the E2E
   work would overwrite.
 
 ### 1.2 Create the test package
 
-- [ ] Add these package-private helpers and no more until a required journey
-  proves another helper is necessary:
+- [x] Add these package-private checkpoint-1 helpers and no more until a required
+  journey proves another helper is necessary:
 
   ```text
   com.bytequay.app.ci.e2e
@@ -57,116 +56,124 @@ evidence, and this temporary file is removed.
   ├── E2eGitRepository.java
   ├── ScriptedAgentDriver.java
   ├── ScriptedGitHubActionsClient.java
-  ├── TestCiAutofixEndToEnd.java
-  └── TestCiAutofixRestartEndToEnd.java
+  └── TestCiAutofixEndToEnd.java
   ```
 
-- [ ] Add `CiAutofixMonitorTestDriver` in the mirrored production package. It
+  `TestCiAutofixRestartEndToEnd` is added only when checkpoint 4 needs it.
+
+- [x] Add `CiAutofixMonitorTestDriver` in the mirrored production package. It
   contains only `tick()`, which delegates directly to the package-private real
   `CiAutofixMonitorJob.monitor()` method.
-- [ ] Put reusable Spring test beans in a nested `@TestConfiguration` until both
+- [x] Put reusable Spring test beans in a nested `@TestConfiguration` until both
   test classes need them; extract a separate configuration file only then.
-- [ ] Configure the ordinary suite with `@SpringBootTest(webEnvironment = MOCK)`,
+- [x] Configure the ordinary suite with `@SpringBootTest(webEnvironment = MOCK)`,
   `@AutoConfigureMockMvc`, and `@Execution(SAME_THREAD)`.
-- [ ] Disable Codex, Claude, and the production deterministic lane; register
+- [x] Disable Codex, Claude, and the production deterministic lane; register
   only `ScriptedAgentDriver` with lane ID `ci-e2e` and the `CI_AUTOFIX`
   permission policy.
-- [ ] Set a fixed desktop-session token, delay the scheduled monitor for one
+- [x] Set a fixed desktop-session token, delay the scheduled monitor for one
   hour, use an isolated SQLite `create-drop` database, and use an isolated task
   runtime root.
-- [ ] Keep one cached Spring context for every non-restart journey. Generate a
+- [x] Keep one cached Spring context for every non-restart journey. Generate a
   unique repository name, PR number, database row ID, idempotency key,
   worktree, and bare remote per test.
-- [ ] Reset only scripted queues and call ledgers in `@BeforeEach`; never clear
+- [x] Reset only scripted queues and call ledgers in `@BeforeEach`; never clear
   another scenario's database or runtime directory.
 
 ### 1.3 Implement `E2eGitRepository`
 
-- [ ] Create a real local worktree and a local bare `origin`; set
+- [x] Create a real local worktree and a local bare `origin`; set
   `core.logAllRefUpdates=true` on the bare repository for branch-write
   assertions.
-- [ ] Configure a GitHub-shaped HTTPS origin plus Git's local `insteadOf`
+- [x] Configure a GitHub-shaped HTTPS origin plus Git's local `insteadOf`
   mapping so production repository validation and push code remain active
   without network access.
-- [ ] Provide small fixture operations for authored commits, target-branch
+  The fixture exposed that workspace inspection used Git's rewritten URL;
+  checkpoint 1 aligned it with CI publishing by validating the configured
+  `remote.origin.url`, covered by `TestGitAgentWorkspaceService`.
+- [x] Provide small fixture operations for authored commits, target-branch
   commits, checkout, local/remote head reads, clean-status reads, and commit
   subject/order reads. Execute Git with argv lists through one bounded helper.
-- [ ] Seed the real PR list/detail/timeline stores with the authored PR and its
+- [x] Seed the real PR list/detail/timeline stores with the authored PR and its
   current head/base facts; do not seed CI Autofix or agent rows.
-- [ ] Make fixture creation fail with the complete bounded Git output when any
+- [x] Make fixture creation fail with the complete bounded Git output when any
   command fails.
 
 ### 1.4 Implement `ScriptedGitHubActionsClient`
 
-- [ ] Implement the existing `com.bytequay.app.ci.GitHubActionsClient`
+- [x] Implement the existing `com.bytequay.app.ci.GitHubActionsClient`
   interface as a primary test bean; do not add a production interface.
-- [ ] Key scripts by the complete `PullRequestRef` (`owner/repository#number`),
+- [x] Key scripts by the complete `PullRequestRef` (`owner/repository#number`),
   never by PR number alone.
-- [ ] Queue explicit `CiHeadSnapshot` values. `inspect` returns the current
-  value until the scenario advances it, so repeated production polling is
+- [x] Store an explicit current `CiHeadSnapshot`. `inspect` returns that value
+  until the scenario advances it, so repeated production polling is
   deterministic rather than consuming snapshots accidentally.
-- [ ] Store scripted raw job-log bytes with the real `TaskLogStore.writeBlob`
+- [x] Store scripted raw job-log bytes with the real `TaskLogStore.writeBlob`
   and return the resulting bounded `BlobRef`, terminal error lines, byte count,
   and truncation facts.
-- [ ] Record every `RerunFailedJobsCommand` before returning its scripted
+- [x] Record every `RerunFailedJobsCommand` before returning its scripted
   `CiRerunResult`.
-- [ ] Fail immediately on an unknown PR, missing job log, missing rerun result,
+- [x] Fail immediately on an unknown PR, missing job log, missing rerun result,
   or write whose command does not match the scripted workflow/head/attempt.
-- [ ] Expose read-only copies of inspect/log/rerun call ledgers for assertions.
+- [x] Expose read-only copies of inspect/log/rerun call ledgers for assertions.
 
 ### 1.5 Implement `ScriptedAgentDriver`
 
-- [ ] Queue actions by full PR identity and bind the selected queue to the
+- [x] Queue actions by full PR identity and bind the selected queue to the
   session's canonical worktree; fail on an unknown worktree or an unscripted
   turn.
-- [ ] Support only actions required by section 13: complete without change,
+- [x] Support only actions required by section 13 through a bounded worktree
+  callback: complete without change,
   create/fold/reorder fixup, rebase/resolve, leave invalid Git, fail,
   interrupt, and block until cancelled.
-- [ ] Let each action operate on the real worktree and emit provider-neutral
+- [x] Let each action operate on the real worktree and emit provider-neutral
   message, command/file, lifecycle, and usage events through the real event
   sink.
-- [ ] Return `AgentTurnResult.State` through the real `RunningTurn.completion`
+- [x] Return `AgentTurnResult.State` through the real `RunningTurn.completion`
   future. Use an already-completed future for normal turns and one
   test-controlled incomplete future for cancellation; start no polling thread.
-- [ ] Allow an action to call `CiMemoryService.read` with its own task ID and
+- [x] Allow an action to call `CiMemoryService.read` with its own task ID and
   record the query/result as the E2E representation of `read_ci_memory`.
-- [ ] Make final response prose freely scriptable and label it untrusted in the
+- [x] Make final response prose freely scriptable and label it untrusted in the
   test data; never parse it in the driver or harness.
-- [ ] Expose read-only turn, memory-read, cancellation, and Git-action ledgers.
+- [x] Expose read-only turn, memory-read, cancellation, and Git-action ledgers.
 
 ### 1.6 Implement `CiAutofixE2eHarness`
 
-- [ ] Implement only the contract documented in service-design section 13.3:
+- [x] Implement only the contract documented in service-design section 13.3:
   fixture creation, provider scripting, HTTP start/message/cancel, one tick,
   bounded drive, and snapshot.
-- [ ] Send the real `X-ByteQuay-Session` and `Idempotency-Key` headers through
+- [x] Send the real `X-ByteQuay-Session` and `Idempotency-Key` headers through
   `MockMvc`. Parse only public response DTO fields when asserting API results.
-- [ ] Have `tick()` call `CiAutofixMonitorTestDriver.tick()` exactly once so the
+- [x] Have `tick()` call `CiAutofixMonitorTestDriver.tick()` exactly once so the
   real monitor selects non-finished runs, enforces its batch boundary, isolates
   per-run failures, and calls the service. Do not call
   `CiAutofixService.advance()` directly from the harness.
-- [ ] Have `driveUntil` stop on its predicate or fail after `maximumTicks`.
+- [x] Have `driveUntil` stop on its predicate or fail after `maximumTicks`.
   Never sleep or wait for the real scheduler.
-- [ ] On a tick-bound failure, print a bounded diagnostic containing run and
+- [x] On a tick-bound failure, print a bounded diagnostic containing run and
   attempt status, current turn state, fake call ledgers, local/remote SHA,
   concise Git status, recent event kinds, and runtime-file names. Exclude
   credentials and raw log bodies.
-- [ ] Build `snapshot` from public services/stores plus filesystem and Git
+- [x] Build `snapshot` from public services/stores plus filesystem and Git
   observations. It may read durable rows but must never mutate them.
 
 ### Checkpoint 1 exit
 
-- [ ] Add a smoke journey that starts an authored failing PR through HTTP,
+- [x] Add a smoke journey that starts an authored failing PR through HTTP,
   creates an agent task/turn, and stops before publishing.
-- [ ] Prove the session filter rejects a missing token in the same Spring
+- [x] Prove the session filter rejects a missing token in the same Spring
   context.
-- [ ] Prove an unscripted GitHub or agent call fails immediately with the full
+- [x] Prove an unscripted GitHub or agent call fails immediately with the full
   PR/worktree identity.
-- [ ] Prove one manual tick passes through the real monitor and reaches CI
+- [x] Prove one manual tick passes through the real monitor and reaches CI
   inspection/log preparation for the active run while the scheduled timer is
   disabled.
-- [ ] Run the new smoke test and the three baseline test classes successfully.
-- [ ] Commit the shared fixture only after these checks pass.
+- [x] Run the new smoke test, the three baseline test classes, and the focused
+  workspace-origin test successfully (12 tests in 19.093 seconds).
+- [x] Run full backend verification successfully (134 `app` tests; total Maven
+  time 23.511 seconds).
+- [x] Commit the shared fixture only after these checks pass.
 
 ## Checkpoint 2 — Primary green journey
 

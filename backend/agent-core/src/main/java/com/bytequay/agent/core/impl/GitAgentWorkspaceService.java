@@ -85,7 +85,7 @@ public final class GitAgentWorkspaceService
             throw new InvalidAgentRequestException("The selected path is not the Git worktree root");
         }
 
-        String remote = runGit(canonical, ImmutableList.of("remote", "get-url", "origin"), false).output();
+        String remote = runGit(canonical, ImmutableList.of("config", "--get", "remote.origin.url"), false).output();
         RepositoryIdentity repository = parseRepository(remote);
         String head = runGit(canonical, ImmutableList.of("rev-parse", "HEAD"), false).output();
         GitResult branchResult = runGit(

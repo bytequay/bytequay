@@ -92,6 +92,9 @@ export function spawnBackend(): void {
   // on top of -Xmx. Keep these in sync with dev.sh's MAVEN_OPTS so
   // dev mode behaves like the packaged build.
   const jvmArgs = [
+    // sqlite-jdbc loads a native library; without this JDK 24+ prints a
+    // restricted-method warning on every start (and will fail outright later).
+    '--enable-native-access=ALL-UNNAMED',
     '-Xmx2000m',
     '-XX:MaxMetaspaceSize=256m',
     '-XX:ReservedCodeCacheSize=128m',

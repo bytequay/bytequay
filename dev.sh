@@ -135,7 +135,7 @@ echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
 # bound in backend/pom.xml that otherwise run before every dev start
 # and routinely push mvn past the 60s readiness window above. CI and
 # `mvn verify` still enforce both — these are dev-only shortcuts.
-JVM_ARGS=(-Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
+JVM_ARGS=(--enable-native-access=ALL-UNNAMED -Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
 ( cd "$ROOT/backend" \
     && mvn -q -pl app -am package \
         -DskipTests \

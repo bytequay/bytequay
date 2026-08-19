@@ -264,7 +264,7 @@ git -C "$worktree" remote add origin https://github.com/bytequay/agent-e2e.git
 MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
     mvn -q -f "$backend_root/pom.xml" -pl app -am -DskipTests package
 
-java -jar "$backend_root/app/target/bytequay-backend.jar" \
+java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-backend.jar" \
     --server.port="$port" \
     --server.shutdown=immediate \
     --spring.datasource.url="jdbc:sqlite:$temporary_directory/e2e.db?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \

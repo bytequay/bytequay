@@ -13,12 +13,28 @@
  */
 import { app, dialog } from 'electron';
 import { ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 export const BACKEND_PORT = 53123;
 export const BACKEND_BASE = `http://127.0.0.1:${BACKEND_PORT}`;
 
 const MIN_JAVA_VERSION = 25;
+
+/**
+ * Shared secret for the backend's agent, CI Autofix, and cherry-pick endpoints.
+ * dev.sh exports it before starting both processes; a packaged app is the only
+ * launcher of its own backend, so it mints one per launch. Main-process only —
+ * the renderer never receives it, which is what keeps a page in the embedded
+ * GitHub view from reaching those endpoints.
+ */
+const desktopSessionToken =
+  process.env.BYTEQUAY_DESKTOP_SESSION_TOKEN || randomBytes(32).toString('hex');
+
+/** Value for the backend's `X-ByteQuay-Session` header. */
+export function sessionToken(): string {
+  return desktopSessionToken;
+}
 
 let child: ChildProcess | null = null;
 let failure: string | null = null;
@@ -106,6 +122,7 @@ export function spawnBackend(): void {
   child = spawn(java, [...jvmArgs, '-jar', jar], {
     stdio: ['ignore', 'inherit', 'pipe'],
     detached: false,
+    env: { ...process.env, BYTEQUAY_DESKTOP_SESSION_TOKEN: desktopSessionToken },
   });
   // The backend logs to ~/Library/Logs/ByteQuay/backend.log once Spring is up;
   // this tail only exists to explain crashes that happen before that.

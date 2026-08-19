@@ -14,7 +14,8 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.app.ci.CiGitCommandRunner.Result;
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
@@ -53,10 +54,10 @@ public final class CiGitOperations
     private static final int MAXIMUM_DIAGNOSTIC_CHARACTERS = 8 * 1024;
     private static final int MAXIMUM_CHANGED_PATHS = 1000;
 
-    private final CiGitCommandRunner runner;
+    private final GitCommandRunner runner;
     private final Clock clock;
 
-    CiGitOperations(CiGitCommandRunner runner, Clock clock)
+    CiGitOperations(GitCommandRunner runner, Clock clock)
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -397,7 +398,7 @@ public final class CiGitOperations
             throw problem("Git command failed: " + result.output());
         }
         if (result.truncated()) {
-            throw problem("Git output exceeded " + CiGitCommandRunner.MAXIMUM_OUTPUT_BYTES + " bytes");
+            throw problem("Git output exceeded " + GitCommandRunner.MAXIMUM_OUTPUT_BYTES + " bytes");
         }
         return result.output();
     }

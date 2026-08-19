@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.ci;
+package com.bytequay.app.git;
 
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
@@ -31,30 +31,30 @@ import java.util.concurrent.TimeoutException;
 import static java.util.Objects.requireNonNull;
 
 @Component
-final class CiGitCommandRunner
+public final class GitCommandRunner
 {
-    static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
+    public static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
 
     private final String executable;
 
-    CiGitCommandRunner()
+    public GitCommandRunner()
     {
         this("git");
     }
 
-    CiGitCommandRunner(String executable)
+    public GitCommandRunner(String executable)
     {
         this.executable = requireNonNull(executable, "executable is null");
     }
 
-    Result run(Path worktree, String... arguments)
+    public Result run(Path worktree, String... arguments)
     {
         return run(worktree, ImmutableList.copyOf(arguments));
     }
 
-    Result run(Path worktree, List<String> arguments)
+    public Result run(Path worktree, List<String> arguments)
     {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(arguments, "arguments is null");
@@ -76,7 +76,7 @@ final class CiGitCommandRunner
         }
 
         CompletableFuture<CapturedOutput> output = new CompletableFuture<>();
-        Thread.ofVirtual().name("bytequay-ci-git-output").start(() -> {
+        Thread.ofVirtual().name("bytequay-git-output").start(() -> {
             try {
                 output.complete(capture(process.getInputStream()));
             }
@@ -129,19 +129,19 @@ final class CiGitCommandRunner
         return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
     }
 
-    record Result(int exitCode, String output, boolean truncated)
+    public record Result(int exitCode, String output, boolean truncated)
     {
-        Result
+        public Result
         {
             requireNonNull(output, "output is null");
         }
 
-        static Result failed(String reason)
+        public static Result failed(String reason)
         {
             return new Result(-1, reason, false);
         }
 
-        boolean successful()
+        public boolean successful()
         {
             return exitCode == 0;
         }

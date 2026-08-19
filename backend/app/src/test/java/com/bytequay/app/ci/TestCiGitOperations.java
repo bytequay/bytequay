@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
@@ -347,11 +348,11 @@ class TestCiGitOperations
         Path executable = temporaryDirectory.resolve("noisy-git");
         write(executable, "#!/bin/sh\nyes x | head -c 1100000\n");
         assertThat(executable.toFile().setExecutable(true)).isTrue();
-        CiGitCommandRunner.Result result = new CiGitCommandRunner(executable.toString())
+        GitCommandRunner.Result result = new GitCommandRunner(executable.toString())
                 .run(temporaryDirectory, "status");
         assertThat(result.truncated()).isTrue();
         assertThat(result.output().getBytes(StandardCharsets.UTF_8).length)
-                .isLessThanOrEqualTo(CiGitCommandRunner.MAXIMUM_OUTPUT_BYTES);
+                .isLessThanOrEqualTo(GitCommandRunner.MAXIMUM_OUTPUT_BYTES);
 
         Repository fixture = repository("unsafe-ref");
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
@@ -374,7 +375,7 @@ class TestCiGitOperations
     private CiGitOperations service()
     {
         return new CiGitOperations(
-                new CiGitCommandRunner(),
+                new GitCommandRunner(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

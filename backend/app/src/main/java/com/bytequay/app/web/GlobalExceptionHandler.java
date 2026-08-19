@@ -20,6 +20,8 @@ import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.core.cherrypick.CherryPickConflictException;
+import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -74,7 +76,10 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler({InvalidAgentRequestException.class, HttpMessageNotReadableException.class})
+    @ExceptionHandler({
+            InvalidAgentRequestException.class,
+            CherryPickInvalidRequestException.class,
+            HttpMessageNotReadableException.class})
     public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(
             Exception exception, HttpServletRequest request)
     {
@@ -91,7 +96,7 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class})
+    @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class, CherryPickConflictException.class})
     public ResponseEntity<ErrorResponse> handleAgentConflict(
             RuntimeException exception, HttpServletRequest request)
     {

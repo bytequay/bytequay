@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -56,7 +57,25 @@ public final class GitCommandRunner
 
     public Result run(Path worktree, List<String> arguments)
     {
+        return run(worktree, COMMAND_TIMEOUT, arguments);
+    }
+
+    /**
+     * Runs one Git command with an explicit timeout.
+     *
+     * <p>The default suits local commands. A fetch talks to a remote and needs
+     * longer on a large repository.
+     *
+     * @param worktree directory to run in
+     * @param timeout positive timeout for this command
+     * @param arguments argv after {@code git -C <worktree>}
+     * @return exit code and bounded combined output
+     */
+    public Result run(Path worktree, Duration timeout, List<String> arguments)
+    {
         requireNonNull(worktree, "worktree is null");
+        requireNonNull(timeout, "timeout is null");
+        checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
         requireNonNull(arguments, "arguments is null");
         List<String> command = ImmutableList.<String>builderWithExpectedSize(arguments.size() + 3)
                 .add(executable, "-C", worktree.toString())
@@ -85,7 +104,7 @@ public final class GitCommandRunner
             }
         });
         try {
-            if (!process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
                 return Result.failed("Git timed out");
             }

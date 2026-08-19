@@ -226,87 +226,92 @@ worktree.
 
 ### Preview input and cache
 
-- [ ] Add a concrete `CherryPickPreviewService`; do not add an interface for
+- [x] Add a concrete `CherryPickPreviewService`; do not add an interface for
   its single implementation.
-- [ ] Accept the repository clone, source remote, source base/tip refs, and
+- [x] Accept the repository clone, source remote, source base/tip refs, and
   target remote and branch. ByteQuay derives the local target branch and the
   work branch; the user names neither.
-- [ ] Reject a shallow clone before anything else
+- [x] Reject a shallow clone before anything else
   (`git rev-parse --is-shallow-repository`).
-- [ ] Fetch the source remote in full, then synchronize the local target branch
+- [x] Fetch the source remote in full, then synchronize the local target branch
   with `git fetch <targetRemote> <targetBranch>:<localTargetBranch>`.
-- [ ] Verify the sync by comparing `rev-parse` of the local target branch and
+- [x] Verify the sync by comparing `rev-parse` of the local target branch and
   the remote-tracking ref, not by the fetch exit code: a rejected
   non-fast-forward still advances the remote-tracking ref.
-- [ ] Refuse a diverged local target branch with an actionable diagnostic; never
+- [x] Refuse a diverged local target branch with an actionable diagnostic; never
   force-update it.
-- [ ] Refuse when the local target branch is checked out anywhere, because Git
+- [x] Refuse when the local target branch is checked out anywhere, because Git
   cannot fetch into a checked-out branch.
-- [ ] Make this the only step in the workflow that contacts the Git remote.
-- [ ] Validate input length and reject NUL/newline characters.
-- [ ] Pass refs as argv values, never through a shell.
-- [ ] Resolve every ref to a full commit object ID before returning a preview.
-- [ ] Require source base to be an ancestor of source tip.
-- [ ] Reject merge commits in the source range with the first offending SHA.
-- [ ] Keep previews in a bounded in-memory cache with a short fixed lifetime.
-- [ ] Treat a backend restart or expired preview as “preview again”; do not
+- [x] Make this the only step in the workflow that contacts the Git remote.
+- [x] Validate input length and reject NUL/newline characters.
+- [x] Pass refs as argv values, never through a shell.
+- [x] Resolve every ref to a full commit object ID before returning a preview.
+- [x] Require source base to be an ancestor of source tip.
+- [x] Reject merge commits in the source range with the first offending SHA.
+- [x] Keep previews in a bounded in-memory cache with a short fixed lifetime.
+- [x] Treat a backend restart or expired preview as “preview again”; do not
   persist unconfirmed previews.
-- [ ] Cap cached previews and evict the oldest entry without adding a cache
+- [x] Cap cached previews and evict the oldest entry without adding a cache
   dependency.
 
 ### Ordered commit inventory
 
-- [ ] Use `git rev-list --reverse --topo-order base..tip` for source order.
-- [ ] Load full SHA, parent SHA, title, author/commit time, and changed paths
+- [x] Use one `git log --reverse --topo-order` for source order. It carries the
+  same ordering flags as `rev-list` and returns the metadata in the same
+  process, which is what the next item asks for.
+- [x] Load full SHA, parent SHA, title, author/commit time, and changed paths
   without one process per field.
-- [ ] Assign stable one-based positions.
-- [ ] Compare each source tree with its parent and flag commits that are
+- [x] Assign stable one-based positions.
+- [x] Compare each source tree with its parent and flag commits that are
   originally empty for display; keep their confirmed disposition
   `TO_CHERRY_PICK` so execution records `EMPTY_SKIPPED`.
 
 ### Already-on-target evidence
 
-- [ ] Read target ancestors once and mark exact source SHAs found there as
-  `ALREADY_ON_TARGET` with ancestry evidence.
-- [ ] Scan only commits reachable from the resolved target SHA for exact
+- [x] Read target ancestors once and mark exact source SHAs found there as
+  `ALREADY_ON_TARGET` with ancestry evidence. Bounded as
+  `rev-list <target> ^<sourceBase>`: a range commit is never an ancestor of
+  the base, so the bound cannot hide one, and the unbounded form returns
+  1.9 MB on Trino, past the runner's 1 MB limit.
+- [x] Scan only commits reachable from the resolved target SHA for exact
   standard lines of the form
   `(cherry picked from commit <full source SHA>)`.
-- [ ] Require a full 40- or repository-object-format SHA and an exact complete
+- [x] Require a full 40- or repository-object-format SHA and an exact complete
   line; reject abbreviated or prose matches.
-- [ ] Record the target commit containing each accepted `-x` line.
-- [ ] Never use a title match as evidence.
-- [ ] Run `git cherry <targetSha> <sourceTipSha> <sourceBaseSha>` only for
+- [x] Record the target commit containing each accepted `-x` line.
+- [x] Never use a title match as evidence.
+- [x] Run `git cherry <targetSha> <sourceTipSha> <sourceBaseSha>` only for
   advisory patch-equivalence warnings.
-- [ ] Ensure patch-equivalent results remain selectable
+- [x] Ensure patch-equivalent results remain selectable
   `TO_CHERRY_PICK` items.
 
 ### Preview HTTP API
 
-- [ ] Add `POST /api/cherry-pick-ranges/previews`.
-- [ ] Add `GET /api/cherry-pick-ranges/previews/{previewId}`.
-- [ ] Return resolved boundary SHAs, target SHA, ordered commit fields,
+- [x] Add `POST /api/cherry-pick-ranges/previews`.
+- [x] Add `GET /api/cherry-pick-ranges/previews/{previewId}`.
+- [x] Return resolved boundary SHAs, target SHA, ordered commit fields,
   presence evidence, warnings, and preview expiry.
-- [ ] Return typed 400, 404, 409, and 422 errors through the existing global
+- [x] Return typed 400, 404, 409, and 422 errors through the existing global
   error mapping style.
-- [ ] Confirm both endpoints are protected by the desktop session filter.
+- [x] Confirm both endpoints are protected by the desktop session filter.
 
 ### Tests
 
-- [ ] Test stable order with at least ten commits.
-- [ ] Test direct ancestry, exact `-x`, abbreviated marker, marker-like prose,
+- [x] Test stable order with at least ten commits.
+- [x] Test direct ancestry, exact `-x`, abbreviated marker, marker-like prose,
   duplicate titles, and patch-equivalent warning behavior.
-- [ ] Test originally empty source commits.
-- [ ] Test merge-commit rejection, invalid refs, non-ancestor range, cache
+- [x] Test originally empty source commits.
+- [x] Test merge-commit rejection, invalid refs, non-ancestor range, cache
   expiry, and cache capacity.
-- [ ] Assert the selected worktree HEAD, index, and files are unchanged by
+- [x] Assert the selected worktree HEAD, index, and files are unchanged by
   every preview test.
 
 ### Checkpoint 2 gate
 
-- [ ] `mvn verify` passes.
-- [ ] Preview works without GitHub metadata.
-- [ ] The selected worktree is never mutated.
-- [ ] Only ancestry and exact `-x` evidence produce automatic skips.
+- [x] `mvn verify` passes.
+- [x] Preview works without GitHub metadata.
+- [x] The selected worktree is never mutated.
+- [x] Only ancestry and exact `-x` evidence produce automatic skips.
 - [ ] Reviewer approves preview ordering and evidence output.
 
 ---

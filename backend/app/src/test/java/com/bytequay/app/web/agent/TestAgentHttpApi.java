@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
@@ -21,8 +23,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -41,6 +45,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(
@@ -48,11 +53,20 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "server.shutdown=immediate",
                 "bytequay.agent.desktop-session-token=test-session",
-                "bytequay.agent.deterministic-enabled=true",
                 "bytequay.agent.runtime-root=${java.io.tmpdir}/bytequay-agent-http-${random.uuid}"
         })
 class TestAgentHttpApi
 {
+    @TestConfiguration
+    static class DeterministicLane
+    {
+        @Bean
+        AgentDriver deterministicAgentDriver()
+        {
+            return new DeterministicAgentDriver();
+        }
+    }
+
     private static final String SESSION_TOKEN = "test-session";
     private static final String REPOSITORY = "bytequay/agent-e2e";
 
@@ -262,8 +276,6 @@ class TestAgentHttpApi
                 .start();
         String output = new String(process.getInputStream().readAllBytes());
         int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IllegalStateException("Command failed: " + output);
-        }
+        checkState(exitCode == 0, "Command failed: " + output);
     }
 }

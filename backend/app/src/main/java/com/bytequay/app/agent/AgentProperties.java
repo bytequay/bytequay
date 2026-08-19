@@ -29,8 +29,7 @@ public record AgentProperties(
         String codexExecutable,
         boolean codexEnabled,
         String claudeExecutable,
-        boolean claudeEnabled,
-        boolean deterministicEnabled)
+        boolean claudeEnabled)
 {
     public AgentProperties
     {
@@ -41,7 +40,6 @@ public record AgentProperties(
         requireNonNull(claudeExecutable, "claudeExecutable is null");
         checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
         checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");
-        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(),
-                "maximumTurnRuntime must be positive");
+        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
     }
 }

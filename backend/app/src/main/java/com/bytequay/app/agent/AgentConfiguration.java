@@ -42,7 +42,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
-import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,13 +91,6 @@ public class AgentConfiguration
             ClaudePermissionBroker permissions)
     {
         return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions);
-    }
-
-    @Bean
-    @ConditionalOnProperty(name = "bytequay.agent.deterministic-enabled", havingValue = "true")
-    public AgentDriver deterministicAgentDriver()
-    {
-        return new DeterministicAgentDriver();
     }
 
     @Bean

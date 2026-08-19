@@ -85,7 +85,6 @@ class TestCiAutofixHttpApi
                 "codex",
                 false,
                 "claude",
-                false,
                 false);
         mvc = standaloneSetup(new CiAutofixController(service, metrics))
                 .addFilters(new AgentRequestFilter(properties, objectMapper))

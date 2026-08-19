@@ -187,8 +187,7 @@ class TestCiAutofixRestartEndToEnd
             assertThat(scripts.agent().turns()).hasSize(1);
             assertThat(fixture.repository().remoteHead()).isEqualTo(pushedSha);
             assertThat(fixture.repository().headRefUpdates()).isEqualTo(branchWrites + 1);
-            assertThat(fixture.repository().commitSubjects()).containsExactly(
-                    "First change", "Target change", "fixup! Target change", "Last change");
+            assertThat(fixture.repository().commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
             assertThat(Files.readString(rawLog)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
             assertThat(events.readAfter(taskId, 0, 100)).extracting(event -> event.sequence())
                     .containsExactlyElementsOf(eventSequences);
@@ -233,7 +232,6 @@ class TestCiAutofixRestartEndToEnd
                 "--bytequay.agent.runtime-root=" + runtimeRoot,
                 "--bytequay.agent.codex-enabled=false",
                 "--bytequay.agent.claude-enabled=false",
-                "--bytequay.agent.deterministic-enabled=false",
                 "--bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
                 "--bytequay.scheduling.enabled=false",
                 "--logging.file.name=" + temporaryDirectory.resolve("backend.log"),

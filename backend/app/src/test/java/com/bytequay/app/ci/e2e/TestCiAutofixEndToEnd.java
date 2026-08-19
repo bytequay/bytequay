@@ -71,7 +71,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         properties = {
                 "bytequay.agent.codex-enabled=false",
                 "bytequay.agent.claude-enabled=false",
-                "bytequay.agent.deterministic-enabled=false",
                 "bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
                 "bytequay.ci-autofix.monitor-initial-delay=PT1H",
                 "logging.level.com.bytequay.app.ci.DefaultCiAutofixService=OFF"
@@ -254,11 +253,7 @@ class TestCiAutofixEndToEnd
         String firstPushedSha = firstPublished.attempts().getFirst().pushedSha().orElseThrow();
         assertThat(repository.remoteHead()).isEqualTo(firstPushedSha);
         assertThat(repository.status()).isEmpty();
-        assertThat(repository.commitSubjects()).containsExactly(
-                "First change",
-                "Target change",
-                "fixup! Target change",
-                "Last change");
+        assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
         harness.tick();
         assertThat(harness.run(started.runId()).attempts().getFirst().timelineEventKey()).isPresent();
 
@@ -278,11 +273,7 @@ class TestCiAutofixEndToEnd
         });
         assertThat(repository.remoteHead()).isEqualTo(secondPushedSha);
         assertThat(repository.status()).isEmpty();
-        assertThat(repository.commitSubjects()).containsExactly(
-                "First change",
-                "Target change",
-                "fixup! Target change",
-                "Last change");
+        assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
         assertThat(repository.commitSubjects().stream()
                 .filter(subject -> subject.equals("fixup! Target change")))
                 .hasSize(1);
@@ -330,12 +321,9 @@ class TestCiAutofixEndToEnd
                 .filter(event -> event.localEventKey().isPresent())
                 .map(event -> event.localEventKey().orElseThrow())
                 .toList();
-        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream()
-                .map(attempt -> attempt.timelineEventKey().orElseThrow())
-                .toList());
+        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream().map(attempt -> attempt.timelineEventKey().orElseThrow()).toList());
         assertThat(timelineKeys).hasSize(2);
-        assertThat(details.find(fixture.prId()).orElseThrow().timeline()).allSatisfy(event ->
-                assertThat(event.body()).doesNotContain("CI is green", "Root cause:"));
+        assertThat(details.find(fixture.prId()).orElseThrow().timeline()).allSatisfy(event -> assertThat(event.body()).doesNotContain("CI is green", "Root cause:"));
 
         JsonNode response = harness.getResponse(started.runId());
         assertThat(response.required("attempts")).hasSize(2);
@@ -539,8 +527,7 @@ class TestCiAutofixEndToEnd
                 10);
 
         assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
-        assertThat(repository.commitSubjects()).containsExactly(
-                "First change", "Target change", "fixup! Target change", "Last change");
+        assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
         assertThat(gitHub.rerunCalls()).isEmpty();
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).hasSize(1);
@@ -609,8 +596,7 @@ class TestCiAutofixEndToEnd
         assertThat(published.latestObservedBaseSha()).isEqualTo(movedBase);
         assertThat(repository.mergeBaseWithHead(movedBase)).isEqualTo(movedBase);
         assertThat(repository.status()).isEmpty();
-        assertThat(repository.commitSubjects()).containsExactly(
-                "First change", "Target change", "fixup! Target change", "Last change");
+        assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
         assertThat(repository.remoteHead()).isEqualTo(pushedSha);
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
 

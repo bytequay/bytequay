@@ -146,71 +146,74 @@ is implemented.
 
 ### Core values
 
-- [ ] Add `CherryPickExecutionId` with strict string parsing and random
+- [x] Add `CherryPickExecutionId` with strict string parsing and random
   creation.
-- [ ] Add `CherryPickExecution` as the complete immutable aggregate.
-- [ ] Store repository identity, source and target remote names, local target
+- [x] Add `CherryPickExecution` as the complete immutable aggregate.
+- [x] Store repository identity, source and target remote names, local target
   branch, generated work branch, generated worktree path, source base/tip SHA,
   initial/current target SHA, selected lane, agent task/turn IDs, status,
   current step, pause/finish reason, action journal, items, version, and
   timestamps. Do not store a cursor.
-- [ ] Add `CherryPickItem` with position, source SHA, source parent SHA, commit
+- [x] Add `CherryPickItem` with position, source SHA, source parent SHA, commit
   and pull-request display metadata, confirmed disposition, result, optional
   target SHA, conflict information, validation information, and agent-turn
   count.
-- [ ] Add enums for exactly the statuses, steps, and results in the canonical
+- [x] Add enums for exactly the statuses, steps, and results in the canonical
   design.
-- [ ] Add one small `CherryPickActionJournal` containing action type, source
-  SHA, expected HEAD, attempt number, idempotency key, and start time.
-- [ ] Put all legal transitions on `CherryPickExecution` methods; do not let
+- [x] Add one small `CherryPickActionJournal` containing action type, source
+  SHA, expected HEAD, attempt number, idempotency key, and start time. It
+  ships as `CherryPickExecution.ActionJournal`, beside the aggregate that is
+  the only writer of it, with the source SHA optional because one sequencer
+  action covers many commits.
+- [x] Put all legal transitions on `CherryPickExecution` methods; do not let
   controllers, entities, or stores construct invalid combinations.
-- [ ] Enforce that a current step exists only while the status is `RUNNING`.
+- [x] Enforce that a current step exists only while the status is `RUNNING`.
   Many items are `PENDING` at once, because one sequence covers the whole
   remaining queue; the cursor is computed as the lowest-position `PENDING`
   item and is never persisted.
-- [ ] Enforce that `APPLIED` has a target SHA and `EMPTY_SKIPPED` does not.
-- [ ] Enforce one-based, unique, increasing item positions and unique source
+- [x] Enforce that `APPLIED` has a target SHA and `EMPTY_SKIPPED` does not.
+- [x] Enforce one-based, unique, increasing item positions and unique source
   SHAs.
-- [ ] Defensively copy lists with `ImmutableList.copyOf`.
+- [x] Defensively copy lists with `ImmutableList.copyOf`.
 
 ### Store port and errors
 
-- [ ] Add `CherryPickExecutionStore` in `core` with `createOrGet`, `find`,
+- [x] Add `CherryPickExecutionStore` in `core` with `createOrGet`, `find`,
   `listRecent`, `listRunning`, and optimistic `save`.
-- [ ] Add typed not-found, conflict, invalid-request, and storage exceptions.
-- [ ] Limit start idempotency keys to 200 characters.
-- [ ] Limit execution list requests to 1–200 rows.
+- [x] Add typed not-found, conflict, invalid-request, and storage exceptions.
+- [x] Limit start idempotency keys to 200 characters.
+- [x] Limit execution list requests to 1–200 rows.
 
 ### SQLite implementation
 
-- [ ] Add one `cherry_pick_execution` entity; do not create a table per
+- [x] Add one `cherry_pick_execution` entity; do not create a table per
   implementation phase.
-- [ ] Store frequently queried scalar fields as columns.
-- [ ] Store the immutable item list, action journal, bounded diagnostics,
+- [x] Store frequently queried scalar fields as columns.
+- [x] Store the immutable item list, action journal, bounded diagnostics,
   validation results, and final range review in JSON columns using the
   existing Jackson converter pattern.
-- [ ] Add a unique constraint for the start idempotency key.
-- [ ] Add `@Version` optimistic locking.
-- [ ] Add repository queries for recent and running executions.
-- [ ] Make `createOrGet` atomic when two requests use the same idempotency key.
-- [ ] Map JPA and SQLite exceptions to core exceptions.
-- [ ] Rely on Hibernate schema update; do not add Flyway.
+- [x] Add a unique constraint for the start idempotency key.
+- [x] Add `@Version` optimistic locking.
+- [x] Add repository queries for recent and running executions.
+- [x] Make `createOrGet` atomic when two requests use the same idempotency key.
+- [x] Map JPA and SQLite exceptions to core exceptions.
+- [x] Rely on Hibernate schema update; do not add Flyway.
 
 ### Tests
 
-- [ ] Test every legal aggregate transition.
-- [ ] Test the derived cursor over a partly applied plan, reordered items,
+- [x] Test every legal aggregate transition.
+- [x] Test the derived cursor over a partly applied plan, reordered items,
   missing target SHA, unexpected target SHA, and invalid status/step
   combinations.
-- [ ] Test JSON round-trip for a 300-item execution.
-- [ ] Test idempotent create, optimistic conflict, recent ordering, and running
+- [x] Test JSON round-trip for a 300-item execution.
+- [x] Test idempotent create, optimistic conflict, recent ordering, and running
   selection against a temporary SQLite database.
 
 ### Checkpoint 1 gate
 
-- [ ] `mvn verify` passes.
-- [ ] No Git command or agent turn can run yet.
-- [ ] The persisted model contains only three statuses, three current steps,
+- [x] `mvn verify` passes.
+- [x] No Git command or agent turn can run yet.
+- [x] The persisted model contains only three statuses, three current steps,
   and five item results, and no stored cursor.
 - [ ] Reviewer approves the aggregate invariants and SQLite shape.
 

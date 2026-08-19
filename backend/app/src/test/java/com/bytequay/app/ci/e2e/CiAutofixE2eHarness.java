@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 import static java.lang.Math.toIntExact;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -66,6 +67,8 @@ final class CiAutofixE2eHarness
         implements AutoCloseable
 {
     static final String SESSION = "ci-e2e-session";
+    static final String RAW_COMPILE_LOG = "RAW_COMPILE_LOG_SENTINEL: cannot find symbol GeneratedValue\n";
+    static final String RAW_TEST_LOG = "RAW_TEST_LOG_SENTINEL: expected repaired value\n";
 
     private static final AtomicLong NEXT_PR_ID = new AtomicLong(900_000);
 
@@ -147,6 +150,52 @@ final class CiAutofixE2eHarness
         }
     }
 
+    void scriptPrimaryJourney(Fixture fixture)
+    {
+        gitHub.setSnapshot(failingSnapshot(
+                fixture,
+                fixture.repository().initialHeadSha(),
+                fixture.workflowRunId(),
+                fixture.jobId(),
+                "Backend compile",
+                "Compile",
+                true));
+        gitHub.setLog(
+                fixture.repository().pullRequest(),
+                fixture.workflowRunId(),
+                1,
+                fixture.jobId(),
+                1,
+                RAW_COMPILE_LOG,
+                ImmutableList.of("cannot find symbol GeneratedValue"));
+        agent.bind(fixture.repository().pullRequest(), fixture.repository().worktree());
+    }
+
+    void scriptTestFailure(Fixture fixture, String headSha)
+    {
+        gitHub.setSnapshot(failingSnapshot(
+                fixture,
+                headSha,
+                fixture.workflowRunId() + 100,
+                fixture.jobId() + 100,
+                "Backend tests",
+                "Unit tests",
+                false));
+        gitHub.setLog(
+                fixture.repository().pullRequest(),
+                fixture.workflowRunId() + 100,
+                1,
+                fixture.jobId() + 100,
+                1,
+                RAW_TEST_LOG,
+                ImmutableList.of("expected repaired value"));
+    }
+
+    void scriptGreenCi(Fixture fixture, String headSha)
+    {
+        gitHub.setSnapshot(greenSnapshot(fixture, headSha));
+    }
+
     StartResult start(Fixture fixture, String idempotencyKey)
             throws Exception
     {
@@ -197,6 +246,16 @@ final class CiAutofixE2eHarness
     CiAutofixRun run(CiAutofixRunId runId)
     {
         return service.get(runId);
+    }
+
+    JsonNode getResponse(CiAutofixRunId runId)
+            throws Exception
+    {
+        MvcResult result = mvc.perform(get("/api/ci-autofix/runs/{runId}", runId)
+                        .header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsByteArray());
     }
 
     JsonNode cancel(CiAutofixRunId runId)
@@ -340,28 +399,112 @@ final class CiAutofixE2eHarness
 
     private static CiHeadSnapshot failingSnapshot(Fixture fixture)
     {
-        E2eGitRepository repository = fixture.repository();
-        CiStep step = new CiStep(1, "Compile", "completed", Optional.of("failure"));
-        CiJob job = new CiJob(
-                fixture.jobId(),
+        return failingSnapshot(
+                fixture,
+                fixture.repository().initialHeadSha(),
                 fixture.workflowRunId(),
+                fixture.jobId(),
                 "Backend compile",
+                "Compile",
+                false);
+    }
+
+    private static CiHeadSnapshot failingSnapshot(
+            Fixture fixture,
+            String headSha,
+            long workflowRunId,
+            long jobId,
+            String jobName,
+            String stepName,
+            boolean includePendingSlowJob)
+    {
+        E2eGitRepository repository = fixture.repository();
+        CiStep step = new CiStep(1, stepName, "completed", Optional.of("failure"));
+        CiJob job = new CiJob(
+                jobId,
+                workflowRunId,
+                jobName,
                 1,
                 "completed",
                 Optional.of("failure"),
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
-                        + fixture.jobId(),
+                        + jobId,
                 ImmutableList.of(step));
         CiWorkflowRun workflow = new CiWorkflowRun(
-                fixture.workflowRunId(),
-                fixture.workflowRunId() + 1,
+                workflowRunId,
+                workflowRunId + 1,
                 "CI",
                 1,
                 "completed",
                 Optional.of("failure"),
-                repository.initialHeadSha(),
+                headSha,
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/runs/"
-                        + fixture.workflowRunId(),
+                        + workflowRunId,
+                ImmutableList.of(job));
+        ImmutableList.Builder<CiWorkflowRun> workflows = ImmutableList.builder();
+        workflows.add(workflow);
+        if (includePendingSlowJob) {
+            long slowWorkflowId = workflowRunId + 10;
+            long slowJobId = jobId + 10;
+            CiJob slowJob = new CiJob(
+                    slowJobId,
+                    slowWorkflowId,
+                    "Slow integration tests",
+                    1,
+                    "in_progress",
+                    Optional.empty(),
+                    "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
+                            + slowJobId,
+                    ImmutableList.of(new CiStep(1, "Integration tests", "in_progress", Optional.empty())));
+            workflows.add(new CiWorkflowRun(
+                    slowWorkflowId,
+                    slowWorkflowId + 1,
+                    "Slow CI",
+                    1,
+                    "in_progress",
+                    Optional.empty(),
+                    headSha,
+                    "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/runs/"
+                            + slowWorkflowId,
+                    ImmutableList.of(slowJob)));
+        }
+        return new CiHeadSnapshot(
+                repository.pullRequest(),
+                true,
+                "author",
+                true,
+                E2eGitRepository.HEAD_REF,
+                headSha,
+                E2eGitRepository.BASE_REF,
+                repository.baseSha(),
+                "https://github.com/" + repository.pullRequest().fullName(),
+                workflows.build());
+    }
+
+    private static CiHeadSnapshot greenSnapshot(Fixture fixture, String headSha)
+    {
+        E2eGitRepository repository = fixture.repository();
+        long workflowRunId = fixture.workflowRunId() + 200;
+        long jobId = fixture.jobId() + 200;
+        CiJob job = new CiJob(
+                jobId,
+                workflowRunId,
+                "CI success",
+                1,
+                "completed",
+                Optional.of("success"),
+                "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/" + jobId,
+                ImmutableList.of(new CiStep(1, "Checks", "completed", Optional.of("success"))));
+        CiWorkflowRun workflow = new CiWorkflowRun(
+                workflowRunId,
+                workflowRunId + 1,
+                "CI",
+                1,
+                "completed",
+                Optional.of("success"),
+                headSha,
+                "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/runs/"
+                        + workflowRunId,
                 ImmutableList.of(job));
         return new CiHeadSnapshot(
                 repository.pullRequest(),
@@ -369,7 +512,7 @@ final class CiAutofixE2eHarness
                 "author",
                 true,
                 E2eGitRepository.HEAD_REF,
-                repository.initialHeadSha(),
+                headSha,
                 E2eGitRepository.BASE_REF,
                 repository.baseSha(),
                 "https://github.com/" + repository.pullRequest().fullName(),

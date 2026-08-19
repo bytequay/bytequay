@@ -179,57 +179,59 @@ evidence, and this temporary file is removed.
 
 ### 2.1 Build the authored history and CI script
 
-- [ ] Create a PR with at least three authored commits so fixup placement is
+- [x] Create a PR with at least three authored commits so fixup placement is
   observable rather than trivially at the tip.
-- [ ] Script a failed compile job plus an unrelated pending slow job for the
+- [x] Script a failed compile job plus an unrelated pending slow job for the
   same head. Assert the service starts a fix turn without waiting for the slow
   job.
-- [ ] Supply a real raw compile log and assert it exists as a bounded task blob,
+- [x] Supply a real raw compile log and assert it exists as a bounded task blob,
   is attached or path-referenced according to lane capability, and is absent
   from SQLite summaries/API responses.
-- [ ] Script a later, different test failure for the pushed SHA and then a green
+- [x] Script a later, different test failure for the pushed SHA and then a green
   snapshot for the second pushed SHA.
 
 ### 2.2 Drive two fix attempts
 
-- [ ] First agent action fixes the compile failure, runs a represented local
+- [x] First agent action fixes the compile failure, runs a represented local
   check, creates `fixup! <target subject>`, and places it immediately after the
   middle authored commit.
-- [ ] Assert the program accepts the result from inspected Git facts, journals
+- [x] Assert the program accepts the result from inspected Git facts, journals
   it, exact-lease pushes it, and records one published attempt/timeline event.
-- [ ] Assert the later failure creates a new attempt instead of finishing from
+- [x] Assert the later failure creates a new attempt instead of finishing from
   the first agent's prose.
-- [ ] Have the second action search CI memory for the prior signature, record
+- [x] Have the second action search CI memory for the prior signature, record
   the returned bounded memory, and create or fold the next fixup in the correct
   position.
-- [ ] Assert the final PR range preserves authored commit order, contains at
+- [x] Assert the final PR range preserves authored commit order, contains at
   most one fixup per target, and is clean and linear.
-- [ ] Assert the second exact-lease branch update occurs and GitHub green, not
+- [x] Assert the second exact-lease branch update occurs and GitHub green, not
   agent text or local-check text, determines completion.
 
 ### 2.3 Assert durable output
 
-- [ ] Assert one run, two attempts, exact input/pushed SHAs, failure signatures,
+- [x] Assert one run, two attempts, exact input/pushed SHAs, failure signatures,
   Git results, check results, summaries, and warnings through the public GET
   response and durable store.
-- [ ] Assert `ci-memory.md` contains both observed failures, root-cause/attempt
+- [x] Assert `ci-memory.md` contains both observed failures, root-cause/attempt
   notes where available, changed paths, and observed results without raw log
   contents.
-- [ ] Assert agent events and non-zero usage totals are available through the
+- [x] Assert agent events and non-zero usage totals are available through the
   real services and that agent final messages are display-only notes.
-- [ ] Assert timeline event keys are stable and each published fix appears once.
-- [ ] Assert the final fixup-position check is `VALID`, runs once for the final
+- [x] Assert timeline event keys are stable and each published fix appears once.
+- [x] Assert the final fixup-position check is `VALID`, runs once for the final
   SHA, and the agent task is completed only afterward.
-- [ ] Repeat the same start idempotency key and assert the same run is returned
+- [x] Repeat the same start idempotency key and assert the same run is returned
   with no extra task, attempt, turn, log download, push, or timeline event.
 
 ### Checkpoint 2 exit
 
-- [ ] `TestCiAutofixEndToEnd#fixesTwoFailuresAndCompletesGreen` passes without a
+- [x] `TestCiAutofixEndToEnd#fixesTwoFailuresAndCompletesGreen` passes without a
   sleep or live scheduler.
-- [ ] The full non-restart class remains below 15 seconds at this checkpoint.
-- [ ] Run the baseline focused tests and `mvn -pl app test` successfully.
-- [ ] Commit the primary journey only after these checks pass.
+- [x] The full non-restart class remains below 15 seconds at this checkpoint
+  (four journeys in 7.111 seconds).
+- [x] Run the baseline focused tests and `mvn -pl app -am test` successfully
+  (13 focused tests and all 135 `app` tests passed).
+- [x] Commit the primary journey only after these checks pass.
 
 ## Checkpoint 3 — Bounds, safety, and interaction
 
@@ -301,7 +303,7 @@ scenario.
 - [ ] Every required non-restart journey in section 13.5 has a named test and
   exact negative assertions for forbidden reruns/pushes/timeline writes.
 - [ ] The complete `TestCiAutofixEndToEnd` class passes in at most 15 seconds.
-- [ ] Run `mvn -pl app test` successfully.
+- [ ] Run `mvn -pl app -am test` successfully.
 - [ ] Commit the safety/interaction journeys only after these checks pass.
 
 ## Checkpoint 4 — Full restart with an uncertain push
@@ -352,7 +354,7 @@ scenario.
 - [ ] `TestCiAutofixRestartEndToEnd#reconcilesAPushWhoseResponseWasLost` passes in
   at most 8 seconds.
 - [ ] Run both E2E classes together successfully.
-- [ ] Run `mvn -pl app test` successfully.
+- [ ] Run `mvn -pl app -am test` successfully.
 - [ ] Commit the restart proof only after these checks pass.
 
 ## Checkpoint 5 — Consolidate and finish

@@ -14,6 +14,7 @@
 package com.bytequay.app.ci.e2e;
 
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -221,7 +222,8 @@ final class ScriptedAgentDriver
                 script.pullRequest(),
                 script.worktree(),
                 command.turnId(),
-                truncate(command.message(), 4096, "…"));
+                truncate(command.message(), 4096, "…"),
+                command.attachments());
         turns.add(call);
         return new StartedAction(action, call);
     }
@@ -263,7 +265,18 @@ final class ScriptedAgentDriver
         }
     }
 
-    record TurnCall(PullRequestRef pullRequest, Path worktree, String turnId, String message) {}
+    record TurnCall(
+            PullRequestRef pullRequest,
+            Path worktree,
+            String turnId,
+            String message,
+            List<AgentAttachment> attachments)
+    {
+        TurnCall
+        {
+            attachments = ImmutableList.copyOf(attachments);
+        }
+    }
 
     record MemoryRead(PullRequestRef pullRequest, String taskId, Optional<String> query, CiMemoryView result) {}
 
@@ -330,7 +343,7 @@ final class ScriptedAgentDriver
                         action.result().state() == AgentTurnResult.State.COMPLETED
                                 ? ProviderAgentEvent.ActivityState.COMPLETED
                                 : ProviderAgentEvent.ActivityState.FAILED,
-                        ImmutableList.of("ci-e2e-action"),
+                        ImmutableList.of("ci-e2e", action.actionName()),
                         Optional.empty(),
                         Optional.of(action.result().state() == AgentTurnResult.State.COMPLETED ? 0 : 1),
                         false));

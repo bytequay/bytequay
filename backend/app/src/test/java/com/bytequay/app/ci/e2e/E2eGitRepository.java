@@ -43,6 +43,7 @@ final class E2eGitRepository
     private final Path bareRemote;
     private final Path worktree;
     private String baseSha;
+    private final String targetSha;
     private final String initialHeadSha;
 
     private E2eGitRepository(
@@ -50,12 +51,14 @@ final class E2eGitRepository
             Path bareRemote,
             Path worktree,
             String baseSha,
+            String targetSha,
             String initialHeadSha)
     {
         this.pullRequest = requireNonNull(pullRequest, "pullRequest is null");
         this.bareRemote = requireNonNull(bareRemote, "bareRemote is null");
         this.worktree = requireNonNull(worktree, "worktree is null");
         this.baseSha = requireNonNull(baseSha, "baseSha is null");
+        this.targetSha = requireNonNull(targetSha, "targetSha is null");
         this.initialHeadSha = requireNonNull(initialHeadSha, "initialHeadSha is null");
     }
 
@@ -82,9 +85,18 @@ final class E2eGitRepository
         String baseSha = head(worktree);
         git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
 
-        write(worktree.resolve("source.txt"), "base\ntarget\n");
-        git(worktree, "add", "source.txt");
+        write(worktree.resolve("first.txt"), "first\n");
+        git(worktree, "add", "first.txt");
+        git(worktree, "commit", "-m", "First change");
+
+        write(worktree.resolve("target.txt"), "target\n");
+        git(worktree, "add", "target.txt");
         git(worktree, "commit", "-m", "Target change");
+        String targetSha = head(worktree);
+
+        write(worktree.resolve("last.txt"), "last\n");
+        git(worktree, "add", "last.txt");
+        git(worktree, "commit", "-m", "Last change");
         String headSha = head(worktree);
         git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
         try {
@@ -93,6 +105,7 @@ final class E2eGitRepository
                     bareRemote.toRealPath(),
                     worktree.toRealPath(),
                     baseSha,
+                    targetSha,
                     headSha);
         }
         catch (IOException e) {
@@ -123,6 +136,11 @@ final class E2eGitRepository
     String initialHeadSha()
     {
         return initialHeadSha;
+    }
+
+    String targetSha()
+    {
+        return targetSha;
     }
 
     String localHead()
@@ -165,9 +183,41 @@ final class E2eGitRepository
         return commit;
     }
 
+    void createPositionedFixup(String relativePath, String content)
+    {
+        String laterCommit = localHead();
+        write(worktree.resolve(relativePath), content);
+        git(worktree, "add", relativePath);
+        git(worktree, "commit", "-m", "fixup! Target change");
+        String fixup = localHead();
+
+        git(worktree, "checkout", "--detach", targetSha);
+        git(worktree, "cherry-pick", fixup);
+        git(worktree, "cherry-pick", laterCommit);
+        moveFeatureToHead();
+    }
+
+    void foldPositionedFixup(String relativePath, String content)
+    {
+        String laterCommit = localHead();
+        String fixup = git(worktree, "rev-parse", "HEAD~1");
+        git(worktree, "checkout", "--detach", fixup);
+        write(worktree.resolve(relativePath), content);
+        git(worktree, "add", relativePath);
+        git(worktree, "commit", "--amend", "--no-edit");
+        git(worktree, "cherry-pick", laterCommit);
+        moveFeatureToHead();
+    }
+
     void checkout(String ref)
     {
         git(worktree, "checkout", ref);
+    }
+
+    private void moveFeatureToHead()
+    {
+        git(worktree, "branch", "-f", HEAD_REF, "HEAD");
+        git(worktree, "checkout", HEAD_REF);
     }
 
     static String git(Path directory, String... arguments)

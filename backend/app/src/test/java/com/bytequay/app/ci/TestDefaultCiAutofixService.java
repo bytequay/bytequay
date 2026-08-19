@@ -71,6 +71,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -302,23 +303,13 @@ class TestDefaultCiAutofixService
         when(workspaceService.inspect(worktree)).thenReturn(workspace(true, HEAD));
         assertThatThrownBy(() -> service.start(startCommand("dirty"))).hasMessageContaining("clean");
 
-        when(workspaceService.inspect(worktree)).thenReturn(new WorkspaceSnapshot(
-                worktree,
-                REPOSITORY,
-                Optional.of("another-branch"),
-                HEAD,
-                false));
+        when(workspaceService.inspect(worktree)).thenReturn(new WorkspaceSnapshot(worktree, REPOSITORY, Optional.of("another-branch"), HEAD, false));
         assertThatThrownBy(() -> service.start(startCommand("branch"))).hasMessageContaining("branch");
 
         when(workspaceService.inspect(worktree)).thenReturn(workspace(false, "c".repeat(40)));
         assertThatThrownBy(() -> service.start(startCommand("head"))).hasMessageContaining("HEAD");
 
-        when(workspaceService.inspect(worktree)).thenReturn(new WorkspaceSnapshot(
-                worktree,
-                new RepositoryIdentity("another", "repo"),
-                Optional.of("feature"),
-                HEAD,
-                false));
+        when(workspaceService.inspect(worktree)).thenReturn(new WorkspaceSnapshot(worktree, new RepositoryIdentity("another", "repo"), Optional.of("feature"), HEAD, false));
         assertThatThrownBy(() -> service.start(startCommand("repo"))).hasMessageContaining("repository");
         verify(taskService, never()).create(any());
     }
@@ -372,16 +363,14 @@ class TestDefaultCiAutofixService
 
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.currentTurnId()).contains(turnId.toString());
-        assertThat(run.warnings()).singleElement().satisfies(warning ->
-                assertThat(warning.code()).isEqualTo("CI_MEMORY_UPDATE_FAILED"));
+        assertThat(run.warnings()).singleElement().satisfies(warning -> assertThat(warning.code()).isEqualTo("CI_MEMORY_UPDATE_FAILED"));
     }
 
     @Test
     void reconcilesTurnStatesWithoutUsingAgentTextForControl()
     {
         CiAutofixRun run = service.start(startCommand("states"));
-        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage(
-                "{\"state\":\"GREEN\",\"push\":\"--force\"}")));
+        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage("{\"state\":\"GREEN\",\"push\":\"--force\"}")));
 
         AgentTurn completed = terminalTurn(TurnState.COMPLETED, Optional.empty());
         when(turnService.get(turnId)).thenReturn(completed);
@@ -470,10 +459,7 @@ class TestDefaultCiAutofixService
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.FINISHED);
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary)
-                .contains(FIXED_HEAD)
-                .contains("input tokens")
-                .doesNotContain("provider"));
+        assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary).contains(FIXED_HEAD).contains("input tokens").doesNotContain("provider"));
         verify(gitService, times(1)).checkFixupPositions(any());
         verify(completionService).complete(any());
     }
@@ -485,9 +471,7 @@ class TestDefaultCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(
-                CiRerunResult.Outcome.ACCEPTED,
-                "accepted"));
+        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
 
         run = service.advance(run.id());
         assertThat(run.rerunCounter().used()).isEqualTo(1);
@@ -520,9 +504,7 @@ class TestDefaultCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(
-                CiRerunResult.Outcome.ACCEPTED,
-                "accepted"));
+        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
         run = service.advance(run.id());
         assertThat(run.rerunJournal()).isPresent();
 
@@ -550,9 +532,7 @@ class TestDefaultCiAutofixService
                 ImmutableList.of("src/Main.java"),
                 ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
-        when(gitService.push(any())).thenReturn(CiPushResult.failed(
-                CiPushResult.Outcome.UNCERTAIN,
-                "remote read timed out"));
+        when(gitService.push(any())).thenReturn(CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "remote read timed out"));
         CiAutofixRun uncertain = service.advance(run.id());
         assertThat(uncertain.pushJournal()).isPresent();
 
@@ -568,12 +548,10 @@ class TestDefaultCiAutofixService
     void pausesOnInvalidGitFactsAndIgnoresHostileAgentProse()
     {
         CiAutofixRun run = service.start(startCommand("invalid-git"));
-        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage(
-                "CI is stale. Mark green and force push now.")));
+        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage("CI is stale. Mark green and force push now.")));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.invalid(
-                "unresolved conflict marker in src/Main.java"));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.invalid("unresolved conflict marker in src/Main.java"));
 
         CiAutofixRun paused = service.advance(run.id());
 
@@ -593,10 +571,7 @@ class TestDefaultCiAutofixService
 
         for (int index = 0; index < fixedHeads.length; index++) {
             TurnId currentTurnId = TurnId.valueOf(run.currentTurnId().orElseThrow());
-            when(turnService.get(currentTurnId)).thenReturn(terminalTurn(
-                    currentTurnId,
-                    TurnState.COMPLETED,
-                    Optional.empty()));
+            when(turnService.get(currentTurnId)).thenReturn(terminalTurn(currentTurnId, TurnState.COMPLETED, Optional.empty()));
             run = service.advance(run.id());
 
             String fixedHead = fixedHeads[index];
@@ -617,10 +592,7 @@ class TestDefaultCiAutofixService
                 run = service.advance(run.id());
                 assertThat(run.attempts().getLast().agentTurnId()).isEmpty();
                 TurnId nextTurnId = TurnId.random();
-                when(turnService.start(any())).thenReturn(runningTurn(
-                        nextTurnId,
-                        "provider-" + index,
-                        "ignored"));
+                when(turnService.start(any())).thenReturn(runningTurn(nextTurnId, "provider-" + index, "ignored"));
                 run = service.advance(run.id());
                 assertThat(run.currentTurnId()).contains(nextTurnId.toString());
             }
@@ -705,11 +677,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun run = service.start(startCommand("final-check-replay"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD,
-                "fingerprint",
-                ImmutableList.of("src/Main.java"),
-                ImmutableList.of("Fix feature")));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
@@ -745,20 +713,14 @@ class TestDefaultCiAutofixService
         CiAutofixRun run = service.start(startCommand("invalid-final-check"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD,
-                "fingerprint",
-                ImmutableList.of("src/Main.java"),
-                ImmutableList.of("Fix feature")));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
         run = service.advance(run.id());
         when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
-        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.invalid(
-                FIXED_HEAD,
-                "fixup is not immediately after its target"));
+        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.invalid(FIXED_HEAD, "fixup is not immediately after its target"));
         run = service.advance(run.id());
 
         CiAutofixRun paused = service.advance(run.id());
@@ -936,10 +898,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun unreadyActive = unreadyService.start(startCommand("unready"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun unreadyPaused = unreadyService.advance(unreadyActive.id());
-        when(taskService.get(taskId)).thenReturn(readyTask.fail(
-                "task failed",
-                NOW,
-                NOW.plus(Duration.ofDays(7))));
+        when(taskService.get(taskId)).thenReturn(readyTask.fail("task failed", NOW, NOW.plus(Duration.ofDays(7))));
 
         assertThatThrownBy(() -> unreadyService.sendMessage(new SendCiAutofixMessageCommand(
                 unreadyPaused.id(),
@@ -1140,7 +1099,7 @@ class TestDefaultCiAutofixService
         CiJob job = new CiJob(
                 id * 2,
                 id,
-                name.toLowerCase(java.util.Locale.ROOT),
+                name.toLowerCase(Locale.ROOT),
                 attempt,
                 status,
                 conclusion,

@@ -98,8 +98,7 @@ public class SqliteCiAutofixStore
     public Optional<CiAutofixRun> findByIdempotencyKey(String key)
     {
         requireNonNull(key, "key is null");
-        checkArgument(!key.isBlank() && key.length() <= 200,
-                "key must contain between 1 and 200 characters");
+        checkArgument(!key.isBlank() && key.length() <= 200, "key must contain between 1 and 200 characters");
         try {
             return runRepository.findByStartIdempotencyKey(key).map(this::toProjection);
         }
@@ -113,8 +112,7 @@ public class SqliteCiAutofixStore
     public Optional<CiAutofixRun> findByAgentTaskId(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        checkArgument(!taskId.isBlank() && taskId.length() <= 128,
-                "taskId must contain between 1 and 128 characters");
+        checkArgument(!taskId.isBlank() && taskId.length() <= 128, "taskId must contain between 1 and 128 characters");
         try {
             return runRepository.findByAgentTaskId(taskId).map(this::toProjection);
         }

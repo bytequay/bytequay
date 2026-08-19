@@ -24,6 +24,7 @@ import java.util.Optional;
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 public record AgentTask(
@@ -68,22 +69,14 @@ public record AgentTask(
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(version >= 0, "version is negative");
         checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
-        checkArgument(sessionReference.stream().allMatch(reference -> reference.laneId().equals(laneId)),
-                "session reference belongs to another lane");
-        checkArgument(state.terminal() == terminalAt.isPresent() && state.terminal() == deleteAfter.isPresent(),
-                "terminal timestamps and task state disagree");
-        checkArgument((state == TaskState.FAILED) == terminalReason.isPresent(),
-                "terminalReason and task state disagree");
-        checkArgument((state == TaskState.COMPLETED) == summary.isPresent(),
-                "summary and task state disagree");
-        checkArgument(summary.stream().allMatch(value -> value.metrics().equals(metrics)),
-                "summary metrics and task metrics disagree");
-        checkArgument(terminalAt.isEmpty() || deleteAfter.orElseThrow().isAfter(terminalAt.orElseThrow()),
-                "deleteAfter must be after terminalAt");
-        checkArgument(state.terminal() || cleanupState == CleanupState.RETAINED,
-                "a live task cannot enter cleanup");
-        checkArgument((cleanupState == CleanupState.RETRY_PENDING) == cleanupFailure.isPresent(),
-                "cleanupFailure and cleanupState disagree");
+        checkArgument(sessionReference.stream().allMatch(reference -> reference.laneId().equals(laneId)), "session reference belongs to another lane");
+        checkArgument(state.terminal() == terminalAt.isPresent() && state.terminal() == deleteAfter.isPresent(), "terminal timestamps and task state disagree");
+        checkArgument((state == TaskState.FAILED) == terminalReason.isPresent(), "terminalReason and task state disagree");
+        checkArgument((state == TaskState.COMPLETED) == summary.isPresent(), "summary and task state disagree");
+        checkArgument(summary.stream().allMatch(value -> value.metrics().equals(metrics)), "summary metrics and task metrics disagree");
+        checkArgument(terminalAt.isEmpty() || deleteAfter.orElseThrow().isAfter(terminalAt.orElseThrow()), "deleteAfter must be after terminalAt");
+        checkArgument(state.terminal() || cleanupState == CleanupState.RETAINED, "a live task cannot enter cleanup");
+        checkArgument((cleanupState == CleanupState.RETRY_PENDING) == cleanupFailure.isPresent(), "cleanupFailure and cleanupState disagree");
     }
 
     public static AgentTask created(
@@ -138,9 +131,7 @@ public record AgentTask(
         if (state == TaskState.COMPLETING) {
             return this;
         }
-        if (state != TaskState.READY && state != TaskState.ACTIVE) {
-            throw new IllegalStateException("expected task state READY or ACTIVE but was " + state);
-        }
+        checkState(state == TaskState.READY || state == TaskState.ACTIVE, "expected task state READY or ACTIVE but was " + state);
         return copy(TaskState.COMPLETING, version, now, terminalAt, terminalReason, sessionReference, metrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
@@ -171,14 +162,10 @@ public record AgentTask(
         requireNonNull(failedAt, "failedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
         if (state.terminal()) {
-            if (state == TaskState.FAILED && terminalReason.orElseThrow().equals(reason)) {
-                return this;
-            }
-            throw new IllegalStateException("task is already terminal");
+            checkState(state == TaskState.FAILED && terminalReason.orElseThrow().equals(reason), "task is already terminal");
+            return this;
         }
-        if (state == TaskState.CREATED) {
-            throw new IllegalStateException("a task must be ready before it can fail durably");
-        }
+        checkState(state != TaskState.CREATED, "a task must be ready before it can fail durably");
         return copy(
                 TaskState.FAILED,
                 version,
@@ -196,9 +183,7 @@ public record AgentTask(
     public AgentTask withSessionReference(AgentSessionRef reference, Instant now)
     {
         requireNonNull(reference, "reference is null");
-        if (state.terminal()) {
-            throw new IllegalStateException("cannot update a terminal task session");
-        }
+        checkState(!state.terminal(), "cannot update a terminal task session");
         return copy(state, version, now, terminalAt, terminalReason, Optional.of(reference), metrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
@@ -220,12 +205,8 @@ public record AgentTask(
     {
         requireNonNull(updatedState, "updatedState is null");
         checkOptionalText(failure, "failure");
-        if (!state.terminal()) {
-            throw new IllegalStateException("cannot clean up a live task");
-        }
-        if (!cleanupState.canTransitionTo(updatedState)) {
-            throw new IllegalStateException("invalid cleanup transition: " + cleanupState + " -> " + updatedState);
-        }
+        checkState(state.terminal(), "cannot clean up a live task");
+        checkState(cleanupState.canTransitionTo(updatedState), "invalid cleanup transition: " + cleanupState + " -> " + updatedState);
         return copy(state, version, now, terminalAt, terminalReason, sessionReference, metrics,
                 summary, updatedState, deleteAfter, failure);
     }
@@ -267,8 +248,6 @@ public record AgentTask(
 
     private void requireState(TaskState expected)
     {
-        if (state != expected) {
-            throw new IllegalStateException("expected task state " + expected + " but was " + state);
-        }
+        checkState(state == expected, "expected task state " + expected + " but was " + state);
     }
 }

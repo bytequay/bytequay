@@ -95,10 +95,7 @@ final class CiAutofixMonitorJob
             service.advance(run.id());
         }
         catch (RuntimeException failure) {
-            log.warn(
-                    "Cannot advance CI Autofix run {}: {}",
-                    run.id(),
-                    truncate(failureMessage(failure), MAXIMUM_LOG_MESSAGE_CHARACTERS, "…"));
+            log.warn("Cannot advance CI Autofix run {}: {}", run.id(), truncate(failureMessage(failure), MAXIMUM_LOG_MESSAGE_CHARACTERS, "…"));
         }
     }
 

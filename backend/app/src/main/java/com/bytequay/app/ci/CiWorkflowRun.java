@@ -48,7 +48,6 @@ public record CiWorkflowRun(
         requireNonNull(jobs, "jobs is null");
         jobs = ImmutableList.copyOf(jobs);
         checkArgument(jobs.size() <= 1000, "jobs exceeds 1000 values");
-        checkArgument(jobs.stream().allMatch(job -> job.workflowRunId() == id && job.attempt() <= attempt),
-                "job does not belong to this workflow attempt");
+        checkArgument(jobs.stream().allMatch(job -> job.workflowRunId() == id && job.attempt() <= attempt), "job does not belong to this workflow attempt");
     }
 }

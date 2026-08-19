@@ -39,8 +39,7 @@ public record ProviderApprovalRequest(
         requireNonNull(requestedPermissions, "requestedPermissions is null");
         requestedPermissions = ImmutableList.copyOf(requestedPermissions);
         requireNonNull(requestedAt, "requestedAt is null");
-        checkArgument(requestedPermissions.stream().noneMatch(String::isBlank),
-                "requestedPermissions contains a blank value");
+        checkArgument(requestedPermissions.stream().noneMatch(String::isBlank), "requestedPermissions contains a blank value");
     }
 
     public enum Kind

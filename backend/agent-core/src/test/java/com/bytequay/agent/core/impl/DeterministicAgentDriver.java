@@ -41,6 +41,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
+import static com.google.common.base.Preconditions.checkState;
+
 final class DeterministicAgentDriver
         implements AgentDriver
 {
@@ -164,9 +166,7 @@ final class DeterministicAgentDriver
 
     private DeterministicRunningTurn requireCurrentTurn()
     {
-        if (currentSession == null || currentSession.running == null) {
-            throw new IllegalStateException("no deterministic turn is running");
-        }
+        checkState(currentSession != null && currentSession.running != null, "no deterministic turn is running");
         return currentSession.running;
     }
 
@@ -196,16 +196,12 @@ final class DeterministicAgentDriver
         public RunningTurn start(AgentTurnCommand command)
         {
             synchronized (DeterministicAgentDriver.this) {
-                if (closed) {
-                    throw new IllegalStateException("deterministic session is closed");
-                }
+                checkState(!closed, "deterministic session is closed");
                 if (failNextStart) {
                     failNextStart = false;
                     throw new IllegalStateException("deterministic start failed");
                 }
-                if (running != null && !running.completion.isDone()) {
-                    throw new IllegalStateException("deterministic turn is already running");
-                }
+                checkState(running == null || running.completion.isDone(), "deterministic turn is already running");
                 commands.add(command);
                 running = new DeterministicRunningTurn(context, events, command);
                 running.emit(new ProviderAgentEvent.Lifecycle(
@@ -290,9 +286,7 @@ final class DeterministicAgentDriver
 
         private void complete(String response)
         {
-            if (completion.isDone()) {
-                throw new IllegalStateException("deterministic turn is already complete");
-            }
+            checkState(!completion.isDone(), "deterministic turn is already complete");
             emit(new ProviderAgentEvent.Message(
                     Optional.of("message-" + command.turnId()),
                     Optional.empty(),

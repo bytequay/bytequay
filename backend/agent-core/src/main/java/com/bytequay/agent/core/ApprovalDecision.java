@@ -33,8 +33,7 @@ public record ApprovalDecision(
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
         requireNonNull(resolvedAt, "resolvedAt is null");
-        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(),
-                "a denied decision cannot grant a scoped permission");
+        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
         checkArgument(!timedOut || decision == Decision.DENY, "an approval timeout must deny");
     }
 

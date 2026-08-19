@@ -35,7 +35,6 @@ public record AgentTurnCommand(
         requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         requireNonNull(maximumRuntime, "maximumRuntime is null");
-        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(),
-                "maximumRuntime must be positive");
+        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime must be positive");
     }
 }

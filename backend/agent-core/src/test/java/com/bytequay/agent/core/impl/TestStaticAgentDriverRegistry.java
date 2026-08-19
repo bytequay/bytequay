@@ -30,8 +30,7 @@ class TestStaticAgentDriverRegistry
         StaticAgentDriverRegistry registry = new StaticAgentDriverRegistry(ImmutableList.of(driver));
 
         assertThat(registry.require(DeterministicAgentDriver.LANE_ID)).isSameAs(driver);
-        assertThat(registry.statuses()).singleElement().satisfies(status ->
-                assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE));
+        assertThat(registry.statuses()).singleElement().satisfies(status -> assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE));
 
         driver.failProbe(new IllegalStateException("probe broke"));
         assertThat(registry.statuses()).singleElement().satisfies(status -> {

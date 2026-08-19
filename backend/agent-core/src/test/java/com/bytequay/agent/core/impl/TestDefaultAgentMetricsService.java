@@ -97,13 +97,7 @@ class TestDefaultAgentMetricsService
         assertThat(first).isEqualTo(metrics(30, 2, 5, "0.50"));
         assertThat(duplicate).isEqualTo(first);
         assertThat(latest).isEqualTo(metrics(50, 5, 10, "0.75"));
-        assertThat(service.taskTotals(task.id())).isEqualTo(new TaskMetrics(
-                150,
-                15,
-                30,
-                Optional.of(new BigDecimal("2.75")),
-                CostProvenance.PROVIDER_REPORTED,
-                Duration.ZERO));
+        assertThat(service.taskTotals(task.id())).isEqualTo(new TaskMetrics(150, 15, 30, Optional.of(new BigDecimal("2.75")), CostProvenance.PROVIDER_REPORTED, Duration.ZERO));
     }
 
     @Test

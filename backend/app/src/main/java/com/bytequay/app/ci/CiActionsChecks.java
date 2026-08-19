@@ -47,8 +47,7 @@ final class CiActionsChecks
     static String checkText(String value, String name, int maximumLength)
     {
         requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank() && value.length() <= maximumLength,
-                name + " must contain between 1 and " + maximumLength + " characters");
+        checkArgument(!value.isBlank() && value.length() <= maximumLength, name + " must contain between 1 and " + maximumLength + " characters");
         return value;
     }
 
@@ -62,8 +61,7 @@ final class CiActionsChecks
     static String checkSha(String value, String name)
     {
         requireNonNull(value, name + " is null");
-        checkArgument(value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"),
-                name + " is not a full lowercase Git SHA");
+        checkArgument(value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), name + " is not a full lowercase Git SHA");
         return value;
     }
 

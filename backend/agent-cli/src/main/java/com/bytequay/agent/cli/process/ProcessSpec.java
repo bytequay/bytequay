@@ -44,13 +44,11 @@ public record ProcessSpec(
         checkArgument(workingDirectory.isAbsolute(), "workingDirectory is not absolute");
         requireNonNull(environment, "environment is null");
         environment = ImmutableMap.copyOf(environment);
-        checkArgument(environment.keySet().stream().noneMatch(String::isBlank),
-                "environment contains a blank name");
+        checkArgument(environment.keySet().stream().noneMatch(String::isBlank), "environment contains a blank name");
         checkArgument(maximumStdoutBytes > 0, "maximumStdoutBytes is not positive");
         checkArgument(maximumStderrBytes > 0, "maximumStderrBytes is not positive");
         requireNonNull(maximumRuntime, "maximumRuntime is null");
-        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(),
-                "maximumRuntime is not positive");
+        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime is not positive");
         requireNonNull(cancellationGrace, "cancellationGrace is null");
         checkArgument(!cancellationGrace.isNegative(), "cancellationGrace is negative");
     }

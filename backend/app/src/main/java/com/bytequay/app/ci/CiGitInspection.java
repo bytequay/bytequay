@@ -48,12 +48,9 @@ public record CiGitInspection(
         commitSubjects.forEach(subject -> checkText(subject, "commitSubject", 500));
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(diagnostics.length() <= 8 * 1024, "diagnostics exceeds 8192 characters");
-        checkArgument((outcome == Outcome.READY) == (localHead.isPresent() && fingerprint.isPresent()),
-                "only READY contains a local head and fingerprint");
-        checkArgument(outcome == Outcome.READY || changedPaths.isEmpty(),
-                "only READY contains changed paths");
-        checkArgument(outcome == Outcome.READY || commitSubjects.isEmpty(),
-                "only READY contains commit subjects");
+        checkArgument((outcome == Outcome.READY) == (localHead.isPresent() && fingerprint.isPresent()), "only READY contains a local head and fingerprint");
+        checkArgument(outcome == Outcome.READY || changedPaths.isEmpty(), "only READY contains changed paths");
+        checkArgument(outcome == Outcome.READY || commitSubjects.isEmpty(), "only READY contains commit subjects");
     }
 
     public static CiGitInspection noChange()

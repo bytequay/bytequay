@@ -41,6 +41,7 @@ import java.util.Optional;
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -147,9 +148,7 @@ public class GitHubAccountClient
                     response.data().user().contributionsCollection().contributionCalendar();
             List<ContributionGqlWeek> rawWeeks =
                     cal.weeks() != null ? cal.weeks() : List.of();
-            if (rawWeeks.isEmpty()) {
-                throw new IllegalStateException("GitHub contribution calendar returned no weeks");
-            }
+            checkState(!rawWeeks.isEmpty(), "GitHub contribution calendar returned no weeks");
             List<ContributionCalendar.Week> weeks =
                     rawWeeks.stream()
                             .map(

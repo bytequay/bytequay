@@ -40,6 +40,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -330,10 +331,7 @@ public class GitHubPullRequestReadClient
                             .header("Authorization", authorization(pat))
                             .retrieve()
                             .body(GitHubRepoPullRequestItem.class);
-            if (item == null) {
-                throw new IllegalStateException(
-                        "Empty response from GitHub for " + fullName + "#" + pr.number());
-            }
+            checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
             return toPullRequest(item, fullName);
         }
         catch (RestClientResponseException e) {

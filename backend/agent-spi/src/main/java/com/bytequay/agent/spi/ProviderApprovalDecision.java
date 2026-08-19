@@ -25,8 +25,7 @@ public record ProviderApprovalDecision(Decision decision, Optional<String> scope
     {
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
-        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(),
-                "a denied decision cannot grant a scoped permission");
+        checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
     }
 
     public static ProviderApprovalDecision allow(Optional<String> scopedPermission)

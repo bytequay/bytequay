@@ -96,8 +96,7 @@ class TestAgentMaintenance
 
         AgentTask failed = stores.find(taskId).orElseThrow();
         assertThat(failed.state()).isEqualTo(TaskState.FAILED);
-        assertThat(failed.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("Cannot restore worktree lease"));
+        assertThat(failed.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("Cannot restore worktree lease"));
         assertThat(failed.deleteAfter()).contains(NOW.plusSeconds(10).plus(Duration.ofDays(7)));
     }
 
@@ -122,11 +121,7 @@ class TestAgentMaintenance
         List<CleanupResult> results = maintenance.cleanupDue(10);
 
         assertThat(completion.cleaned).containsExactly(failed.id());
-        assertThat(results).containsExactly(new CleanupResult(
-                failed.id(),
-                CleanupState.DELETED,
-                Optional.of(Instant.now(clock)),
-                Optional.empty()));
+        assertThat(results).containsExactly(new CleanupResult(failed.id(), CleanupState.DELETED, Optional.of(Instant.now(clock)), Optional.empty()));
     }
 
     private static AgentMaintenance maintenance(

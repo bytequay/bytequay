@@ -26,6 +26,7 @@ import static com.bytequay.core.ci.CiAutofixChecks.checkOptionalText;
 import static com.bytequay.core.ci.CiAutofixChecks.checkSha;
 import static com.bytequay.core.ci.CiAutofixChecks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Durable facts for one bounded code-fix attempt. */
@@ -52,16 +53,13 @@ public record CiAutofixAttempt(
     {
         requireNonNull(id, "id is null");
         requireNonNull(runId, "runId is null");
-        checkArgument(number > 0 && number <= CiAutofixRun.MAX_FIX_ATTEMPTS,
-                "number must be between 1 and " + CiAutofixRun.MAX_FIX_ATTEMPTS);
+        checkArgument(number > 0 && number <= CiAutofixRun.MAX_FIX_ATTEMPTS, "number must be between 1 and " + CiAutofixRun.MAX_FIX_ATTEMPTS);
         checkSha(inputSha, "inputSha");
         requireNonNull(failures, "failures is null");
         failures = ImmutableList.copyOf(failures);
-        checkArgument(!failures.isEmpty() && failures.size() <= MAX_FAILURES,
-                "failures must contain between 1 and " + MAX_FAILURES + " values");
+        checkArgument(!failures.isEmpty() && failures.size() <= MAX_FAILURES, "failures must contain between 1 and " + MAX_FAILURES + " values");
         Set<String> signatures = new HashSet<>();
-        checkArgument(failures.stream().allMatch(failure -> signatures.add(failure.signature())),
-                "failures contains a duplicate signature");
+        checkArgument(failures.stream().allMatch(failure -> signatures.add(failure.signature())), "failures contains a duplicate signature");
         checkOptionalText(agentTurnId, "agentTurnId", 128);
         checkOptionalText(untrustedAgentNote, "untrustedAgentNote", 16 * 1024);
         requireNonNull(gitResult, "gitResult is null");
@@ -70,10 +68,8 @@ public record CiAutofixAttempt(
         requireNonNull(pushedSha, "pushedSha is null");
         pushedSha.ifPresent(sha -> checkSha(sha, "pushedSha"));
         requireNonNull(pushedAt, "pushedAt is null");
-        checkArgument(pushedAt.isPresent() == pushedSha.isPresent(),
-                "pushedAt and pushedSha must both be present or absent");
-        checkArgument(pushedSha.isEmpty() || expectedRemoteSha.isPresent(),
-                "a pushed SHA requires the expected remote SHA");
+        checkArgument(pushedAt.isPresent() == pushedSha.isPresent(), "pushedAt and pushedSha must both be present or absent");
+        checkArgument(pushedSha.isEmpty() || expectedRemoteSha.isPresent(), "a pushed SHA requires the expected remote SHA");
         requireNonNull(observedCiResult, "observedCiResult is null");
         checkOptionalText(timelineEventKey, "timelineEventKey", 200);
         requireNonNull(createdAt, "createdAt is null");
@@ -114,9 +110,7 @@ public record CiAutofixAttempt(
     {
         checkText(turnId, "turnId", 128);
         requireUpdateTime(now);
-        if (agentTurnId.isPresent() && !agentTurnId.orElseThrow().equals(turnId)) {
-            throw new IllegalStateException("attempt already owns another agent turn");
-        }
+        checkState(agentTurnId.isEmpty() || agentTurnId.orElseThrow().equals(turnId), "attempt already owns another agent turn");
         return copy(
                 Optional.of(turnId),
                 untrustedAgentNote,
@@ -260,8 +254,7 @@ public record CiAutofixAttempt(
         {
             checkText(path, "path", 500);
             Path relative = Path.of(path);
-            checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith(".."),
-                    "path is not task-relative");
+            checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith(".."), "path is not task-relative");
             checkText(mediaType, "mediaType", 100);
             checkArgument(size >= 0 && size <= 10 * 1024 * 1024, "size is outside the task blob limit");
         }
@@ -281,8 +274,7 @@ public record CiAutofixAttempt(
             checkText(signature, "signature", 200);
             checkText(summary, "summary", 4 * 1024);
             checkArgument(workflowRunId > 0 && jobId > 0, "GitHub workflow and job IDs must be positive");
-            checkArgument(workflowAttempt > 0 && jobAttempt > 0,
-                    "workflow and job attempts must be positive");
+            checkArgument(workflowAttempt > 0 && jobAttempt > 0, "workflow and job attempts must be positive");
             requireNonNull(log, "log is null");
         }
     }
@@ -301,19 +293,16 @@ public record CiAutofixAttempt(
             checkText(fingerprint, "fingerprint", 200);
             requireNonNull(changedPaths, "changedPaths is null");
             changedPaths = ImmutableList.copyOf(changedPaths);
-            checkArgument(changedPaths.size() <= MAX_CHANGED_PATHS,
-                    "changedPaths exceeds " + MAX_CHANGED_PATHS + " values");
+            checkArgument(changedPaths.size() <= MAX_CHANGED_PATHS, "changedPaths exceeds " + MAX_CHANGED_PATHS + " values");
             Set<String> paths = new HashSet<>();
             for (String path : changedPaths) {
                 checkText(path, "changedPath", 500);
                 Path relative = Path.of(path);
-                checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith("..") && paths.add(path),
-                        "changedPaths contains an unsafe or duplicate path");
+                checkArgument(!relative.isAbsolute() && !relative.normalize().startsWith("..") && paths.add(path), "changedPaths contains an unsafe or duplicate path");
             }
             requireNonNull(commitSubjects, "commitSubjects is null");
             commitSubjects = ImmutableList.copyOf(commitSubjects);
-            checkArgument(commitSubjects.size() <= MAX_CHANGED_PATHS,
-                    "commitSubjects exceeds " + MAX_CHANGED_PATHS + " values");
+            checkArgument(commitSubjects.size() <= MAX_CHANGED_PATHS, "commitSubjects exceeds " + MAX_CHANGED_PATHS + " values");
             commitSubjects.forEach(subject -> checkText(subject, "commitSubject", 500));
         }
     }

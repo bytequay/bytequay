@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
@@ -287,14 +288,8 @@ final class E2eGitRepository
                 throw new IllegalStateException("Git timed out: " + String.join(" ", command));
             }
             CommandOutput result = output.get(1, TimeUnit.SECONDS);
-            if (process.exitValue() != 0) {
-                throw new IllegalStateException("Git failed: " + String.join(" ", command)
-                        + "\n" + result.text());
-            }
-            if (result.truncated()) {
-                throw new IllegalStateException("Git output exceeded " + MAXIMUM_OUTPUT_BYTES
-                        + " bytes: " + String.join(" ", command) + "\n" + result.text());
-            }
+            checkState(process.exitValue() == 0, "Git failed: " + String.join(" ", command) + "\n" + result.text());
+            checkState(!result.truncated(), "Git output exceeded " + MAXIMUM_OUTPUT_BYTES + " bytes: " + String.join(" ", command) + "\n" + result.text());
             return result.text().strip();
         }
         catch (InterruptedException e) {

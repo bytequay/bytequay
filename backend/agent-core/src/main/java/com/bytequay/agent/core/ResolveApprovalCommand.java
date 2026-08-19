@@ -29,7 +29,6 @@ public record ResolveApprovalCommand(
         requireNonNull(approvalId, "approvalId is null");
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
-        checkArgument(decision != ApprovalDecision.Decision.DENY || scopedPermission.isEmpty(),
-                "a denied decision cannot grant a scoped permission");
+        checkArgument(decision != ApprovalDecision.Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
     }
 }

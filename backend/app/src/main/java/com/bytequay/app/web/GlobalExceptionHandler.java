@@ -128,8 +128,7 @@ public class GlobalExceptionHandler
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleClientDisconnect(AsyncRequestNotUsableException exception, HttpServletRequest request)
     {
-        log.debug("Client disconnected before response was flushed: {} ({})",
-                request.getRequestURI(), exception.getMessage());
+        log.debug("Client disconnected before response was flushed: {} ({})", request.getRequestURI(), exception.getMessage());
     }
 
     /**

@@ -34,20 +34,17 @@ public record BoundedCiLog(
     public BoundedCiLog
     {
         requireNonNull(blob, "blob is null");
-        checkArgument(byteCount >= 0 && byteCount <= ReadCiLogQuery.MAXIMUM_BYTES,
-                "byteCount is outside the log limit");
+        checkArgument(byteCount >= 0 && byteCount <= ReadCiLogQuery.MAXIMUM_BYTES, "byteCount is outside the log limit");
         requireNonNull(terminalErrorLines, "terminalErrorLines is null");
         terminalErrorLines = ImmutableList.copyOf(terminalErrorLines);
         checkArgument(terminalErrorLines.size() <= 20, "terminalErrorLines exceeds 20 values");
         terminalErrorLines.forEach(line -> checkText(line, "terminalErrorLine", 500));
         checkOptionalText(unavailableReason, "unavailableReason", 500);
-        checkArgument(blob.isPresent() != unavailableReason.isPresent(),
-                "exactly one of blob and unavailableReason must be present");
+        checkArgument(blob.isPresent() != unavailableReason.isPresent(), "exactly one of blob and unavailableReason must be present");
         blob.ifPresent(value -> {
             checkArgument(value.size() == byteCount, "blob size and byteCount disagree");
         });
-        checkArgument(blob.isPresent() || (byteCount == 0 && !truncated && terminalErrorLines.isEmpty()),
-                "unavailable log carries content facts");
+        checkArgument(blob.isPresent() || (byteCount == 0 && !truncated && terminalErrorLines.isEmpty()), "unavailable log carries content facts");
     }
 
     public static BoundedCiLog unavailable(String reason)

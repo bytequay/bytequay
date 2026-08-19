@@ -46,6 +46,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -128,7 +129,7 @@ class TestPullRequestService
 
         service.refreshPullRequestDetail("owner/repo", 7);
 
-        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
+        verify(detailStore).deleteByPrIds(Set.of(12L));
     }
 
     @Test
@@ -156,7 +157,7 @@ class TestPullRequestService
 
         verify(writes).approve("pat", PullRequestRef.of("owner", "repo", 7));
         verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED);
-        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
+        verify(detailStore).deleteByPrIds(Set.of(12L));
     }
 
     @Test
@@ -171,7 +172,7 @@ class TestPullRequestService
 
         assertThat(result.merged()).isTrue();
         verify(viewStateStore).markReviewed(12L, HandledAction.MERGED);
-        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
+        verify(detailStore).deleteByPrIds(Set.of(12L));
     }
 
     @Test
@@ -189,7 +190,7 @@ class TestPullRequestService
 
         assertThat(result.queued()).isTrue();
         verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
-        verify(detailStore).deleteByPrIds(java.util.Set.of(12L));
+        verify(detailStore).deleteByPrIds(Set.of(12L));
     }
 
     @Test

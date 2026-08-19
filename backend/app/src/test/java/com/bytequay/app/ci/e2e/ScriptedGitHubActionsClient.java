@@ -33,7 +33,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 final class ScriptedGitHubActionsClient
@@ -109,10 +111,7 @@ final class ScriptedGitHubActionsClient
         requireNonNull(query, "query is null");
         inspectCalls.add(query);
         CiHeadSnapshot snapshot = snapshots.get(query.pullRequest());
-        if (snapshot == null) {
-            throw new IllegalStateException("No GitHub Actions snapshot scripted for "
-                    + query.pullRequest().fullName());
-        }
+        checkState(snapshot != null, "No GitHub Actions snapshot scripted for " + query.pullRequest().fullName());
         return snapshot;
     }
 
@@ -123,20 +122,18 @@ final class ScriptedGitHubActionsClient
         logCalls.add(query);
         LogKey key = LogKey.from(query);
         ScriptedLog scripted = jobLogs.get(key);
-        if (scripted == null) {
-            throw new IllegalStateException("No GitHub Actions log scripted for " + key.identity());
-        }
+        checkState(scripted != null, "No GitHub Actions log scripted for " + key.identity());
         int length = Math.min(scripted.content().length, query.maximumBytes());
         BlobRef blob = logs.writeBlob(
                 query.taskId(),
                 ByteBuffer.wrap(Arrays.copyOf(scripted.content(), length)),
                 "text/plain");
         return new BoundedCiLog(
-                java.util.Optional.of(blob),
+                Optional.of(blob),
                 length,
                 scripted.content().length > length,
                 scripted.terminalErrorLines(),
-                java.util.Optional.empty());
+                Optional.empty());
     }
 
     @Override
@@ -146,9 +143,7 @@ final class ScriptedGitHubActionsClient
         rerunCalls.add(command);
         RerunKey key = RerunKey.from(command);
         ArrayDeque<CiRerunResult> queue = reruns.get(key);
-        if (queue == null || queue.isEmpty()) {
-            throw new IllegalStateException("No failed-job rerun scripted for " + key.identity());
-        }
+        checkState(queue != null && !queue.isEmpty(), "No failed-job rerun scripted for " + key.identity());
         return queue.removeFirst();
     }
 

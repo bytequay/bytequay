@@ -34,6 +34,7 @@ import java.util.Base64;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * Encrypts and decrypts stored credentials using AES-256-GCM with a local
@@ -124,9 +125,7 @@ public class CredentialCipher
                 return new SecretKeySpec(key, "AES");
             }
             byte[] key = Files.readAllBytes(path);
-            if (key.length != KEY_BYTES) {
-                throw new IllegalStateException("credentials.key is " + key.length + " bytes; expected " + KEY_BYTES);
-            }
+            checkState(key.length == KEY_BYTES, "credentials.key is " + key.length + " bytes; expected " + KEY_BYTES);
             return new SecretKeySpec(key, "AES");
         }
         catch (IOException e) {

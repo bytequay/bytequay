@@ -57,18 +57,14 @@ class TestGitHubClientAggregation
     void testAttentionPrRefDropsOtherReasons()
     {
         // A plain author comment must not re-surface the PR.
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
-                "comment", "PullRequest", "owner/repo",
-                "https://api.github.com/repos/owner/repo/pulls/7"))).isEmpty();
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification("comment", "PullRequest", "owner/repo", "https://api.github.com/repos/owner/repo/pulls/7"))).isEmpty();
     }
 
     @Test
     void testAttentionPrRefDropsNonPullRequestSubject()
     {
         // A mention on an Issue, not a PR — the dashboard lane is PR-only.
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
-                "mention", "Issue", "owner/repo",
-                "https://api.github.com/repos/owner/repo/issues/7"))).isEmpty();
+        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification("mention", "Issue", "owner/repo", "https://api.github.com/repos/owner/repo/issues/7"))).isEmpty();
     }
 
     @Test

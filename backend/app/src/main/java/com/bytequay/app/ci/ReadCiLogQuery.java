@@ -35,9 +35,7 @@ public record ReadCiLogQuery(
         checkPullRequest(pullRequest);
         requireNonNull(workflowRun, "workflowRun is null");
         requireNonNull(job, "job is null");
-        checkArgument(job.workflowRunId() == workflowRun.id() && job.attempt() <= workflowRun.attempt(),
-                "job does not belong to workflowRun");
-        checkArgument(maximumBytes > 0 && maximumBytes <= MAXIMUM_BYTES,
-                "maximumBytes must be between 1 and " + MAXIMUM_BYTES);
+        checkArgument(job.workflowRunId() == workflowRun.id() && job.attempt() <= workflowRun.attempt(), "job does not belong to workflowRun");
+        checkArgument(maximumBytes > 0 && maximumBytes <= MAXIMUM_BYTES, "maximumBytes must be between 1 and " + MAXIMUM_BYTES);
     }
 }

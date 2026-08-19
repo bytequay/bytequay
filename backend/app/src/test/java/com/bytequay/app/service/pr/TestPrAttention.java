@@ -37,10 +37,8 @@ class TestPrAttention
         StoredPrDetail detail = detail(
                 List.of(comment("bob", "hey @Alice", NOW.minusSeconds(1))), List.of(), raw(true, "clean"));
 
-        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice",
-                NOW.minusSeconds(2), NOW)).isEqualTo(AttentionReason.MENTIONED);
-        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice",
-                NOW, NOW)).isNull();
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW.minusSeconds(2), NOW)).isEqualTo(AttentionReason.MENTIONED);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW, NOW)).isNull();
     }
 
     @Test
@@ -58,9 +56,7 @@ class TestPrAttention
     @Test
     void authoredPullRequestsFallBackToMine()
     {
-        assertThat(PrAttention.promoteReason(
-                pr(PullRequest.Origin.AUTHORED), detail(List.of(), List.of(), raw(true, "clean")),
-                "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail(List.of(), List.of(), raw(true, "clean")), "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
     }
 
     @Test

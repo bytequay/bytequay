@@ -35,11 +35,9 @@ public record TaskMetrics(
         requireNonNull(cost, "cost is null");
         requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(elapsed, "elapsed is null");
-        checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0,
-                "token counts must not be negative");
+        checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
-        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE),
-                "cost and costProvenance disagree");
+        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE), "cost and costProvenance disagree");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
     }
 

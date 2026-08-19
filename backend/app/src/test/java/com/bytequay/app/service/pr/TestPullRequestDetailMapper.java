@@ -39,8 +39,7 @@ class TestPullRequestDetailMapper
         assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
                 check("build", "completed", "success"),
                 check("test", "in_progress", null)))).isEqualTo(PullRequestDetail.CiStatus.PENDING);
-        assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
-                check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
     }
 
     @Test
@@ -69,8 +68,7 @@ class TestPullRequestDetailMapper
             assertThat(item.eventType()).isEqualTo("ci_autofix");
             assertThat(item.body()).isEqualTo("verified push");
         });
-        assertThat(detail.checkRuns()).singleElement().satisfies(check ->
-                assertThat(check.name()).isEqualTo("build"));
+        assertThat(detail.checkRuns()).singleElement().satisfies(check -> assertThat(check.name()).isEqualTo("build"));
         assertThat(detail.viewerCanWrite()).isTrue();
     }
 

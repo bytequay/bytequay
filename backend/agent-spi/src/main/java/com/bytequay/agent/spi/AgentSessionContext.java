@@ -39,10 +39,7 @@ public record AgentSessionContext(
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(approvals, "approvals is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(),
-                "runtime directories are not absolute");
-        checkArgument(providerDirectory.toAbsolutePath().normalize()
-                        .startsWith(runtimeDirectory.toAbsolutePath().normalize()),
-                "providerDirectory escapes runtimeDirectory");
+        checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");
+        checkArgument(providerDirectory.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "providerDirectory escapes runtimeDirectory");
     }
 }

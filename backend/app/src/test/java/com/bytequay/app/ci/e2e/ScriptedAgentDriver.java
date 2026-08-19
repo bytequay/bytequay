@@ -46,6 +46,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -53,6 +54,7 @@ import java.util.concurrent.CompletionStage;
 
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 final class ScriptedAgentDriver
@@ -201,9 +203,7 @@ final class ScriptedAgentDriver
         synchronized (this) {
             script = scripts.get(canonical);
         }
-        if (script == null) {
-            throw new IllegalStateException("No agent script bound to worktree " + canonical);
-        }
+        checkState(script != null, "No agent script bound to worktree " + canonical);
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
                 LANE,
                 1,
@@ -213,10 +213,7 @@ final class ScriptedAgentDriver
 
     private synchronized StartedAction takeAction(AgentScript script, AgentTurnCommand command)
     {
-        if (script.actions().isEmpty()) {
-            throw new IllegalStateException("No agent turn scripted for " + script.pullRequest().fullName()
-                    + " at worktree " + script.worktree());
-        }
+        checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName() + " at worktree " + script.worktree());
         AgentAction action = script.actions().removeFirst();
         TurnCall call = new TurnCall(
                 script.pullRequest(),
@@ -248,10 +245,7 @@ final class ScriptedAgentDriver
         requireNonNull(pullRequest, "pullRequest is null");
         Path canonical = canonical(worktree);
         AgentScript script = scripts.get(canonical);
-        if (script == null || !script.pullRequest().equals(pullRequest)) {
-            throw new IllegalStateException("No agent script bound for " + pullRequest.fullName()
-                    + " at worktree " + canonical);
-        }
+        checkState(script != null && script.pullRequest().equals(pullRequest), "No agent script bound for " + pullRequest.fullName() + " at worktree " + canonical);
         return script;
     }
 
@@ -484,15 +478,13 @@ final class ScriptedAgentDriver
 
         private static AgentAction failed(AgentTurnResult.State state, String reason)
         {
-            checkArgument(
-                    state == AgentTurnResult.State.FAILED || state == AgentTurnResult.State.INTERRUPTED,
-                    "Failed action state must be FAILED or INTERRUPTED");
+            checkArgument(state == AgentTurnResult.State.FAILED || state == AgentTurnResult.State.INTERRUPTED, "Failed action state must be FAILED or INTERRUPTED");
             return new AgentAction(
                     Optional.empty(),
                     ignored -> {},
                     new AgentTurnResult(state, Optional.empty(), Optional.of(reason), Duration.ZERO),
                     false,
-                    state.name().toLowerCase(java.util.Locale.ROOT),
+                    state.name().toLowerCase(Locale.ROOT),
                     Optional.empty(),
                     Optional.empty());
         }

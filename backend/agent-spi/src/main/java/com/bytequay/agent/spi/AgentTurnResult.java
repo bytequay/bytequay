@@ -33,10 +33,8 @@ public record AgentTurnResult(
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(elapsed, "elapsed is null");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
-        checkArgument(state != State.COMPLETED || terminalReason.isEmpty(),
-                "a completed turn cannot have a terminal reason");
-        checkArgument(state == State.COMPLETED || terminalReason.isPresent(),
-                "a non-completed turn requires a terminal reason");
+        checkArgument(state != State.COMPLETED || terminalReason.isEmpty(), "a completed turn cannot have a terminal reason");
+        checkArgument(state == State.COMPLETED || terminalReason.isPresent(), "a non-completed turn requires a terminal reason");
     }
 
     public enum State

@@ -94,8 +94,7 @@ public final class DefaultAgentTurnService
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
-        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(),
-                "maximumTurnRuntime must be positive");
+        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
     }
 
     @Override

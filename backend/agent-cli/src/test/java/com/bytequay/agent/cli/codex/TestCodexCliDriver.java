@@ -125,8 +125,7 @@ class TestCodexCliDriver
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
         assertThat(disconnectedResult.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("exited with code 1"));
+        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("exited with code 1"));
 
         driver.close();
     }

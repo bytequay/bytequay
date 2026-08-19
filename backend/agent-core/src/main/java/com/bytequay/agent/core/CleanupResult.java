@@ -32,9 +32,7 @@ public record CleanupResult(
         requireNonNull(state, "state is null");
         requireNonNull(deletedAt, "deletedAt is null");
         checkOptionalText(failure, "failure");
-        checkArgument((state == CleanupState.DELETED) == deletedAt.isPresent(),
-                "deletedAt and cleanup state disagree");
-        checkArgument((state == CleanupState.RETRY_PENDING) == failure.isPresent(),
-                "failure and cleanup state disagree");
+        checkArgument((state == CleanupState.DELETED) == deletedAt.isPresent(), "deletedAt and cleanup state disagree");
+        checkArgument((state == CleanupState.RETRY_PENDING) == failure.isPresent(), "failure and cleanup state disagree");
     }
 }

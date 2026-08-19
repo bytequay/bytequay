@@ -249,16 +249,13 @@ public class PullRequestService
         if (prId.isPresent()) {
             Optional<StoredPrDetail> stored = detailStore.find(prId.get());
             if (stored.isPresent()) {
-                log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
-                        repo, number);
+                log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body", repo, number);
                 return PullRequestDetailMapper.toPullRequestDetail(repo, number, stored.get(), viewerCanWrite);
             }
-            log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
-                    repo, number);
+            log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub", repo, number);
         }
         else {
-            log.debug("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub",
-                    repo, number);
+            log.debug("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub", repo, number);
         }
 
         // Cache miss — fetch live, store for next time

@@ -123,8 +123,7 @@ public final class FileTaskLogStore
     public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
     {
         requireNonNull(taskId, "taskId is null");
-        checkArgument(afterSequence >= 0 && limit > 0,
-                "afterSequence must be non-negative and limit must be positive");
+        checkArgument(afterSequence >= 0 && limit > 0, "afterSequence must be non-negative and limit must be positive");
         synchronized (lock(taskId)) {
             return readCompleteRecords(taskId, afterSequence, limit);
         }

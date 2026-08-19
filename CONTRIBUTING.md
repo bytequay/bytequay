@@ -74,6 +74,23 @@ npm run package
 Backend Java follows the checked-in Trino-derived Checkstyle rules. Prefer
 records for DTOs and immutable values at boundaries.
 
+State guards use Guava `Preconditions.checkState` rather than a hand-written
+`if (...) { throw new IllegalStateException(...); }`, the same way argument
+checks already use `checkArgument`. Keep the plain `throw` where `checkState`
+would hurt readability: wrapping a caught exception, throwing after a side
+effect such as destroying a process, or a fall-through throw at the end of a
+multi-branch block.
+
+Refer to types by their simple name and an import, not by a fully qualified
+name inline (`Optional.empty()`, not `java.util.Optional.empty()`). Qualify
+inline only when two types in scope share a simple name.
+
+Lines may run to 180 characters. Do not wrap a statement that fits: a
+precondition check, an assertion, a mock stub, or a log call belongs on one
+line. Wrap only where the line break carries meaning — a multi-line boolean
+expression broken at `||`/`&&`, a text block, or a lambda with a statement
+body.
+
 Frontend code uses React 19 function components and hooks, strict TypeScript,
 and plain CSS. Do not add a component library, state manager, or CSS framework
 without discussing it first.

@@ -59,14 +59,34 @@ final class CodexProtocol
             CommandOutputNotification, AgentMessageDeltaNotification, PlanUpdatedNotification,
             TokenUsageUpdatedNotification, ErrorNotification, UnknownNotification
     {
+        Params params();
+
         Optional<Long> emittedAtMs();
 
         default String threadId()
         {
-            return "";
+            return params().threadId();
         }
 
         default Optional<String> turnId()
+        {
+            return params().owningTurnId();
+        }
+    }
+
+    /**
+     * Payload of a notification or server request. Both wrappers route on the
+     * thread and filter on the turn, so every payload answers for itself
+     * instead of each wrapper reaching into its own params type.
+     */
+    sealed interface Params
+            permits TurnNotificationParams, ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams,
+            TokenUsageParams, ErrorParams, UnknownParams, CommandApprovalParams, FileChangeApprovalParams
+    {
+        String threadId();
+
+        /** The owning turn, absent for thread-scoped payloads. */
+        default Optional<String> owningTurnId()
         {
             return Optional.empty();
         }
@@ -80,18 +100,6 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turn().id());
-        }
     }
 
     record TurnCompletedNotification(TurnNotificationParams params, Optional<Long> emittedAtMs)
@@ -101,18 +109,6 @@ final class CodexProtocol
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
-        }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turn().id());
         }
     }
 
@@ -124,18 +120,6 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
-        }
     }
 
     record ItemCompletedNotification(ItemNotificationParams params, Optional<Long> emittedAtMs)
@@ -145,18 +129,6 @@ final class CodexProtocol
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
-        }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
         }
     }
 
@@ -168,18 +140,6 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
-        }
     }
 
     record AgentMessageDeltaNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
@@ -189,18 +149,6 @@ final class CodexProtocol
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
-        }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
         }
     }
 
@@ -212,18 +160,6 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
-        }
     }
 
     record TokenUsageUpdatedNotification(TokenUsageParams params, Optional<Long> emittedAtMs)
@@ -233,18 +169,6 @@ final class CodexProtocol
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
-        }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
         }
     }
 
@@ -256,18 +180,6 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
-
-        @Override
-        public Optional<String> turnId()
-        {
-            return Optional.of(params.turnId());
-        }
     }
 
     record UnknownNotification(UnknownParams params, Optional<Long> emittedAtMs)
@@ -278,24 +190,26 @@ final class CodexProtocol
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId().orElse("");
-        }
     }
 
     record TurnNotificationParams(String threadId, Turn turn)
+            implements Params
     {
         TurnNotificationParams
         {
             checkIdentifier(threadId, "threadId");
             requireNonNull(turn, "turn is null");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turn.id());
+        }
     }
 
     record ItemNotificationParams(ThreadItem item, String threadId, String turnId)
+            implements Params
     {
         ItemNotificationParams
         {
@@ -303,9 +217,16 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
     }
 
     record ItemDeltaParams(String threadId, String turnId, String itemId, String delta)
+            implements Params
     {
         ItemDeltaParams
         {
@@ -314,9 +235,16 @@ final class CodexProtocol
             checkIdentifier(itemId, "itemId");
             requireNonNull(delta, "delta is null");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
     }
 
     record PlanUpdatedParams(List<PlanStep> plan, String threadId, String turnId)
+            implements Params
     {
         PlanUpdatedParams
         {
@@ -324,9 +252,16 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
     }
 
     record TokenUsageParams(String threadId, String turnId, ThreadTokenUsage tokenUsage)
+            implements Params
     {
         TokenUsageParams
         {
@@ -334,9 +269,16 @@ final class CodexProtocol
             checkIdentifier(turnId, "turnId");
             requireNonNull(tokenUsage, "tokenUsage is null");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
     }
 
     record ErrorParams(TurnError error, String threadId, String turnId, Boolean willRetry)
+            implements Params
     {
         ErrorParams
         {
@@ -345,13 +287,21 @@ final class CodexProtocol
             checkIdentifier(turnId, "turnId");
             requireNonNull(willRetry, "willRetry is null");
         }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
     }
 
-    record UnknownParams(Optional<String> threadId)
+    record UnknownParams(String threadId)
+            implements Params
     {
         UnknownParams
         {
-            requireNonNull(threadId, "threadId is null");
+            // An unrecognized payload may omit the thread entirely.
+            threadId = threadId == null ? "" : threadId;
         }
     }
 
@@ -609,7 +559,12 @@ final class CodexProtocol
     {
         Object id();
 
-        String threadId();
+        Params params();
+
+        default String threadId()
+        {
+            return params().threadId();
+        }
     }
 
     record CommandApprovalRequest(Object id, CommandApprovalParams params)
@@ -619,12 +574,6 @@ final class CodexProtocol
         {
             requireNonNull(id, "id is null");
             requireNonNull(params, "params is null");
-        }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
         }
     }
 
@@ -636,12 +585,6 @@ final class CodexProtocol
             requireNonNull(id, "id is null");
             requireNonNull(params, "params is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId();
-        }
     }
 
     record UnknownServerRequest(Object id, UnknownParams params)
@@ -652,12 +595,6 @@ final class CodexProtocol
             requireNonNull(id, "id is null");
             requireNonNull(params, "params is null");
         }
-
-        @Override
-        public String threadId()
-        {
-            return params.threadId().orElse("");
-        }
     }
 
     record CommandApprovalParams(
@@ -667,6 +604,7 @@ final class CodexProtocol
             Optional<String> command,
             Optional<String> reason,
             Long startedAtMs)
+            implements Params
     {
         CommandApprovalParams
         {
@@ -685,6 +623,7 @@ final class CodexProtocol
             String itemId,
             Optional<String> reason,
             Long startedAtMs)
+            implements Params
     {
         FileChangeApprovalParams
         {

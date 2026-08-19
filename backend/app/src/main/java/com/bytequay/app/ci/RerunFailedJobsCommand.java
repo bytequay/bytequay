@@ -29,8 +29,7 @@ public record RerunFailedJobsCommand(
     public RerunFailedJobsCommand
     {
         checkPullRequest(pullRequest);
-        checkArgument(workflowRunId > 0 && previousAttempt > 0,
-                "workflowRunId and previousAttempt must be positive");
+        checkArgument(workflowRunId > 0 && previousAttempt > 0, "workflowRunId and previousAttempt must be positive");
         checkSha(headSha, "headSha");
     }
 }

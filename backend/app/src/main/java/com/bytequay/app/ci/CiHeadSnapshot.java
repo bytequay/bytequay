@@ -50,8 +50,7 @@ public record CiHeadSnapshot(
         requireNonNull(workflowRuns, "workflowRuns is null");
         workflowRuns = ImmutableList.copyOf(workflowRuns);
         checkArgument(workflowRuns.size() <= 1000, "workflowRuns exceeds 1000 values");
-        checkArgument(workflowRuns.stream().allMatch(run -> run.headSha().equals(headSha)),
-                "workflow run belongs to another head");
+        checkArgument(workflowRuns.stream().allMatch(run -> run.headSha().equals(headSha)), "workflow run belongs to another head");
     }
 
     public List<CiJob> jobs()

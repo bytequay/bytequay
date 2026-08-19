@@ -30,8 +30,7 @@ public record CiPushResult(Outcome outcome, Optional<String> pushedSha, String r
         if (reason.length() > 2 * 1024) {
             reason = reason.substring(0, 2 * 1024);
         }
-        checkArgument((outcome == Outcome.PUSHED) == pushedSha.isPresent(),
-                "only PUSHED contains pushedSha");
+        checkArgument((outcome == Outcome.PUSHED) == pushedSha.isPresent(), "only PUSHED contains pushedSha");
     }
 
     public static CiPushResult pushed(String sha)

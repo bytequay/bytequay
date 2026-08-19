@@ -41,8 +41,7 @@ public record AgentCapabilities(
         requireNonNull(attachmentMediaTypes, "attachmentMediaTypes is null");
         permissionPolicies = ImmutableSet.copyOf(permissionPolicies);
         attachmentMediaTypes = ImmutableSet.copyOf(attachmentMediaTypes);
-        checkArgument(attachmentMediaTypes.stream().noneMatch(String::isBlank),
-                "attachmentMediaTypes contains a blank value");
+        checkArgument(attachmentMediaTypes.stream().noneMatch(String::isBlank), "attachmentMediaTypes contains a blank value");
     }
 
     public static AgentCapabilities none()

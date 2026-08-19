@@ -16,6 +16,7 @@ package com.bytequay.app.ci;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Locale;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -61,6 +62,6 @@ public final class CiFailureSignature
 
     private static String hex(byte[] value)
     {
-        return java.util.HexFormat.of().formatHex(value);
+        return HexFormat.of().formatHex(value);
     }
 }

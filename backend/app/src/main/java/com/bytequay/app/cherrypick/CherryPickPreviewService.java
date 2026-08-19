@@ -65,13 +65,19 @@ public class CherryPickPreviewService
 
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
+    private final CherryPickPullRequestLookup pullRequests;
     private final Clock clock;
     private final Map<String, CherryPickPreview> cache = new LinkedHashMap<>();
 
-    public CherryPickPreviewService(GitCommandRunner git, CherryPickConflictScout conflictScout, Clock clock)
+    public CherryPickPreviewService(
+            GitCommandRunner git,
+            CherryPickConflictScout conflictScout,
+            CherryPickPullRequestLookup pullRequests,
+            Clock clock)
     {
         this.git = requireNonNull(git, "git is null");
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -113,6 +119,12 @@ public class CherryPickPreviewService
                 .filter(sha -> evidence(sha, targetAncestors, originLines).isEmpty())
                 .collect(toImmutableList());
         Map<String, ConflictPreview> conflicts = conflictScout.scout(repository, targetSha, planned);
+        RepoRef sourceRepository = readRepository(repository, command.sourceRemote());
+        Map<String, PullRequestAssociation> associations = pullRequests.lookUp(
+                sourceRepository,
+                range.stream().map(RangeCommit::sha).collect(toImmutableList()),
+                branchName(command.sourceTipRef(), command.sourceRemote()),
+                warnings);
 
         ImmutableList.Builder<CherryPickCommitPreview> commits = ImmutableList.builderWithExpectedSize(range.size());
         int position = 1;
@@ -131,7 +143,8 @@ public class CherryPickPreviewService
                     patchEquivalent.contains(commit.sha()),
                     match.isPresent()
                             ? ConflictPreview.clean()
-                            : conflicts.getOrDefault(commit.sha(), ConflictPreview.notAnalyzed())));
+                            : conflicts.getOrDefault(commit.sha(), ConflictPreview.notAnalyzed()),
+                    Optional.ofNullable(associations.get(commit.sha()))));
         }
         if (conflicts.values().stream().anyMatch(preview -> preview.status() == ConflictPreview.Status.CONFLICT)) {
             warnings.add("Conflict scope is exact up to the first conflict. Commits after it are not analyzed, "
@@ -472,6 +485,13 @@ public class CherryPickPreviewService
             throw new CherryPickInvalidRequestException("git " + arguments[0] + " produced too much output");
         }
         return result.output();
+    }
+
+    /** Strips a remote prefix so "origin/master" ties to a pull request's base ref. */
+    private static String branchName(String ref, String remote)
+    {
+        String prefix = remote + "/";
+        return ref.startsWith(prefix) ? ref.substring(prefix.length()) : ref;
     }
 
     private static String shortSha(String sha)

@@ -66,7 +66,15 @@ class TestCherryPickPreviewService
         git(clone, "remote", "add", "origin", upstream.toString());
         git(clone, "remote", "add", "fork", fork.toString());
         clock = new MutableClock(NOW);
-        service = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), clock);
+        service = new CherryPickPreviewService(
+                GIT,
+                new CherryPickConflictScout(GIT),
+                new CherryPickPullRequestLookup(
+                        org.springframework.web.client.RestClient.create(),
+                        () -> {
+                            throw new IllegalStateException("preview tests use no GitHub credential");
+                        }),
+                clock);
     }
 
     @Test

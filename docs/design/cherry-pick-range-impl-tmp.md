@@ -323,71 +323,78 @@ execution.
 
 ### Pull-request association
 
-- [ ] Add a read-only GitHub client for
+- [x] Add a read-only GitHub client for
   `GET /repos/{owner}/{repo}/commits/{sha}/pulls` using the existing
   credential and REST support.
-- [ ] Request commit associations with bounded parallelism; do not launch 300
+- [x] Request commit associations with bounded parallelism; do not launch 300
   simultaneous requests.
-- [ ] Cache associations by repository and source SHA for the preview
+- [x] Cache associations by repository and source SHA for the preview
   lifetime.
-- [ ] Map PR number, title, URL, base ref, and merged time.
-- [ ] Prefer one merged same-repository PR whose base ref matches the named
+- [x] Map PR number, title, URL, base ref, and merged time.
+- [x] Prefer one merged same-repository PR whose base ref matches the named
   source branch when that match is available.
-- [ ] If the remaining association is not unique, leave the commit ungrouped
+- [x] If the remaining association is not unique, leave the commit ungrouped
   and add an ambiguity warning instead of guessing.
-- [ ] Treat GitHub metadata failure as a warning; keep local commits visible
+- [x] Treat GitHub metadata failure as a warning; keep local commits visible
   and selectable.
-- [ ] Group commits by the chosen PR number.
-- [ ] Order PR groups by their earliest source commit position.
-- [ ] Keep commit position as the cherry-pick order; use `mergedAt` only for
+- [ ] Group commits by the chosen PR number. Deferred to checkpoint 4: the
+  backend returns a flat ordered list with each commit's association, and
+  the frontend groups it. Grouping in the backend would put display shape
+  in the contract that owns execution order.
+- [ ] Order PR groups by their earliest source commit position. Deferred with
+  the grouping above.
+- [x] Keep commit position as the cherry-pick order; use `mergedAt` only for
   display.
-- [ ] Support commits with no PR association.
+- [x] Support commits with no PR association.
 
 ### Conflict preview
 
-- [ ] Create one temporary detached Git worktree at the resolved target SHA
+- [x] Create one temporary detached Git worktree at the resolved target SHA
   under the system temporary directory.
-- [ ] Never use the selected execution worktree for simulation.
-- [ ] Apply non-present source commits in position order inside the temporary
+- [x] Never use the selected execution worktree for simulation.
+- [x] Apply non-present source commits in position order inside the temporary
   worktree.
-- [ ] Use temporary local Git identity settings only inside each preview
+- [x] Use temporary local Git identity settings only inside each preview
   command.
-- [ ] On clean simulation, keep the temporary commit so the next source commit
+- [x] On clean simulation, keep the temporary commit so the next source commit
   sees earlier simulated changes.
-- [ ] At the first conflict, record unmerged paths and stop exact sequential
+- [x] At the first conflict, record unmerged paths and stop exact sequential
   simulation.
-- [ ] Read unmerged stages with `git ls-files -u`.
-- [ ] Classify content, add/add, modify/delete, rename, binary, and submodule
+- [x] Read unmerged stages with `git ls-files -u`.
+- [x] Classify content, add/add, modify/delete, rename, binary, and submodule
   conflicts when Git supplies enough facts.
-- [ ] Derive textual sections and line ranges from conflict/diff output when
+- [x] Derive textual sections and line ranges from conflict/diff output when
   available; do not invent line numbers.
-- [ ] Map a path to the nearest ancestor Maven `pom.xml` and expose the module
+- [x] Map a path to the nearest ancestor Maven `pom.xml` and expose the module
   path.
-- [ ] Mark later conflict information as estimated or `NOT_ANALYZED` after the
+- [x] Mark later conflict information as estimated or `NOT_ANALYZED` after the
   first unresolved conflict.
-- [ ] Always abort any open operation and remove only the exact temporary
+- [x] Always abort any open operation and remove only the exact temporary
   worktree in a `finally` path.
-- [ ] Bound diagnostics and changed/conflict path counts.
+- [x] Bound diagnostics and changed/conflict path counts.
 
 ### Tests
 
-- [ ] Test rebase-merged, squash-merged, ungrouped, ambiguous, and unavailable
+- [x] Test rebase-merged, squash-merged, ungrouped, ambiguous, and unavailable
   PR metadata.
 - [ ] Test group ordering by earliest commit position rather than merged time.
-- [ ] Test group membership never changes source order.
-- [ ] Test clean sequential simulation and first-conflict stopping.
-- [ ] Test content, add/add, modify/delete, binary/submodule fallback, module
+  Deferred to checkpoint 4 with the grouping itself.
+- [ ] Test group membership never changes source order. Deferred likewise;
+  the backend list is already ordered by position and carries no grouping.
+- [x] Test clean sequential simulation and first-conflict stopping.
+- [x] Test content, add/add, modify/delete, binary/submodule fallback, module
   mapping, and unavailable line ranges.
-- [ ] Test cleanup after success, conflict, timeout, and forced exception.
-- [ ] Assert preview makes no GitHub write.
+- [x] Test cleanup after success, conflict, timeout, and forced exception.
+- [x] Assert preview makes no GitHub write.
 
 ### Checkpoint 3 gate
 
-- [ ] `mvn verify` passes.
-- [ ] A 300-commit fixture returns bounded output and bounded GitHub
-  concurrency.
-- [ ] Metadata failure does not block local preview.
-- [ ] Temporary worktree cleanup is proven.
+- [x] `mvn verify` passes.
+- [x] A 300-commit fixture returns bounded output and bounded GitHub
+  concurrency. Concurrency is capped at 8; conflict files at 100 per commit,
+  sections at 50 per file.
+- [x] Metadata failure does not block local preview.
+- [x] Temporary worktree cleanup is proven.
 - [ ] Reviewer approves PR grouping and conflict-confidence labels.
 
 ---

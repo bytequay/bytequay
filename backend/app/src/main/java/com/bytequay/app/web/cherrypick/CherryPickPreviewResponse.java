@@ -16,6 +16,7 @@ package com.bytequay.app.web.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickCommitPreview;
 import com.bytequay.app.cherrypick.CherryPickPreview;
 import com.bytequay.app.cherrypick.ConflictPreview.ConflictFile;
+import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -77,7 +78,11 @@ public record CherryPickPreviewResponse(
             boolean patchEquivalent,
             String conflictStatus,
             String conflictBasis,
-            List<ConflictFileResponse> conflictFiles)
+            List<ConflictFileResponse> conflictFiles,
+            Optional<Integer> pullRequestNumber,
+            Optional<String> pullRequestTitle,
+            Optional<String> pullRequestUrl,
+            Optional<String> pullRequestMergedAt)
     {
         public static CommitResponse of(CherryPickCommitPreview commit)
         {
@@ -98,7 +103,11 @@ public record CherryPickPreviewResponse(
                     commit.conflict().basis().name(),
                     commit.conflict().files().stream()
                             .map(ConflictFileResponse::of)
-                            .collect(toImmutableList()));
+                            .collect(toImmutableList()),
+                    commit.pullRequest().map(PullRequestAssociation::number),
+                    commit.pullRequest().map(PullRequestAssociation::title),
+                    commit.pullRequest().map(PullRequestAssociation::url),
+                    commit.pullRequest().map(PullRequestAssociation::mergedAt));
         }
     }
 

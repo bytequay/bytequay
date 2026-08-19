@@ -38,7 +38,8 @@ public record CherryPickCommitPreview(
         boolean originallyEmpty,
         Optional<TargetMatch> targetMatch,
         boolean patchEquivalent,
-        ConflictPreview conflict)
+        ConflictPreview conflict,
+        Optional<PullRequestAssociation> pullRequest)
 {
     public CherryPickCommitPreview
     {
@@ -50,6 +51,7 @@ public record CherryPickCommitPreview(
         changedPaths = ImmutableList.copyOf(requireNonNull(changedPaths, "changedPaths is null"));
         requireNonNull(targetMatch, "targetMatch is null");
         requireNonNull(conflict, "conflict is null");
+        requireNonNull(pullRequest, "pullRequest is null");
     }
 
     /** Derived from evidence, never from a title or a patch-similarity guess. */

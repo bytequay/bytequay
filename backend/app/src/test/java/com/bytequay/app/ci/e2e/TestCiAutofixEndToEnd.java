@@ -334,6 +334,8 @@ class TestCiAutofixEndToEnd
                 .map(attempt -> attempt.timelineEventKey().orElseThrow())
                 .toList());
         assertThat(timelineKeys).hasSize(2);
+        assertThat(details.find(fixture.prId()).orElseThrow().timeline()).allSatisfy(event ->
+                assertThat(event.body()).doesNotContain("CI is green", "Root cause:"));
 
         JsonNode response = harness.getResponse(started.runId());
         assertThat(response.required("attempts")).hasSize(2);

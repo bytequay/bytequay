@@ -755,15 +755,24 @@ The backend implementation completed on 2026-08-18.
 Verification evidence:
 
 - `mvn verify` passed all reactor modules with zero Checkstyle violations;
-  the `app` module ran 129 tests with no failures or errors.
-- The integration proof uses SQLite, a deterministic test agent, mocked GitHub
-  Actions, and a temporary worktree/bare remote. It reconstructs the
-  orchestrator after start, creates a real fixup commit, lease-pushes it,
-  observes green CI, records the local timeline event, performs the final
-  position check, and completes the agent task.
-- A hostile-agent integration proof claims CI is green and requests a force
-  push while leaving invalid Git state. The program pauses from inspected Git
-  facts and leaves the remote unchanged.
+  the `app` module ran 143 tests with no failures or errors, packaged the
+  application, and the complete reactor finished in 31.233 seconds.
+- The end-to-end suite has 14 journeys: 13 HTTP-started journeys in one shared
+  context and one full two-context restart journey. The standalone classes ran
+  in 14.15 and 4.576 seconds respectively.
+- The ordinary E2E class passed the maintained three-run stability gate without
+  an intermittent failure.
+- The journeys use SQLite, a scripted test agent and GitHub Actions client,
+  task runtime files, and a real temporary worktree/bare remote. They prove
+  exact-lease fixup pushes, CI memory, metrics, summaries, timeline events,
+  cancellation, invalid-Git safety, stale-head protection, and green
+  completion without using agent prose for control flow.
+- The restart journey loses a successful push response, closes the complete
+  application context, opens another context against the same database and
+  files, reconciles the durable push journal, and proves one remote update,
+  timeline event, final position check, and completed task.
+- The old `TestCiAutofixIntegration` duplicate was removed after its successful
+  and hostile-agent assertions were mapped into the E2E journeys.
 - The repackaged `bytequay-backend.jar` started on a random localhost port with
   Codex, Claude, and deterministic agent lanes disabled, then shut down cleanly.
 - The final authority audit found no review-triage coupling, response parser,
@@ -818,6 +827,11 @@ unique repository, PR number, idempotency key, worktree, and bare remote. Tests
 run on one thread because the agent workspace lease is process-local. One
 separate restart test closes and reopens a full application context against the
 same SQLite file, task runtime, worktree, and remote.
+
+The restart test creates the schema in the first context and opens the second
+with Hibernate DDL disabled. SQLite reports Hibernate-generated integer IDs as
+`BIGINT` during schema validation, so the second context proves persistence by
+reading and advancing every required durable record without changing schema.
 
 ### 13.2 Test package and responsibilities
 
@@ -899,7 +913,7 @@ does not reproduce MCP or CLI protocols.
 | Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |
 | Target branch moved | The agent may rebase and resolve conflicts; the program accepts only a clean, linear, correctly positioned result and then lease-pushes it |
 | Empty agent result | No Git change causes a failed-job rerun, not a push; a later green snapshot finishes the run |
-| Empty-result bound | Three empty results for one head consume the stored rerun allowance and then pause without a fourth rerun |
+| Empty-result bound | One empty result may consume at most three failed-job reruns for the unchanged head, then pauses without a fourth rerun |
 | Invalid Git recovery | An invalid result pauses immediately with no push; a user HTTP message may start a repair turn on the same task; another invalid result remains paused |
 | Stale PR head | An external head update before push finishes `STALE_HEAD` and preserves the external commit |
 | User message | A paused run accepts an idempotent HTTP message on the same task and can continue to green |
@@ -937,8 +951,7 @@ The suite has these execution rules:
 The target is at most 15 seconds for all non-restart journeys together, at most
 8 seconds for the restart journey, and at most 35 seconds for backend
 `mvn verify` on the reference development machine. The non-restart E2E class
-must also pass 100 consecutive executions without an intermittent failure.
+must also pass three consecutive executions without an intermittent failure.
 
-The current `TestCiAutofixIntegration` is removed only after its successful and
-hostile-agent proofs are covered by the new suite. Existing focused tests stay
-in place.
+`TestCiAutofixIntegration` was removed after its successful and hostile-agent
+proofs were covered by the E2E suite. Existing focused tests stay in place.

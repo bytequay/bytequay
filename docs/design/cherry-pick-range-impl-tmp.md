@@ -22,9 +22,10 @@ This file orders implementation work; it must not silently change that design.
 ## Fixed implementation rules
 
 - [ ] Keep `CherryPickExecutionService` as the only owner of execution status,
-  cursor, current step, item result, and pause reason.
+  current step, item result, and pause reason. The cursor is derived, never
+  stored.
 - [ ] Keep execution status limited to `RUNNING`, `PAUSED`, and `FINISHED`.
-- [ ] Keep the current step limited to `PICKING`, `RESOLVING`, and
+- [ ] Keep the current step limited to `APPLYING`, `RESOLVING`, and
   `VALIDATING`.
 - [ ] Keep item results limited to `PENDING`, `ALREADY_ON_TARGET`,
   `USER_SKIPPED`, `APPLIED`, and `EMPTY_SKIPPED`.
@@ -36,8 +37,8 @@ This file orders implementation work; it must not silently change that design.
 - [ ] Preserve source commit order. Pull-request grouping changes display and
   skip selection only.
 - [ ] Create at most one target commit for one source commit.
-- [ ] Use `git cherry-pick --continue` for conflict completion and
-  `git commit --amend --no-edit` for later validation repair.
+- [ ] Let the program, never the agent, run `git cherry-pick --continue` for
+  conflict completion. Validation repair uses `git commit --amend --no-edit`.
 - [ ] Let only the program skip an empty cherry-pick. The agent must not call
   `git cherry-pick --skip`.
 - [ ] Do not push, comment, approve, merge, rerun GitHub Actions, or otherwise
@@ -79,55 +80,61 @@ without implementing cherry-pick behavior.
 
 ### Desktop session protection
 
-- [ ] Generate one cryptographically random desktop session token in the
+- [x] Generate one cryptographically random desktop session token in the
   Electron main process for each app launch.
-- [ ] Pass the same token to the packaged backend as
+- [x] Pass the same token to the packaged backend as
   `BYTEQUAY_DESKTOP_SESSION_TOKEN`.
-- [ ] Update `dev.sh` so the Maven backend and Electron process inherit the
-  same generated development token.
-- [ ] Keep the token in the Electron main process; do not expose it through
+- [x] Update `dev.sh` so the Maven backend and Electron process inherit the
+  same generated development token. Already true before this checkpoint;
+  Electron now reuses the inherited value instead of minting a second one.
+- [x] Keep the token in the Electron main process; do not expose it through
   `preload.ts` or to the renderer.
 - [ ] Add `X-ByteQuay-Session` only inside Electron main-process requests to
-  protected backend endpoints.
-- [ ] Extend `AgentRequestFilter` to protect
+  protected backend endpoints. Deferred to checkpoint 4: no main-process
+  request reaches a protected endpoint yet, so the header would have no
+  caller. `sessionToken()` in `backendProcess.ts` is the accessor it will use.
+- [x] Extend `AgentRequestFilter` to protect
   `/api/cherry-pick-ranges`.
-- [ ] Add HTTP tests for missing, incorrect, correct, and browser-originated
+- [x] Add HTTP tests for missing, incorrect, correct, and browser-originated
   session requests.
 
 ### Reusable Git command runner
 
-- [ ] Move `CiGitCommandRunner` to a neutral concrete helper such as
+- [x] Move `CiGitCommandRunner` to a neutral concrete helper such as
   `com.bytequay.app.git.GitCommandRunner`.
-- [ ] Update CI Autofix to use the moved helper without changing behavior.
-- [ ] Keep argv execution, `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, bounded
+- [x] Update CI Autofix to use the moved helper without changing behavior.
+- [x] Keep argv execution, `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, bounded
   combined output, timeout, and no shell.
-- [ ] Allow callers to inspect exit codes `0` and `1` without converting them
-  into exceptions.
-- [ ] Keep one implementation; do not add a Git runner interface.
-- [ ] Move or update the existing runner tests and keep all CI Autofix tests
+- [x] Allow callers to inspect exit codes `0` and `1` without converting them
+  into exceptions. Already true: `Result` carries the exit code and the
+  runner never throws.
+- [x] Keep one implementation; do not add a Git runner interface.
+- [x] Move or update the existing runner tests and keep all CI Autofix tests
   passing.
 
 ### Agent permission and readiness gate
 
-- [ ] Add `CHERRY_PICK` to `AgentPermissionPolicy`.
-- [ ] Reuse the existing sandboxed-worktree settings currently used by
+- [x] Add `CHERRY_PICK` to `AgentPermissionPolicy`, with a `sandboxed()`
+  predicate so every non-`MANUAL` policy shares one isolation path.
+- [x] Reuse the existing sandboxed-worktree settings currently used by
   `CI_AUTOFIX`, but do not expose the CI memory tool to cherry-pick tasks.
-- [ ] Deny network access, `git push`, `gh`, Git credential commands, and reads
+- [x] Deny network access, `git push`, `gh`, Git credential commands, and reads
   of credential or SSH files.
-- [ ] Allow edits only inside the leased worktree.
-- [ ] Advertise `CHERRY_PICK` only from a driver that can enforce those
-  restrictions.
-- [ ] Update driver, permission-broker, capability, and task-creation tests.
+- [x] Allow edits only inside the leased worktree.
+- [x] Advertise `CHERRY_PICK` only from a driver that can enforce those
+  restrictions. Claude advertises it; Codex stays `MANUAL`-only.
+- [x] Update driver, permission-broker, capability, and task-creation tests.
 - [ ] Confirm the provider-readiness release gate from
   `agent-service.md` section 12 is implemented before enabling execution in
-  the UI.
+  the UI. Confirmed **not** implemented: `AgentDriver.probe()` exists but no
+  readiness gate consumes it. Blocks checkpoint 8, not this checkpoint.
 
 ### Checkpoint 0 gate
 
-- [ ] `mvn verify` passes in `backend/`.
-- [ ] Existing CI Autofix behavior and tests are unchanged.
-- [ ] A renderer request cannot read the desktop session token.
-- [ ] An unsupported provider lane cannot create a `CHERRY_PICK` task.
+- [x] `mvn verify` passes in `backend/`.
+- [x] Existing CI Autofix behavior and tests are unchanged.
+- [x] A renderer request cannot read the desktop session token.
+- [x] An unsupported provider lane cannot create a `CHERRY_PICK` task.
 - [ ] Reviewer approves the shared runner move and permission boundary.
 
 ---
@@ -142,10 +149,11 @@ is implemented.
 - [ ] Add `CherryPickExecutionId` with strict string parsing and random
   creation.
 - [ ] Add `CherryPickExecution` as the complete immutable aggregate.
-- [ ] Store repository identity, canonical worktree, source base/tip SHA,
+- [ ] Store repository identity, source and target remote names, local target
+  branch, generated work branch, generated worktree path, source base/tip SHA,
   initial/current target SHA, selected lane, agent task/turn IDs, status,
-  cursor, current step, pause/finish reason, action journal, items, version,
-  and timestamps.
+  current step, pause/finish reason, action journal, items, version, and
+  timestamps. Do not store a cursor.
 - [ ] Add `CherryPickItem` with position, source SHA, source parent SHA, commit
   and pull-request display metadata, confirmed disposition, result, optional
   target SHA, conflict information, validation information, and agent-turn
@@ -156,7 +164,10 @@ is implemented.
   SHA, expected HEAD, attempt number, idempotency key, and start time.
 - [ ] Put all legal transitions on `CherryPickExecution` methods; do not let
   controllers, entities, or stores construct invalid combinations.
-- [ ] Enforce that only the cursor item can be `PENDING` with a current step.
+- [ ] Enforce that a current step exists only while the status is `RUNNING`.
+  Many items are `PENDING` at once, because one sequence covers the whole
+  remaining queue; the cursor is computed as the lowest-position `PENDING`
+  item and is never persisted.
 - [ ] Enforce that `APPLIED` has a target SHA and `EMPTY_SKIPPED` does not.
 - [ ] Enforce one-based, unique, increasing item positions and unique source
   SHAs.
@@ -188,8 +199,9 @@ is implemented.
 ### Tests
 
 - [ ] Test every legal aggregate transition.
-- [ ] Test rejected cursor jumps, reordered items, missing target SHA,
-  unexpected target SHA, and invalid status/step combinations.
+- [ ] Test the derived cursor over a partly applied plan, reordered items,
+  missing target SHA, unexpected target SHA, and invalid status/step
+  combinations.
 - [ ] Test JSON round-trip for a 300-item execution.
 - [ ] Test idempotent create, optimistic conflict, recent ordering, and running
   selection against a temporary SQLite database.
@@ -199,7 +211,7 @@ is implemented.
 - [ ] `mvn verify` passes.
 - [ ] No Git command or agent turn can run yet.
 - [ ] The persisted model contains only three statuses, three current steps,
-  and five item results.
+  and five item results, and no stored cursor.
 - [ ] Reviewer approves the aggregate invariants and SQLite shape.
 
 ---
@@ -213,8 +225,21 @@ worktree.
 
 - [ ] Add a concrete `CherryPickPreviewService`; do not add an interface for
   its single implementation.
-- [ ] Accept canonical worktree, source base ref, source tip ref, and target
-  ref.
+- [ ] Accept the repository clone, source remote, source base/tip refs, and
+  target remote and branch. ByteQuay derives the local target branch and the
+  work branch; the user names neither.
+- [ ] Reject a shallow clone before anything else
+  (`git rev-parse --is-shallow-repository`).
+- [ ] Fetch the source remote in full, then synchronize the local target branch
+  with `git fetch <targetRemote> <targetBranch>:<localTargetBranch>`.
+- [ ] Verify the sync by comparing `rev-parse` of the local target branch and
+  the remote-tracking ref, not by the fetch exit code: a rejected
+  non-fast-forward still advances the remote-tracking ref.
+- [ ] Refuse a diverged local target branch with an actionable diagnostic; never
+  force-update it.
+- [ ] Refuse when the local target branch is checked out anywhere, because Git
+  cannot fetch into a checked-out branch.
+- [ ] Make this the only step in the workflow that contacts the Git remote.
 - [ ] Validate input length and reject NUL/newline characters.
 - [ ] Pass refs as argv values, never through a shell.
 - [ ] Resolve every ref to a full commit object ID before returning a preview.
@@ -371,14 +396,18 @@ Goal: let the user understand and confirm the exact source SHAs to skip.
   cherry-pick endpoints and add the desktop session header.
 - [ ] Add the smallest necessary bridge methods in `preload.ts` and `Bridge`.
 - [ ] Add a native directory picker in Electron main for selecting the
-  worktree; return only the selected path to the renderer.
+  repository clone and the parent directory that will hold the generated
+  worktree; return only the selected paths to the renderer. The user never
+  selects or names the worktree itself.
 - [ ] Keep backend URLs and the session token out of renderer code.
 
 ### Preview screen
 
 - [ ] Add a `Cherry-pick` sidebar destination and one
   `CherryPickRangeScreen`.
-- [ ] Add worktree, source base, source tip, and target ref inputs.
+- [ ] Add repository, source remote, source base/tip, and target
+  remote/branch inputs. Show the generated work branch name once it exists;
+  never let the user type it.
 - [ ] Show resolved SHAs after preview so the user can verify the frozen
   boundaries.
 - [ ] Render PR groups in earliest-commit-position order.
@@ -439,10 +468,33 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 - [ ] Implement `CherryPickExecutionService` and its concrete default service.
 - [ ] Re-read the cached preview and reject an unknown or expired preview.
 - [ ] Validate every user-skipped SHA belongs to that preview and is eligible.
-- [ ] Re-resolve source base/tip and target refs and require the expected SHAs.
-- [ ] Require selected worktree HEAD to equal expected target SHA.
+- [ ] Re-resolve source base/tip and the local target branch and require the
+  expected SHAs.
+- [ ] Reject another live execution for the same repository and target branch.
+- [ ] Generate the work branch name `bump-{from}-{to}-{2 characters from
+  0-9a-zA-Z}` and retry with new characters when the branch or path exists.
+- [ ] Create branch and worktree in one command at the **frozen** target object
+  ID: `git worktree add -b <workBranch> <path> <frozenTargetSha>`.
+- [ ] Never check out the local target branch, so later synchronization stays
+  possible.
+- [ ] Lease the generated worktree through the existing agent workspace
+  service.
+- [ ] Require `git symbolic-ref --quiet HEAD` to name the work branch.
+  A detached HEAD passes a SHA check but keeps every created commit off the
+  branch, so reject it instead of finishing a range that moved nothing.
 - [ ] Require a clean index/worktree and no cherry-pick, merge, or rebase.
-- [ ] Reject another live execution or agent task for the canonical worktree.
+- [ ] Add the shared `GitSequencerDriver` beside `GitCommandRunner` in
+  `com.bytequay.app.git`, with `begin`, `observe`, `continueSequence`,
+  `skipEmpty`, and `abort`. Concrete and package-private; no interface.
+- [ ] Move the worktree-state check out of `CiGitOperations` into the driver
+  (`ls-files -u`, the `MERGE_HEAD`/`CHERRY_PICK_HEAD`/`rebase-merge`/
+  `rebase-apply`/`sequencer` markers, and `status --porcelain`) rather than
+  duplicating it a third time.
+- [ ] Return `SequenceState` as `COMPLETED`, `STOPPED_CONFLICT`,
+  `STOPPED_RESOLVED`, `STOPPED_EMPTY`, or `UNSAFE`, carrying observed HEAD,
+  stopped commit, remaining todo entries, and conflict paths/types.
+- [ ] Make every mutating driver call take the HEAD it expects to start from,
+  and refuse `begin` when an operation is already open.
 - [ ] Create the durable execution before the first cherry-pick.
 - [ ] Create one agent task with `CHERRY_PICK` permission while the worktree is
   still clean, even if the clean path may never use a turn.
@@ -462,23 +514,26 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 
 ### Concrete Git helper
 
-- [ ] Add package-private `CherryPickGit` using the shared Git command runner.
 - [ ] Validate canonical worktree, expected HEAD, clean state, exact source
   commit, and absence of another Git operation before mutation.
-- [ ] Detect an originally empty source by comparing its tree with its parent;
-  record `EMPTY_SKIPPED` without starting a cherry-pick.
-- [ ] Run exactly `git cherry-pick -x <full-source-sha>`.
-- [ ] On exit zero, inspect instead of trusting the exit code.
-- [ ] Classify `APPLIED_CANDIDATE` only when HEAD is one child of expected
-  HEAD, the exact `-x` line exists, no operation/unmerged entry remains, the
-  worktree is clean, and `git diff --check` passes.
-- [ ] Classify `CONFLICT` only when HEAD is unchanged,
-  `CHERRY_PICK_HEAD` equals the current source SHA, and unmerged or staged
-  resolution work exists.
-- [ ] Classify `EMPTY` only when HEAD is unchanged,
-  `CHERRY_PICK_HEAD` equals the current source SHA, there are no unmerged
-  entries, `git diff --cached --quiet HEAD` succeeds, and the worktree has no
-  tracked or untracked changes.
+- [ ] Begin one sequence with every `TO_CHERRY_PICK` source SHA in plan order:
+  `git cherry-pick -x <sha> <sha> ...`. Confirmed skips never enter the list.
+- [ ] Never trust the exit code; observe Git after every action.
+- [ ] Reconcile a batch: read every commit between the stored expected HEAD and
+  current HEAD oldest-first, require an exact `-x` line on each, require those
+  source SHAs to equal the still-pending plan items in order with no extras, and
+  record each `APPLIED` with its created target SHA.
+- [ ] Require a clean worktree and no leftover conflict marker over the whole
+  created range, using `git diff --check` with repository whitespace rules
+  disabled.
+- [ ] Classify `STOPPED_CONFLICT` only when `CHERRY_PICK_HEAD` names the stopped
+  commit and unmerged or staged resolution work exists.
+- [ ] Classify `STOPPED_EMPTY` only when HEAD is unchanged since the stop,
+  `CHERRY_PICK_HEAD` names the stopped commit, there are no unmerged entries,
+  `git diff --cached --quiet HEAD` succeeds, and the worktree has no tracked or
+  untracked changes. This covers both a source commit that was empty upstream
+  and one the target already contains: Git stops on them identically, so do not
+  add a tree comparison that bypasses the sequencer.
 - [ ] Treat every other combination as `UNSAFE`.
 
 ### Empty skip
@@ -489,13 +544,15 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 - [ ] Run `git cherry-pick --skip`.
 - [ ] Verify HEAD is unchanged, `CHERRY_PICK_HEAD` is absent, no Git operation
   remains, and the worktree is clean.
-- [ ] Only then record `EMPTY_SKIPPED` and advance the cursor.
+- [ ] Only then record `EMPTY_SKIPPED` and let the sequence resume.
 - [ ] Pause on a rejected or uncertain skip; never retry blindly.
 
-### Clean completion for one item
+### Clean completion
 
-- [ ] Record `APPLIED` with the inspected target SHA and advance the cursor in
-  one optimistic save.
+- [ ] Record every `APPLIED` item reconciled from one batch in a single
+  optimistic save; a batch may complete many items at once.
+- [ ] Derive the cursor as the lowest-position `PENDING` item; do not store a
+  second position beside Git's todo file.
 - [ ] Skip confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items without a
   Git command.
 - [ ] Preserve all original item positions and display metadata.
@@ -506,6 +563,10 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
   canonical design.
 - [ ] Test clean apply, direct plan skips, originally empty source, and
   target-redundant empty source in real temporary repositories.
+- [ ] Test a batch that records many `APPLIED` items in one advance, asserting
+  each recorded target SHA matches its `-x` line one for one.
+- [ ] Test a batch that stops on an empty commit mid-run and resumes to
+  completion after the guarded skip.
 - [ ] Test wrong HEAD, dirty worktree, missing `-x`, extra commit, wrong
   parent, abbreviated source, open unrelated operation, and duplicate monitor
   calls.
@@ -536,8 +597,9 @@ facts.
 - [ ] Include full source SHA, expected target parent, current step, conflict
   paths/types, exact validation argv, latest program diagnostic, and attempt
   number.
-- [ ] State that the agent may use `cherry-pick --continue` or
-  `commit --amend --no-edit` only as appropriate.
+- [ ] State that the agent stages resolutions and stops; the program runs
+  `git cherry-pick --continue`. Validation repair uses
+  `git commit --amend --no-edit`.
 - [ ] State that an empty result must be left open for the program.
 - [ ] Forbid skip, abort, fixup commit, next cherry-pick, rebase, push, `gh`,
   and GitHub writes.
@@ -589,7 +651,8 @@ facts.
   `git commit --amend --no-edit`.
 - [ ] After an amend, rerun the full stored validation plan.
 - [ ] After validation passes, inspect Git again and require the same target
-  SHA, expected parent, exact `-x` line, clean state, and `diff --check`.
+  SHA, expected parent, exact `-x` line, clean state, and the marker-only
+  `diff --check`.
 - [ ] Record `APPLIED` only after that final inspection.
 
 ### Tests
@@ -647,8 +710,12 @@ state and Git.
   or skip list.
 - [ ] Make cancellation idempotent.
 - [ ] Cancel an active agent turn when present.
-- [ ] Stop future monitor work without resetting, aborting, cleaning, deleting,
-  or pushing local work.
+- [ ] Stop future monitor work without resetting, aborting, or pushing.
+- [ ] Remove the generated work branch and worktree after recording the final
+  result. They are ByteQuay's own, not user work, and the local target branch
+  never received a cherry-pick so it needs no repair.
+- [ ] Abort any open cherry-pick before removing the worktree, and pause
+  instead of removing when the worktree cannot be verified as ByteQuay's own.
 - [ ] Record a clear pause/finish reason for every terminal path.
 
 ### Final accounting
@@ -672,7 +739,8 @@ state and Git.
 - [ ] Test restart before and after `cherry-pick --continue`.
 - [ ] Test restart before and after empty skip.
 - [ ] Test restart before and after validation.
-- [ ] Test restart after result save but before cursor advancement.
+- [ ] Test restart after a batch result save but before the next sequencer
+  action.
 - [ ] Test paused recovery message idempotency and scope rejection.
 - [ ] Test cancellation with no turn, active turn, terminal turn, conflict,
   and uncertain Git state.
@@ -700,8 +768,10 @@ Goal: show durable progress and allow only safe user actions.
 - [ ] Poll the execution endpoint while status is `RUNNING`; do not create a
   second backend event system.
 - [ ] Stop polling when the component unmounts or execution is terminal.
-- [ ] Show overall status, cursor, current step, source position, source SHA,
-  title, PR, and latest bounded diagnostic.
+- [ ] Show overall status, current step, the current position derived from the
+  first `PENDING` item, source SHA, title, PR, and latest bounded diagnostic.
+- [ ] Expect several items to complete between polls, because one sequencer
+  action can apply many commits.
 - [ ] Render each item’s durable result.
 - [ ] Show target SHA only for `APPLIED`.
 - [ ] Explain `EMPTY_SKIPPED` as “No changes remained on the target.”
@@ -742,7 +812,70 @@ Goal: show durable progress and allow only safe user actions.
 
 ---
 
-## Checkpoint 9 — End-to-end acceptance and cleanup
+## Checkpoint 9 — Branch rebase service
+
+Goal: land a completed range on a target branch that moved, with the program
+owning the rebase instead of trusting an agent to have done it.
+
+Canonical behavior is defined in [Branch Rebase Service](rebase-service.md).
+
+### Shared helper
+
+- [ ] Reuse `GitSequencerDriver` from checkpoint 5 unchanged; add no
+  rebase-specific copy of begin/observe/continue/skip/abort.
+- [ ] Do not share the plan layer. Cherry-pick owns a user-confirmed plan with
+  durable per-item results; this service owns no plan, because nobody chose the
+  commit list.
+
+### Service
+
+- [ ] Add `BranchRebaseService` and its concrete default implementation in
+  `com.bytequay.app.rebase`.
+- [ ] Store `originalWorkTip` and `baseSha` before the first mutation.
+- [ ] Finish immediately when the work branch already descends from the base,
+  without starting a rebase.
+- [ ] Begin the sequence through the driver with `--no-autosquash` so `fixup!`
+  subjects are never silently squashed.
+- [ ] Do not maintain a second per-commit result list; Git's sequencer is the
+  plan.
+- [ ] Accept a clean result only when no operation remains, the worktree is
+  clean, and the new tip descends from `baseSha`.
+- [ ] Record the conflicted commit from `git rebase --show-current-patch`.
+- [ ] Let the agent stage resolutions only; the program calls
+  `continueSequence(...)`, the same division cherry-pick uses.
+- [ ] Skip a commit that became empty without another agent turn.
+- [ ] Limit automatic turns to three per conflicted commit.
+- [ ] Validate once against the final tree, not once per replayed commit.
+- [ ] Abort and verify restoration to `originalWorkTip` on cancellation; pause
+  when restoration cannot be verified.
+- [ ] Report `originalWorkTip` in every terminal state.
+
+### Landing flow
+
+- [ ] Make landing a user-started step; never rebase automatically when
+  execution finishes.
+- [ ] Synchronize the local target branch again before rebasing.
+- [ ] Leave push and pull-request creation to the user.
+
+### Tests
+
+- [ ] Test up-to-date branch, clean rebase, conflicted rebase, empty commit,
+  retry exhaustion, cancellation restoring the original tip, and restart
+  mid-rebase.
+- [ ] Test that a `fixup!` subject survives unsquashed.
+- [ ] Assert no path fetches, pushes, or writes to GitHub.
+
+### Checkpoint 9 gate
+
+- [ ] `mvn verify` passes.
+- [ ] A moved target branch is landed without an agent deciding the outcome.
+- [ ] Cancellation provably restores the original branch tip.
+- [ ] CI Autofix is unchanged; its migration is a later, separate change.
+- [ ] Reviewer approves the rebase boundaries and cancellation behavior.
+
+---
+
+## Checkpoint 10 — End-to-end acceptance and cleanup
 
 Goal: prove the complete flow and remove temporary implementation scaffolding.
 
@@ -761,13 +894,21 @@ Goal: prove the complete flow and remove temporary implementation scaffolding.
 - [ ] Automatically skip a conflict resolution that becomes empty.
 - [ ] Pause and recover one interrupted agent turn.
 - [ ] Restart the backend during an open execution and finish correctly.
-- [ ] Cancel an execution without altering the worktree.
+- [ ] Cancel an execution and confirm the generated branch and worktree are
+  removed while the local target branch and every other worktree are untouched.
 - [ ] Finish with exact accounting and human-readable range-diff.
+- [ ] Synchronize a target branch that moved during execution, rebase the work
+  branch onto it, and resolve one rebase conflict.
+- [ ] Confirm the whole journey contacts the Git remote only when
+  synchronizing, and reads GitHub only for pull-request association.
 
 ### Security and boundary audit
 
-- [ ] Record every Git command used by the end-to-end harness and confirm no
-  `push`, remote update, reset, or automatic abort occurs.
+- [ ] Record every Git command used by the end-to-end harness and confirm the
+  only remote contact is the target-branch synchronization, and that no
+  `push` or reset of user work occurs. A `rebase --abort` on cancellation
+  and a `cherry-pick --skip` on a proven-empty commit are the only
+  permitted undo operations, both on ByteQuay's own branch.
 - [ ] Record every GitHub test-client call and confirm all are reads.
 - [ ] Confirm prompts and diagnostics do not expose credentials or the desktop
   session token.
@@ -809,6 +950,8 @@ These items are not part of the first implementation:
   conflict.
 - [ ] Generic build-system plugins beyond the checked-in Maven wrapper path.
 - [ ] Remote push, pull-request creation, comments, approvals, merges, or CI
-  reruns.
+  reruns. The rebase that precedes them is in checkpoint 9; only the remote
+  write stays out.
+- [ ] Migrating CI Autofix onto the branch rebase service.
 - [ ] Multiple simultaneous executions in one worktree.
 - [ ] A generic workflow engine or a second agent event model.

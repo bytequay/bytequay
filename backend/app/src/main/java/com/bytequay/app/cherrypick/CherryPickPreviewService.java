@@ -19,6 +19,9 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.base.Ticker;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +44,7 @@ import java.util.regex.Pattern;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 /**
  * Builds one ordered, read-only preview of a source range.
@@ -67,7 +71,7 @@ public class CherryPickPreviewService
     private final CherryPickConflictScout conflictScout;
     private final CherryPickPullRequestLookup pullRequests;
     private final Clock clock;
-    private final Map<String, CherryPickPreview> cache = new LinkedHashMap<>();
+    private final Cache<String, CherryPickPreview> cache;
 
     public CherryPickPreviewService(
             GitCommandRunner git,
@@ -79,6 +83,20 @@ public class CherryPickPreviewService
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.clock = requireNonNull(clock, "clock is null");
+        // One time source drives both the stored expiry and the cache's own, so
+        // a preview cannot read as live in one and expired in the other.
+        this.cache = CacheBuilder.newBuilder()
+                .maximumSize(MAX_CACHED_PREVIEWS)
+                .expireAfterWrite(PREVIEW_LIFETIME)
+                .ticker(new Ticker()
+                {
+                    @Override
+                    public long read()
+                    {
+                        return MILLISECONDS.toNanos(clock.millis());
+                    }
+                })
+                .build();
     }
 
     /**
@@ -166,7 +184,7 @@ public class CherryPickPreviewService
                 ImmutableList.copyOf(warnings),
                 now,
                 now.plus(PREVIEW_LIFETIME));
-        store(preview);
+        cache.put(preview.previewId(), preview);
         return preview;
     }
 
@@ -179,11 +197,7 @@ public class CherryPickPreviewService
     public Optional<CherryPickPreview> find(String previewId)
     {
         requireNonNull(previewId, "previewId is null");
-        Instant now = clock.instant();
-        synchronized (cache) {
-            cache.values().removeIf(preview -> !preview.expiresAt().isAfter(now));
-            return Optional.ofNullable(cache.get(previewId));
-        }
+        return Optional.ofNullable(cache.getIfPresent(previewId));
     }
 
     private static Optional<TargetMatch> evidence(
@@ -196,18 +210,6 @@ public class CherryPickPreviewService
         }
         return Optional.ofNullable(originLines.get(sourceSha))
                 .map(targetCommit -> new TargetMatch(TargetMatch.Kind.CHERRY_PICK_ORIGIN, targetCommit));
-    }
-
-    private void store(CherryPickPreview preview)
-    {
-        Instant now = clock.instant();
-        synchronized (cache) {
-            cache.values().removeIf(cached -> !cached.expiresAt().isAfter(now));
-            while (cache.size() >= MAX_CACHED_PREVIEWS) {
-                cache.remove(cache.keySet().iterator().next());
-            }
-            cache.put(preview.previewId(), preview);
-        }
     }
 
     private void requireRepository(Path repository)

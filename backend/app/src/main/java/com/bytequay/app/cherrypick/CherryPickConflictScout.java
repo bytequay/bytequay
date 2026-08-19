@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -146,7 +147,7 @@ class CherryPickConflictScout
         }
         Map<String, Set<Integer>> stagesByPath = new LinkedHashMap<>();
         Map<String, String> modeByPath = new LinkedHashMap<>();
-        for (String line : unmerged.output().lines().toList()) {
+        for (String line : unmerged.output().lines().collect(toImmutableList())) {
             // "<mode> <object> <stage>\t<path>"
             int tab = line.indexOf('\t');
             if (tab < 0) {

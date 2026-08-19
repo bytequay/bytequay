@@ -17,6 +17,9 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +39,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Supplier;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -55,14 +59,10 @@ class CherryPickPullRequestLookup
 
     private final RestClient gitHub;
     private final Supplier<String> tokenSupplier;
-    private final Map<String, Optional<PullRequestAssociation>> cache =
-            new LinkedHashMap<>() {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Optional<PullRequestAssociation>> eldest)
-                {
-                    return size() > MAX_CACHED;
-                }
-            };
+    /** Read from eight threads at once, so it has to be thread-safe on its own. */
+    private final Cache<String, Optional<PullRequestAssociation>> cache = CacheBuilder.newBuilder()
+            .maximumSize(MAX_CACHED)
+            .build();
 
     @Autowired
     CherryPickPullRequestLookup(RestClient gitHubRestClient, CredentialService credentials)
@@ -149,16 +149,12 @@ class CherryPickPullRequestLookup
             String token)
     {
         String key = repository.fullName() + "@" + sha;
-        synchronized (cache) {
-            Optional<PullRequestAssociation> cached = cache.get(key);
-            if (cached != null) {
-                return cached;
-            }
+        Optional<PullRequestAssociation> cached = cache.getIfPresent(key);
+        if (cached != null) {
+            return cached;
         }
         Optional<PullRequestAssociation> association = choose(fetch(repository, sha, token), sourceBranch);
-        synchronized (cache) {
-            cache.put(key, association);
-        }
+        cache.put(key, association);
         return association;
     }
 
@@ -171,7 +167,7 @@ class CherryPickPullRequestLookup
                 .header("Authorization", "Bearer " + token)
                 .retrieve()
                 .body(AssociatedPullRequest[].class);
-        return response == null ? List.of() : List.of(response);
+        return response == null ? ImmutableList.of() : ImmutableList.copyOf(response);
     }
 
     /**
@@ -186,11 +182,11 @@ class CherryPickPullRequestLookup
     {
         List<AssociatedPullRequest> merged = candidates.stream()
                 .filter(candidate -> candidate.mergedAt() != null && candidate.base() != null)
-                .toList();
+                .collect(toImmutableList());
         if (merged.size() > 1) {
             List<AssociatedPullRequest> onSourceBranch = merged.stream()
                     .filter(candidate -> sourceBranch.equals(candidate.base().ref()))
-                    .toList();
+                    .collect(toImmutableList());
             merged = onSourceBranch.size() == 1 ? onSourceBranch : merged;
         }
         if (merged.size() != 1) {

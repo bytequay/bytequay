@@ -70,7 +70,7 @@ class TestCherryPickPreviewService
                 GIT,
                 new CherryPickConflictScout(GIT),
                 new CherryPickPullRequestLookup(
-                        org.springframework.web.client.RestClient.create(),
+                        TestCherryPickPullRequestLookup.offlineClient(),
                         () -> {
                             throw new IllegalStateException("preview tests use no GitHub credential");
                         }),

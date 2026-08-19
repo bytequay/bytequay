@@ -135,7 +135,7 @@ class TestCherryPickPullRequestLookup
     void warnsInsteadOfFailingWhenNoCredentialExists()
     {
         CherryPickPullRequestLookup lookup = new CherryPickPullRequestLookup(
-                RestClient.builder().baseUrl("https://api.github.com").build(),
+                offlineClient(),
                 () -> {
                     throw new IllegalStateException("no GitHub token configured");
                 });
@@ -164,6 +164,23 @@ class TestCherryPickPullRequestLookup
         assertThat(lookup.lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings).get(SHA).number())
                 .isEqualTo(5);
         server.verify();
+    }
+
+    /**
+     * A client that cannot reach anything.
+     *
+     * <p>The lookup must return before it asks for a token it does not have, so
+     * this fails the test loudly rather than letting a regression quietly send
+     * a request to github.com.
+     */
+    static RestClient offlineClient()
+    {
+        return RestClient.builder()
+                .baseUrl("https://api.github.com")
+                .requestFactory((uri, httpMethod) -> {
+                    throw new AssertionError("this test must not make an HTTP request: " + httpMethod + " " + uri);
+                })
+                .build();
     }
 
     private static CherryPickPullRequestLookup lookup(RestClient.Builder builder)

@@ -20,13 +20,16 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static com.bytequay.core.ci.CiAutofixChecks.checkOptionalText;
 import static com.bytequay.core.ci.CiAutofixChecks.checkSha;
 import static com.bytequay.core.ci.CiAutofixChecks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Complete durable projection of one consented CI Autofix run. */
@@ -72,8 +75,7 @@ public record CiAutofixRun(
         checkSha(expectedRemoteHead, "expectedRemoteHead");
         checkSha(latestObservedBaseSha, "latestObservedBaseSha");
         requireNonNull(authorization, "authorization is null");
-        checkArgument(attemptsUsed >= 0 && attemptsUsed <= authorization.maxFixAttempts(),
-                "attemptsUsed exceeds authorization");
+        checkArgument(attemptsUsed >= 0 && attemptsUsed <= authorization.maxFixAttempts(), "attemptsUsed exceeds authorization");
         requireNonNull(rerunCounter, "rerunCounter is null");
         requireNonNull(finalFixupCheck, "finalFixupCheck is null");
         checkOptionalText(currentTurnId, "currentTurnId", 128);
@@ -141,25 +143,8 @@ public record CiAutofixRun(
     {
         requireMutable(now);
         checkText(taskId, "taskId", 128);
-        if (agentTaskId.isPresent() && !agentTaskId.orElseThrow().equals(taskId)) {
-            throw new IllegalStateException("run already owns another agent task");
-        }
-        return copy(
-                Optional.of(taskId),
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        checkState(agentTaskId.isEmpty() || agentTaskId.orElseThrow().equals(taskId), "run already owns another agent task");
+        return edit(now, run -> run.agentTaskId = Optional.of(taskId));
     }
 
     public CiAutofixRun addAttempt(CiAutofixAttempt attempt, Instant now)
@@ -167,84 +152,35 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(attempt, "attempt is null");
         checkArgument(attempt.runId().equals(id), "attempt belongs to another run");
-        if (attempts.size() >= authorization.maxFixAttempts()) {
-            throw new IllegalStateException("fix attempt limit is exhausted");
-        }
+        checkState(attempts.size() < authorization.maxFixAttempts(), "fix attempt limit is exhausted");
         int expectedNumber = attempts.size() + 1;
         checkArgument(attempt.number() == expectedNumber, "attempt number must be " + expectedNumber);
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                ImmutableList.<CiAutofixAttempt>builder().addAll(attempts).add(attempt).build(),
-                now,
-                terminalAt);
+        return edit(now, run -> run.attempts = ImmutableList.<CiAutofixAttempt>builder().addAll(attempts).add(attempt).build());
     }
 
     public CiAutofixRun linkAttemptTurn(CiAutofixAttemptId attemptId, String turnId, Instant now)
     {
         requireActive(now);
         checkText(turnId, "turnId", 128);
-        if (currentTurnId.isPresent() && !currentTurnId.orElseThrow().equals(turnId)) {
-            throw new IllegalStateException("run already owns another current turn");
-        }
+        checkState(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "run already owns another current turn");
         CiAutofixAttempt attempt = requireAttempt(attempts, attemptId);
         boolean alreadyLinked = attempt.agentTurnId().isPresent();
         CiAutofixAttempt updatedAttempt = attempt.withAgentTurn(turnId, now);
         int updatedAttemptsUsed = alreadyLinked ? attemptsUsed : attemptsUsed + 1;
-        if (updatedAttemptsUsed > authorization.maxFixAttempts()) {
-            throw new IllegalStateException("fix attempt limit is exhausted");
-        }
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                updatedAttemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.of(turnId),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                replaceAttempt(attempts, updatedAttempt),
-                now,
-                terminalAt);
+        checkState(updatedAttemptsUsed <= authorization.maxFixAttempts(), "fix attempt limit is exhausted");
+        return edit(now, run -> {
+            run.attemptsUsed = updatedAttemptsUsed;
+            run.currentTurnId = Optional.of(turnId);
+            run.attempts = replaceAttempt(attempts, updatedAttempt);
+        });
     }
 
     public CiAutofixRun linkUserTurn(String turnId, Instant now)
     {
         requireActive(now);
         checkText(turnId, "turnId", 128);
-        if (currentTurnId.isPresent() && !currentTurnId.orElseThrow().equals(turnId)) {
-            throw new IllegalStateException("run already owns another current turn");
-        }
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.of(turnId),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        checkState(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "run already owns another current turn");
+        return edit(now, run -> run.currentTurnId = Optional.of(turnId));
     }
 
     public CiAutofixRun updateAttempt(CiAutofixAttempt attempt, Instant now)
@@ -252,48 +188,16 @@ public record CiAutofixRun(
         requireMutable(now);
         requireNonNull(attempt, "attempt is null");
         CiAutofixAttempt current = requireAttempt(attempts, attempt.id());
-        checkArgument(attempt.runId().equals(id) && attempt.number() == current.number(),
-                "attempt identity changed");
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                replaceAttempt(attempts, attempt),
-                now,
-                terminalAt);
+        checkArgument(attempt.runId().equals(id) && attempt.number() == current.number(), "attempt identity changed");
+        return edit(now, run -> run.attempts = replaceAttempt(attempts, attempt));
     }
 
     public CiAutofixRun clearCurrentTurn(String turnId, Instant now)
     {
         requireMutable(now);
         checkText(turnId, "turnId", 128);
-        checkArgument(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId),
-                "turnId is not the current turn");
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.empty(),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        checkArgument(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "turnId is not the current turn");
+        return edit(now, run -> run.currentTurnId = Optional.empty());
     }
 
     public CiAutofixRun recordPushJournal(PushJournal journal, Instant now)
@@ -301,24 +205,8 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(journal, "journal is null");
         requireAttempt(attempts, journal.attemptId());
-        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead),
-                "push journal expected SHA differs from expected remote head");
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                Optional.of(journal),
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead), "push journal expected SHA differs from expected remote head");
+        return edit(now, run -> run.pushJournal = Optional.of(journal));
     }
 
     public CiAutofixRun recordRerunJournal(RerunJournal journal, Instant now)
@@ -326,67 +214,23 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(journal, "journal is null");
         requireAttempt(attempts, journal.attemptId());
-        checkArgument(journal.headSha().equals(expectedRemoteHead),
-                "rerun journal head differs from expected remote head");
-        RerunCounter updatedCounter = rerunCounter.record(journal.headSha());
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                updatedCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                Optional.of(journal),
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        checkArgument(journal.headSha().equals(expectedRemoteHead), "rerun journal head differs from expected remote head");
+        return edit(now, run -> {
+            run.rerunCounter = rerunCounter.record(journal.headSha());
+            run.rerunJournal = Optional.of(journal);
+        });
     }
 
     public CiAutofixRun clearPushJournal(Instant now)
     {
         requireActive(now);
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                Optional.empty(),
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        return edit(now, run -> run.pushJournal = Optional.empty());
     }
 
     public CiAutofixRun clearRerunJournal(Instant now)
     {
         requireActive(now);
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                Optional.empty(),
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        return edit(now, run -> run.rerunJournal = Optional.empty());
     }
 
     public CiAutofixRun observeBase(String headSha, String baseSha, Instant now)
@@ -395,24 +239,7 @@ public record CiAutofixRun(
         checkSha(headSha, "headSha");
         checkSha(baseSha, "baseSha");
         checkArgument(headSha.equals(expectedRemoteHead), "observed head differs from expected remote head");
-        return copyWithRemote(
-                expectedRemoteHead,
-                baseSha,
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        return edit(now, run -> run.latestObservedBaseSha = baseSha);
     }
 
     public CiAutofixRun recordPublishedAttempt(String pushedSha, Instant pushedAt, Instant now)
@@ -421,31 +248,19 @@ public record CiAutofixRun(
         checkSha(pushedSha, "pushedSha");
         requireNonNull(pushedAt, "pushedAt is null");
         PushJournal journal = pushJournal.orElseThrow(() -> new IllegalStateException("run has no push journal"));
-        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead),
-                "push journal expected SHA differs from the run");
+        checkArgument(journal.expectedRemoteSha().equals(expectedRemoteHead), "push journal expected SHA differs from the run");
         checkArgument(journal.localHeadSha().equals(pushedSha), "pushed SHA differs from the push journal");
         CiAutofixAttempt attempt = requireAttempt(attempts, journal.attemptId());
         CiAutofixAttempt published = attempt
                 .withPushResult(journal.expectedRemoteSha(), pushedSha, pushedAt, now)
                 .withCiResult(CiAutofixAttempt.CiResult.PENDING, now);
-        return copyWithRemote(
-                pushedSha,
-                latestObservedBaseSha,
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                RerunCounter.empty(),
-                Optional.empty(),
-                currentTurnId,
-                Optional.empty(),
-                rerunJournal,
-                warnings,
-                replaceAttempt(attempts, published),
-                now,
-                terminalAt);
+        return edit(now, run -> {
+            run.expectedRemoteHead = pushedSha;
+            run.rerunCounter = RerunCounter.empty();
+            run.finalFixupCheck = Optional.empty();
+            run.pushJournal = Optional.empty();
+            run.attempts = replaceAttempt(attempts, published);
+        });
     }
 
     public CiAutofixRun observeCiResult(
@@ -458,32 +273,17 @@ public record CiAutofixRun(
         requireNonNull(result, "result is null");
         checkSha(baseSha, "baseSha");
         CiAutofixAttempt attempt = requireAttempt(attempts, attemptId);
-        return copyWithRemote(
-                expectedRemoteHead,
-                baseSha,
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                replaceAttempt(attempts, attempt.withCiResult(result, now)),
-                now,
-                terminalAt);
+        return edit(now, run -> {
+            run.latestObservedBaseSha = baseSha;
+            run.attempts = replaceAttempt(attempts, attempt.withCiResult(result, now));
+        });
     }
 
     public CiAutofixRun observeRerunAttempt(int observedAttempt, Instant now)
     {
         requireActive(now);
         RerunJournal journal = rerunJournal.orElseThrow(() -> new IllegalStateException("run has no rerun journal"));
-        checkArgument(observedAttempt > journal.previousAttempt(),
-                "observed rerun attempt must be later than the previous attempt");
+        checkArgument(observedAttempt > journal.previousAttempt(), "observed rerun attempt must be later than the previous attempt");
         RerunJournal observed = new RerunJournal(
                 journal.attemptId(),
                 journal.workflowRunId(),
@@ -491,22 +291,7 @@ public record CiAutofixRun(
                 journal.previousAttempt(),
                 journal.startedAt(),
                 Optional.of(observedAttempt));
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                Optional.of(observed),
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        return edit(now, run -> run.rerunJournal = Optional.of(observed));
     }
 
     public CiAutofixRun resolveRerun(CiAutofixAttempt.CiResult result, String baseSha, Instant now)
@@ -517,71 +302,26 @@ public record CiAutofixRun(
         RerunJournal journal = rerunJournal.orElseThrow(() -> new IllegalStateException("run has no rerun journal"));
         checkArgument(journal.observedAttempt().isPresent(), "rerun has not been observed");
         CiAutofixAttempt attempt = requireAttempt(attempts, journal.attemptId());
-        return copyWithRemote(
-                expectedRemoteHead,
-                baseSha,
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                Optional.empty(),
-                warnings,
-                replaceAttempt(attempts, attempt.withCiResult(result, now)),
-                now,
-                terminalAt);
+        return edit(now, run -> {
+            run.latestObservedBaseSha = baseSha;
+            run.rerunJournal = Optional.empty();
+            run.attempts = replaceAttempt(attempts, attempt.withCiResult(result, now));
+        });
     }
 
     public CiAutofixRun withFinalFixupCheck(FinalFixupCheck check, Instant now)
     {
         requireActive(now);
         requireNonNull(check, "check is null");
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                Optional.of(check),
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                terminalAt);
+        return edit(now, run -> run.finalFixupCheck = Optional.of(check));
     }
 
     public CiAutofixRun addWarning(Warning warning, Instant now)
     {
         requireMutable(now);
         requireNonNull(warning, "warning is null");
-        if (warnings.size() >= MAX_WARNINGS) {
-            throw new IllegalStateException("warning limit is exhausted");
-        }
-        return copy(
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                ImmutableList.<Warning>builder().addAll(warnings).add(warning).build(),
-                attempts,
-                now,
-                terminalAt);
+        checkState(warnings.size() < MAX_WARNINGS, "warning limit is exhausted");
+        return edit(now, run -> run.warnings = ImmutableList.<Warning>builder().addAll(warnings).add(warning).build());
     }
 
     public CiAutofixRun pause(PauseReason reason, String pausedSummary, Instant now)
@@ -589,46 +329,28 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(reason, "reason is null");
         checkText(pausedSummary, "pausedSummary", 8 * 1024);
-        return copy(
-                agentTaskId,
-                Status.PAUSED,
-                Optional.of(reason),
-                Optional.empty(),
-                Optional.of(pausedSummary),
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.empty(),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                Optional.empty());
+        return edit(now, run -> {
+            run.status = Status.PAUSED;
+            run.pauseReason = Optional.of(reason);
+            run.finishReason = Optional.empty();
+            run.summary = Optional.of(pausedSummary);
+            run.currentTurnId = Optional.empty();
+            run.terminalAt = Optional.empty();
+        });
     }
 
     public CiAutofixRun resume(Instant now)
     {
         requireMutable(now);
-        if (status != Status.PAUSED) {
-            throw new IllegalStateException("only a paused run can resume");
-        }
-        return copy(
-                agentTaskId,
-                Status.ACTIVE,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.empty(),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                Optional.empty());
+        checkState(status == Status.PAUSED, "only a paused run can resume");
+        return edit(now, run -> {
+            run.status = Status.ACTIVE;
+            run.pauseReason = Optional.empty();
+            run.finishReason = Optional.empty();
+            run.summary = Optional.empty();
+            run.currentTurnId = Optional.empty();
+            run.terminalAt = Optional.empty();
+        });
     }
 
     public CiAutofixRun finish(FinishReason reason, String finalSummary, Instant now)
@@ -636,149 +358,130 @@ public record CiAutofixRun(
         requireMutable(now);
         requireNonNull(reason, "reason is null");
         checkText(finalSummary, "finalSummary", 8 * 1024);
-        return copy(
-                agentTaskId,
-                Status.FINISHED,
-                Optional.empty(),
-                Optional.of(reason),
-                Optional.of(finalSummary),
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                Optional.empty(),
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                now,
-                Optional.of(now));
+        return edit(now, run -> {
+            run.status = Status.FINISHED;
+            run.pauseReason = Optional.empty();
+            run.finishReason = Optional.of(reason);
+            run.summary = Optional.of(finalSummary);
+            run.currentTurnId = Optional.empty();
+            run.terminalAt = Optional.of(now);
+        });
     }
 
     public CiAutofixRun withVersion(long updatedVersion)
     {
-        return new CiAutofixRun(
-                id,
-                startIdempotencyKey,
-                scope,
-                agentTaskId,
-                status,
-                pauseReason,
-                finishReason,
-                summary,
-                expectedRemoteHead,
-                latestObservedBaseSha,
-                authorization,
-                attemptsUsed,
-                rerunCounter,
-                finalFixupCheck,
-                currentTurnId,
-                pushJournal,
-                rerunJournal,
-                warnings,
-                attempts,
-                updatedVersion,
-                createdAt,
-                updatedAt,
-                terminalAt);
+        Draft draft = new Draft(this);
+        draft.version = updatedVersion;
+        return draft.build();
     }
 
-    private CiAutofixRun copy(
-            Optional<String> updatedAgentTaskId,
-            Status updatedStatus,
-            Optional<PauseReason> updatedPauseReason,
-            Optional<FinishReason> updatedFinishReason,
-            Optional<String> updatedSummary,
-            int updatedAttemptsUsed,
-            RerunCounter updatedRerunCounter,
-            Optional<FinalFixupCheck> updatedFinalCheck,
-            Optional<String> updatedCurrentTurnId,
-            Optional<PushJournal> updatedPushJournal,
-            Optional<RerunJournal> updatedRerunJournal,
-            List<Warning> updatedWarnings,
-            List<CiAutofixAttempt> updatedAttempts,
-            Instant now,
-            Optional<Instant> updatedTerminalAt)
+    /**
+     * Applies {@code edits} to a mutable copy of this run and stamps it with
+     * {@code now}. Every transition above is "this run, with these few fields
+     * different", so only the fields that actually change are named.
+     */
+    private CiAutofixRun edit(Instant now, Consumer<Draft> edits)
     {
-        return copyWithRemote(
-                expectedRemoteHead,
-                latestObservedBaseSha,
-                updatedAgentTaskId,
-                updatedStatus,
-                updatedPauseReason,
-                updatedFinishReason,
-                updatedSummary,
-                updatedAttemptsUsed,
-                updatedRerunCounter,
-                updatedFinalCheck,
-                updatedCurrentTurnId,
-                updatedPushJournal,
-                updatedRerunJournal,
-                updatedWarnings,
-                updatedAttempts,
-                now,
-                updatedTerminalAt);
+        Draft draft = new Draft(this);
+        draft.updatedAt = now;
+        edits.accept(draft);
+        return draft.build();
     }
 
-    private CiAutofixRun copyWithRemote(
-            String updatedExpectedRemoteHead,
-            String updatedLatestObservedBaseSha,
-            Optional<String> updatedAgentTaskId,
-            Status updatedStatus,
-            Optional<PauseReason> updatedPauseReason,
-            Optional<FinishReason> updatedFinishReason,
-            Optional<String> updatedSummary,
-            int updatedAttemptsUsed,
-            RerunCounter updatedRerunCounter,
-            Optional<FinalFixupCheck> updatedFinalCheck,
-            Optional<String> updatedCurrentTurnId,
-            Optional<PushJournal> updatedPushJournal,
-            Optional<RerunJournal> updatedRerunJournal,
-            List<Warning> updatedWarnings,
-            List<CiAutofixAttempt> updatedAttempts,
-            Instant now,
-            Optional<Instant> updatedTerminalAt)
+    /** Mutable scratch copy of every component, used only by {@link #edit}. */
+    private static final class Draft
     {
-        return new CiAutofixRun(
-                id,
-                startIdempotencyKey,
-                scope,
-                updatedAgentTaskId,
-                updatedStatus,
-                updatedPauseReason,
-                updatedFinishReason,
-                updatedSummary,
-                updatedExpectedRemoteHead,
-                updatedLatestObservedBaseSha,
-                authorization,
-                updatedAttemptsUsed,
-                updatedRerunCounter,
-                updatedFinalCheck,
-                updatedCurrentTurnId,
-                updatedPushJournal,
-                updatedRerunJournal,
-                updatedWarnings,
-                updatedAttempts,
-                version,
-                createdAt,
-                now,
-                updatedTerminalAt);
-    }
+        private final CiAutofixRunId id;
+        private final String startIdempotencyKey;
+        private final Scope scope;
+        private final Authorization authorization;
+        private final Instant createdAt;
 
+        private Optional<String> agentTaskId;
+        private Status status;
+        private Optional<PauseReason> pauseReason;
+        private Optional<FinishReason> finishReason;
+        private Optional<String> summary;
+        private String expectedRemoteHead;
+        private String latestObservedBaseSha;
+        private int attemptsUsed;
+        private RerunCounter rerunCounter;
+        private Optional<FinalFixupCheck> finalFixupCheck;
+        private Optional<String> currentTurnId;
+        private Optional<PushJournal> pushJournal;
+        private Optional<RerunJournal> rerunJournal;
+        private List<Warning> warnings;
+        private List<CiAutofixAttempt> attempts;
+        private long version;
+        private Instant updatedAt;
+        private Optional<Instant> terminalAt;
+
+        private Draft(CiAutofixRun run)
+        {
+            this.id = run.id;
+            this.startIdempotencyKey = run.startIdempotencyKey;
+            this.scope = run.scope;
+            this.authorization = run.authorization;
+            this.createdAt = run.createdAt;
+            this.agentTaskId = run.agentTaskId;
+            this.status = run.status;
+            this.pauseReason = run.pauseReason;
+            this.finishReason = run.finishReason;
+            this.summary = run.summary;
+            this.expectedRemoteHead = run.expectedRemoteHead;
+            this.latestObservedBaseSha = run.latestObservedBaseSha;
+            this.attemptsUsed = run.attemptsUsed;
+            this.rerunCounter = run.rerunCounter;
+            this.finalFixupCheck = run.finalFixupCheck;
+            this.currentTurnId = run.currentTurnId;
+            this.pushJournal = run.pushJournal;
+            this.rerunJournal = run.rerunJournal;
+            this.warnings = run.warnings;
+            this.attempts = run.attempts;
+            this.version = run.version;
+            this.updatedAt = run.updatedAt;
+            this.terminalAt = run.terminalAt;
+        }
+
+        private CiAutofixRun build()
+        {
+            return new CiAutofixRun(
+                    id,
+                    startIdempotencyKey,
+                    scope,
+                    agentTaskId,
+                    status,
+                    pauseReason,
+                    finishReason,
+                    summary,
+                    expectedRemoteHead,
+                    latestObservedBaseSha,
+                    authorization,
+                    attemptsUsed,
+                    rerunCounter,
+                    finalFixupCheck,
+                    currentTurnId,
+                    pushJournal,
+                    rerunJournal,
+                    warnings,
+                    attempts,
+                    version,
+                    createdAt,
+                    updatedAt,
+                    terminalAt);
+        }
+    }
     private void requireMutable(Instant now)
     {
         requireNonNull(now, "now is null");
-        if (status == Status.FINISHED) {
-            throw new IllegalStateException("run is finished");
-        }
+        checkState(status != Status.FINISHED, "run is finished");
         checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
     }
 
     private void requireActive(Instant now)
     {
         requireMutable(now);
-        if (status != Status.ACTIVE) {
-            throw new IllegalStateException("run is not active");
-        }
+        checkState(status == Status.ACTIVE, "run is not active");
     }
 
     private static void validateAttempts(
@@ -793,8 +496,7 @@ public record CiAutofixRun(
         for (int index = 0; index < attempts.size(); index++) {
             CiAutofixAttempt attempt = requireNonNull(attempts.get(index), "attempt is null");
             checkArgument(attempt.runId().equals(runId), "attempt belongs to another run");
-            checkArgument(attempt.number() == index + 1 && ids.add(attempt.id()),
-                    "attempts are not uniquely and consecutively ordered");
+            checkArgument(attempt.number() == index + 1 && ids.add(attempt.id()), "attempts are not uniquely and consecutively ordered");
             if (attempt.agentTurnId().isPresent()) {
                 linkedTurns++;
             }
@@ -904,7 +606,7 @@ public record CiAutofixRun(
 
         public String activeBranchSlot()
         {
-            return pullRequest.repoFullName().toLowerCase(java.util.Locale.ROOT) + ":" + headRef;
+            return pullRequest.repoFullName().toLowerCase(Locale.ROOT) + ":" + headRef;
         }
     }
 
@@ -918,8 +620,7 @@ public record CiAutofixRun(
     {
         public Authorization
         {
-            checkArgument(maxFixAttempts > 0 && maxFixAttempts <= MAX_FIX_ATTEMPTS,
-                    "maxFixAttempts must be between 1 and " + MAX_FIX_ATTEMPTS);
+            checkArgument(maxFixAttempts > 0 && maxFixAttempts <= MAX_FIX_ATTEMPTS, "maxFixAttempts must be between 1 and " + MAX_FIX_ATTEMPTS);
             requireNonNull(authorizedAt, "authorizedAt is null");
             requireNonNull(expiresAt, "expiresAt is null");
             checkArgument(expiresAt.isAfter(authorizedAt), "expiresAt must be after authorizedAt");
@@ -945,9 +646,7 @@ public record CiAutofixRun(
         {
             checkSha(sha, "sha");
             int updated = headSha.filter(sha::equals).isPresent() ? used + 1 : 1;
-            if (updated > MAX_RERUNS_PER_HEAD) {
-                throw new IllegalStateException("rerun limit is exhausted for head " + sha);
-            }
+            checkState(updated <= MAX_RERUNS_PER_HEAD, "rerun limit is exhausted for head " + sha);
             return new RerunCounter(Optional.of(sha), updated);
         }
     }
@@ -982,13 +681,11 @@ public record CiAutofixRun(
         public RerunJournal
         {
             requireNonNull(attemptId, "attemptId is null");
-            checkArgument(workflowRunId > 0 && previousAttempt > 0,
-                    "workflow run and previous attempt must be positive");
+            checkArgument(workflowRunId > 0 && previousAttempt > 0, "workflow run and previous attempt must be positive");
             checkSha(headSha, "headSha");
             requireNonNull(startedAt, "startedAt is null");
             requireNonNull(observedAttempt, "observedAttempt is null");
-            checkArgument(observedAttempt.isEmpty() || observedAttempt.orElseThrow() > previousAttempt,
-                    "observedAttempt must be later than previousAttempt");
+            checkArgument(observedAttempt.isEmpty() || observedAttempt.orElseThrow() > previousAttempt, "observedAttempt must be later than previousAttempt");
         }
     }
 

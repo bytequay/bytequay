@@ -18,6 +18,7 @@ import com.bytequay.app.ci.CiGitCommandRunner.Result;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
+import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.net.URI;
@@ -43,7 +44,9 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.UNCERTAIN;
 import static java.util.Objects.requireNonNull;
 
-final class CiGitOperations
+@Service
+public final class CiGitOperations
+        implements CiGitService
 {
     private static final String FIXUP_PREFIX = "fixup! ";
     private static final String REMOTE = "origin";
@@ -59,7 +62,8 @@ final class CiGitOperations
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
+    @Override
+    public CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
     {
         requireNonNull(command, "command is null");
         try {
@@ -88,7 +92,8 @@ final class CiGitOperations
         }
     }
 
-    CiPushResult push(PushCiHeadCommand command)
+    @Override
+    public CiPushResult push(PushCiHeadCommand command)
     {
         requireNonNull(command, "command is null");
         Authorization authorization = command.authorization();
@@ -148,7 +153,8 @@ final class CiGitOperations
         }
     }
 
-    FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command)
+    @Override
+    public FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command)
     {
         requireNonNull(command, "command is null");
         try {

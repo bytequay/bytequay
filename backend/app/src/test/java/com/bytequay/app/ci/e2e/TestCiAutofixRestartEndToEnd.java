@@ -27,11 +27,11 @@ import com.bytequay.app.ci.CheckFixupPositionsCommand;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiGitInspection;
+import com.bytequay.app.ci.CiGitOperations;
 import com.bytequay.app.ci.CiGitService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.CiMemoryView;
 import com.bytequay.app.ci.CiPushResult;
-import com.bytequay.app.ci.DefaultCiGitService;
 import com.bytequay.app.ci.FixupPositionCheck;
 import com.bytequay.app.ci.InspectAgentResultCommand;
 import com.bytequay.app.ci.PushCiHeadCommand;
@@ -344,7 +344,7 @@ class TestCiAutofixRestartEndToEnd
             if (losePushResult) {
                 context.registerBean(
                         LostPushCiGitService.class,
-                        () -> new LostPushCiGitService(context.getBean(DefaultCiGitService.class)),
+                        () -> new LostPushCiGitService(context.getBean(CiGitOperations.class)),
                         bean -> bean.setPrimary(true));
             }
         }

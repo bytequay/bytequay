@@ -40,7 +40,7 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.FixupPositionCheck.Result.VALID;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestDefaultCiGitService
+class TestCiGitOperations
 {
     private static final Instant NOW = Instant.parse("2026-08-18T04:00:00Z");
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("acme", "project");
@@ -55,7 +55,7 @@ class TestDefaultCiGitService
             throws IOException
     {
         Repository fixture = repository("inspection");
-        DefaultCiGitService service = service();
+        CiGitOperations service = service();
 
         CiGitInspection unchanged = service.inspectAgentResult(inspect(fixture));
         assertThat(unchanged.outcome()).isEqualTo(NO_CHANGE);
@@ -76,7 +76,7 @@ class TestDefaultCiGitService
             throws IOException
     {
         Repository fixture = repository("dirty");
-        DefaultCiGitService service = service();
+        CiGitOperations service = service();
 
         write(fixture.worktree().resolve("source.txt"), "dirty\n");
         assertInvalid(service, fixture, "not clean");
@@ -371,9 +371,9 @@ class TestDefaultCiGitService
         assertInvalid(service(), credential, "unsupported credentials");
     }
 
-    private DefaultCiGitService service()
+    private CiGitOperations service()
     {
-        return new DefaultCiGitService(
+        return new CiGitOperations(
                 new CiGitCommandRunner(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -453,7 +453,7 @@ class TestDefaultCiGitService
         return new Authorization(true, allowRewrite, true, 3, NOW.minusSeconds(60), NOW.plusSeconds(3600));
     }
 
-    private static void assertInvalid(DefaultCiGitService service, Repository fixture, String message)
+    private static void assertInvalid(CiGitOperations service, Repository fixture, String message)
     {
         CiGitInspection result = service.inspectAgentResult(inspect(fixture));
         assertThat(result.outcome()).isEqualTo(INVALID);

@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   BACKEND_BASE,
   killBackend,
   reportBackendFailure,
+  sessionToken,
   spawnBackend,
   waitForBackendReady,
 } from './backendProcess';
@@ -227,6 +228,33 @@ function registerIpc(): void {
     if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
   ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
+
+  // Cherry-pick endpoints sit behind the desktop session filter, and the token
+  // stays here: the renderer never sees it, so a page in the embedded GitHub
+  // view cannot reach them.
+  ipcMain.handle('cherrypick:preview', (_event, request: unknown) =>
+    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ByteQuay-Session': sessionToken(),
+      },
+      body: JSON.stringify(request),
+      // A preview fetches the source remote in full; on a repository the size
+      // of Trino that outlasts the default request timeout.
+      signal: AbortSignal.timeout(15 * 60_000),
+    }));
+  ipcMain.handle('cherrypick:preview:get', (_event, previewId: string) =>
+    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
+      headers: { 'X-ByteQuay-Session': sessionToken() },
+    }));
+  ipcMain.handle('cherrypick:choose-directory', async (_event, title: string) => {
+    const result = await dialog.showOpenDialog({
+      title,
+      properties: ['openDirectory'],
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');

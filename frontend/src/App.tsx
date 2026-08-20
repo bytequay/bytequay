@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
+import CherryPickRangeScreen from './cherrypick/CherryPickRangeScreen';
 import HomePage from './home/HomePage';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -64,6 +65,7 @@ export default function App() {
           />
         )}
         {page === 'pulls' && <PullsScreen initialPr={initialPr} />}
+        {page === 'cherry-pick' && <CherryPickRangeScreen />}
         {page === 'settings' && <SettingsShell />}
       </main>
       {browserUrl !== null && (

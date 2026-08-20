@@ -73,6 +73,10 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+
+  previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
+  getCherryPickPreview: previewId => ipcRenderer.invoke('cherrypick:preview:get', previewId),
+  chooseDirectory: title => ipcRenderer.invoke('cherrypick:choose-directory', title),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

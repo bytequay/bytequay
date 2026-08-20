@@ -13,11 +13,12 @@
  */
 import { useState, type ReactNode } from 'react';
 
-export type AppPage = 'home' | 'pulls' | 'settings';
+export type AppPage = 'home' | 'pulls' | 'cherry-pick' | 'settings';
 
 const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
+  { page: 'cherry-pick', label: 'Cherry-pick', icon: <CherryPickIcon /> },
 ];
 
 export default function AppSidebar({ page, onNavigate }: {
@@ -87,6 +88,17 @@ function PullsIcon() {
     <Icon>
       <rect x="3" y="4" width="6.5" height="6.5" rx="1.4" />
       <path d="m3.6 7.1 1.4 1.4 2.6-2.8M12.5 6.2h8.5M12.5 12h8.5M12.5 17.8h8.5" />
+    </Icon>
+  );
+}
+
+function CherryPickIcon() {
+  return (
+    <Icon>
+      <path d="M6 4v6.5a3.5 3.5 0 0 0 3.5 3.5H18M6 20v-3" />
+      <circle cx="6" cy="19.5" r="2" />
+      <circle cx="6" cy="4.5" r="2" />
+      <circle cx="18" cy="14" r="2" />
     </Icon>
   );
 }

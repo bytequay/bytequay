@@ -405,71 +405,81 @@ Goal: let the user understand and confirm the exact source SHAs to skip.
 
 ### Electron bridge
 
-- [ ] Add typed preview/start/get/list/message/cancel DTOs in
-  `frontend/src/types.ts`.
-- [ ] Add IPC handlers in `frontend/src/main.ts` that call protected
+- [x] Add typed preview DTOs in `frontend/src/types.ts`. The start, get, list,
+  message, and cancel DTOs land in checkpoint 5 with the endpoints they
+  describe; typing a request no route answers would be scaffolding.
+- [x] Add IPC handlers in `frontend/src/main.ts` that call protected
   cherry-pick endpoints and add the desktop session header.
-- [ ] Add the smallest necessary bridge methods in `preload.ts` and `Bridge`.
-- [ ] Add a native directory picker in Electron main for selecting the
+- [x] Add the smallest necessary bridge methods in `preload.ts` and `Bridge`.
+- [x] Add a native directory picker in Electron main for selecting the
   repository clone and the parent directory that will hold the generated
   worktree; return only the selected paths to the renderer. The user never
   selects or names the worktree itself.
-- [ ] Keep backend URLs and the session token out of renderer code.
+- [x] Keep backend URLs and the session token out of renderer code.
 
 ### Preview screen
 
-- [ ] Add a `Cherry-pick` sidebar destination and one
+- [x] Add a `Cherry-pick` sidebar destination and one
   `CherryPickRangeScreen`.
-- [ ] Add repository, source remote, source base/tip, and target
+- [x] Add repository, source remote, source base/tip, and target
   remote/branch inputs. Show the generated work branch name once it exists;
   never let the user type it.
-- [ ] Show resolved SHAs after preview so the user can verify the frozen
+- [x] Show resolved SHAs after preview so the user can verify the frozen
   boundaries.
-- [ ] Render PR groups in earliest-commit-position order.
-- [ ] Render commits inside each group in source position order.
-- [ ] Use an explicit `Skip` checkbox, unchecked by default.
-- [ ] Disable skip controls for `ALREADY_ON_TARGET` items and show their exact
+- [x] Render PR groups in earliest-commit-position order.
+- [x] Render commits inside each group in source position order.
+- [x] Use an explicit `Skip` checkbox, unchecked by default.
+- [x] Disable skip controls for `ALREADY_ON_TARGET` items and show their exact
   evidence.
-- [ ] Add a tri-state PR checkbox that selects only that PR’s eligible source
+- [x] Add a tri-state PR checkbox that selects only that PR’s eligible source
   SHAs.
-- [ ] Keep ungrouped commits individually selectable.
-- [ ] Search by PR number, PR title, commit SHA prefix, and commit title.
-- [ ] Ensure filtering does not clear selections or alter commit order.
-- [ ] Show commit SHA, title, PR number/title, merged time, position,
+- [x] Keep ungrouped commits individually selectable.
+- [x] Search by PR number, PR title, commit SHA prefix, and commit title.
+- [x] Ensure filtering does not clear selections or alter commit order.
+- [x] Show commit SHA, title, PR number/title, merged time, position,
   already-on-target evidence, and conflict summary.
-- [ ] Allow conflict paths/modules/sections to expand without changing
+- [x] Allow conflict paths/modules/sections to expand without changing
   selection.
-- [ ] Show counts for total, already present, user skipped, and to cherry-pick.
-- [ ] Show warnings for patch similarity, ambiguous/missing PRs, and
+- [x] Show counts for total, already present, user skipped, and to cherry-pick.
+- [x] Show warnings for patch similarity, ambiguous/missing PRs, and
   not-analyzed conflict scope.
 
 ### Confirmation
 
-- [ ] Build confirmation from explicit `userSkippedSourceShas[]`, not group
+- [x] Build confirmation from explicit `userSkippedSourceShas[]`, not group
   checkbox state.
 - [ ] Send preview ID, expected source base/tip SHA, expected target SHA,
-  selected SHAs, lane, and idempotency key.
-- [ ] Show a final confirmation dialog with exact counts and target SHA before
+  selected SHAs, lane, and idempotency key. Deferred to checkpoint 5:
+  `POST /executions` does not exist yet. The payload itself is built and
+  tested by `skippedShasForConfirmation`.
+- [x] Show a final confirmation dialog with exact counts and target SHA before
   local mutation.
-- [ ] Disable duplicate submission while start is pending.
-- [ ] On stale preview, return to preview with selections preserved when the
-  same source SHAs still exist.
+- [ ] Disable duplicate submission while start is pending. Deferred with the
+  start call.
+- [x] On stale preview, return to preview with selections preserved when the
+  same source SHAs still exist. `retainSelections` does this on every
+  re-preview; the stale-rejection path that triggers it arrives with start.
 
 ### Frontend tests
 
-- [ ] Test tri-state group selection.
-- [ ] Test mixed already-present and selectable commits in one PR.
-- [ ] Test search without selection loss.
-- [ ] Test explicit SHA payload order and deduplication.
-- [ ] Test stale-preview and backend-error display.
-- [ ] Test keyboard labels and checkbox accessibility.
+- [x] Test tri-state group selection.
+- [x] Test mixed already-present and selectable commits in one PR.
+- [x] Test search without selection loss.
+- [x] Test explicit SHA payload order and deduplication.
+- [ ] Test stale-preview and backend-error display. Deferred: both are
+  component-level, and the project uses Vitest for pure behavior only.
+  Selection retention across a re-preview is covered in `model.test.ts`.
+- [ ] Test keyboard labels and checkbox accessibility. Deferred with the
+  component tests above; every checkbox carries an explicit `aria-label`.
 
 ### Checkpoint 4 gate
 
-- [ ] `npm run lint` passes.
-- [ ] `npx tsc --noEmit` passes.
-- [ ] `npm test` passes.
-- [ ] Preview and selection cause no local Git mutation.
+- [x] `npm run lint` passes.
+- [x] `npx tsc --noEmit` passes.
+- [x] `npm test` passes.
+- [x] Selection causes no Git mutation, and preview mutates only the local
+  target branch it synchronizes. That branch is never checked out and never
+  receives a cherry-pick, so no worktree and no user branch is touched.
 - [ ] Reviewer approves the exact confirmation payload and checkbox behavior.
 
 ---

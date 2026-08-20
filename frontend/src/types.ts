@@ -159,6 +159,66 @@ export type InAppNavState = {
   loading: boolean;
 };
 
+/** One conflicted path a simulated pick would hit. */
+export type CherryPickConflictFile = {
+  path: string;
+  /** CONTENT | ADD_ADD | MODIFY_DELETE | BINARY | SUBMODULE | UNKNOWN */
+  type: string;
+  module?: string;
+  /** Real `[startLine, endLine]` marker ranges; empty when Git gave none. */
+  sections: Array<[number, number]>;
+};
+
+export type CherryPickPreviewCommit = {
+  position: number;
+  sourceSha: string;
+  sourceParentSha: string;
+  title: string;
+  author: string;
+  committedAt: string;
+  changedPaths: string[];
+  originallyEmpty: boolean;
+  /** Backed by ancestry or an exact `-x` line only, never a title or a guess. */
+  alreadyOnTarget: boolean;
+  targetMatchKind?: string;
+  targetMatchCommitSha?: string;
+  /** Advisory: such a commit is still selectable and never skipped for you. */
+  patchEquivalent: boolean;
+  /** CLEAN | CONFLICT | NOT_ANALYZED */
+  conflictStatus: string;
+  /** AFTER_CLEAN_PREFIX | AT_FROZEN_TARGET | ESTIMATE */
+  conflictBasis: string;
+  conflictFiles: CherryPickConflictFile[];
+  pullRequestNumber?: number;
+  pullRequestTitle?: string;
+  pullRequestUrl?: string;
+  pullRequestMergedAt?: string;
+};
+
+export type CherryPickPreview = {
+  previewId: string;
+  repository: string;
+  sourceRemote: string;
+  targetRemote: string;
+  targetBranch: string;
+  localTargetBranch: string;
+  sourceBaseSha: string;
+  sourceTipSha: string;
+  targetSha: string;
+  commits: CherryPickPreviewCommit[];
+  warnings: string[];
+  expiresAt: string;
+};
+
+export type CherryPickPreviewRequest = {
+  repository: string;
+  sourceRemote: string;
+  sourceBaseRef: string;
+  sourceTipRef: string;
+  targetRemote: string;
+  targetBranch: string;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -208,4 +268,8 @@ export type Bridge = {
   getFullScreen: () => Promise<boolean>;
   onFullScreenChange: (callback: (fullScreen: boolean) => void) => () => void;
   getAppVersion: () => Promise<{ version: string }>;
+
+  previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
+  getCherryPickPreview: (previewId: string) => Promise<CherryPickPreview>;
+  chooseDirectory: (title: string) => Promise<string | null>;
 };

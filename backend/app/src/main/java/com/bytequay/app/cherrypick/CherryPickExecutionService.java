@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
+import com.bytequay.app.git.GitSequencerDriver.NormalizationResult;
 import com.bytequay.app.git.SequenceState;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
@@ -46,9 +47,9 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
@@ -57,10 +58,8 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.time.Clock;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
@@ -71,8 +70,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * Owns the progress and final results of confirmed cherry-pick executions.
  *
- * <p>Git's sequencer decides what runs next; this service decides what the
- * result was. Nothing else may write status, step, item result, or pause
+ * <p>The confirmed plan decides what runs next; Git reports what happened to
+ * that one source commit. Nothing else may write status, step, item result, or pause
  * reason.
  */
 @Service
@@ -145,6 +144,7 @@ public class CherryPickExecutionService
                 .orElseThrow(() -> new CherryPickInvalidRequestException(
                         "Preview is unknown or expired; preview the range again"));
         requireUnmoved(preview, command);
+        previews.requireCurrentTarget(repository, preview);
         List<CherryPickItem> items = plan(preview, command.userSkippedSourceShas());
         requireNoLiveExecution(preview);
 
@@ -274,6 +274,23 @@ public class CherryPickExecutionService
         if (execution.currentTurnId().isPresent()) {
             return afterTurn(execution);
         }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.SKIP_EMPTY::equals).isPresent()) {
+            return recoverEmptySkip(execution);
+        }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.COMMIT_CONFLICT_SNAPSHOT::equals)
+                .isPresent()) {
+            return recoverConflictSnapshot(execution);
+        }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.AGENT_TURN::equals).isPresent()) {
+            return inspectFixup(execution, Optional.empty());
+        }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.AGENT_REPAIR::equals).isPresent()) {
+            return inspectRepair(execution, Optional.empty());
+        }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.NORMALIZE_CONFLICT_PAIR::equals)
+                .isPresent()) {
+            return normalizeConflictPair(execution);
+        }
         Path worktree = execution.workspace().worktree();
         String expectedHead = execution.currentTargetSha();
         SequenceState before = sequencer.observe(worktree);
@@ -295,41 +312,70 @@ public class CherryPickExecutionService
             return reconcile(
                     started,
                     expectedHead,
-                    sequencer.beginCherryPick(worktree, expectedHead, ImmutableList.of(next)));
+                    sequencer.beginCherryPick(worktree, expectedHead, next));
         }
         if (before.kind() == SequenceState.Kind.STOPPED_EMPTY) {
             String stopped = before.stoppedCommit().orElseThrow();
             CherryPickExecution journalled = store.save(execution
                     .withJournal(journal(ActionType.SKIP_EMPTY, Optional.of(stopped), before.head()), clock.instant()));
-            SequenceState after = sequencer.skipEmpty(worktree, before.head(), stopped);
-            if (after.kind() == SequenceState.Kind.UNSAFE) {
-                return pause(journalled, PauseReason.UNSAFE_GIT_STATE,
-                        "Empty skip was rejected: " + after.diagnostics());
-            }
-            if (!after.head().equals(before.head())) {
-                // Only one commit was in flight, so a skip that moved HEAD
-                // created something, which is exactly what a skip must not do.
-                return pause(journalled, PauseReason.UNSAFE_GIT_STATE,
-                        "Empty skip moved the work branch to " + after.head());
-            }
-            return reconcile(
-                    store.save(journalled.recordEmptySkipped(stopped, clock.instant())),
-                    before.head(),
-                    after);
+            return recoverEmptySkip(journalled);
         }
         if (before.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
-            return startResolution(execution, before);
+            return commitConflictSnapshot(execution, before);
         }
         if (before.kind() == SequenceState.Kind.STOPPED_RESOLVED) {
-            String stopped = before.stoppedCommit().orElseThrow();
-            SequenceState after = sequencer.continueSequence(worktree, stopped);
-            if (after.kind() == SequenceState.Kind.UNSAFE) {
-                return pause(execution, PauseReason.UNSAFE_GIT_STATE, after.diagnostics());
-            }
-            return reconcile(execution, expectedHead, after);
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    "A conflict was staged outside ByteQuay before its index stages were recorded");
         }
         return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                 before.diagnostics().isBlank() ? "Unexpected Git state" : before.diagnostics());
+    }
+
+    private CherryPickExecution recoverEmptySkip(CherryPickExecution execution)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        String sourceSha = journal.sourceSha().orElseThrow();
+        String expectedHead = journal.expectedHead();
+        CherryPickItem item = execution.items().stream()
+                .filter(candidate -> candidate.sourceSha().equals(sourceSha))
+                .findFirst()
+                .orElseThrow();
+        SequenceState state = sequencer.observe(execution.workspace().worktree());
+
+        if (item.result() == CherryPickItem.Result.EMPTY_SKIPPED) {
+            if (state.kind() != SequenceState.Kind.COMPLETED || !state.head().equals(expectedHead)) {
+                return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                        "The worktree moved after the empty result was recorded");
+            }
+            return execution.pendingItems().isEmpty()
+                    ? complete(execution)
+                    : store.save(execution.withoutJournal(clock.instant()));
+        }
+        if (item.result() != CherryPickItem.Result.PENDING) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Empty-skip journal points to a completed item");
+        }
+
+        SequenceState after;
+        if (state.kind() == SequenceState.Kind.STOPPED_EMPTY
+                && state.head().equals(expectedHead)
+                && state.stoppedCommit().filter(sourceSha::equals).isPresent()) {
+            after = sequencer.skipEmpty(execution.workspace().worktree(), expectedHead, sourceSha);
+        }
+        else if (state.kind() == SequenceState.Kind.COMPLETED && state.head().equals(expectedHead)) {
+            // The guarded skip completed before its result was saved.
+            after = state;
+        }
+        else {
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    "Empty skip is not at its recorded before or after state");
+        }
+        if (after.kind() != SequenceState.Kind.COMPLETED || !after.head().equals(expectedHead)) {
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    "Empty skip did not close cleanly at " + expectedHead);
+        }
+        CherryPickExecution updated = store.save(execution.recordEmptySkipped(sourceSha, clock.instant()));
+        return reconcile(updated, expectedHead, after);
     }
 
     /**
@@ -354,7 +400,7 @@ public class CherryPickExecutionService
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
                     "One source commit produced " + created.size() + " commits");
         }
-        Map<String, String> applied = new LinkedHashMap<>();
+        Optional<CreatedCommit> applied = Optional.empty();
         if (!created.isEmpty()) {
             CreatedCommit commit = created.getFirst();
             if (commit.sourceSha().isEmpty()) {
@@ -371,23 +417,22 @@ public class CherryPickExecutionService
                 return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
                         "Commit " + commit.targetSha() + " is not a child of " + expectedHead);
             }
-            applied.put(commit.sourceSha().orElseThrow(), commit.targetSha());
+            applied = Optional.of(commit);
         }
-        if (!applied.isEmpty() && !sequencer.withoutConflictMarkers(worktree, expectedHead, after.head())) {
+        if (applied.isPresent() && !sequencer.withoutConflictMarkers(worktree, expectedHead, after.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }
+        if (applied.isPresent() && execution.pendingItems().getFirst().agentTurnCount() > 0) {
+            validate(worktree, after.head());
+        }
 
-        CherryPickExecution updated = applied.isEmpty()
-                ? execution
-                : store.save(execution.recordApplied(ImmutableMap.copyOf(applied), after.head(), clock.instant()));
+        CherryPickExecution updated = applied
+                .map(commit -> store.save(execution.recordApplied(
+                        commit.sourceSha().orElseThrow(), commit.targetSha(), clock.instant())))
+                .orElse(execution);
         if (updated.pendingItems().isEmpty()) {
             return complete(updated);
-        }
-        if (after.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
-            // The conflict is already known, so hand it over now rather than
-            // leaving a conflicted range idle until the next monitor tick.
-            return startResolution(updated, after);
         }
         return store.save(updated.withoutJournal(clock.instant()));
     }
@@ -420,6 +465,40 @@ public class CherryPickExecutionService
     {
         GitCommandRunner.Result parent = git.run(worktree, "rev-parse", sha + "^");
         return parent.successful() ? parent.output().strip() : "";
+    }
+
+    private String headOf(Path worktree)
+    {
+        GitCommandRunner.Result head = git.run(worktree, "rev-parse", "HEAD");
+        return head.successful() ? head.output().strip() : "";
+    }
+
+    private String subjectOf(Path worktree, String sha)
+    {
+        GitCommandRunner.Result subject = git.run(worktree, "log", "-1", "--format=%s", sha);
+        return subject.successful() ? subject.output().strip() : "";
+    }
+
+    private String messageOf(Path worktree, String sha)
+    {
+        GitCommandRunner.Result message = git.run(worktree, "log", "-1", "--format=%B", sha);
+        return message.successful() ? message.output() : "";
+    }
+
+    private boolean operationOpenOrUnmerged(Path worktree)
+    {
+        if (!git.run(worktree, "ls-files", "-u").output().isBlank()) {
+            return true;
+        }
+        for (String marker : ImmutableList.of(
+                "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")) {
+            GitCommandRunner.Result path = git.run(worktree, "rev-parse", "--git-path", marker);
+            if (path.successful()
+                    && java.nio.file.Files.exists(worktree.resolve(path.output().strip()).normalize())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Optional<String> originSha(String message)
@@ -521,21 +600,8 @@ public class CherryPickExecutionService
         return skipped.contains(commit.sourceSha()) ? Disposition.USER_SKIPPED : Disposition.TO_CHERRY_PICK;
     }
 
-    /**
-     * Hands one conflict to the agent, or stops when it has had its attempts.
-     *
-     * <p>The agent stages files. It never moves the sequence, so a turn cannot
-     * make progress the program has not verified.
-     */
-    private CherryPickExecution startResolution(CherryPickExecution execution, SequenceState state)
-    {
-        return startResolution(execution, state, Optional.empty());
-    }
-
-    private CherryPickExecution startResolution(
-            CherryPickExecution execution,
-            SequenceState state,
-            Optional<String> userNote)
+    /** Persists Git's conflict evidence, then closes the operation as-is. */
+    private CherryPickExecution commitConflictSnapshot(CherryPickExecution execution, SequenceState state)
     {
         String stopped = state.stoppedCommit().orElseThrow();
         CherryPickItem item = execution.items().stream()
@@ -546,23 +612,82 @@ public class CherryPickExecutionService
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
                     "Sequencer stopped on " + stopped + ", which is not in the confirmed plan");
         }
-        if (item.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
-            return pause(execution, PauseReason.RETRY_LIMIT_REACHED,
-                    "Conflict on " + stopped + " remains after " + CherryPickItem.MAX_AGENT_TURNS + " attempts");
-        }
-
         CherryPickExecution withConflict = store.save(execution
                 .recordConflict(stopped, conflictPaths(execution, state), clock.instant())
-                .withStep(Step.RESOLVING, clock.instant()));
-        CherryPickItem current = itemOf(withConflict, stopped);
+                .withStep(Step.RESOLVING, clock.instant())
+                .withJournal(journal(
+                        ActionType.COMMIT_CONFLICT_SNAPSHOT, Optional.of(stopped), state.head()), clock.instant()));
+        SequenceState after = sequencer.commitConflictSnapshot(
+                execution.workspace().worktree(), state.head(), stopped, state.conflicts());
+        return acceptConflictSnapshot(withConflict, after);
+    }
+
+    /** Recovers either side of the snapshot commit's intent/result boundary. */
+    private CherryPickExecution recoverConflictSnapshot(CherryPickExecution execution)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        SequenceState state = sequencer.observe(execution.workspace().worktree());
+        if (state.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
+            CherryPickItem item = itemOf(execution, journal.sourceSha().orElseThrow());
+            if (!item.conflictPaths().equals(conflictPaths(execution, state))) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "Conflict index stages changed after they were persisted");
+            }
+            SequenceState after = sequencer.commitConflictSnapshot(
+                    execution.workspace().worktree(),
+                    journal.expectedHead(),
+                    journal.sourceSha().orElseThrow(),
+                    state.conflicts());
+            return acceptConflictSnapshot(execution, after);
+        }
+        return acceptConflictSnapshot(execution, state);
+    }
+
+    private CherryPickExecution acceptConflictSnapshot(CherryPickExecution execution, SequenceState state)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        String sourceSha = journal.sourceSha().orElseThrow();
+        if (state.kind() != SequenceState.Kind.COMPLETED) {
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    state.diagnostics().isBlank() ? "Conflict snapshot did not close cleanly" : state.diagnostics());
+        }
+        List<CreatedCommit> created = createdCommits(
+                execution.workspace().worktree(), journal.expectedHead(), state.head());
+        if (created.size() != 1
+                || !created.getFirst().sourceSha().filter(sourceSha::equals).isPresent()
+                || !parentOf(execution.workspace().worktree(), state.head()).equals(journal.expectedHead())) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Conflict snapshot is not one direct -x commit for " + sourceSha);
+        }
+        return store.save(execution
+                .withStep(Step.RESOLVING, clock.instant())
+                .withJournal(journal(ActionType.AGENT_TURN, Optional.of(sourceSha), state.head()), clock.instant()));
+    }
+
+    /** Starts one narrow agent turn after ByteQuay has committed snapshot C. */
+    private CherryPickExecution startAgentTurn(
+            CherryPickExecution execution,
+            String conflictCommit,
+            Optional<String> fixupCommit,
+            Optional<String> userNote)
+    {
+        String sourceSha = execution.journal().orElseThrow().sourceSha().orElseThrow();
+        CherryPickItem current = itemOf(execution, sourceSha);
+        if (current.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
+            return pause(execution, PauseReason.RETRY_LIMIT_REACHED,
+                    "Conflict on " + sourceSha + " remains after "
+                            + CherryPickItem.MAX_AGENT_TURNS + " attempts");
+        }
         int attempt = current.agentTurnCount() + 1;
-        CherryPickExecution counted = store.save(withConflict
-                .recordAgentTurnStarted(stopped, clock.instant())
-                .withJournal(journal(ActionType.AGENT_TURN, Optional.of(stopped), state.head()), clock.instant()));
+        CherryPickExecution counted = store.save(execution
+                .recordAgentTurnStarted(sourceSha, clock.instant())
+                .withStep(Step.RESOLVING, clock.instant()));
 
         String prompt = CherryPickPromptBuilder.resolveConflict(
                 current,
-                state.head(),
+                parentOf(execution.workspace().worktree(), conflictCommit),
+                conflictCommit,
+                fixupCommit,
                 attempt,
                 userNote);
         try {
@@ -577,6 +702,110 @@ public class CherryPickExecutionService
             return pause(counted, PauseReason.AGENT_TURN_FAILED,
                     "Cannot start an agent turn: " + failure.getMessage());
         }
+    }
+
+    /** Verifies the agent-created F from Git, never from the agent's reply. */
+    private CherryPickExecution inspectFixup(CherryPickExecution execution, Optional<String> userNote)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        Path worktree = execution.workspace().worktree();
+        String conflictCommit = journal.expectedHead();
+        String actualHead = headOf(worktree);
+        if (actualHead.equals(conflictCommit)) {
+            if (operationOpenOrUnmerged(worktree)) {
+                return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                        "An unexpected Git operation is open while waiting for the fixup");
+            }
+            return startAgentTurn(execution, conflictCommit, Optional.empty(), userNote);
+        }
+        if (!parentOf(worktree, actualHead).equals(conflictCommit)) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "The agent did not create exactly one direct child of the conflict snapshot");
+        }
+        return inspectFixupCandidate(execution, conflictCommit, actualHead);
+    }
+
+    /** Retries a structurally valid but dirty or marker-bearing fixup by amendment. */
+    private CherryPickExecution inspectRepair(CherryPickExecution execution, Optional<String> userNote)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        Path worktree = execution.workspace().worktree();
+        String previousFixup = journal.expectedHead();
+        String conflictCommit = parentOf(worktree, previousFixup);
+        String actualHead = headOf(worktree);
+        if (actualHead.equals(previousFixup)) {
+            if (operationOpenOrUnmerged(worktree)) {
+                return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                        "An unexpected Git operation is open while repairing the fixup");
+            }
+            return startAgentTurn(execution, conflictCommit, Optional.of(previousFixup), userNote);
+        }
+        if (!parentOf(worktree, actualHead).equals(conflictCommit)) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "The repair added history instead of amending the existing fixup");
+        }
+        return inspectFixupCandidate(execution, conflictCommit, actualHead);
+    }
+
+    private CherryPickExecution inspectFixupCandidate(
+            CherryPickExecution execution,
+            String conflictCommit,
+            String fixupCommit)
+    {
+        Path worktree = execution.workspace().worktree();
+        ActionJournal journal = execution.journal().orElseThrow();
+        String expectedSubject = "fixup! " + subjectOf(worktree, conflictCommit);
+        if (!subjectOf(worktree, fixupCommit).equals(expectedSubject)) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "The agent commit is not the expected direct fixup");
+        }
+        if (originSha(messageOf(worktree, fixupCommit)).isPresent()) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "The fixup copied a cherry-pick origin line");
+        }
+        String originalHead = parentOf(worktree, conflictCommit);
+        if (!sequencer.cleanAndResolved(worktree)
+                || !sequencer.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
+            return store.save(execution.withJournal(journal(
+                    ActionType.AGENT_REPAIR,
+                    journal.sourceSha(),
+                    fixupCommit), clock.instant()));
+        }
+        validate(worktree, fixupCommit);
+        return store.save(execution.withJournal(journal(
+                ActionType.NORMALIZE_CONFLICT_PAIR,
+                journal.sourceSha(),
+                fixupCommit), clock.instant()));
+    }
+
+    /** Squashes C/F immediately, or drops both when their final tree is H0. */
+    private CherryPickExecution normalizeConflictPair(CherryPickExecution execution)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        Path worktree = execution.workspace().worktree();
+        String fixupCommit = journal.expectedHead();
+        String conflictCommit = parentOf(worktree, fixupCommit);
+        String originalHead = parentOf(worktree, conflictCommit);
+        if (!originalHead.equals(execution.currentTargetSha())) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Conflict pair no longer follows the recorded target tip");
+        }
+        NormalizationResult result = sequencer.normalizeConflictPair(
+                worktree, originalHead, conflictCommit, fixupCommit);
+        return switch (result.kind()) {
+            case UNSAFE -> pause(execution, PauseReason.UNSAFE_GIT_STATE, result.diagnostics());
+            case APPLIED -> reconcile(
+                    execution.withStep(Step.APPLYING, clock.instant()),
+                    originalHead,
+                    sequencer.observe(worktree));
+            case EMPTY -> {
+                CherryPickExecution updated = store.save(execution
+                        .recordEmptySkipped(journal.sourceSha().orElseThrow(), clock.instant())
+                        .withStep(Step.APPLYING, clock.instant())
+                        .withoutJournal(clock.instant()));
+                yield updated.pendingItems().isEmpty() ? complete(updated) : updated;
+            }
+        };
     }
 
     /**
@@ -616,7 +845,10 @@ public class CherryPickExecutionService
                             case MODIFY_DELETE -> ConflictType.MODIFY_DELETE;
                             case SUBMODULE -> ConflictType.SUBMODULE;
                         },
-                        module(worktree, conflict.path())))
+                        module(worktree, conflict.path()),
+                        conflict.stages().stream()
+                                .map(stage -> new IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
+                                .collect(toImmutableList())))
                 .collect(toImmutableList());
     }
 
@@ -630,6 +862,11 @@ public class CherryPickExecutionService
             directory = directory.getParent();
         }
         return Optional.empty();
+    }
+
+    private static void validate(Path worktree, String targetSha)
+    {
+        // ponytail: successful no-op until a user-approved project validation command exists.
     }
 
     private static CherryPickItem itemOf(CherryPickExecution execution, String sourceSha)
@@ -656,7 +893,7 @@ public class CherryPickExecutionService
                 AgentPermissionPolicy.CHERRY_PICK)).id();
     }
 
-/**
+    /**
      * Accepts a finished range only from the plan, the stored results, and Git.
      *
      * <p>The range review is produced for a person to read afterwards. It is
@@ -703,7 +940,10 @@ public class CherryPickExecutionService
                     "A created commit still contains a conflict marker");
         }
 
-        CherryPickExecution reviewed = store.save(execution.withRangeReview(rangeReview(execution, state.head()),
+        CherryPickExecution settled = execution.journal().isPresent()
+                ? store.save(execution.withoutJournal(clock.instant()))
+                : execution;
+        CherryPickExecution reviewed = store.save(settled.withRangeReview(rangeReview(settled, state.head()),
                 clock.instant()));
         completeAgentTask(reviewed);
         return store.save(reviewed.finish(FinishReason.COMPLETED, summary(reviewed), clock.instant()));
@@ -783,11 +1023,23 @@ public class CherryPickExecutionService
                         "Git is in an unexpected state: " + state.diagnostics());
             }
             CherryPickExecution resumed = store.save(execution.resume(clock.instant()));
-            if (state.kind() != SequenceState.Kind.STOPPED_CONFLICT) {
-                // Nothing for an agent to resolve; let the monitor carry on.
-                return resumed;
+            if (resumed.journal().map(ActionJournal::type).filter(ActionType.AGENT_TURN::equals).isPresent()) {
+                return inspectFixup(resumed, Optional.of(message));
             }
-            return startResolution(resumed, state, Optional.of(message));
+            if (resumed.journal().map(ActionJournal::type).filter(ActionType.AGENT_REPAIR::equals).isPresent()) {
+                return inspectRepair(resumed, Optional.of(message));
+            }
+            if (state.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
+                CherryPickExecution snapshotted = commitConflictSnapshot(resumed, state);
+                if (snapshotted.status() == Status.RUNNING
+                        && snapshotted.journal().map(ActionJournal::type)
+                                .filter(ActionType.AGENT_TURN::equals).isPresent()) {
+                    return inspectFixup(snapshotted, Optional.of(message));
+                }
+                return snapshotted;
+            }
+            // Nothing for an agent to resolve; let the monitor reconcile it.
+            return resumed;
         }
         finally {
             lock.unlock();

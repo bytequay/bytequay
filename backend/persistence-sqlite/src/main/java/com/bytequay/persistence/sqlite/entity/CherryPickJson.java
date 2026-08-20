@@ -19,6 +19,7 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.cherrypick.CherryPickStorageException;
@@ -107,7 +108,13 @@ final class CherryPickJson
                 item.result().name(),
                 item.targetSha().orElse(null),
                 item.conflictPaths().stream()
-                        .map(path -> new ConflictValue(path.path(), path.type().name(), path.module().orElse(null)))
+                        .map(path -> new ConflictValue(
+                                path.path(),
+                                path.type().name(),
+                                path.module().orElse(null),
+                                path.stages().stream()
+                                        .map(stage -> new StageValue(stage.stage(), stage.mode(), stage.blobSha()))
+                                        .collect(toImmutableList())))
                         .collect(toImmutableList()),
                 item.agentTurnCount());
     }
@@ -130,7 +137,13 @@ final class CherryPickJson
                                 .map(path -> new ConflictPath(
                                         path.path(),
                                         ConflictType.valueOf(path.type()),
-                                        Optional.ofNullable(path.module())))
+                                        Optional.ofNullable(path.module()),
+                                        path.stages() == null
+                                                ? ImmutableList.of()
+                                                : path.stages().stream()
+                                                        .map(stage -> new IndexStage(
+                                                                stage.stage(), stage.mode(), stage.blobSha()))
+                                                        .collect(toImmutableList())))
                                 .collect(toImmutableList()),
                 value.agentTurnCount());
     }
@@ -159,7 +172,9 @@ final class CherryPickJson
 
     private record PullRequestValue(int number, String title, String url) {}
 
-    private record ConflictValue(String path, String type, String module) {}
+    private record ConflictValue(String path, String type, String module, List<StageValue> stages) {}
+
+    private record StageValue(int stage, String mode, String blobSha) {}
 
     private record JournalValue(
             String type,

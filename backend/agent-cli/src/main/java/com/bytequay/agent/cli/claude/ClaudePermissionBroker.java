@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -55,6 +56,12 @@ public final class ClaudePermissionBroker
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Pattern CHERRY_PICK_FIXUP = Pattern.compile(
+            "^git\\s+commit\\s+(?:(?:--allow-empty\\s+--fixup=)|(?:--fixup=))([0-9a-f]{40}|[0-9a-f]{64})(?:\\s+--allow-empty)?$");
+    private static final Pattern CHERRY_PICK_AMEND = Pattern.compile(
+            "^git\\s+commit\\s+--amend\\s+--no-edit$");
+    private static final Pattern HISTORY_MUTATION = Pattern.compile(
+            "(?m)\\bgit\\b[^\\n;&|]*\\b(?:commit|cherry-pick|rebase|reset|merge|switch|checkout|branch|tag|push|fetch|pull|update-ref|restore)\\b");
 
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
@@ -164,7 +171,8 @@ public final class ClaudePermissionBroker
     {
         PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
         if (context.permissionPolicy().unattended()) {
-            PermissionResult decision = sandboxedPermission(arguments, context.worktree());
+            PermissionResult decision = sandboxedPermission(
+                    arguments, context.worktree(), context.permissionPolicy());
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))),
                     false));
@@ -266,7 +274,10 @@ public final class ClaudePermissionBroker
         return tools.build();
     }
 
-    private static PermissionResult sandboxedPermission(PermissionArguments arguments, Path worktree)
+    private static PermissionResult sandboxedPermission(
+            PermissionArguments arguments,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy)
     {
         if (arguments.toolName().equalsIgnoreCase("Edit")
                 || arguments.toolName().equalsIgnoreCase("Write")
@@ -275,6 +286,23 @@ public final class ClaudePermissionBroker
             if (requested.isPresent() && requested.orElseThrow().startsWith(worktree.toAbsolutePath().normalize())) {
                 return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
             }
+        }
+        if (arguments.toolName().equalsIgnoreCase("Bash")
+                && permissionPolicy == AgentPermissionPolicy.CHERRY_PICK) {
+            String command = Optional.ofNullable(arguments.input().get("command"))
+                    .filter(JsonNode::isTextual)
+                    .map(JsonNode::asText)
+                    .map(String::strip)
+                    .orElse("");
+            if (CHERRY_PICK_FIXUP.matcher(command).matches()
+                    || CHERRY_PICK_AMEND.matcher(command).matches()
+                    || (!command.isBlank() && !HISTORY_MUTATION.matcher(command).find())) {
+                return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
+            }
+            return new PermissionResult(
+                    "deny",
+                    Optional.empty(),
+                    Optional.of("Cherry-pick tasks allow only the expected fixup-shaped history change"));
         }
         return new PermissionResult(
                 "deny",
@@ -324,7 +352,7 @@ public final class ClaudePermissionBroker
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
-                .put("autoAllowBashIfSandboxed", true)
+                .put("autoAllowBashIfSandboxed", permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
                 .put("allowUnsandboxedCommands", !permissionPolicy.unattended())
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(

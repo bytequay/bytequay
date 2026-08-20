@@ -32,7 +32,6 @@ public record SequenceState(
         Kind kind,
         String head,
         Optional<String> stoppedCommit,
-        List<String> remainingCommits,
         List<ConflictedPath> conflicts,
         String diagnostics)
 {
@@ -44,7 +43,6 @@ public record SequenceState(
         requireNonNull(kind, "kind is null");
         requireNonNull(head, "head is null");
         requireNonNull(stoppedCommit, "stoppedCommit is null");
-        remainingCommits = ImmutableList.copyOf(requireNonNull(remainingCommits, "remainingCommits is null"));
         conflicts = ImmutableList.copyOf(requireNonNull(conflicts, "conflicts is null"));
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(conflicts.size() <= MAX_PATHS, "conflicts exceeds " + MAX_PATHS + " values");
@@ -71,12 +69,31 @@ public record SequenceState(
     }
 
     /** One unmerged path and the category its index stages imply. */
-    public record ConflictedPath(String path, Type type)
+    public record ConflictedPath(String path, Type type, List<IndexStage> stages)
     {
         public ConflictedPath
         {
             requireNonNull(path, "path is null");
             requireNonNull(type, "type is null");
+            stages = ImmutableList.copyOf(requireNonNull(stages, "stages is null"));
+        }
+
+        public ConflictedPath(String path, Type type)
+        {
+            this(path, type, ImmutableList.of());
+        }
+
+        /** One immutable side recorded by {@code git ls-files -u}. */
+        public record IndexStage(int stage, String mode, String blobSha)
+        {
+            public IndexStage
+            {
+                checkArgument(stage >= 1 && stage <= 3, "stage is outside 1..3");
+                requireNonNull(mode, "mode is null");
+                requireNonNull(blobSha, "blobSha is null");
+                checkArgument(mode.matches("[0-7]{6}"), "mode is invalid");
+                checkArgument(blobSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "blobSha is invalid");
+            }
         }
 
         public enum Type

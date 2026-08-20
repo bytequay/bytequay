@@ -33,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -102,7 +101,7 @@ class TestSqliteCherryPickExecutionStore
         CherryPickExecution updated = store.save(created
                 .withJournal(
                         new ActionJournal(
-                                ActionType.CONTINUE_SEQUENCE,
+                                ActionType.COMMIT_CONFLICT_SNAPSHOT,
                                 Optional.of(sha(1)),
                                 TARGET,
                                 2,
@@ -120,7 +119,7 @@ class TestSqliteCherryPickExecutionStore
 
         CherryPickExecution loaded = store.find(updated.id()).orElseThrow();
         CherryPickItem item = loaded.items().getFirst();
-        assertThat(loaded.journal().orElseThrow().type()).isEqualTo(ActionType.CONTINUE_SEQUENCE);
+        assertThat(loaded.journal().orElseThrow().type()).isEqualTo(ActionType.COMMIT_CONFLICT_SNAPSHOT);
         assertThat(loaded.journal().orElseThrow().attempt()).isEqualTo(2);
         assertThat(loaded.currentStep()).contains(Step.RESOLVING);
         assertThat(item.conflictPaths()).hasSize(1);
@@ -193,10 +192,8 @@ class TestSqliteCherryPickExecutionStore
         CherryPickExecution created = store.createOrGet(execution(
                 "applied",
                 List.of(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))));
-        store.save(created.recordApplied(
-                ImmutableMap.of(sha(1), created(1), sha(2), created(2)),
-                created(2),
-                NOW.plusSeconds(1)));
+        CherryPickExecution first = store.save(created.recordApplied(sha(1), created(1), NOW.plusSeconds(1)));
+        store.save(first.recordApplied(sha(2), created(2), NOW.plusSeconds(2)));
 
         CherryPickExecution loaded = store.find(created.id()).orElseThrow();
         assertThat(loaded.items()).allMatch(item -> item.result() == Result.APPLIED);

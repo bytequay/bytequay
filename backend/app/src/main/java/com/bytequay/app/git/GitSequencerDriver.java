@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.git.SequenceState.ConflictedPath;
+import com.bytequay.app.git.SequenceState.ConflictedPath.IndexStage;
 import com.bytequay.app.git.SequenceState.Kind;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
@@ -30,13 +31,12 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Drives one Git sequencer, whether it was started by a cherry-pick or a rebase.
+ * Drives guarded cherry-pick operations for one source commit at a time.
  *
- * <p>Both commands share the sequencer: it applies commits until one conflicts
- * or proves empty, records the remainder in a todo file, and resumes on
- * {@code --continue} or {@code --skip}. This helper performs one bounded action
- * at a time and then reports what the repository says, so the caller never has
- * to trust an exit code.
+ * <p>This helper performs one bounded action and then reports what the
+ * repository says, so the caller never has to trust an exit code. A future
+ * rebase service may reuse observation facts, but its commands and markers are
+ * deliberately not generalized here.
  *
  * <p>Public only so sibling implementation packages can use it. It is internal
  * to this Maven module and belongs in no public port.
@@ -64,21 +64,18 @@ public final class GitSequencerDriver
     }
 
     /**
-     * Starts one cherry-pick sequence over an ordered commit list.
+     * Starts one cherry-pick for one source commit.
      *
      * @param worktree leased worktree to mutate
      * @param expectedHead HEAD the caller believes it is starting from
-     * @param sourceShas commits to apply, in order
-     * @return state after the sequencer stops or completes
+     * @param sourceSha commit to apply
+     * @return state after the cherry-pick stops or completes
      */
-    public SequenceState beginCherryPick(Path worktree, String expectedHead, List<String> sourceShas)
+    public SequenceState beginCherryPick(Path worktree, String expectedHead, String sourceSha)
     {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(expectedHead, "expectedHead is null");
-        requireNonNull(sourceShas, "sourceShas is null");
-        if (sourceShas.isEmpty()) {
-            return observe(worktree);
-        }
+        requireNonNull(sourceSha, "sourceSha is null");
         SequenceState before = observe(worktree);
         if (before.kind() != Kind.COMPLETED) {
             return unsafe(before.head(), "A Git operation is already open in " + worktree);
@@ -86,29 +83,41 @@ public final class GitSequencerDriver
         if (!before.head().equals(expectedHead)) {
             return unsafe(before.head(), "Worktree moved before the sequence started");
         }
-        git.run(worktree, ImmutableList.<String>builder()
-                .add("cherry-pick", "-x")
-                .addAll(sourceShas)
-                .build());
+        git.run(worktree, "cherry-pick", "-x", sourceSha);
         return observe(worktree);
     }
 
     /**
-     * Resumes a sequence whose conflicts are fully staged.
+     * Commits Git's exact conflicted snapshot before an agent repairs it.
      *
-     * @param worktree leased worktree
-     * @param expectedStoppedCommit commit the caller believes the sequencer stopped on
-     * @return state after the sequencer stops again or completes
+     * <p>The caller persists the conflict stages before invoking this method.
+     * Only the paths Git reports as unmerged are staged, then the program—not
+     * the agent—closes the cherry-pick operation.
      */
-    public SequenceState continueSequence(Path worktree, String expectedStoppedCommit)
+    public SequenceState commitConflictSnapshot(
+            Path worktree,
+            String expectedHead,
+            String expectedStoppedCommit,
+            List<ConflictedPath> expectedConflicts)
     {
+        requireNonNull(expectedConflicts, "expectedConflicts is null");
         SequenceState before = observe(worktree);
-        if (before.kind() != Kind.STOPPED_RESOLVED
-                || !before.stoppedCommit().orElseThrow().equals(expectedStoppedCommit)) {
-            return unsafe(before.head(), "Sequence is not a staged resolution of " + expectedStoppedCommit);
+        if (before.kind() != Kind.STOPPED_CONFLICT
+                || !before.head().equals(expectedHead)
+                || !before.stoppedCommit().orElseThrow().equals(expectedStoppedCommit)
+                || !before.conflicts().equals(expectedConflicts)) {
+            return unsafe(before.head(), "Conflict changed before its snapshot was committed");
         }
-        // No editor is opened for a plain continue, and the runner already
-        // disables the terminal prompt.
+        git.run(worktree, ImmutableList.<String>builder()
+                .add("add", "-A", "--")
+                .addAll(expectedConflicts.stream().map(ConflictedPath::path).toList())
+                .build());
+        SequenceState staged = observe(worktree);
+        if (staged.kind() != Kind.STOPPED_RESOLVED
+                || !staged.head().equals(expectedHead)
+                || !staged.stoppedCommit().orElseThrow().equals(expectedStoppedCommit)) {
+            return unsafe(staged.head(), "Conflict snapshot was not staged exactly");
+        }
         git.run(worktree, ImmutableList.of("cherry-pick", "--continue"));
         return observe(worktree);
     }
@@ -134,10 +143,6 @@ public final class GitSequencerDriver
             return unsafe(before.head(), "Sequence stopped on a different commit than expected");
         }
         git.run(worktree, ImmutableList.of("cherry-pick", "--skip"));
-        // A skip resumes the rest of the batch, so HEAD moving afterwards is
-        // normal: it means later commits applied. What must never happen is the
-        // skipped commit producing a commit of its own, and the caller proves
-        // that by reconciling every created commit against its -x line.
         return observe(worktree);
     }
 
@@ -170,7 +175,7 @@ public final class GitSequencerDriver
         Result headResult = git.run(worktree, "rev-parse", "HEAD");
         if (!headResult.successful()) {
             return new SequenceState(
-                    Kind.UNSAFE, "", Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+                    Kind.UNSAFE, "", Optional.empty(), ImmutableList.of(),
                     "Cannot read HEAD: " + headResult.output().strip());
         }
         String head = headResult.output().strip();
@@ -184,8 +189,7 @@ public final class GitSequencerDriver
         if (openMarkers.isEmpty()) {
             return conflicts.isEmpty() && !dirty
                     ? new SequenceState(
-                            Kind.COMPLETED, head, Optional.empty(), remaining(worktree),
-                            ImmutableList.of(), "")
+                            Kind.COMPLETED, head, Optional.empty(), ImmutableList.of(), "")
                     : unsafe(head, "No Git operation is open but the worktree is not clean");
         }
         if (!openMarkers.equals(Set.of("CHERRY_PICK_HEAD")) || cherryPickHead.isEmpty()) {
@@ -193,15 +197,15 @@ public final class GitSequencerDriver
         }
         if (!conflicts.isEmpty()) {
             return new SequenceState(
-                    Kind.STOPPED_CONFLICT, head, cherryPickHead, remaining(worktree), conflicts, "");
+                    Kind.STOPPED_CONFLICT, head, cherryPickHead, conflicts, "");
         }
         boolean nothingStaged = git.run(worktree, "diff", "--cached", "--quiet", "HEAD").successful();
         if (nothingStaged && !dirty) {
             return new SequenceState(
-                    Kind.STOPPED_EMPTY, head, cherryPickHead, remaining(worktree), ImmutableList.of(), "");
+                    Kind.STOPPED_EMPTY, head, cherryPickHead, ImmutableList.of(), "");
         }
         return new SequenceState(
-                Kind.STOPPED_RESOLVED, head, cherryPickHead, remaining(worktree), ImmutableList.of(), "");
+                Kind.STOPPED_RESOLVED, head, cherryPickHead, ImmutableList.of(), "");
     }
 
     /**
@@ -232,6 +236,87 @@ public final class GitSequencerDriver
         return observe(worktree).kind() == Kind.COMPLETED;
     }
 
+    /**
+     * Replaces a temporary conflict commit and its direct fixup with one final
+     * cherry-pick commit, or drops both when their final tree equals the parent.
+     */
+    public NormalizationResult normalizeConflictPair(
+            Path worktree,
+            String originalHead,
+            String conflictCommit,
+            String fixupCommit)
+    {
+        if (!parent(worktree, conflictCommit).equals(originalHead)
+                || !parent(worktree, fixupCommit).equals(conflictCommit)) {
+            return NormalizationResult.unsafe(head(worktree), "Conflict pair is not H0 -> C -> F");
+        }
+        String finalTree = tree(worktree, fixupCommit);
+        if (finalTree.isEmpty()) {
+            return NormalizationResult.unsafe(head(worktree), "Cannot read the final conflict tree");
+        }
+        SequenceState before = observe(worktree);
+        boolean empty = finalTree.equals(tree(worktree, originalHead));
+        if (before.kind() == Kind.COMPLETED && before.head().equals(originalHead) && empty) {
+            return new NormalizationResult(NormalizationResult.Kind.EMPTY, originalHead, "");
+        }
+        if (before.kind() == Kind.COMPLETED
+                && !before.head().equals(fixupCommit)
+                && parent(worktree, before.head()).equals(originalHead)
+                && tree(worktree, before.head()).equals(finalTree)
+                && message(worktree, before.head()).equals(message(worktree, conflictCommit))) {
+            return new NormalizationResult(NormalizationResult.Kind.APPLIED, before.head(), "");
+        }
+        if (before.kind() == Kind.COMPLETED && before.head().equals(fixupCommit) && empty) {
+            git.run(worktree, "reset", "--hard", originalHead);
+            SequenceState after = observe(worktree);
+            return after.kind() == Kind.COMPLETED && after.head().equals(originalHead)
+                    ? new NormalizationResult(NormalizationResult.Kind.EMPTY, originalHead, "")
+                    : NormalizationResult.unsafe(after.head(), "Empty conflict pair was not removed cleanly");
+        }
+        if (before.kind() == Kind.COMPLETED && before.head().equals(fixupCommit)) {
+            Result reset = git.run(worktree, "reset", "--soft", originalHead);
+            if (!reset.successful()) {
+                return NormalizationResult.unsafe(before.head(), "Cannot prepare conflict pair normalization");
+            }
+        }
+        else if (!normalizationIsPrepared(worktree, originalHead, finalTree)) {
+            return NormalizationResult.unsafe(before.head(), "Conflict pair is not at a recoverable normalization point");
+        }
+        return finishNormalizedCommit(worktree, originalHead, conflictCommit, finalTree);
+    }
+
+    private NormalizationResult finishNormalizedCommit(
+            Path worktree,
+            String originalHead,
+            String conflictCommit,
+            String finalTree)
+    {
+        Result committed = git.run(worktree, "commit", "--quiet", "--no-gpg-sign", "-C", conflictCommit);
+        SequenceState after = observe(worktree);
+        if (!committed.successful()
+                || after.kind() != Kind.COMPLETED
+                || !parent(worktree, after.head()).equals(originalHead)
+                || !tree(worktree, after.head()).equals(finalTree)
+                || !message(worktree, after.head()).equals(message(worktree, conflictCommit))) {
+            return NormalizationResult.unsafe(after.head(), "Conflict pair did not normalize to one equivalent commit");
+        }
+        return new NormalizationResult(NormalizationResult.Kind.APPLIED, after.head(), "");
+    }
+
+    private boolean normalizationIsPrepared(Path worktree, String originalHead, String expectedTree)
+    {
+        if (!head(worktree).equals(originalHead)) {
+            return false;
+        }
+        Result writtenTree = git.run(worktree, "write-tree");
+        String status = git.run(worktree, "status", "--porcelain=v1", "--untracked-files=all").output();
+        return writtenTree.successful()
+                && writtenTree.output().strip().equals(expectedTree)
+                && git.run(worktree, "diff", "--quiet").successful()
+                && git.run(worktree, "ls-files", "-u").output().isBlank()
+                && status.lines().noneMatch(line -> line.startsWith("??"));
+    }
+
     private Set<String> openMarkers(Path worktree)
     {
         Set<String> open = new LinkedHashSet<>();
@@ -240,7 +325,7 @@ public final class GitSequencerDriver
                 open.add(marker);
             }
         }
-        // The sequencer directory outlives a completed batch until the next
+        // The sequencer directory can outlive a completed operation until the next
         // command clears it, so on its own it does not mean work is open.
         if (open.equals(Set.of("sequencer"))) {
             return Set.of();
@@ -267,67 +352,13 @@ public final class GitSequencerDriver
                 : Optional.empty();
     }
 
-    private List<String> remaining(Path worktree)
-    {
-        Result todo = git.run(worktree, "rev-parse", "--git-path", "sequencer/todo");
-        if (!todo.successful()) {
-            return ImmutableList.of();
-        }
-        Path file = worktree.resolve(todo.output().strip()).normalize();
-        try {
-            if (!java.nio.file.Files.isRegularFile(file)) {
-                return ImmutableList.of();
-            }
-            ImmutableList.Builder<String> abbreviated = ImmutableList.builder();
-            for (String line : java.nio.file.Files.readAllLines(file)) {
-                String[] fields = line.strip().split("\\s+");
-                if (fields.length >= 2 && fields[0].equals("pick")) {
-                    abbreviated.add(fields[1]);
-                }
-            }
-            return fullShas(worktree, abbreviated.build());
-        }
-        catch (java.io.IOException e) {
-            return ImmutableList.of();
-        }
-    }
-
-    /**
-     * Git's todo file stores abbreviated ids.
-     *
-     * <p>A caller compares these against full plan SHAs, so returning them
-     * abbreviated would silently never match. One batched rev-parse resolves
-     * them all.
-     */
-    private List<String> fullShas(Path worktree, List<String> abbreviated)
-    {
-        if (abbreviated.isEmpty()) {
-            return ImmutableList.of();
-        }
-        Result resolved = git.run(worktree, ImmutableList.<String>builder()
-                .add("rev-parse")
-                .addAll(abbreviated)
-                .build());
-        if (!resolved.successful()) {
-            return ImmutableList.of();
-        }
-        ImmutableList.Builder<String> commits = ImmutableList.builder();
-        for (String line : resolved.output().lines().toList()) {
-            if (!line.isBlank()) {
-                commits.add(line.strip());
-            }
-        }
-        return commits.build();
-    }
-
     private List<ConflictedPath> conflicts(Path worktree)
     {
         Result unmerged = git.run(worktree, "ls-files", "-u");
         if (!unmerged.successful() || unmerged.output().isBlank()) {
             return ImmutableList.of();
         }
-        Map<String, Set<Integer>> stages = new LinkedHashMap<>();
-        Map<String, String> modes = new LinkedHashMap<>();
+        Map<String, List<IndexStage>> stages = new LinkedHashMap<>();
         for (String line : unmerged.output().lines().toList()) {
             int tab = line.indexOf('\t');
             if (tab < 0) {
@@ -338,13 +369,43 @@ public final class GitSequencerDriver
                 continue;
             }
             String path = line.substring(tab + 1);
-            stages.computeIfAbsent(path, key -> new LinkedHashSet<>()).add(Integer.parseInt(fields[2]));
-            modes.putIfAbsent(path, fields[0]);
+            stages.computeIfAbsent(path, key -> new java.util.ArrayList<>()).add(
+                    new IndexStage(Integer.parseInt(fields[2]), fields[0], fields[1]));
         }
         ImmutableList.Builder<ConflictedPath> conflicts = ImmutableList.builder();
-        stages.forEach((path, present) ->
-                conflicts.add(new ConflictedPath(path, classify(present, modes.get(path)))));
+        stages.forEach((path, present) -> {
+            present.sort(java.util.Comparator.comparingInt(IndexStage::stage));
+            Set<Integer> stageNumbers = present.stream()
+                    .map(IndexStage::stage)
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            String mode = present.getFirst().mode();
+            conflicts.add(new ConflictedPath(path, classify(stageNumbers, mode), present));
+        });
         return conflicts.build();
+    }
+
+    private String parent(Path worktree, String commit)
+    {
+        Result result = git.run(worktree, "rev-parse", commit + "^");
+        return result.successful() ? result.output().strip() : "";
+    }
+
+    private String head(Path worktree)
+    {
+        Result result = git.run(worktree, "rev-parse", "HEAD");
+        return result.successful() ? result.output().strip() : "";
+    }
+
+    private String tree(Path worktree, String commit)
+    {
+        Result result = git.run(worktree, "rev-parse", commit + "^{tree}");
+        return result.successful() ? result.output().strip() : "";
+    }
+
+    private String message(Path worktree, String commit)
+    {
+        Result result = git.run(worktree, "log", "-1", "--format=%B", commit);
+        return result.successful() ? result.output() : "";
     }
 
     private static ConflictedPath.Type classify(Set<Integer> stages, String mode)
@@ -363,6 +424,29 @@ public final class GitSequencerDriver
     private static SequenceState unsafe(String head, String diagnostics)
     {
         return new SequenceState(
-                Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), ImmutableList.of(), diagnostics);
+                Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
+    }
+
+    /** Result of replacing temporary conflict history with its final answer. */
+    public record NormalizationResult(Kind kind, String head, String diagnostics)
+    {
+        public NormalizationResult
+        {
+            requireNonNull(kind, "kind is null");
+            requireNonNull(head, "head is null");
+            requireNonNull(diagnostics, "diagnostics is null");
+        }
+
+        private static NormalizationResult unsafe(String head, String diagnostics)
+        {
+            return new NormalizationResult(Kind.UNSAFE, head, diagnostics);
+        }
+
+        public enum Kind
+        {
+            APPLIED,
+            EMPTY,
+            UNSAFE
+        }
     }
 }

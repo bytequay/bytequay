@@ -200,6 +200,26 @@ public class CherryPickPreviewService
         return Optional.ofNullable(cache.getIfPresent(previewId));
     }
 
+    /**
+     * Synchronizes the target again immediately before execution and rejects
+     * a preview whose frozen target is no longer current.
+     */
+    void requireCurrentTarget(Path repository, CherryPickPreview preview)
+    {
+        requireNonNull(repository, "repository is null");
+        requireNonNull(preview, "preview is null");
+        synchronizeTarget(
+                repository,
+                preview.targetRemote(),
+                preview.targetBranch(),
+                preview.localTargetBranch(),
+                "refs/remotes/" + preview.targetRemote() + "/" + preview.targetBranch());
+        if (!resolve(repository, preview.localTargetBranch()).equals(preview.targetSha())) {
+            throw new CherryPickInvalidRequestException(
+                    "Preview is stale; the synchronized target moved, so review a refreshed preview");
+        }
+    }
+
     private static Optional<TargetMatch> evidence(
             String sourceSha,
             Set<String> targetAncestors,
@@ -231,7 +251,27 @@ public class CherryPickPreviewService
 
     private void synchronizeTarget(Path repository, PreviewCherryPickRangeCommand command)
     {
-        String localBranch = command.localTargetBranch();
+        Result source = git.run(
+                repository, FETCH_TIMEOUT, ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
+        if (!source.successful()) {
+            throw new CherryPickConflictException(
+                    "Cannot fetch source remote " + command.sourceRemote() + ": " + source.output().strip());
+        }
+        synchronizeTarget(
+                repository,
+                command.targetRemote(),
+                command.targetBranch(),
+                command.localTargetBranch(),
+                command.remoteTrackingRef());
+    }
+
+    private void synchronizeTarget(
+            Path repository,
+            String targetRemote,
+            String targetBranch,
+            String localBranch,
+            String remoteTrackingRef)
+    {
         Optional<String> holder = checkedOutAt(repository, localBranch);
         if (holder.isPresent()) {
             throw new CherryPickConflictException(
@@ -239,22 +279,17 @@ public class CherryPickPreviewService
                             + "; Git cannot synchronize a checked-out branch");
         }
 
-        Result source = git.run(repository, FETCH_TIMEOUT, ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
-        if (!source.successful()) {
-            throw new CherryPickConflictException(
-                    "Cannot fetch source remote " + command.sourceRemote() + ": " + source.output().strip());
-        }
         Result target = git.run(repository, FETCH_TIMEOUT, ImmutableList.of(
-                "fetch", "--quiet", command.targetRemote(), command.targetBranch() + ":" + localBranch));
+                "fetch", "--quiet", targetRemote, targetBranch + ":" + localBranch));
 
         // Neither the exit code nor the message decides this. A rejected
         // non-fast-forward still advances the remote-tracking ref, and --quiet
         // suppresses the rejection line, so only the refs themselves say whether
         // the local branch actually moved.
-        Optional<String> remote = tryResolve(repository, command.remoteTrackingRef());
+        Optional<String> remote = tryResolve(repository, remoteTrackingRef);
         if (remote.isEmpty()) {
             throw new CherryPickConflictException(
-                    "Cannot fetch target branch " + command.remoteTrackingRef() + ": " + target.output().strip());
+                    "Cannot fetch target branch " + remoteTrackingRef + ": " + target.output().strip());
         }
         Optional<String> local = tryResolve(repository, localBranch);
         if (local.isEmpty()) {
@@ -264,7 +299,7 @@ public class CherryPickPreviewService
         }
         if (!local.equals(remote)) {
             throw new CherryPickConflictException(
-                    "Local target branch " + localBranch + " has diverged from " + command.remoteTrackingRef()
+                    "Local target branch " + localBranch + " has diverged from " + remoteTrackingRef
                             + "; reconcile it before previewing a range");
         }
     }

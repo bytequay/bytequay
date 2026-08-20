@@ -1,13 +1,18 @@
 # Branch Rebase Service
 
-> **Status: proposed.** This design records an approved direction; it does not
-> mean the service is implemented.
+> **Status: proposed and deferred.** This service is not implemented and is not
+> part of the locked cherry-pick execution path.
 
 This document specifies a program-owned rebase of one local branch onto another
-local branch, with agent-assisted conflict resolution. It is used to land a
-completed cherry-pick range (see
-[Cherry-pick Range](cherry-pick-range.md#14-landing-the-range)) and is intended
-to replace the agent-driven rebase that CI Autofix currently asks for in prose.
+local branch, with agent-assisted conflict resolution. Its intended consumers
+are an explicit future branch-rebase action and a future migration away from
+the agent-driven rebase that CI Autofix currently asks for in prose.
+
+The locked cherry-pick range flow does not invoke this service. It synchronizes
+and freezes the target immediately before creating the work branch. A moved
+target rejects the preview; a generated branch at that frozen SHA has no unique
+commit to rebase before the first cherry-pick. Completion also does not trigger
+an automatic rebase.
 
 ## 1. Why this is a separate service
 
@@ -20,6 +25,7 @@ Cherry-picking and rebasing look similar and are not the same operation:
 | Plan | confirmed by the user, immutable | derived from Git, not user-selected |
 | Skips | user-chosen, durable | none; a commit that becomes empty is dropped by Git |
 | Ordering authority | the confirmed plan | existing branch history |
+| Conflict history | temporary snapshot/fixup, immediately normalized to one commit or removed | agent stages while rebase stays open; program continues |
 
 They share exactly one thing: a conflict appears, an agent resolves it in a
 leased worktree, and the program decides from Git state whether the resolution
@@ -47,43 +53,50 @@ intended range. That contradicts the rule the rest of the system follows, that
 Git state decides what happened. Moving CI Autofix onto this service is the
 reason to build it as a service rather than as cherry-pick-private code.
 
-Migrating CI Autofix is **not** part of the first release. The service ships for
-the cherry-pick landing path first, with CI Autofix left unchanged until the
-service has run against real ranges.
+Migrating CI Autofix is separate from implementing this service. CI Autofix
+stays unchanged until the rebase service has its own tests and explicit
+approval. Cherry-pick does not wait for or invoke it.
 
 ## 2. What is shared, and what is not
 
-`git cherry-pick <list>` and `git rebase <base>` are the same machinery. Both
-drive Git's sequencer, which applies commits until one conflicts or proves
-empty, records the remainder in a todo file, and resumes on `--continue` or
-`--skip`:
+`git cherry-pick <commit>` and `git rebase <base>` use the same sequencer
+machinery and the same continue, skip, and abort operations. ByteQuay starts
+only one source commit per cherry-pick operation, so that side is identified by
+`CHERRY_PICK_HEAD`; rebase records all remaining work in its todo file:
 
 ```text
-.git/sequencer/todo              .git/rebase-merge/git-rebase-todo
-  pick 13d1ca2 S2 conflicts        (same stop/continue/skip/abort contract)
-  pick a37c5ca S3 clean
+CHERRY_PICK_HEAD                 .git/rebase-merge/git-rebase-todo
+  13d1ca2 S2 conflicts             pick 13d1ca2 S2 conflicts
+                                    pick a37c5ca S3 clean
 ```
 
-**Shared: `GitSequencerDriver`.** One concrete package-private helper owns
-begin, observe, continue, guarded-skip, and abort, and reports a
-`SequenceState` of `COMPLETED`, `STOPPED_CONFLICT`, `STOPPED_RESOLVED`,
-`STOPPED_EMPTY`, or `UNSAFE`. Its full contract is defined in
-[Cherry-pick Range §13.6](cherry-pick-range.md#136-java-contracts). It decides
-nothing about plans; it reports Git facts and performs one bounded action.
+**Shared later: low-level Git observation.** The current
+`GitSequencerDriver` is cherry-pick-shaped because it reads
+`CHERRY_PICK_HEAD` and runs cherry-pick continue/skip/abort. Rebase may reuse
+the command runner, conflict-stage records, clean-worktree checks, and the
+`COMPLETED`/`STOPPED_*`/`UNSAFE` vocabulary, but its operation-marker and
+continue/skip/abort commands must be rebase-aware. Generalize those facts only
+when this second caller is implemented; do not make the working cherry-pick
+driver speculative now. The current contract is in
+[Cherry-pick Range §10](cherry-pick-range.md#10-api-contract).
 
-That covers the conflict loop both services need: stop, hand the conflict to an
-agent, verify the staged result from Git, continue, and skip a proven-empty
-stop without an agent turn. The worktree-state inspection currently inside
-`CiGitOperations` moves into the driver rather than being duplicated a third
-time.
+That covers the Git observation and sequencer mutations both services need,
+but it does not force them to use the same conflict history. Rebase hands the
+open conflict to an agent and lets the program continue the sequence after the
+resolution is staged. Cherry-pick temporarily commits the conflict snapshot,
+lets the agent append one fixup, then normalizes both into one final commit or
+removes them when empty. The worktree-state inspection currently
+inside `CiGitOperations` moves into the driver rather than being duplicated a
+third time.
 
-**Not shared: the plan layer.** The two services differ in exactly one place,
-and it is not the loop:
+**Not shared: the plan layer or conflict-commit policy.** Their durable state
+and accepted history remain service-specific:
 
 | | Cherry-pick | Rebase |
 | --- | --- | --- |
 | who chooses the commit list | the user, through confirmed skips | nobody; it is whatever the branch holds |
 | durable per-commit result owed | yes, for per-item progress and final accounting | no |
+| conflict result | one normalized source-marked commit, or empty | one replayed commit produced by `rebase --continue` |
 | what the service adds | plan, positions, `-x` reconciliation, accounting, range-diff | original tip, descendant fast path, abort-restores-tip |
 
 So cherry-pick keeps a plan with durable item results, and this service keeps
@@ -155,7 +168,7 @@ resultWorkTip?           object ID after a successful rebase
    `FINISHED` without running anything. Git reports `Current branch <name> is up
    to date` for this case anyway; checking first means the service records a
    terminal result without starting an operation it would have to inspect.
-3. **Start.** Call `GitSequencerDriver.begin(...)`, which runs one
+3. **Start.** Call the future rebase-specific driver, which runs one
    non-interactive rebase:
 
    ```text
@@ -175,10 +188,10 @@ resultWorkTip?           object ID after a successful rebase
    `git rebase --show-current-patch`, then start one agent turn.
 6. **After a turn.** Call `observe(...)` and read the `SequenceState`, never
    the agent's text:
-   - `STOPPED_RESOLVED` → `continueSequence(...)`, which resumes the remaining
-     commits in one action;
-   - `STOPPED_EMPTY` → `skipEmpty(...)`, safe here because the sequencer, not a
-     user selection, owns the commit list;
+   - `STOPPED_RESOLVED` → the program runs guarded `git rebase --continue`,
+     which resumes the remaining commits in one action;
+   - `STOPPED_EMPTY` → the program runs guarded `git rebase --skip`, safe here
+     because the sequencer, not a user selection, owns the commit list;
    - `STOPPED_CONFLICT` with attempts below the limit → start another turn with
      the actual diagnostics;
    - `COMPLETED` → validate;
@@ -227,10 +240,11 @@ conflict.
 Your final message is for the user. ByteQuay inspects Git and decides.
 ```
 
-The agent stages; the program continues. This is the same division the
-cherry-pick prompt uses, and it is what lets both services share one driver: a
-sequence continues through many commits, so the program must re-inspect at every
-stop rather than letting the agent run ahead.
+For rebase, the agent stages and the program continues. Cherry-pick deliberately
+uses a different commit shape, but both services still share the driver's Git
+inspection and bounded sequencer operations. A rebase sequence continues
+through many commits, so the program must re-inspect at every stop rather than
+letting the agent run ahead.
 
 ## 8. Java contracts
 

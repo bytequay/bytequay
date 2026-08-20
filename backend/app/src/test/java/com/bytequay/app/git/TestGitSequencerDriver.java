@@ -15,7 +15,6 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.SequenceState.ConflictedPath;
 import com.bytequay.app.git.SequenceState.Kind;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,7 +49,7 @@ class TestGitSequencerDriver
     }
 
     @Test
-    void appliesAWholeBatchInOneAction()
+    void appliesOneSourceCommit()
     {
         write("seed.txt", "seed\n");
         commit("Base");
@@ -58,19 +57,14 @@ class TestGitSequencerDriver
 
         git(repository, "checkout", "--quiet", "-b", "source");
         String first = change("one.txt", "First change");
-        String second = change("two.txt", "Second change");
-        String third = change("three.txt", "Third change");
         git(repository, "checkout", "--quiet", "main");
 
-        SequenceState state = driver.beginCherryPick(
-                repository, target, ImmutableList.of(first, second, third));
+        SequenceState state = driver.beginCherryPick(repository, target, first);
 
         assertThat(state.kind()).isEqualTo(Kind.COMPLETED);
-        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("3");
+        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("1");
         assertThat(git(repository, "log", "--format=%B", target + "..HEAD"))
-                .contains("(cherry picked from commit " + first + ")")
-                .contains("(cherry picked from commit " + second + ")")
-                .contains("(cherry picked from commit " + third + ")");
+                .contains("(cherry picked from commit " + first + ")");
     }
 
     @Test
@@ -80,19 +74,16 @@ class TestGitSequencerDriver
         commit("Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        String clean = change("clean.txt", "Clean change");
         write("file.txt", "one\nSOURCE\nthree\n");
         commit("Conflicting change");
         String conflicting = head();
-        String later = change("later.txt", "Later change");
 
         git(repository, "checkout", "--quiet", "main");
         write("file.txt", "one\nTARGET\nthree\n");
         commit("Target change");
         String target = head();
 
-        SequenceState state = driver.beginCherryPick(
-                repository, target, ImmutableList.of(clean, conflicting, later));
+        SequenceState state = driver.beginCherryPick(repository, target, conflicting);
 
         assertThat(state.kind()).isEqualTo(Kind.STOPPED_CONFLICT);
         assertThat(state.stoppedCommit()).contains(conflicting);
@@ -100,43 +91,19 @@ class TestGitSequencerDriver
                 .extracting(ConflictedPath::path)
                 .containsExactly("file.txt");
         assertThat(state.conflicts().getFirst().type()).isEqualTo(ConflictedPath.Type.CONTENT);
-        assertThat(state.remainingCommits()).contains(later);
-        assertThat(state.head()).as("the clean commit before it landed").isNotEqualTo(target);
+        assertThat(state.conflicts().getFirst().stages())
+                .extracting(ConflictedPath.IndexStage::stage)
+                .containsExactly(1, 2, 3);
+        assertThat(state.conflicts().getFirst().stages())
+                .allSatisfy(stage -> {
+                    assertThat(stage.mode()).matches("[0-7]{6}");
+                    assertThat(stage.blobSha()).matches("[0-9a-f]{40}|[0-9a-f]{64}");
+                });
+        assertThat(state.head()).isEqualTo(target);
     }
 
     @Test
-    void reportsAStagedResolutionAndResumesTheRestOfTheBatch()
-    {
-        write("file.txt", "one\ntwo\n");
-        commit("Base");
-
-        git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "one\nSOURCE\n");
-        commit("Conflicting change");
-        String conflicting = head();
-        String later = change("later.txt", "Later change");
-
-        git(repository, "checkout", "--quiet", "main");
-        write("file.txt", "one\nTARGET\n");
-        commit("Target change");
-        String target = head();
-
-        driver.beginCherryPick(repository, target, ImmutableList.of(conflicting, later));
-        write("file.txt", "one\nRESOLVED\n");
-        git(repository, "add", "file.txt");
-
-        assertThat(driver.observe(repository).kind()).isEqualTo(Kind.STOPPED_RESOLVED);
-
-        SequenceState resumed = driver.continueSequence(repository, conflicting);
-        assertThat(resumed.kind()).isEqualTo(Kind.COMPLETED);
-        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("2");
-        assertThat(git(repository, "log", "--format=%B", target + "..HEAD"))
-                .as("the -x line survives conflict resolution")
-                .contains("(cherry picked from commit " + conflicting + ")");
-    }
-
-    @Test
-    void treatsBothKindsOfEmptyTheSameAndResumesAfterAGuardedSkip()
+    void treatsBothKindsOfEmptyTheSameAndSkipsOneAtATime()
     {
         write("seed.txt", "seed\n");
         commit("Base");
@@ -155,17 +122,22 @@ class TestGitSequencerDriver
         commit("Target already has it");
         String target = head();
 
-        SequenceState first = driver.beginCherryPick(
-                repository, target, ImmutableList.of(emptyUpstream, redundant, unique));
+        SequenceState first = driver.beginCherryPick(repository, target, emptyUpstream);
         assertThat(first.kind()).as("empty upstream").isEqualTo(Kind.STOPPED_EMPTY);
         assertThat(first.stoppedCommit()).contains(emptyUpstream);
 
         SequenceState second = driver.skipEmpty(repository, target, emptyUpstream);
-        assertThat(second.kind()).as("target-redundant, stopped identically").isEqualTo(Kind.STOPPED_EMPTY);
-        assertThat(second.stoppedCommit()).contains(redundant);
+        assertThat(second.kind()).isEqualTo(Kind.COMPLETED);
+        assertThat(second.head()).isEqualTo(target);
 
-        SequenceState third = driver.skipEmpty(repository, target, redundant);
-        assertThat(third.kind()).isEqualTo(Kind.COMPLETED);
+        SequenceState third = driver.beginCherryPick(repository, target, redundant);
+        assertThat(third.kind()).as("target-redundant").isEqualTo(Kind.STOPPED_EMPTY);
+        SequenceState fourth = driver.skipEmpty(repository, target, redundant);
+        assertThat(fourth.kind()).isEqualTo(Kind.COMPLETED);
+        assertThat(fourth.head()).isEqualTo(target);
+
+        SequenceState fifth = driver.beginCherryPick(repository, target, unique);
+        assertThat(fifth.kind()).isEqualTo(Kind.COMPLETED);
         assertThat(git(repository, "rev-list", "--count", target + "..HEAD"))
                 .as("only the one commit with content lands")
                 .isEqualTo("1");
@@ -184,7 +156,7 @@ class TestGitSequencerDriver
 
         git(repository, "checkout", "--quiet", "-B", "main", base);
         String target = head();
-        driver.beginCherryPick(repository, target, ImmutableList.of(empty));
+        driver.beginCherryPick(repository, target, empty);
 
         assertThat(driver.skipEmpty(repository, "0".repeat(40), empty).kind())
                 .as("wrong expected HEAD")
@@ -211,13 +183,13 @@ class TestGitSequencerDriver
         commit("Target change");
         String target = head();
 
-        assertThat(driver.beginCherryPick(repository, "0".repeat(40), ImmutableList.of(source)).kind())
+        assertThat(driver.beginCherryPick(repository, "0".repeat(40), source).kind())
                 .as("HEAD is not what the caller expected")
                 .isEqualTo(Kind.UNSAFE);
 
-        driver.beginCherryPick(repository, target, ImmutableList.of(source));
+        driver.beginCherryPick(repository, target, source);
         assertThat(driver.observe(repository).kind()).isEqualTo(Kind.STOPPED_CONFLICT);
-        assertThat(driver.beginCherryPick(repository, target, ImmutableList.of(source)).kind())
+        assertThat(driver.beginCherryPick(repository, target, source).kind())
                 .as("an operation is already open")
                 .isEqualTo(Kind.UNSAFE);
 
@@ -254,6 +226,117 @@ class TestGitSequencerDriver
         write("file.txt", "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\n");
         commit("Left a resolution unfinished");
         assertThat(driver.withoutConflictMarkers(repository, beforeMarkers, head())).isFalse();
+    }
+
+    @Test
+    void commitsTheConflictSnapshotThenSquashesItsFixup()
+    {
+        write("file.txt", "base\n");
+        commit("Base");
+        String base = head();
+
+        git(repository, "checkout", "--quiet", "-b", "source");
+        write("file.txt", "source\n");
+        commit("Conflicting change");
+        String source = head();
+
+        git(repository, "checkout", "--quiet", "-B", "main", base);
+        write("file.txt", "target\n");
+        commit("Target change");
+        String target = head();
+
+        SequenceState conflict = driver.beginCherryPick(repository, target, source);
+        SequenceState snapshot = driver.commitConflictSnapshot(
+                repository, target, source, conflict.conflicts());
+        assertThat(snapshot.kind()).isEqualTo(Kind.COMPLETED);
+        String conflictCommit = snapshot.head();
+        assertThat(git(repository, "log", "-1", "--format=%B"))
+                .contains("(cherry picked from commit " + source + ")");
+
+        write("file.txt", "resolved\n");
+        git(repository, "add", "file.txt");
+        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
+        String fixupCommit = head();
+        String finalTree = git(repository, "rev-parse", fixupCommit + "^{tree}");
+
+        GitSequencerDriver.NormalizationResult normalized = driver.normalizeConflictPair(
+                repository, target, conflictCommit, fixupCommit);
+
+        assertThat(normalized.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
+        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("1");
+        assertThat(git(repository, "rev-parse", "HEAD^{tree}")).isEqualTo(finalTree);
+        assertThat(git(repository, "log", "-1", "--format=%B"))
+                .contains("(cherry picked from commit " + source + ")")
+                .doesNotContain("fixup!");
+    }
+
+    @Test
+    void dropsAConflictPairWhoseFinalTreeEqualsItsParent()
+    {
+        write("file.txt", "base\n");
+        commit("Base");
+        String base = head();
+
+        git(repository, "checkout", "--quiet", "-b", "source");
+        write("file.txt", "source\n");
+        commit("Conflicting change");
+        String source = head();
+
+        git(repository, "checkout", "--quiet", "-B", "main", base);
+        write("file.txt", "target\n");
+        commit("Target change");
+        String target = head();
+
+        SequenceState conflict = driver.beginCherryPick(repository, target, source);
+        SequenceState snapshot = driver.commitConflictSnapshot(
+                repository, target, source, conflict.conflicts());
+        String conflictCommit = snapshot.head();
+        write("file.txt", "target\n");
+        git(repository, "add", "file.txt");
+        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
+
+        GitSequencerDriver.NormalizationResult normalized = driver.normalizeConflictPair(
+                repository, target, conflictCommit, head());
+
+        assertThat(normalized.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.EMPTY);
+        assertThat(head()).isEqualTo(target);
+        assertThat(driver.observe(repository).kind()).isEqualTo(Kind.COMPLETED);
+    }
+
+    @Test
+    void resumesNormalizationAfterTheSoftResetAndAdoptsItsCompletedCommit()
+    {
+        write("file.txt", "base\n");
+        commit("Base");
+        String base = head();
+        git(repository, "checkout", "--quiet", "-b", "source");
+        write("file.txt", "source\n");
+        commit("Conflicting change");
+        String source = head();
+        git(repository, "checkout", "--quiet", "-B", "main", base);
+        write("file.txt", "target\n");
+        commit("Target change");
+        String target = head();
+
+        SequenceState conflict = driver.beginCherryPick(repository, target, source);
+        String conflictCommit = driver.commitConflictSnapshot(
+                repository, target, source, conflict.conflicts()).head();
+        write("file.txt", "resolved\n");
+        git(repository, "add", "file.txt");
+        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
+        String fixupCommit = head();
+
+        git(repository, "reset", "--soft", target);
+        GitSequencerDriver.NormalizationResult recovered = driver.normalizeConflictPair(
+                repository, target, conflictCommit, fixupCommit);
+        assertThat(recovered.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
+        String normalized = head();
+
+        GitSequencerDriver.NormalizationResult adopted = driver.normalizeConflictPair(
+                repository, target, conflictCommit, fixupCommit);
+        assertThat(adopted.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
+        assertThat(adopted.head()).isEqualTo(normalized);
+        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("1");
     }
 
     private String change(String name, String subject)

@@ -24,9 +24,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Builds the prompt that hands one stopped cherry-pick to the agent.
  *
- * <p>The agent resolves files and judges whether they compile. It never moves
- * the sequence, and its reply is shown to the user rather than read: ByteQuay
- * inspects Git, which is the only part it can verify for itself.
+ * <p>The agent resolves the final tree and creates or amends one direct fixup.
+ * It never runs the cherry-pick sequencer. Its reply is shown to the user rather
+ * than read: ByteQuay inspects Git, which is the only part it can verify.
  */
 final class CherryPickPromptBuilder
 {
@@ -37,6 +37,8 @@ final class CherryPickPromptBuilder
     static String resolveConflict(
             CherryPickItem item,
             String expectedParentSha,
+            String conflictCommitSha,
+            Optional<String> fixupCommitSha,
             int attempt,
             Optional<String> userNote)
     {
@@ -45,7 +47,9 @@ final class CherryPickPromptBuilder
                 .append("Resolve only this cherry-pick.\n\n")
                 .append("Source commit: ").append(item.sourceSha()).append('\n')
                 .append("Subject: ").append(item.title()).append('\n')
-                .append("Expected target parent: ").append(expectedParentSha).append('\n')
+                .append("Original target parent: ").append(expectedParentSha).append('\n')
+                .append("Conflict snapshot commit: ").append(conflictCommitSha).append('\n')
+                .append(fixupCommitSha.map(sha -> "Fixup commit to repair: " + sha + "\n").orElse(""))
                 .append("Current step: RESOLVING\n")
                 .append("Attempt: ").append(attempt).append(" of ").append(CherryPickItem.MAX_AGENT_TURNS)
                 .append('\n');
@@ -56,29 +60,37 @@ final class CherryPickPromptBuilder
                 .append("the target, the commit order, or what is skipped:\n<<<\n")
                 .append(bounded(note))
                 .append("\n>>>\n"));
-        // ByteQuay cannot tell whether a resolution compiles, so the agent owns
-        // that judgement. The sandbox denies network access, so a build needing
-        // an uncached dependency will not run here; that is why this is best
-        // effort rather than required.
         prompt.append("""
 
                 Goal:
-                - Resolve every conflict and stage the result. Then stop.
-                  ByteQuay runs git cherry-pick --continue itself.
+                - ByteQuay has already committed Git's conflict snapshot. Resolve
+                  the final tree and leave no unrelated changes.
                 - Leave no conflict markers and no unrelated changes.
                 - Build or type-check the modules you touched, using whatever this
                   project already uses, and fix what your resolution broke. Skip this
                   when the project has no runnable build or it cannot run offline,
                   and say so in your final message.
                 """);
+        if (fixupCommitSha.isPresent()) {
+            prompt.append("""
+                    - Stage the complete repair, run exactly:
+                      git commit --amend --no-edit
+                      and stop. Amend the existing fixup; do not add a third commit.
+                    """);
+        }
+        else {
+            prompt.append("""
+                    - Stage the complete resolution, run exactly:
+                      git commit --fixup=%s
+                      and stop. If the final tree is already correct, add --allow-empty
+                      to that same fixup command.
+                    """.formatted(conflictCommitSha));
+        }
         prompt.append("""
 
-                If git reports that this cherry-pick is empty, stop and leave it open.
-                ByteQuay will inspect and skip it safely.
-
-                Do not run git cherry-pick --continue, --skip, or --abort. Do not commit,
-                amend, create a fixup commit, pick another commit, rebase, push, use gh, or
-                write to GitHub.
+                Do not run git cherry-pick --continue, --skip, or --abort. Do not
+                create an ordinary commit, another fixup, or a third commit. Do not
+                pick another commit, rebase, reset, push, use gh, or write to GitHub.
 
                 Your final message is for the user. ByteQuay inspects Git and decides.
                 """);

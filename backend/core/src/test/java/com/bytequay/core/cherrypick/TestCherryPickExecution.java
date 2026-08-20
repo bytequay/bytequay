@@ -25,7 +25,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -55,10 +54,7 @@ class TestCherryPickExecution
         assertThat(execution.cursor().orElseThrow().position()).isEqualTo(2);
         assertThat(execution.pendingItems()).hasSize(2);
 
-        CherryPickExecution applied = execution.recordApplied(
-                ImmutableMap.of(sha(2), created(2)),
-                created(2),
-                NOW.plusSeconds(1));
+        CherryPickExecution applied = execution.recordApplied(sha(2), created(2), NOW.plusSeconds(1));
         assertThat(applied.cursor().orElseThrow().position()).isEqualTo(4);
 
         CherryPickExecution done = applied.recordEmptySkipped(sha(4), NOW.plusSeconds(2));
@@ -67,22 +63,19 @@ class TestCherryPickExecution
     }
 
     @Test
-    void recordsAWholeBatchFromOneSequencerAction()
+    void recordsOneAppliedSourceCommit()
     {
         CherryPickExecution execution = execution(
                 planned(1, Disposition.TO_CHERRY_PICK),
                 planned(2, Disposition.TO_CHERRY_PICK),
                 planned(3, Disposition.TO_CHERRY_PICK));
 
-        CherryPickExecution applied = execution.recordApplied(
-                ImmutableMap.of(sha(1), created(1), sha(2), created(2), sha(3), created(3)),
-                created(3),
-                NOW.plusSeconds(1));
+        CherryPickExecution applied = execution.recordApplied(sha(1), created(1), NOW.plusSeconds(1));
 
-        assertThat(applied.items()).allMatch(item -> item.result() == Result.APPLIED);
-        assertThat(applied.items().stream().map(item -> item.targetSha().orElseThrow()))
-                .containsExactly(created(1), created(2), created(3));
-        assertThat(applied.currentTargetSha()).isEqualTo(created(3));
+        assertThat(applied.items().getFirst().result()).isEqualTo(Result.APPLIED);
+        assertThat(applied.items().getFirst().targetSha()).contains(created(1));
+        assertThat(applied.items().subList(1, 3)).allMatch(item -> item.result() == Result.PENDING);
+        assertThat(applied.currentTargetSha()).isEqualTo(created(1));
     }
 
     @Test
@@ -90,10 +83,7 @@ class TestCherryPickExecution
     {
         CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK));
 
-        assertThatThrownBy(() -> execution.recordApplied(
-                ImmutableMap.of("d".repeat(40), created(1)),
-                created(1),
-                NOW.plusSeconds(1)))
+        assertThatThrownBy(() -> execution.recordApplied("d".repeat(40), created(1), NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not in the plan");
     }
@@ -187,7 +177,7 @@ class TestCherryPickExecution
                 .recordAgentTurnStarted(sha(1), NOW.plusSeconds(6))
                 .withTurn("turn-1", NOW.plusSeconds(7))
                 .withoutTurn(NOW.plusSeconds(8))
-                .recordApplied(ImmutableMap.of(sha(1), created(1)), created(1), NOW.plusSeconds(10))
+                .recordApplied(sha(1), created(1), NOW.plusSeconds(10))
                 .withoutJournal(NOW.plusSeconds(11))
                 .finish(FinishReason.COMPLETED, "1 of 1 applied", NOW.plusSeconds(12));
 
@@ -208,7 +198,7 @@ class TestCherryPickExecution
         CherryPickExecution execution = execution(
                 planned(1, Disposition.TO_CHERRY_PICK),
                 planned(2, Disposition.TO_CHERRY_PICK))
-                .recordApplied(ImmutableMap.of(sha(1), created(1)), created(1), NOW.plusSeconds(1));
+                .recordApplied(sha(1), created(1), NOW.plusSeconds(1));
 
         assertThatThrownBy(() -> execution.finish(FinishReason.COMPLETED, "done", NOW.plusSeconds(2)))
                 .isInstanceOf(IllegalArgumentException.class)

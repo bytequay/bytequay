@@ -22,12 +22,21 @@ The design deliberately separates current behavior from future implementation.
   separately.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,
-  used to land a completed cherry-pick range and intended to replace CI
-  Autofix's unverified agent-driven rebase.
+  intended for explicit branch rebases and to replace CI Autofix's unverified
+  agent-driven rebase. It is not automatic in the cherry-pick range flow.
 - [Cherry-pick Range](cherry-pick-range.md) specifies source-range preview,
   target-presence detection, pull-request grouping and skip selection,
   conflict scope, immutable confirmation, local execution handoff, and final
   range review.
+
+When a cherry-pick conflicts, ByteQuay temporarily commits Git's conflict
+snapshot with the standard `-x` line. The agent resolves it in one direct
+`fixup!` commit. ByteQuay validates the final tree, then immediately squashes
+the pair to one source-marked commit, or removes both when the final tree is
+empty relative to the previous target tip. The first implementation keeps the
+ByteQuay validation hook as a successful no-op; a project-aware command needs
+an explicit user-selected validation profile because ByteQuay cannot infer how
+an arbitrary repository builds.
 
 ## Design principles
 

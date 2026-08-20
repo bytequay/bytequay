@@ -20,9 +20,7 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -184,37 +182,15 @@ public record CherryPickExecution(
         return edit(now, draft -> draft.journal = Optional.empty());
     }
 
-    /**
-     * Records every commit one sequencer action created, in plan order.
-     *
-     * <p>A single action can apply many commits, so this takes the whole batch:
-     * recording them one at a time would leave the aggregate briefly disagreeing
-     * with Git.
-     *
-     * @param appliedTargetShaBySourceSha created target SHA for each applied source SHA
-     * @param newTargetSha work branch tip after the batch
-     * @param now update time
-     * @return execution with those items applied
-     */
-    public CherryPickExecution recordApplied(
-            Map<String, String> appliedTargetShaBySourceSha,
-            String newTargetSha,
-            Instant now)
+    /** Records the one final target commit created for one source item. */
+    public CherryPickExecution recordApplied(String sourceSha, String targetSha, Instant now)
     {
         requireRunning(now);
-        requireNonNull(appliedTargetShaBySourceSha, "appliedTargetShaBySourceSha is null");
-        checkArgument(!appliedTargetShaBySourceSha.isEmpty(), "no applied commits were supplied");
-        checkSha(newTargetSha, "newTargetSha");
-        Map<String, String> remaining = new LinkedHashMap<>(appliedTargetShaBySourceSha);
-        ImmutableList.Builder<CherryPickItem> updated = ImmutableList.builderWithExpectedSize(items.size());
-        for (CherryPickItem item : items) {
-            String createdSha = remaining.remove(item.sourceSha());
-            updated.add(createdSha == null ? item : item.applied(createdSha));
-        }
-        checkArgument(remaining.isEmpty(), "applied commits are not in the plan: %s", remaining.keySet());
+        checkSha(sourceSha, "sourceSha");
+        checkSha(targetSha, "targetSha");
         return edit(now, draft -> {
-            draft.items = updated.build();
-            draft.currentTargetSha = newTargetSha;
+            draft.items = replace(sourceSha, item -> item.applied(targetSha));
+            draft.currentTargetSha = targetSha;
         });
     }
 
@@ -494,11 +470,11 @@ public record CherryPickExecution(
     public enum ActionType
     {
         BEGIN_SEQUENCE,
-        CONTINUE_SEQUENCE,
         SKIP_EMPTY,
+        COMMIT_CONFLICT_SNAPSHOT,
         AGENT_TURN,
-        VALIDATE,
-        ABORT
+        AGENT_REPAIR,
+        NORMALIZE_CONFLICT_PAIR
     }
 
     /** Human-readable {@code range-diff} output, and whether it was cut short. */

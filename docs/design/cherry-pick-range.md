@@ -1,872 +1,394 @@
 # Cherry-pick Range Design
 
-> **Status: proposed.** This design records an approved product direction; it
-> does not mean the feature is implemented. The agent-backed executor and its
-> program/agent boundary are specified in
-> [Agent-based cherry-pick execution](#13-agent-based-cherry-pick-execution).
+> **Status: locked.** This is the approved backend design. Implementation
+> progress is tracked in
+> [Cherry-pick Range Implementation Checklist](cherry-pick-range-impl-tmp.md).
 
-Implementation work is tracked in the temporary
-[Cherry-pick Range Implementation Checklist](cherry-pick-range-impl-tmp.md).
+This document defines the range preview, user confirmation, local execution,
+agent conflict resolution, recovery, and final verification. It is a bounded
+feature; it does not restore the deleted generic development-flow system.
 
-This document defines how ByteQuay prepares, displays, confirms, and verifies a
-range of source commits to cherry-pick onto a target branch. It is a new bounded
-workflow and does not restore the deleted task-agent or development-flow
-systems.
+## 1. Product flow
 
-## 1. Decision
+1. The backend fetches the source and target and creates a frozen preview.
+2. The UI shows commits in cherry-pick order. It may fold adjacent commits by
+   pull request and provide a pull-request checkbox, but the durable selection
+   is always a list of source commit SHAs.
+3. The user reviews the exact range and confirms the commits to skip.
+4. Immediately before creating the worktree, the backend synchronizes the
+   target again. If its SHA differs from the preview, start is rejected as
+   stale and the user reviews a new preview.
+5. The backend creates a generated work branch directly at the synchronized,
+   frozen target SHA. There is nothing to rebase before the first cherry-pick
+   because the generated branch has no unique commits.
+6. The backend applies one source commit at a time with
+   `git cherry-pick -x <sourceSha>`.
+7. A clean commit is recorded immediately. A proven-empty commit is skipped.
+   A conflict uses the agent flow in section 7.
+8. After every item has a result, the backend performs exact Git accounting and
+   stores `git range-diff` only for human review.
 
-The backend prepares one ordered preview from an exact source range and target
-commit. Each source commit contains enough Git, pull-request, target-presence,
-and conflict information for the frontend to group the range by pull request
-without changing the underlying commit order.
+There is no automatic rebase before or after range execution. A target move
+before start invalidates the preview. Rebasing an already-created branch is a
+separate service and a separate user decision.
 
-The user reviews the pull requests and commits, chooses any additional commits
-to skip, and explicitly confirms the plan. Confirmation freezes the exact Git
-object IDs and selections and authorizes local cherry-pick execution. It does
-not authorize a push or any other GitHub write.
+## 2. Fixed boundaries
 
-The workflow uses:
+- One execution has one repository, source range, target branch, generated
+  work branch, and generated worktree.
+- Source commits stay in oldest-first topological order.
+- Merge commits are rejected because no mainline parent was chosen.
+- The local target branch is synchronized but never checked out and never
+  receives the cherry-picks.
+- The work branch is created at the exact frozen target object ID and receives
+  all local mutations.
+- Confirmation permits local Git mutations only. It does not permit push,
+  comment, approval, merge, CI rerun, or another GitHub write.
+- The program owns order, skips, state transitions, empty decisions, and final
+  accounting. Agent messages never decide an outcome.
+- A final `APPLIED` item always has exactly one commit carrying the exact
+  standard `-x` line for its source SHA, whether or not a conflict occurred.
+- A final `EMPTY_SKIPPED` item has no commit and no target SHA.
+- Commit titles, PR titles, patch similarity, and `range-diff` never cause an
+  automatic skip.
 
-- original source commit order as the cherry-pick order;
-- direct ancestry and standard `git cherry-pick -x` origin lines to determine
-  whether a source commit is already represented on the target;
-- GitHub's final source-commit-to-pull-request association rather than pull
-  request head SHAs;
-- native Git merge simulation to preview conflicts; and
-- `git range-diff` only as a final human-readable review.
+## 3. Preview and target-presence detection
 
-Commit titles and `range-diff` similarity never cause an automatic skip.
+The preview input names:
 
-## 2. Boundary and invariants
+- a full local clone;
+- source remote, base ref, and tip ref;
+- target remote and target branch; and
+- the local target branch used as the synchronized mirror.
 
-The first release has these boundaries:
+The backend:
 
-- One plan names one repository, source range, target branch, and target
-  worktree.
-- Three branches are involved and their roles never overlap:
+1. rejects a shallow clone;
+2. fetches the source remote;
+3. runs `git fetch <targetRemote> <targetBranch>:<localTargetBranch>`;
+4. verifies the local target branch and remote-tracking ref resolve to the same
+   SHA, refusing a diverged local branch instead of forcing it;
+5. resolves source base, source tip, and target to full immutable SHAs;
+6. enumerates the source range in application order; and
+7. rejects merge commits.
 
-  | Ref | Role |
-  | --- | --- |
-  | `fork/master` | Remote-tracking ref. Read during sync, never checked out. |
-  | `fork-master` | Local target branch. Synced from the remote, never checked out, never receives cherry-picks. |
-  | `bump-477-478-a7` | Work branch. Created by ByteQuay, checked out in the worktree, receives every cherry-pick. |
+A source commit is automatically `ALREADY_ON_TARGET` only when either:
 
-- ByteQuay names the work branch `bump-{from}-{to}-{2 random characters from
-  `0-9a-zA-Z`}`. The user never types it.
-- The local target branch is never checked out, because Git refuses to fetch
-  into a branch that a worktree holds. Keeping it unchecked keeps sync always
-  possible.
-- A remote-tracking ref is never checked out. Git cannot do so without
-  detaching HEAD, and commits made on a detached HEAD reach no branch.
-- Exactly one step contacts the Git remote: synchronizing the local target
-  branch, at task creation. Preview, confirmation, execution, verification, and
-  rebase are local. Reading pull-request association from the GitHub REST API
-  is the one other network call, and it is a read used only for display and
-  grouping.
-- Source, range-boundary, and target object IDs are resolved before preview is
-  returned.
-- Only non-merge source commits are supported. A merge commit blocks preview
-  with an actionable diagnostic rather than being silently dropped or assigned
-  a guessed mainline parent.
-- Source commits remain in Git topological order throughout preview,
-  confirmation, execution, and verification.
-- A source commit has exactly one final disposition: already on target, skipped
-  by the user, skipped because execution proved it empty, cherry-picked, or
-  unresolved.
-- A pull-request checkbox is a convenient group selection. It never changes
-  commit order and is never the durable execution input.
-- Conflict preview is read-only and tied to the target commit used for the
-  simulation.
-- Confirmation is the direct user action that permits local Git mutation.
-- Nothing pushes, comments, approves, or merges on GitHub as part of this
-  workflow.
+- it is an ancestor of the target; or
+- target history contains an exact standard line:
 
-The backend, not the agent or frontend, owns the plan, ordering, skip reasons,
-and final accounting.
+  ```text
+  (cherry picked from commit <full source SHA>)
+  ```
 
-## 3. Preview preparation
+This remains reliable when a historical conflict resolution changed the patch.
+`git cherry` or patch ID may be shown as a warning, but it cannot skip a commit.
 
-The user supplies:
+## 4. Pull-request grouping and conflict preview
 
-- the repository clone;
-- the source remote and range start and end, such as `477` and `478`; and
-- the target remote and branch, such as `fork` and `master`.
-
-The backend first synchronizes, which is the only step that contacts the Git
-remote:
-
-1. Reject a shallow clone. Range enumeration, ancestry, and merge-base results
-   are all wrong on one, and they fail quietly rather than loudly.
-2. Fetch the source remote in full. The range lives there, and a narrow refspec
-   leaves ancestry queries short of objects they need.
-3. Synchronize the local target branch in one command:
-
-   ```text
-   git fetch <targetRemote> <targetBranch>:<localTargetBranch>
-   ```
-
-   This creates the local branch when it is missing and fast-forwards it when
-   it exists.
-4. Verify the result from Git rather than from the exit code: the local target
-   branch and the remote-tracking ref must resolve to the same object ID. A
-   rejected non-fast-forward update still advances the remote-tracking ref, so
-   the two can disagree after a command that reported a failure.
-5. Refuse a diverged local target branch instead of forcing it. Local commits
-   on the target branch are user work, and `--force` destroys them silently.
-
-The backend then performs these read-only steps:
-
-1. Resolve the range boundaries and the local target branch tip to full
-   immutable object IDs.
-2. Enumerate source commits in oldest-first topological order so position one
-   is the first commit that execution would attempt.
-3. Reject source merge commits.
-4. Scan local target branch history once for source commits reachable by
-   ancestry and for exact standard origin lines:
-
-   ```text
-   (cherry picked from commit <full-source-object-id>)
-   ```
-
-5. Associate each final source commit with the merged pull request that
-   introduced it when GitHub provides that association. This grouping is what
-   lets the user skip a whole pull request's commits at once.
-6. Simulate conflicts against the frozen target and build the preview.
-
-The pull-request association starts from each final source-range commit. It
-must not compare the pull request branch's old commit SHAs because GitHub
-rebase-and-merge and squash-and-merge create different SHAs on the base branch.
-
-## 4. Backend preview contract
-
-The backend returns a flat ordered commit list. Repeating the small optional
-pull-request projection in each commit keeps the frontend contract direct; the
-frontend groups records by pull-request identity while retaining every commit's
-position.
+For each source commit, the backend returns:
 
 ```text
-CherryPickRangePreview
-  previewId
-  repository
-  sourceBaseSha
-  sourceTipSha
-  targetBranch
-  targetSha
-  createdAt
-  commits[]
-  warnings[]
-
-CherryPickCommitPreview
-  position                 one-based cherry-pick order
-  sourceSha                full immutable object ID
-  title
-  pullRequest?             absent when GitHub has no association
-  targetMatch?             absent when not already represented
-  conflictPreview
-
-PullRequestPreview
-  repository
-  number
-  title
-  url
-  mergedAt
-
-TargetMatch
-  kind                     DIRECT_ANCESTOR | CHERRY_PICK_ORIGIN
-  targetCommitSha
-
-ConflictPreview
-  status                   CLEAN | CONFLICT | NOT_ANALYZED
-  basis                    AT_FROZEN_TARGET | AFTER_CLEAN_PREFIX | ESTIMATE
-  files[]
-  warning?
-
-ConflictFilePreview
-  path
-  module?
-  type
-  sections[]
-
-ConflictSectionPreview
-  startLine?
-  endLine?
+position
+sourceSha
+sourceParentSha
+title
+author
+committedAt
+changedPaths
+pullRequest?: number, title, URL, mergedAt
+alreadyOnTarget and evidence
+patchEquivalentWarning
+conflictPreview
 ```
 
-`alreadyOnTarget` is derived from the presence of `targetMatch`. Returning the
-match kind and target commit makes the result explainable and lets the UI link
-to the evidence.
+PR association is display metadata. It may come from a PR number lookup or a
+final commit association, but a PR head SHA is never used as execution input
+because merge and squash strategies can change it.
 
-Conflict type includes native Git categories such as content, add/add,
-modify/delete, rename/delete, binary, file/directory, and submodule conflicts.
-Line ranges exist only for textual conflicts where Git can produce meaningful
-hunks. Module is found from the nearest containing Maven `pom.xml`; it may be
-absent for repository-root files.
+The UI sorts by `position`, not by PR merge time. A folded PR row controls the
+same commit checkboxes underneath it. Confirmed skips are transmitted as source
+SHAs, so grouping can never reorder or silently add commits.
 
-The backend does not calculate a synthetic conflict-risk percentage. The UI
-can sort or summarize using actual module, file, and conflict-section counts.
+Conflict preview uses a temporary local worktree and native Git operations.
+It reports paths, conflict types, nearby text sections when available, and the
+nearest Maven module. Exact simulation stops at the first unresolved conflict;
+later results are labelled not analyzed because the chosen resolution changes
+what those commits will meet.
 
-## 5. Conflict-preview accuracy
+## 5. Confirmation and synchronization
 
-A cherry-pick is a sequence: the result of an earlier commit becomes the input
-to the next commit. The backend therefore distinguishes:
+The start request contains the preview ID, expected source base/tip SHA,
+expected target SHA, selected skip SHAs, agent lane, and idempotency key.
 
-- `AFTER_CLEAN_PREFIX`: exact for commits simulated after all earlier planned
-  commits applied cleanly;
-- `AT_FROZEN_TARGET`: exact for applying that one commit directly to the
-  frozen target; and
-- `ESTIMATE`: useful scope information after an earlier unresolved conflict,
-  but not a guarantee of what execution will encounter.
+Start performs these checks before any generated branch or worktree is made:
 
-Once simulation reaches a conflict, the user's eventual resolution can change
-all later results. The backend may continue independent simulations to provide
-an estimate, but it must label them accordingly. Binary and structural
-conflicts may report paths and types without line ranges.
+1. the preview exists and has not expired;
+2. all expected SHAs equal the preview;
+3. every selected skip is an eligible commit in that preview;
+4. no execution is already live for the same repository and target branch;
+5. the target is fetched again; and
+6. the synchronized target still equals the preview target SHA.
 
-Native Git output supplies the facts. `git merge-tree --write-tree` with a
-specified source parent as merge base can report conflict paths and stable
-conflict types without touching the index or working tree. A temporary
-worktree may be used when line-level conflict rendering is required. The
-implementation must not modify the user's selected worktree during preview.
+If step 6 fails, start returns a stale-preview error. It does not rebase or
+silently execute against the new target. The user must see the new conflict
+preview and confirm again.
 
-## 6. Pull-request grouping and selection
-
-The frontend groups commits by pull request while retaining the flat backend
-order. Pull requests are ordered by the smallest `position` among their source
-commits. `mergedAt` is displayed as useful context but is not the ordering
-authority.
-
-The default **Skip pull requests** view resembles:
+The work branch is then created directly at that SHA:
 
 ```text
-Trino 477 -> 478                         300 commits, 126 PRs
-
-[x] #23401  Fix Hive coercion
-    Merged Aug 3 | 3 commits | Already on target
-
-[ ] #23418  Improve JDBC metadata
-    Merged Aug 4 | 2 commits
-
-[-] #23422  Improve query planning
-    Merged Aug 5 | 4 commits | 1 already on target
+git worktree add -b <generatedWorkBranch> <worktree> <frozenTargetSha>
 ```
 
-Checkbox rules are:
+## 6. Durable ownership and results
 
-- Commits with `targetMatch` are skipped automatically and cannot be selected
-  for cherry-pick.
-- Checking an available pull request selects all its remaining commits for an
-  explicit user skip.
-- A partially selected pull request uses the indeterminate state.
-- Expanding a pull request shows its commits in source order and permits
-  individual selection changes.
-- Commits without a pull-request association appear in a separate group.
-- Title search helps find a pull request but never establishes its identity;
-  repository plus pull-request number is the identity.
+`CherryPickExecutionService` is the only transition owner. It writes:
 
-The screen shows a live summary:
+- execution `RUNNING`, `PAUSED`, or `FINISHED`;
+- current step `APPLYING` or `RESOLVING`;
+- pause/finish reason; and
+- each item's result.
 
-```text
-300 source commits
-18 already on target
-7 explicitly skipped
-275 will be cherry-picked
-```
-
-## 7. Confirmation contract
-
-The frontend confirms explicit commit selections, not grouped UI state:
-
-```text
-ConfirmCherryPickRangeCommand
-  previewId
-  expectedSourceBaseSha
-  expectedSourceTipSha
-  expectedTargetSha
-  userSkippedSourceShas[]
-  idempotencyKey
-```
-
-The backend reloads the preview and validates:
-
-- every skipped SHA belongs to the frozen source range;
-- the source boundaries still resolve to the expected object IDs;
-- the local target branch still resolves to `expectedTargetSha`;
-- commits marked already on target still have their recorded evidence; and
-- no other live execution targets the same repository and target branch.
-
-The worktree is not validated here because it does not exist yet. Confirmation
-is followed by preparation, which creates the work branch and worktree and then
-validates them. Splitting the two keeps confirmation a pure decision about the
-plan and leaves every Git mutation on one side of it.
-
-A moved source or target produces a stale-preview result. The backend does not
-silently recompute and execute a different range; the user reviews a refreshed
-preview.
-
-Successful confirmation creates an immutable plan whose ordered entries are:
-
-```text
-sourceSha + position + disposition + reason
-```
-
-Disposition is one of:
-
-```text
-ALREADY_ON_TARGET
-USER_SKIPPED
-TO_CHERRY_PICK
-```
-
-The confirmed plan is the only input to execution. Pull-request titles,
-checkbox state, commit titles, conflict scores, and agent prose do not control
-execution.
-
-## 8. Execution handoff
-
-### 8.1 Workspace preparation
-
-Confirmation prepares the workspace before the first cherry-pick. Preparation
-is local; the remote was contacted once, during synchronization.
-
-1. Generate the work branch name `bump-{from}-{to}-{2 random characters}` and
-   retry with new characters if that branch or worktree path already exists.
-2. Create the branch and its worktree in one command, at the **frozen** target
-   object ID rather than at the local target branch name:
-
-   ```text
-   git worktree add -b bump-477-478-a7 <path> <frozenTargetSha>
-   ```
-
-   Branching from the frozen object ID keeps the worktree consistent with the
-   plan even when the local target branch moves afterwards.
-3. Lease the worktree through the existing agent workspace service, which
-   validates repository identity, cleanliness, and that HEAD is a branch rather
-   than a detached commit.
-4. Create the `CHERRY_PICK` agent task while the worktree is still clean.
-
-Preparation cannot reuse an existing worktree the user prepared by hand, and it
-never checks out the local target branch. Git refuses to fetch into a checked-out
-branch, so keeping the local target branch unchecked is what keeps
-synchronization possible for every later run.
-
-### 8.2 Handoff
-
-Confirmation starts execution or durably queues it for immediate start. The
-executor receives only the frozen target SHA and the ordered
-`TO_CHERRY_PICK` source SHAs. Every created commit uses `git cherry-pick -x`
-and lands on the work branch, never on the local target branch.
-
-When execution encounters a conflict, it must preserve the standard `-x`
-origin line through resolution and `git cherry-pick --continue`. After every
-successful commit, the program verifies the final commit message contains the
-expected source object ID.
-
-The executor follows the program-owned state machine in
-[Agent-based cherry-pick execution](#13-agent-based-cherry-pick-execution).
-It must not change the confirmed skips, reorder source commits, push, merge a
-pull request, or use agent response text as a control fact.
-
-## 9. Completion and range review
-
-After execution stops, the backend inspects actual Git state. Successful local
-completion requires:
-
-- a clean index and worktree;
-- no merge, rebase, or cherry-pick in progress;
-- every `TO_CHERRY_PICK` source SHA not recorded as `EMPTY_SKIPPED`
-  represented by an exact standard `-x` origin line in the newly created
-  range;
-- the created commits ordered consistently with the confirmed source order;
-  and
-- every source commit accounted for as already on target, user skipped,
-  execution-proven empty, or newly cherry-picked.
-
-The backend then runs `git range-diff` between the original source range and
-the newly created update range for human review. The frontend uses it to show
-missing, extra, and changed patches, especially conflict resolutions.
-
-`range-diff` output is human-readable and heuristic. It is never parsed to
-decide completion. In particular, an old-only entry is acceptable only when
-the confirmed plan accounts for it as `ALREADY_ON_TARGET` or `USER_SKIPPED`,
-or the durable execution result records it as `EMPTY_SKIPPED`.
-
-## 10. Failure and recovery
-
-- Preview failure changes no Git state.
-- A stale preview requires review and confirmation of a new preview.
-- Cancellation never resets or deletes user work automatically. The work
-  branch and its worktree are ByteQuay's own, not user work, so cancelling
-  removes both after recording the final result. Nothing outside the
-  generated worktree is touched, and the local target branch is unchanged
-  because no cherry-pick ever reached it.
-- An execution conflict is not itself a failed range; it is unresolved work.
-- Backend restart must not guess whether an uncertain Git operation completed.
-  It reconciles the frozen plan with actual HEAD, standard `-x` markers, and
-  Git operation state before offering a next action.
-- A missing or incorrect expected `-x` marker pauses execution for inspection.
-- A source commit that becomes empty during execution is automatically
-  recorded as `EMPTY_SKIPPED` after the program proves the empty state, clears
-  the operation, and verifies that HEAD is unchanged and the worktree is
-  clean. It is never recorded as newly cherry-picked.
-
-## 11. API shape
-
-The proposed localhost API is deliberately small:
-
-```text
-POST /api/cherry-pick-ranges/previews
-GET  /api/cherry-pick-ranges/previews/{previewId}
-POST /api/cherry-pick-ranges/executions
-GET  /api/cherry-pick-ranges/executions?limit=...
-GET  /api/cherry-pick-ranges/executions/{executionId}
-POST /api/cherry-pick-ranges/executions/{executionId}/messages
-POST /api/cherry-pick-ranges/executions/{executionId}/cancel
-```
-
-The execution start request contains the confirmation contract and requires an
-idempotency key. Progress transport and agent interaction reuse the existing
-agent-service event model; this design does not add a second generic workflow
-or event framework.
-
-## 12. Acceptance criteria
-
-The feature is ready when tests prove:
-
-1. A fixed source range produces a stable, one-based, topologically ordered
-   commit list.
-2. Direct ancestry and exact `-x` origin lines mark the correct source commits
-   already on target, including a conflict-resolved historical cherry-pick
-   whose patch ID differs.
-3. Rebase-merged and squash-merged source pull requests group the final source
-   commits without relying on old pull-request head SHAs.
-4. Pull-request and individual checkboxes produce only explicit source-SHA
-   skip selections and never reorder commits.
-5. Conflict preview reports paths, modules, types, and textual sections when
-   available, and labels estimates after the first unresolved conflict.
-6. Moving the source or target after preview causes a stale-preview rejection
-   with no local mutation.
-7. Confirmation is required before any cherry-pick begins.
-8. Every created commit retains the expected standard `-x` origin line.
-9. Completion is determined from actual Git state and the immutable plan, not
-   agent prose or `range-diff` output.
-10. A cherry-pick proven empty creates no target commit, is durably recorded
-    as `EMPTY_SKIPPED`, leaves HEAD unchanged and the worktree clean, and
-    advances without another agent turn or a user pause.
-11. No preview, confirmation, execution, cancellation, or verification path
-    performs a GitHub write.
-
-## 13. Agent-based cherry-pick execution
-
-The execution design has one owner and one source of truth:
-
-- `CherryPickExecutionService` is the only component allowed to move the
-  range forward or record a final commit result.
-- Git state decides what actually happened.
-- Agent messages are progress for the user, never control input.
-
-### 13.1 Small state model
-
-Cherry-picking and rebasing are the same Git machinery. `git cherry-pick <list>`
-and `git rebase <base>` both drive Git's sequencer: it applies commits until one
-conflicts or turns out empty, records the remainder in its todo file, and
-resumes on `--continue` or `--skip`. ByteQuay drives that sequencer rather than
-reimplementing it, and shares one driver with
-[Branch Rebase Service](rebase-service.md).
-
-The execution has three statuses:
-
-```text
-RUNNING
-PAUSED
-FINISHED
-```
-
-and, while `RUNNING`, one current step:
-
-```text
-APPLYING
-RESOLVING
-```
-
-Each plan item has one result:
+Each item has one durable result:
 
 ```text
 PENDING
 ALREADY_ON_TARGET
 USER_SKIPPED
-APPLIED
-EMPTY_SKIPPED
+APPLIED             targetSha is required
+EMPTY_SKIPPED       targetSha is absent
 ```
 
-`ALREADY_ON_TARGET` and `USER_SKIPPED` come from the confirmed plan.
-`APPLIED` stores the created target SHA. `EMPTY_SKIPPED` stores no target SHA.
-A paused item remains `PENDING`; the pause reason explains what needs
-attention.
+The current item is derived as the first `PENDING` item. There is no separately
+stored cursor that could disagree after a crash.
 
-Git's sequencer owns *what runs next*. ByteQuay owns *what the result was*. The
-cursor is therefore derived, not stored: it is the lowest-position item still
-`PENDING`. Storing a second position beside Git's todo file would create two
-answers to one question, and they would disagree after any crash.
+Before every external mutation, the service stores an action journal containing
+the action type, source SHA, expected HEAD, attempt, and idempotency key. It then
+runs Git or starts an agent turn without holding a database transaction,
+inspects actual state, and saves the result in a second short transaction.
 
-Only `CherryPickExecutionService` writes `status`, `currentStep`, `result`, or
-`pauseReason`. The sequencer driver, agent service, controller, and
-store cannot make those decisions.
-
-### 13.2 How the program knows the result
-
-Before changing Git, the service stores the intended action and the HEAD it
-expects to start from. Afterwards it inspects the repository instead of
-trusting the command exit text or the agent response.
-
-One `advance(...)` carries one source commit. Handing Git the whole plan would
-let `--skip` and `--continue` run on past the commit in hand, and then no single
-operation would own a single result. Reconciliation is therefore direct:
-
-1. HEAD is either unchanged or exactly one new child of the stored expected
-   target HEAD. Two new commits for one source commit is a mismatch, not a
-   result.
-2. That child carries an exact standard `-x` line naming the source commit
-   ByteQuay asked for, and no other.
-3. The index and worktree are clean, and no leftover conflict marker survives:
-
-   ```text
-   git -c core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent
-       diff --check <expectedHead>..HEAD
-   ```
-
-   A leftover conflict marker is the only thing this rejects. Whitespace the
-   source author wrote is copied faithfully and never pauses the range, and
-   `core.whitespace` in the target repository cannot change what the program
-   accepts.
-
-The `-x` line is what ties a created commit to its source. Because only one
-source commit is ever in flight, the program compares that line with the one
-commit it asked for rather than matching a run of commits against a plan.
-
-An item becomes `EMPTY_SKIPPED` only when the sequencer has stopped on it and:
-
-1. HEAD is unchanged from the stored expected HEAD.
-2. `CHERRY_PICK_HEAD` is exactly that item's source SHA.
-3. There are no staged, tracked, untracked, or unmerged changes.
-4. The program records its intention, runs `git cherry-pick --skip`, and then
-   verifies HEAD is still unchanged and the worktree clean.
-
-This one path covers both a commit that was empty upstream and one the target
-already contains. Git stops on them identically, so there is no second
-detection mechanism and no tree comparison that bypasses the sequencer.
-
-The step is `RESOLVING` while the sequencer is stopped with conflict or
-staged-resolution work.
-
-ByteQuay does not build the result. Whether a resolution compiles is not
-something it can observe the way it observes Git, and a build it invented is a
-guess about a project it does not know: the module layout, the tool, whether
-the command can run offline. The agent is asked to build what it touched and
-to say when it could not. Its answer is reported, never treated as a result.
-
-Any mismatch — an unexpected commit, a missing `-x` line, a source SHA that is
-not the next pending item, dirty files, or uncertain Git state — pauses the
-whole execution. It never guesses a result.
-
-After a restart, Git's todo file and the stored item results together say where
-the sequence stands. If they disagree, execution pauses.
-
-### 13.3 Transition and transaction ownership
-
-`CherryPickExecutionService.advance(...)` performs at most one external action.
-It is the single transition owner.
-
-Each action uses two short SQLite transactions:
-
-1. Store the intended action, expected HEAD, and optimistic version.
-2. Commit that transaction.
-3. Run one sequencer action or one agent turn without
-   a database transaction.
-4. Inspect the result.
-5. Store the observed step and any final results in another short transaction.
-
-The optimistic version prevents two monitor calls from advancing the same
-execution. If the backend stops between steps 3 and 5, the next call inspects
-Git before doing anything else. It never blindly repeats a Git command.
-
-The transition rules are:
-
-| Program observation | Service decision |
-| --- | --- |
-| No operation open | Begin one cherry-pick for the next `TO_CHERRY_PICK` item |
-| Sequence ran to completion | Reconcile the created range, then continue or finish |
-| Sequence stopped on a conflict | Reconcile commits created so far, set `RESOLVING`, start one agent turn |
-| Sequence stopped and the item is provably empty | Guarded `--skip`, record `EMPTY_SKIPPED`, continue |
-| Agent staged a resolution | Run `git cherry-pick --continue` |
-| Git or the agent turn is unsafe or uncertain | Set `PAUSED`; leave items `PENDING` |
-| Every item has a result | Set `FINISHED` |
-
-Confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items never enter the
-sequence. They are excluded when the sequence is begun, which is what keeps a
-user skip from depending on any Git behavior.
-
-### 13.4 Components and boundaries
-
-| Component | Responsibility |
-| --- | --- |
-| `CherryPickExecutionService` | Own the plan, transitions, prompts, retry limit, final results, pause, and completion |
-| `CherryPickExecutionStore` | Persist and atomically version the execution; make no decisions |
-| `GitSequencerDriver` | Shared with the rebase service: begin, observe, continue, guarded-skip, and abort one Git sequence. Decides nothing about plans |
-| Existing `AgentTaskService` and `AgentTurnService` | Run one worktree-scoped agent conversation and report turn state |
-
-`GitSequencerDriver` is the shared part because it is the part that is
-genuinely identical. What is *not* shared is the layer above it: cherry-pick
-owns a user-confirmed plan with durable per-item results, and rebase owns no
-plan at all. Sharing the driver removes real duplication; sharing the plan
-layer would force two unlike things into one shape.
-
-The driver stays a concrete package-private helper. It gains no interface until
-a second implementation exists. The execution records and store port live in
-`core`; SQLite implements the store in `persistence-sqlite`.
-
-The agent can edit only the leased worktree and only for the stopped commit. It
-cannot update item results or execution status, and it never runs `--continue`,
-`--skip`, or `--abort`.
-
-### 13.5 Agent goal and prompt
-
-One prompt shape covers every attempt at one stopped commit. The program adds
-current Git facts.
+The journal actions used by the conflict path are:
 
 ```text
-Resolve only this cherry-pick.
-
-Source commit: <full source SHA>
-Expected target parent: <full target SHA>
-Current step: RESOLVING
-Attempt: <n> of 3
-Conflict files:
-- <path and conflict type>
-
-Goal:
-- Resolve every conflict and stage the result. Then stop.
-  ByteQuay runs git cherry-pick --continue itself.
-- Leave no conflict markers and no unrelated changes.
-- Build or type-check the modules you touched, using whatever this project
-  already uses, and fix what your resolution broke. Skip this when the project
-  has no runnable build or it cannot run offline, and say so in your final
-  message.
-
-If git reports that the cherry-pick is empty, stop and leave it open.
-ByteQuay will inspect and skip it safely.
-
-Do not run git cherry-pick --continue, --skip, or --abort. Do not commit,
-amend, create a fixup commit, pick another commit, rebase, push, use gh, or
-write to GitHub.
-
-Your final message is for the user. ByteQuay inspects Git and decides.
+COMMIT_CONFLICT_SNAPSHOT   expectedHead = H0
+AGENT_TURN                 expectedHead = C
+AGENT_REPAIR               expectedHead = F to amend
+NORMALIZE_CONFLICT_PAIR    expectedHead = F
 ```
 
-The agent's sandbox denies network access, so a build needing an uncached
-dependency cannot run there. That is why building is best effort and why the
-agent is asked to say when it was skipped, rather than being trusted to have
-done it.
+Temporary SHAs do not become final item fields. The journal and Git objects are
+enough for recovery while the item remains `PENDING`. After normalization the
+item stores only the final commit SHA or `EMPTY_SKIPPED`.
 
-One source commit creates at most one target commit. The program, not the
-agent, runs `git cherry-pick --continue`, because the sequencer then carries on
-through the remaining commits and ByteQuay must inspect each stop.
+## 7. Applying one source commit
 
-This is the same division the rebase service uses, and it is why the two can
-share one driver: the agent resolves files, the program moves the sequence.
+Let:
 
-The program allows at most three agent turns for one source commit. If the
-same safe conflict remains after that, it pauses.
+- `S` be the requested source commit;
+- `H0` be the finalized work-branch tip before `S`;
+- `C` be the temporary source-marked conflict snapshot;
+- `F` be the temporary agent fixup; and
+- `C'` be the normalized final commit.
 
-### 13.6 Java contracts
+The program runs one command:
 
-Only the application service and persistence port are public interfaces.
+```text
+git cherry-pick -x S
+```
 
-#### `CherryPickExecutionService`
+The command exit text is diagnostic only. The program classifies Git state.
+
+### 7.1 Clean apply
+
+A clean apply is accepted only when:
+
+- no Git operation remains;
+- the index and worktree are clean;
+- HEAD is exactly one child of `H0`;
+- that child has the exact standard `-x` line for `S`; and
+- `git diff --check H0..HEAD` finds no conflict marker. Repository whitespace
+  rules are disabled for this check so copied source whitespace is not treated
+  as a conflict failure.
+
+The item becomes `APPLIED` with that child SHA.
+
+### 7.2 Empty before a conflict commit
+
+The operation is proven empty only when all of these are true:
+
+- HEAD is still `H0`;
+- `CHERRY_PICK_HEAD` is exactly `S`;
+- there are no unmerged entries;
+- `git diff --cached --quiet HEAD` succeeds; and
+- there are no tracked or untracked changes.
+
+The service journals `SKIP_EMPTY`, runs `git cherry-pick --skip`, and verifies
+HEAD is still `H0`, no operation remains, and the worktree is clean. It records
+`EMPTY_SKIPPED` and continues without an agent turn or user pause.
+
+This covers both an originally empty source commit and a change already present
+under another target commit. Git stops identically in both cases.
+
+### 7.3 Conflict snapshot
+
+When `CHERRY_PICK_HEAD=S` and unmerged paths exist, the service first persists:
+
+- `S`, its source parent, and `H0`;
+- every conflict path and type; and
+- each exact `git ls-files -u` entry: stage 1 base blob, stage 2 target blob,
+  stage 3 source blob, mode, and path when those stages exist.
+
+It then stages only those exact conflict paths as Git left them:
+
+```text
+git add -A -- <conflict paths>
+git cherry-pick --continue
+```
+
+The service accepts `C` only when it is one child of `H0`, contains the exact
+`-x` line for `S`, closes the operation, and leaves a clean worktree. `C` is a
+temporary evidence commit: it may contain text markers or Git's selected side
+for a binary/delete/submodule conflict. The item remains `PENDING` and
+`RESOLVING`.
+
+### 7.4 Agent fixup
+
+The agent receives `S`, the source parent, `H0`, `C`, the recorded index stages,
+conflict paths, attempt number, and any user note. Its goal is:
+
+```text
+Resolve the final tree.
+Remove conflict markers and unrelated changes.
+Run the project's existing local checks when they can run offline.
+Stage the complete result.
+Run exactly: git commit --fixup=<full C SHA>
+If the tree already looks correct, use --allow-empty with that fixup.
+Stop.
+```
+
+The agent must not run cherry-pick continue/skip/abort, rebase, reset, push,
+`gh`, or an ordinary commit. Claude cherry-pick tasks route shell commands
+through the permission broker. It allows read/build/stage commands, a
+fixup-shaped commit, and the exact `git commit --amend --no-edit` repair shape.
+The service still verifies the expected history; the broker does not decide
+success.
+
+After the turn, the service accepts `F` only when:
+
+- `F` is the only new commit and its parent is exactly `C`;
+- its subject is exactly `fixup! <subject of C>`;
+- it contains no `-x` origin line;
+- no operation remains and the index/worktree are clean; and
+- marker-only `git diff --check H0..F` succeeds.
+
+Agent prose is never parsed. No fixup causes another CREATE turn. A structurally
+correct `F` that is dirty or still contains markers causes a REPAIR turn whose
+only history action is `git commit --amend --no-edit`; it replaces `F` and may
+not append a third commit. There are at most three total turns. Wrong history
+pauses instead of guessing.
+
+### 7.5 Validation and immediate normalization
+
+After structural checks, ByteQuay calls:
 
 ```java
-package com.bytequay.app.cherrypick;
-
-import com.bytequay.core.cherrypick.CherryPickExecution;
-import com.bytequay.core.cherrypick.CherryPickExecutionId;
-
-import java.util.List;
-
-/**
- * Owns the progress and final results of confirmed cherry-pick executions.
- */
-public interface CherryPickExecutionService
-{
-    /**
-     * Creates or returns the execution for an idempotent start request.
-     *
-     * @param command confirmed plan, worktree, agent lane, and idempotency key
-     * @return the durable execution
-     */
-    CherryPickExecution start(StartCherryPickExecutionCommand command);
-
-    /**
-     * Returns one execution for the UI.
-     *
-     * @param executionId execution identifier
-     * @return current execution, step, and item results
-     */
-    CherryPickExecution get(CherryPickExecutionId executionId);
-
-    /**
-     * Lists recent executions in reverse update order.
-     *
-     * @param limit positive maximum result count
-     * @return recent executions
-     */
-    List<CherryPickExecution> list(int limit);
-
-    /**
-     * Adds a bounded user instruction to the current paused item.
-     *
-     * <p>The service rechecks Git before resuming. The message cannot change
-     * the confirmed plan, skip or reorder commits, push, or expand agent
-     * permissions.
-     *
-     * @param command execution, message, and idempotency key
-     * @return resumed or still-paused execution
-     */
-    CherryPickExecution sendMessage(SendCherryPickMessageCommand command);
-
-    /**
-     * Stops future work without resetting or deleting local Git changes.
-     *
-     * @param executionId execution identifier
-     * @return finished or safely paused execution
-     */
-    CherryPickExecution cancel(CherryPickExecutionId executionId);
-
-    /**
-     * Reconciles Git and performs at most one next action.
-     *
-     * <p>This is the only method that advances the current commit. It first
-     * stores intent, runs no more than one Git or agent action,
-     * inspects actual facts, and then stores the next step or final result.
-     *
-     * @param executionId execution selected by the local monitor
-     * @return execution after one bounded action
-     */
-    CherryPickExecution advance(CherryPickExecutionId executionId);
-}
+validate(worktree, F)
 ```
 
-#### `CherryPickExecutionStore`
+The first implementation intentionally makes this a successful no-op.
+ByteQuay cannot infer how an arbitrary project builds. A future feature may
+store and run a user-approved validation profile; until then the agent's build
+attempt is useful user information, not a program control fact.
 
-```java
-package com.bytequay.core.cherrypick;
+Before starting the next source commit, the program normalizes the temporary
+history:
 
-import java.util.List;
-import java.util.Optional;
-
-/**
- * Persists versioned cherry-pick executions without making transitions.
- */
-public interface CherryPickExecutionStore
-{
-    /**
-     * Creates an execution or returns the existing execution with the same
-     * start idempotency key.
-     *
-     * @param execution proposed execution
-     * @return created or existing execution
-     */
-    CherryPickExecution createOrGet(CherryPickExecution execution);
-
-    /**
-     * Finds an execution by ID.
-     *
-     * @param executionId execution identifier
-     * @return execution when present
-     */
-    Optional<CherryPickExecution> find(CherryPickExecutionId executionId);
-
-    /**
-     * Lists recent executions for the UI.
-     *
-     * @param limit positive maximum result count
-     * @return executions in reverse update order
-     */
-    List<CherryPickExecution> listRecent(int limit);
-
-    /**
-     * Lists running executions that may need one monitor action.
-     *
-     * @param limit positive maximum result count
-     * @return running executions in stable update order
-     */
-    List<CherryPickExecution> listRunning(int limit);
-
-    /**
-     * Saves one transition using the aggregate's expected version.
-     *
-     * @param execution updated execution
-     * @return stored execution with its next version
-     */
-    CherryPickExecution save(CherryPickExecution execution);
-}
+```text
+H0 -- C -- F
 ```
 
-The shared sequencer driver replaces a cherry-pick-specific Git helper. It is
-concrete and package-private, and the rebase service uses the same type:
+If `tree(F) == tree(H0)`, it moves the ByteQuay-owned work branch back to `H0`,
+drops `C` and `F`, and records `EMPTY_SKIPPED`.
 
-```java
-final class GitSequencerDriver
-{
-    /**
-     * Starts one sequence: an ordered cherry-pick list, or a rebase onto a base.
-     */
-    SequenceState begin(BeginSequenceCommand command);
+Otherwise it performs the equivalent of:
 
-    /**
-     * Reads HEAD, sequencer todo, operation markers, index, status, source
-     * lines, and conflict details without changing Git.
-     */
-    SequenceState observe(ObserveSequenceCommand command);
-
-    /**
-     * Resumes a sequence whose conflicts are fully staged.
-     */
-    SequenceState continueSequence(ContinueSequenceCommand command);
-
-    /**
-     * Skips only an exact, clean, proven-empty stop and verifies HEAD is
-     * unchanged.
-     */
-    SequenceState skipEmpty(SkipEmptyCommand command);
-
-    /**
-     * Aborts the sequence and verifies the branch tip returned to the recorded
-     * value.
-     */
-    SequenceState abort(AbortSequenceCommand command);
-}
+```text
+git reset --soft H0
+git commit -C C
 ```
 
-`SequenceState` has five kinds:
+It accepts `C'` only when:
 
-| Kind | Meaning |
+- `C'` is one child of `H0`;
+- `tree(C') == tree(F)`;
+- the original message and exact `-x` source line from `C` are preserved; and
+- the worktree is clean with no operation or conflict marker.
+
+The item becomes `APPLIED` with `targetSha=C'`. The next source commit starts
+only after this point. Immediate normalization avoids an end-of-range autosquash
+that would rewrite every later target SHA.
+
+## 8. Recovery and edge cases
+
+Every `advance` inspects Git before mutating it. The action journal explains
+which SHA is expected, and actual Git objects explain whether the action ran.
+
+| Observed state | Decision |
 | --- | --- |
-| `COMPLETED` | No operation open, index and worktree clean |
-| `STOPPED_CONFLICT` | Operation open on a named commit, unmerged paths present |
-| `STOPPED_RESOLVED` | Operation open, no unmerged paths, resolution staged |
-| `STOPPED_EMPTY` | Operation open on a named commit, nothing staged, worktree clean |
-| `UNSAFE` | Anything else |
+| Journal says empty skip, the exact empty operation is still open | Run guarded `--skip` once |
+| Journal says empty skip, HEAD is clean at `H0` and the operation is closed | Adopt `EMPTY_SKIPPED`; do not start the source again |
+| Journal says snapshot, conflict still open at `H0` | Recheck saved stages, create `C` once |
+| Journal says snapshot, one valid `C` already exists | Adopt `C`; do not continue again |
+| Journal says agent turn, HEAD is `C` | Start or retry the fixup turn |
+| Journal says agent turn, one valid `F` exists | Adopt and validate `F`; do not ask for another commit |
+| Journal says repair, HEAD is the expected `F` | Ask the agent to amend that same fixup |
+| Journal says repair, one valid amended `F` exists | Adopt the replacement; reject a third commit |
+| Journal says normalize, HEAD is `F` | Start normalization |
+| Journal says normalize, HEAD is `H0` with staged tree equal to `tree(F)` | Finish `git commit -C C` |
+| Journal says normalize, a valid `C'` already exists | Adopt `C'` |
+| Journal says normalize, HEAD is clean `H0` and `tree(F)==tree(H0)` | Adopt the empty removal |
+| Any parent, origin, tree, operation, or path fact disagrees | Pause and preserve the worktree |
 
-It carries the observed HEAD, the stopped commit, remaining todo entries,
-conflict paths and types, and bounded diagnostics. It reports facts and decides
-nothing: the calling service maps them to its own state model.
+Additional edge cases:
 
-`begin` refuses to start when an operation is already open, and every mutating
-operation takes the HEAD it expects to start from so a stale caller cannot act
-on a worktree that moved.
+| Edge case | Response |
+| --- | --- |
+| Source was already recorded by an exact historical `-x` line | `ALREADY_ON_TARGET`; never invoke Git |
+| Source is patch-equivalent but has no exact evidence | Show warning; still attempt it |
+| `git cherry-pick` returns nonzero | Inspect state; do not decide from the exit code |
+| Empty and conflict both seem possible | Unmerged paths mean conflict; empty requires no unmerged path and no change |
+| Agent runs `--continue` or creates extra history | Permission denies the command; unexpected Git history pauses |
+| Agent creates valid `F` but leaves dirty files or markers | Retry by amending that same `F`; never add a third commit |
+| Agent creates no valid `F` | Retry the same item up to three turns |
+| Final `C/F` tree equals `H0` | Drop both and record `EMPTY_SKIPPED` |
+| Backend stops after soft reset | Compare the staged tree with `tree(F)` and finish once |
+| User cancels | Cancel the turn, abort an open cherry-pick, and remove only ByteQuay's generated branch/worktree |
+| Target moves after preview but before start | Reject stale preview before creating the worktree |
+| Target moves during execution | Finish against the frozen target; do not auto-rebase |
 
-### 13.7 Local API contract
+## 9. Final accounting and range review
 
-The localhost API remains:
+Completion requires:
+
+- every item has a non-`PENDING` result;
+- no Git operation remains and the worktree is clean;
+- the number of commits from initial target to final HEAD equals the number of
+  `APPLIED` items;
+- those commits follow item order;
+- each commit is the recorded target SHA, is a child of the previous finalized
+  target SHA, and carries the exact `-x` line for its source; and
+- the whole generated range has no conflict marker.
+
+Only after these checks does the service store:
+
+```text
+git range-diff sourceBase..sourceTip initialTarget..finalTarget
+```
+
+This output helps a person see missing, extra, or changed patches. It is never
+parsed to decide completion because its matching is heuristic.
+
+## 10. API contract
 
 ```text
 POST /api/cherry-pick-ranges/previews
@@ -878,108 +400,123 @@ POST /api/cherry-pick-ranges/executions/{executionId}/messages
 POST /api/cherry-pick-ranges/executions/{executionId}/cancel
 ```
 
-The start request contains the confirmed plan ID, expected target SHA,
-worktree, agent lane, and `Idempotency-Key`. It cannot supply a different
-commit order or skip list.
-
-The execution response is intentionally small:
+The execution response exposes the durable answer only:
 
 ```text
-executionId, status, currentStep?, pauseReason?
-initialTargetSha, currentTargetSha, agentTaskId, currentTurnId?
+executionId, repository, workBranch, localTargetBranch
+status, currentStep?, pauseReason?, finishReason?, summary?
+initialTargetSha, currentTargetSha, currentPosition?
 items[]:
-  position, sourceSha, result, targetSha?
+  position, sourceSha, title, result, targetSha?, pullRequestNumber?
 ```
 
-`currentStep` explains only the current `PENDING` item. `result` is the durable
-answer for each item, including already-on-target and user-skipped items from
-the confirmed plan. Agent events remain in the existing agent task stream
-instead of being copied into the cherry-pick response.
+Temporary `C` and `F` are recovery details and are not final API fields.
 
-### 13.8 Flow through the interfaces
+The main application contract is the concrete service currently used by the
+Spring controller:
 
-```mermaid
-stateDiagram-v2
-    [*] --> APPLYING: sequence begun with every TO_CHERRY_PICK item
-    APPLYING --> APPLYING: stop proven empty, guarded skip, sequence resumes
-    APPLYING --> RESOLVING: sequence stopped on a conflict
-    RESOLVING --> APPLYING: resolution staged, --continue resumes the sequence
-    RESOLVING --> RESOLVING: retry within the turn limit
-    APPLYING --> FINISHED: sequence completed, created range reconciled
-    APPLYING --> PAUSED: unsafe or uncertain
-    RESOLVING --> PAUSED: turn fails or retry limit reached
+```java
+/** Owns progress and final results for confirmed cherry-pick executions. */
+public final class CherryPickExecutionService
+{
+    /**
+     * Revalidates the confirmed preview, synchronizes the target, creates the
+     * generated workspace, and returns the idempotent durable execution.
+     */
+    public CherryPickExecution start(
+            StartCherryPickExecutionCommand command,
+            Path repository,
+            Path worktreeParent);
+
+    /** Returns the execution and its per-item durable results. */
+    public CherryPickExecution get(CherryPickExecutionId executionId);
+
+    /** Lists recent executions in reverse update order. */
+    public List<CherryPickExecution> list(int limit);
+
+    /**
+     * Inspects Git and performs at most one bounded next transition.
+     * It is the only method that advances an item.
+     */
+    public CherryPickExecution advance(CherryPickExecutionId executionId);
+
+    /** Resumes one paused current item with a bounded untrusted user note. */
+    public CherryPickExecution sendMessage(
+            CherryPickExecutionId executionId,
+            String message);
+
+    /** Cancels future work and removes only the generated workspace. */
+    public CherryPickExecution cancel(
+            CherryPickExecutionId executionId,
+            Path repository);
+}
 ```
 
-The concrete call flow is:
+Low-level Git support remains a concrete internal helper, not a public port:
 
-1. `start(...)` freezes the plan, prepares the work branch and worktree,
-   creates one existing agent task, and stores the execution.
-2. The monitor calls `advance(...)`.
-3. The service stores `APPLYING` and calls `GitSequencerDriver.begin(...)` with
-   the next `TO_CHERRY_PICK` source SHA. Confirmed skips are never picked.
-4. The sequencer applies commits until it completes or stops. Each returning
-   `advance(...)` reconciles the commits created since the stored HEAD by their
-   `-x` lines and records them `APPLIED`.
-5. A `STOPPED_EMPTY` stop is verified, skipped through the guarded path,
-   recorded `EMPTY_SKIPPED`, and the sequence resumes — no agent turn.
-6. A `STOPPED_CONFLICT` stop sets `RESOLVING` and starts one agent turn with the
-   prompt above.
-7. On terminal turn completion, `advance(...)` observes Git. A
-   `STOPPED_RESOLVED` state leads to `continueSequence(...)`, which resumes the
-   remaining commits. Anything unsafe pauses.
-8. When the sequence reports `COMPLETED`, the service reconciles the full
-   created range against the plan.
-9. When every item has a result, the service performs final range accounting
-   and records `FINISHED`.
+```java
+/** Runs guarded, observable Git operations; it never records plan results. */
+public final class GitSequencerDriver
+{
+    /** Starts one `git cherry-pick -x` at an exact expected HEAD. */
+    public SequenceState beginCherryPick(
+            Path worktree, String expectedHead, String sourceSha);
 
-A single `advance(...)` may therefore record many `APPLIED` items at once. That
-is the intended consequence of letting Git's sequencer run: the program checks
-in at every stop rather than after every commit, and the `-x` line on each
-created commit is what keeps the mapping back to plan items exact.
+    /** Reads operation markers, HEAD, status, and full conflict stages. */
+    public SequenceState observe(Path worktree);
 
-### 13.9 Edge cases and tests
+    /** Stages exact conflict paths and creates temporary snapshot `C`. */
+    public SequenceState commitConflictSnapshot(
+            Path worktree,
+            String expectedHead,
+            String expectedSource,
+            List<ConflictedPath> expectedConflicts);
 
-| Edge case | Program response |
-| --- | --- |
-| Empty before a conflict | Verify, guarded skip, record `EMPTY_SKIPPED`, sequence resumes |
-| Conflict resolution becomes empty | Same guarded skip path, no extra agent turn |
-| Conflict remains after a turn | Retry the same stop, up to three total turns |
-| Extra commit, missing `-x`, out-of-order source SHA, or dirty worktree | Pause without changing history |
-| Agent runs `--continue`, `--skip`, or `--abort` itself | Detected as an unexpected sequencer position; pause |
-| Backend stops mid-sequence | Read Git's todo file and the stored results; never blindly rerun |
-| Agent turn fails or provider authentication expires | Pause and preserve the worktree and task |
-| User cancels | Stop future actions, abort the open sequence, and remove the generated work branch and worktree |
+    /** Skips only a rechecked empty operation. */
+    public SequenceState skipEmpty(
+            Path worktree, String expectedHead, String expectedSource);
 
-Focused tests use temporary Git repositories and cover clean apply, ordinary
-conflict, empty before and after conflict, invalid
-history, restart reconciliation, retry exhaustion, and cancellation. Every test
-asserts the final item results from stored state and confirms that no path
-writes to GitHub.
+    /** Squashes `C/F` into one commit or removes an empty pair. */
+    public NormalizationResult normalizeConflictPair(
+            Path worktree, String originalHead, String conflictCommit, String fixupCommit);
 
-One test exists specifically because a single operation carries a single source
-commit: one `advance(...)` applies exactly one commit, leaves the cursor on the
-next, and a second commit appearing for one source commit pauses the range.
+    /** Aborts an open cherry-pick and verifies restoration. */
+    public SequenceState abort(Path worktree, String expectedHead);
+}
+```
 
-## 14. Landing the range
+## 11. Rebase reuse
 
-Execution finishes with every confirmed commit on the work branch. The work
-branch still sits on the target object ID frozen at confirmation, which the
-remote may have moved past while the range was being applied.
+Rebase can reuse the low-level observation vocabulary, command runner, agent
+task/turn lifecycle, retry rules, validation hook shape, and action-journal
+pattern. It must not reuse the cherry-pick `C/F/C'` policy.
 
-Landing is a separate, user-started step:
+During a rebase conflict the agent edits and stages only; the program runs
+`git rebase --continue`. A rebase may replay multiple commits and Git owns its
+todo list, so appending an agent fixup after a temporary replayed commit is not
+stable. A commit that becomes empty during replay is skipped by the program.
 
-1. Synchronize the local target branch again. This is the second and last time
-   the workflow contacts the Git remote.
-2. Rebase the work branch onto the refreshed local target branch, resolving
-   conflicts through the shared service in
-   [Branch Rebase Service](rebase-service.md).
-3. Push the work branch and open a pull request. This remains outside the first
-   release; the user performs it.
+The proposed [Branch Rebase Service](rebase-service.md) is primarily for an
+explicit rebase operation and a later CI Autofix migration. It is not invoked
+automatically by this cherry-pick flow.
 
-Landing never runs automatically at the end of execution. A completed range is
-a reviewable local result, and the user decides when to move it.
+## 12. Acceptance criteria
 
-The rebase is a distinct operation from cherry-picking, not another pass of the
-same state machine. Cherry-picking copies a fixed list of source commits onto a
-frozen base; rebasing replays the work branch's own commits onto a base that
-moved. They share conflict resolution, not their plans.
+Tests must prove:
+
+1. source order and frozen SHAs are stable;
+2. ancestry and exact `-x` lines are the only automatic presence evidence;
+3. a target move after preview is rejected before workspace creation;
+4. clean commits create exactly one final commit;
+5. both kinds of original empty commit create no commit and continue;
+6. conflicts persist index stages 1/2/3 before `C` is created;
+7. the agent can produce only one direct fixup-shaped `F`;
+8. nonempty `C/F` is normalized to one final `-x` commit with `tree(C')=tree(F)`;
+9. a `C/F` final tree equal to `H0` is removed and recorded `EMPTY_SKIPPED`;
+10. crash recovery adopts the snapshot, fixup, soft-reset, normalized, and
+    empty-removal states without repeating a mutation;
+11. invalid parents, origins, subjects, extra commits, dirty files, and markers
+    pause rather than guess;
+12. final accounting uses Git and the confirmed plan, never agent prose or
+    `range-diff`; and
+13. no path writes to GitHub.

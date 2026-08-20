@@ -213,13 +213,31 @@ public record CherryPickItem(
         }
     }
 
-    public record ConflictPath(String path, ConflictType type, Optional<String> module)
+    public record ConflictPath(String path, ConflictType type, Optional<String> module, List<IndexStage> stages)
     {
         public ConflictPath
         {
             checkText(path, "path", 1000);
             requireNonNull(type, "type is null");
             checkOptionalText(module, "module", 1000);
+            stages = ImmutableList.copyOf(requireNonNull(stages, "stages is null"));
+        }
+
+        public ConflictPath(String path, ConflictType type, Optional<String> module)
+        {
+            this(path, type, module, ImmutableList.of());
+        }
+    }
+
+    /** One immutable index side captured before the conflict is committed. */
+    public record IndexStage(int stage, String mode, String blobSha)
+    {
+        public IndexStage
+        {
+            checkArgument(stage >= 1 && stage <= 3, "stage is outside 1..3");
+            checkText(mode, "mode", 6);
+            checkArgument(mode.matches("[0-7]{6}"), "mode is invalid");
+            checkSha(blobSha, "blobSha");
         }
     }
 

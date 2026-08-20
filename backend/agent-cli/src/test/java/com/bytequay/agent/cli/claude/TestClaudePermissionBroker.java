@@ -131,6 +131,7 @@ class TestClaudePermissionBroker
 
         JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/failIfUnavailable").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/network/allowedDomains")).isEmpty();
@@ -202,6 +203,7 @@ class TestClaudePermissionBroker
 
         JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/network/allowedDomains")).isEmpty();
         assertThat(settings.at("/permissions/deny").toString())
@@ -225,6 +227,18 @@ class TestClaudePermissionBroker
         assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
                 .isEqualTo("deny");
         assertThat(permission(broker, token, "Bash", "command", "git push origin HEAD"))
+                .isEqualTo("deny");
+        assertThat(permission(broker, token, "Bash", "command", "mvn -q test"))
+                .isEqualTo("allow");
+        assertThat(permission(broker, token, "Bash", "command", "git add src/Main.java"))
+                .isEqualTo("allow");
+        assertThat(permission(broker, token, "Bash", "command", "git commit --fixup=" + "a".repeat(40)))
+                .isEqualTo("allow");
+        assertThat(permission(broker, token, "Bash", "command", "git commit --amend --no-edit"))
+                .isEqualTo("allow");
+        assertThat(permission(broker, token, "Bash", "command", "git commit -m unexpected"))
+                .isEqualTo("deny");
+        assertThat(permission(broker, token, "Bash", "command", "git cherry-pick --continue"))
                 .isEqualTo("deny");
     }
 

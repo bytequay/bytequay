@@ -518,34 +518,30 @@ Before changing Git, the service stores the intended action and the HEAD it
 expects to start from. Afterwards it inspects the repository instead of
 trusting the command exit text or the agent response.
 
-One `advance(...)` can apply many commits, because the sequencer keeps going
-until something stops it. Reconciliation is therefore a range, not a single
-commit:
+One `advance(...)` carries one source commit. Handing Git the whole plan would
+let `--skip` and `--continue` run on past the commit in hand, and then no single
+operation would own a single result. Reconciliation is therefore direct:
 
-1. Read every commit between the stored expected HEAD and current HEAD, oldest
-   first.
-2. Require each to carry an exact standard `-x` source line.
-3. Require those source SHAs to equal the plan's still-`PENDING`
-   `TO_CHERRY_PICK` items, in plan order, with no extras.
-4. Record each as `APPLIED` with its created target SHA.
-5. Record any `TO_CHERRY_PICK` item the sequencer passed over, and which
-   produced no commit, as `EMPTY_SKIPPED` — but only through the guarded skip
-   below, never by inference.
-6. Require a clean index and worktree, and no leftover conflict marker:
+1. HEAD is either unchanged or exactly one new child of the stored expected
+   target HEAD. Two new commits for one source commit is a mismatch, not a
+   result.
+2. That child carries an exact standard `-x` line naming the source commit
+   ByteQuay asked for, and no other.
+3. The index and worktree are clean, and no leftover conflict marker survives:
 
    ```text
    git -c core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent
        diff --check <expectedHead>..HEAD
    ```
 
-   A leftover conflict marker is the only thing this condition rejects.
-   Whitespace the source author wrote is copied faithfully and never pauses the
-   range, and `core.whitespace` in the target repository cannot change what the
-   program accepts.
+   A leftover conflict marker is the only thing this rejects. Whitespace the
+   source author wrote is copied faithfully and never pauses the range, and
+   `core.whitespace` in the target repository cannot change what the program
+   accepts.
 
-The `-x` line is what makes batching safe: every created commit names the
-source commit it came from, so a run of commits maps back to plan items exactly,
-without relying on counting or ordering alone.
+The `-x` line is what ties a created commit to its source. Because only one
+source commit is ever in flight, the program compares that line with the one
+commit it asked for rather than matching a run of commits against a plan.
 
 An item becomes `EMPTY_SKIPPED` only when the sequencer has stopped on it and:
 
@@ -597,7 +593,7 @@ The transition rules are:
 
 | Program observation | Service decision |
 | --- | --- |
-| No sequence started yet | Begin one with every `TO_CHERRY_PICK` item, in plan order |
+| No operation open | Begin one cherry-pick for the next `TO_CHERRY_PICK` item |
 | Sequence ran to completion | Reconcile the created range, then continue or finish |
 | Sequence stopped on a conflict | Reconcile commits created so far, set `RESOLVING`, start one agent turn |
 | Sequence stopped and the item is provably empty | Guarded `--skip`, record `EMPTY_SKIPPED`, continue |
@@ -920,8 +916,7 @@ The concrete call flow is:
    creates one existing agent task, and stores the execution.
 2. The monitor calls `advance(...)`.
 3. The service stores `APPLYING` and calls `GitSequencerDriver.begin(...)` with
-   every `TO_CHERRY_PICK` source SHA in plan order. Confirmed skips are never
-   in the list.
+   the next `TO_CHERRY_PICK` source SHA. Confirmed skips are never picked.
 4. The sequencer applies commits until it completes or stops. Each returning
    `advance(...)` reconciles the commits created since the stored HEAD by their
    `-x` lines and records them `APPLIED`.
@@ -961,10 +956,9 @@ history, restart reconciliation, retry exhaustion, and cancellation. Every test
 asserts the final item results from stored state and confirms that no path
 writes to GitHub.
 
-Two tests exist specifically because the sequencer runs in batches: one where a
-single `advance(...)` records many `APPLIED` items and the recorded target SHAs
-match the `-x` lines one for one, and one where a batch stops on an empty commit
-mid-run and resumes to completion after the guarded skip.
+One test exists specifically because a single operation carries a single source
+commit: one `advance(...)` applies exactly one commit, leaves the cursor on the
+next, and a second commit appearing for one source commit pauses the range.
 
 ## 14. Landing the range
 

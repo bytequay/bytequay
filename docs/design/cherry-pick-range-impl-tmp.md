@@ -162,7 +162,7 @@ is implemented.
   SHA, expected HEAD, attempt number, idempotency key, and start time. It
   ships as `CherryPickExecution.ActionJournal`, beside the aggregate that is
   the only writer of it, with the source SHA optional because one sequencer
-  action covers many commits.
+  operation carries one commit, but a journalled action need not.
 - [x] Put all legal transitions on `CherryPickExecution` methods; do not let
   controllers, entities, or stores construct invalid combinations.
 - [x] Enforce that a current step exists only while the status is `RUNNING`.
@@ -543,13 +543,14 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 
 - [x] Validate canonical worktree, expected HEAD, clean state, exact source
   commit, and absence of another Git operation before mutation.
-- [x] Begin one sequence with every `TO_CHERRY_PICK` source SHA in plan order:
-  `git cherry-pick -x <sha> <sha> ...`. Confirmed skips never enter the list.
+- [x] Begin one cherry-pick for the next `TO_CHERRY_PICK` source SHA:
+  `git cherry-pick -x <sha>`. One source commit per Git operation, so
+  `--skip` and `--continue` cannot run on past the commit in hand. Confirmed
+  skips are never picked.
 - [x] Never trust the exit code; observe Git after every action.
-- [x] Reconcile a batch: read every commit between the stored expected HEAD and
-  current HEAD oldest-first, require an exact `-x` line on each, require those
-  source SHAs to equal the still-pending plan items in order with no extras, and
-  record each `APPLIED` with its created target SHA.
+- [x] Reconcile directly: HEAD is unchanged or exactly one new child of the
+  expected parent, that child carries an exact `-x` line naming the commit
+  ByteQuay asked for, and two commits for one source commit pause the range.
 - [x] Require a clean worktree and no leftover conflict marker over the whole
   created range, using `git diff --check` with repository whitespace rules
   disabled.
@@ -576,8 +577,7 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 
 ### Clean completion
 
-- [x] Record every `APPLIED` item reconciled from one batch in a single
-  optimistic save; a batch may complete many items at once.
+- [x] Record the one `APPLIED` item in a single optimistic save.
 - [x] Derive the cursor as the lowest-position `PENDING` item; do not store a
   second position beside Git's todo file.
 - [x] Skip confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items without a
@@ -590,10 +590,10 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
   canonical design.
 - [x] Test clean apply, direct plan skips, originally empty source, and
   target-redundant empty source in real temporary repositories.
-- [x] Test a batch that records many `APPLIED` items in one advance, asserting
-  each recorded target SHA matches its `-x` line one for one.
-- [x] Test a batch that stops on an empty commit mid-run and resumes to
-  completion after the guarded skip.
+- [x] Test that one advance applies exactly one commit and leaves the cursor on
+  the next.
+- [x] Test that an empty commit is skipped without moving the work branch and
+  the range continues on the following advance.
 - [x] Test wrong HEAD, dirty worktree, open unrelated operation, and duplicate
   monitor calls, in `TestGitSequencerDriver` and `TestCherryPickExecutionService`.
   Missing `-x`, an extra commit, and a wrong parent need an agent to create
@@ -760,8 +760,7 @@ state and Git.
 - [ ] Test restart before and after empty skip. Deferred likewise; the skip is
   guarded by observation on both sides.
 - [ ] Test restart before and after validation. Deferred likewise.
-- [x] Test restart after a batch result save but before the next sequencer
-  action.
+- [x] Test restart after a result save but before the next Git operation.
 - [x] Test paused recovery message idempotency and scope rejection.
 - [x] Test cancellation with no turn, an unrecognisable worktree, and a repeat
   cancel. Cancelling mid-turn is exercised by the code path but not scripted;
@@ -776,7 +775,7 @@ state and Git.
 
 - [x] `mvn verify` passes.
 - [ ] Every journal crash point has an end-to-end test. Two are covered here
-  (after Git ran, and after a batch was saved); the agent-timing windows move
+  (after Git ran, and after a result was saved); the agent-timing windows move
   to checkpoint 9 with the harness that can script them.
 - [x] No restart path blindly repeats a Git mutation.
 - [x] Final accounting is based only on plan, stored results, and Git facts.

@@ -134,7 +134,7 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void recordsAWholeBatchInOneAdvance()
+    void appliesExactlyOneCommitPerAdvance()
     {
         String base = head(upstream);
         for (int index = 1; index <= 3; index++) {
@@ -143,10 +143,22 @@ class TestCherryPickExecutionService
         }
 
         CherryPickExecution started = start(base, ImmutableList.of());
-        CherryPickExecution afterOne = service.advance(started.id());
+        Path worktree = started.workspace().worktree();
 
-        assertThat(afterOne.status()).as("one advance covers the whole clean range").isEqualTo(Status.FINISHED);
-        assertThat(afterOne.items()).allMatch(item -> item.result() == Result.APPLIED);
+        CherryPickExecution afterOne = service.advance(started.id());
+        assertThat(afterOne.status()).isEqualTo(Status.RUNNING);
+        assertThat(afterOne.items().stream().filter(item -> item.result() == Result.APPLIED))
+                .as("one Git operation carries one source commit")
+                .hasSize(1);
+        assertThat(git(worktree, "rev-list", "--count", started.range().initialTargetSha() + "..HEAD"))
+                .isEqualTo("1");
+        assertThat(afterOne.cursor().orElseThrow().position()).isEqualTo(2);
+
+        CherryPickExecution afterTwo = service.advance(afterOne.id());
+        assertThat(afterTwo.items().stream().filter(item -> item.result() == Result.APPLIED)).hasSize(2);
+        assertThat(afterTwo.cursor().orElseThrow().position()).isEqualTo(3);
+
+        assertThat(runToCompletion(afterTwo).status()).isEqualTo(Status.FINISHED);
     }
 
     @Test
@@ -448,8 +460,8 @@ class TestCherryPickExecutionService
         Path worktree = started.workspace().worktree();
 
         // Every advance observes Git first, so calling it again after a "crash"
-        // reconciles instead of re-running the sequence.
-        CherryPickExecution finished = service.advance(started.id());
+        // reconciles instead of re-running the operation.
+        CherryPickExecution finished = runToCompletion(started);
         String tip = git(worktree, "rev-parse", "HEAD");
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
 

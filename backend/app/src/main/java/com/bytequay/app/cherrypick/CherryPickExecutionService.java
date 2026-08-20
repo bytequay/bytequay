@@ -285,13 +285,17 @@ public class CherryPickExecutionService
                 // the plan; reconciliation pauses if they do not.
                 return reconcile(execution, expectedHead, before);
             }
-            List<String> pending = execution.pendingItems().stream()
-                    .map(CherryPickItem::sourceSha)
-                    .collect(toImmutableList());
+            // One source commit per Git operation. Handing Git the whole plan
+            // would let --skip and --continue run on past the commit in hand,
+            // and then no single operation would own a single result.
+            String next = execution.pendingItems().getFirst().sourceSha();
             CherryPickExecution started = store.save(execution
                     .withStep(Step.APPLYING, clock.instant())
-                    .withJournal(journal(ActionType.BEGIN_SEQUENCE, Optional.empty(), expectedHead), clock.instant()));
-            return reconcile(started, expectedHead, sequencer.beginCherryPick(worktree, expectedHead, pending));
+                    .withJournal(journal(ActionType.BEGIN_SEQUENCE, Optional.of(next), expectedHead), clock.instant()));
+            return reconcile(
+                    started,
+                    expectedHead,
+                    sequencer.beginCherryPick(worktree, expectedHead, ImmutableList.of(next)));
         }
         if (before.kind() == SequenceState.Kind.STOPPED_EMPTY) {
             String stopped = before.stoppedCommit().orElseThrow();
@@ -301,6 +305,12 @@ public class CherryPickExecutionService
             if (after.kind() == SequenceState.Kind.UNSAFE) {
                 return pause(journalled, PauseReason.UNSAFE_GIT_STATE,
                         "Empty skip was rejected: " + after.diagnostics());
+            }
+            if (!after.head().equals(before.head())) {
+                // Only one commit was in flight, so a skip that moved HEAD
+                // created something, which is exactly what a skip must not do.
+                return pause(journalled, PauseReason.UNSAFE_GIT_STATE,
+                        "Empty skip moved the work branch to " + after.head());
             }
             return reconcile(
                     store.save(journalled.recordEmptySkipped(stopped, clock.instant())),
@@ -323,11 +333,12 @@ public class CherryPickExecutionService
     }
 
     /**
-     * Maps every commit created since the stored HEAD back to a plan item.
+     * Accepts at most one created commit, for the one commit that was in flight.
      *
-     * <p>The {@code -x} line on each created commit is what makes a batch safe:
-     * it names the source commit, so a run of commits maps to plan items exactly
-     * rather than by counting them.
+     * <p>Because a single operation carries a single source commit, the check is
+     * the direct one: HEAD is exactly one new child of the expected parent, and
+     * that child records the source commit ByteQuay asked for. Anything else,
+     * including a second commit, pauses.
      */
     private CherryPickExecution reconcile(
             CherryPickExecution execution,
@@ -338,21 +349,29 @@ public class CherryPickExecutionService
         if (after.kind() == SequenceState.Kind.UNSAFE) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE, after.diagnostics());
         }
-        Map<String, String> applied = new LinkedHashMap<>();
-        for (CreatedCommit created : createdCommits(worktree, expectedHead, after.head())) {
-            if (created.sourceSha().isEmpty()) {
-                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                        "Commit " + created.targetSha() + " carries no cherry-pick origin line");
-            }
-            applied.put(created.sourceSha().orElseThrow(), created.targetSha());
-        }
-        List<String> expectedOrder = execution.pendingItems().stream()
-                .map(CherryPickItem::sourceSha)
-                .limit(applied.size())
-                .collect(toImmutableList());
-        if (!ImmutableList.copyOf(applied.keySet()).equals(expectedOrder)) {
+        List<CreatedCommit> created = createdCommits(worktree, expectedHead, after.head());
+        if (created.size() > 1) {
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                    "Created commits do not match the confirmed plan order");
+                    "One source commit produced " + created.size() + " commits");
+        }
+        Map<String, String> applied = new LinkedHashMap<>();
+        if (!created.isEmpty()) {
+            CreatedCommit commit = created.getFirst();
+            if (commit.sourceSha().isEmpty()) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "Commit " + commit.targetSha() + " carries no cherry-pick origin line");
+            }
+            String expectedSource = execution.pendingItems().getFirst().sourceSha();
+            if (!commit.sourceSha().orElseThrow().equals(expectedSource)) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "Commit " + commit.targetSha() + " records " + commit.sourceSha().orElseThrow()
+                                + " but the plan expects " + expectedSource);
+            }
+            if (!parentOf(worktree, commit.targetSha()).equals(expectedHead)) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "Commit " + commit.targetSha() + " is not a child of " + expectedHead);
+            }
+            applied.put(commit.sourceSha().orElseThrow(), commit.targetSha());
         }
         if (!applied.isEmpty() && !sequencer.withoutConflictMarkers(worktree, expectedHead, after.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
@@ -395,6 +414,12 @@ public class CherryPickExecutionService
             created.add(new CreatedCommit(fields[0].strip(), originSha(fields[1])));
         }
         return created.build();
+    }
+
+    private String parentOf(Path worktree, String sha)
+    {
+        GitCommandRunner.Result parent = git.run(worktree, "rev-parse", sha + "^");
+        return parent.successful() ? parent.output().strip() : "";
     }
 
     private static Optional<String> originSha(String message)

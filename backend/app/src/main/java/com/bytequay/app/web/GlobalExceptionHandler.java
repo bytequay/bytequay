@@ -22,6 +22,7 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -90,6 +91,7 @@ public class GlobalExceptionHandler
             AgentTaskNotFoundException.class,
             AgentTurnNotFoundException.class,
             ApprovalNotFoundException.class,
+            CherryPickNotFoundException.class,
             CiAutofixNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleAgentNotFound(RuntimeException exception, HttpServletRequest request)
     {

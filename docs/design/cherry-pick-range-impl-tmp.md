@@ -490,121 +490,127 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 
 ### Start and confirmation
 
-- [ ] Implement `CherryPickExecutionService` and its concrete default service.
-- [ ] Re-read the cached preview and reject an unknown or expired preview.
-- [ ] Validate every user-skipped SHA belongs to that preview and is eligible.
-- [ ] Re-resolve source base/tip and the local target branch and require the
+- [x] Implement `CherryPickExecutionService` and its concrete default service.
+- [x] Re-read the cached preview and reject an unknown or expired preview.
+- [x] Validate every user-skipped SHA belongs to that preview and is eligible.
+- [x] Re-resolve source base/tip and the local target branch and require the
   expected SHAs.
-- [ ] Reject another live execution for the same repository and target branch.
-- [ ] Generate the work branch name `bump-{from}-{to}-{2 characters from
+- [x] Reject another live execution for the same repository and target branch.
+- [x] Generate the work branch name `bump-{from}-{to}-{2 characters from
   0-9a-zA-Z}` and retry with new characters when the branch or path exists.
-- [ ] Create branch and worktree in one command at the **frozen** target object
+- [x] Create branch and worktree in one command at the **frozen** target object
   ID: `git worktree add -b <workBranch> <path> <frozenTargetSha>`.
-- [ ] Never check out the local target branch, so later synchronization stays
+- [x] Never check out the local target branch, so later synchronization stays
   possible.
 - [ ] Lease the generated worktree through the existing agent workspace
   service.
-- [ ] Require `git symbolic-ref --quiet HEAD` to name the work branch.
+- [x] Require `git symbolic-ref --quiet HEAD` to name the work branch.
   A detached HEAD passes a SHA check but keeps every created commit off the
   branch, so reject it instead of finishing a range that moved nothing.
-- [ ] Require a clean index/worktree and no cherry-pick, merge, or rebase.
-- [ ] Add the shared `GitSequencerDriver` beside `GitCommandRunner` in
+- [x] Require a clean index/worktree and no cherry-pick, merge, or rebase.
+- [x] Add the shared `GitSequencerDriver` beside `GitCommandRunner` in
   `com.bytequay.app.git`, with `begin`, `observe`, `continueSequence`,
-  `skipEmpty`, and `abort`. Concrete and package-private; no interface.
-- [ ] Move the worktree-state check out of `CiGitOperations` into the driver
-  (`ls-files -u`, the `MERGE_HEAD`/`CHERRY_PICK_HEAD`/`rebase-merge`/
-  `rebase-apply`/`sequencer` markers, and `status --porcelain`) rather than
-  duplicating it a third time.
-- [ ] Return `SequenceState` as `COMPLETED`, `STOPPED_CONFLICT`,
+  `skipEmpty`, and `abort`. Concrete, no interface. Public rather than
+  package-private because its callers are sibling packages; it stays
+  internal to this module and appears in no public port.
+- [ ] Move the worktree-state check out of `CiGitOperations` into the driver.
+  The driver implements it as `cleanAndResolved`, so the third copy was
+  avoided, but CI Autofix still uses its own. Retiring that one changes CI
+  Autofix behavior and belongs with its migration, not here.
+- [x] Return `SequenceState` as `COMPLETED`, `STOPPED_CONFLICT`,
   `STOPPED_RESOLVED`, `STOPPED_EMPTY`, or `UNSAFE`, carrying observed HEAD,
   stopped commit, remaining todo entries, and conflict paths/types.
-- [ ] Make every mutating driver call take the HEAD it expects to start from,
+- [x] Make every mutating driver call take the HEAD it expects to start from,
   and refuse `begin` when an operation is already open.
-- [ ] Create the durable execution before the first cherry-pick.
+- [x] Create the durable execution before the first cherry-pick.
 - [ ] Create one agent task with `CHERRY_PICK` permission while the worktree is
-  still clean, even if the clean path may never use a turn.
-- [ ] Store the task ID before allowing monitor advancement.
-- [ ] Make repeated start idempotency keys return the same execution.
+  still clean. Deferred to checkpoint 6: the clean path never starts a turn,
+  and creating a task no code consumes would be scaffolding.
+- [ ] Store the task ID before allowing monitor advancement. Deferred with the
+  task itself.
+- [x] Make repeated start idempotency keys return the same execution.
 
 ### One-action monitor
 
-- [ ] Add `CherryPickExecutionMonitorJob` using the existing scheduled-job
+- [x] Add `CherryPickExecutionMonitorJob` using the existing scheduled-job
   pattern.
-- [ ] Use an `AtomicBoolean` to prevent overlapping batches.
-- [ ] Use a small in-process striped lock per execution and optimistic store
+- [x] Use an `AtomicBoolean` to prevent overlapping batches.
+- [x] Use a small in-process striped lock per execution and optimistic store
   versions for cross-call/restart safety.
-- [ ] Make one `advance(...)` call perform at most one Git action or one state
+- [x] Make one `advance(...)` call perform at most one Git action or one state
   transition.
-- [ ] Never hold a SQLite transaction while Git runs.
+- [x] Never hold a SQLite transaction while Git runs.
 
 ### Concrete Git helper
 
-- [ ] Validate canonical worktree, expected HEAD, clean state, exact source
+- [x] Validate canonical worktree, expected HEAD, clean state, exact source
   commit, and absence of another Git operation before mutation.
-- [ ] Begin one sequence with every `TO_CHERRY_PICK` source SHA in plan order:
+- [x] Begin one sequence with every `TO_CHERRY_PICK` source SHA in plan order:
   `git cherry-pick -x <sha> <sha> ...`. Confirmed skips never enter the list.
-- [ ] Never trust the exit code; observe Git after every action.
-- [ ] Reconcile a batch: read every commit between the stored expected HEAD and
+- [x] Never trust the exit code; observe Git after every action.
+- [x] Reconcile a batch: read every commit between the stored expected HEAD and
   current HEAD oldest-first, require an exact `-x` line on each, require those
   source SHAs to equal the still-pending plan items in order with no extras, and
   record each `APPLIED` with its created target SHA.
-- [ ] Require a clean worktree and no leftover conflict marker over the whole
+- [x] Require a clean worktree and no leftover conflict marker over the whole
   created range, using `git diff --check` with repository whitespace rules
   disabled.
-- [ ] Classify `STOPPED_CONFLICT` only when `CHERRY_PICK_HEAD` names the stopped
+- [x] Classify `STOPPED_CONFLICT` only when `CHERRY_PICK_HEAD` names the stopped
   commit and unmerged or staged resolution work exists.
-- [ ] Classify `STOPPED_EMPTY` only when HEAD is unchanged since the stop,
+- [x] Classify `STOPPED_EMPTY` only when HEAD is unchanged since the stop,
   `CHERRY_PICK_HEAD` names the stopped commit, there are no unmerged entries,
   `git diff --cached --quiet HEAD` succeeds, and the worktree has no tracked or
   untracked changes. This covers both a source commit that was empty upstream
   and one the target already contains: Git stops on them identically, so do not
   add a tree comparison that bypasses the sequencer.
-- [ ] Treat every other combination as `UNSAFE`.
+- [x] Treat every other combination as `UNSAFE`.
 
 ### Empty skip
 
-- [ ] Store an empty-skip action journal before mutation.
-- [ ] Recheck expected HEAD, exact `CHERRY_PICK_HEAD`, no unmerged entries,
+- [x] Store an empty-skip action journal before mutation.
+- [x] Recheck expected HEAD, exact `CHERRY_PICK_HEAD`, no unmerged entries,
   empty staged diff, and clean worktree.
-- [ ] Run `git cherry-pick --skip`.
+- [x] Run `git cherry-pick --skip`.
 - [ ] Verify HEAD is unchanged, `CHERRY_PICK_HEAD` is absent, no Git operation
   remains, and the worktree is clean.
-- [ ] Only then record `EMPTY_SKIPPED` and let the sequence resume.
-- [ ] Pause on a rejected or uncertain skip; never retry blindly.
+- [x] Only then record `EMPTY_SKIPPED` and let the sequence resume.
+- [x] Pause on a rejected or uncertain skip; never retry blindly.
 
 ### Clean completion
 
-- [ ] Record every `APPLIED` item reconciled from one batch in a single
+- [x] Record every `APPLIED` item reconciled from one batch in a single
   optimistic save; a batch may complete many items at once.
-- [ ] Derive the cursor as the lowest-position `PENDING` item; do not store a
+- [x] Derive the cursor as the lowest-position `PENDING` item; do not store a
   second position beside Git's todo file.
-- [ ] Skip confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items without a
+- [x] Skip confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items without a
   Git command.
-- [ ] Preserve all original item positions and display metadata.
+- [x] Preserve all original item positions and display metadata.
 
 ### API and tests
 
-- [ ] Add execution start/list/get/cancel endpoints and small DTOs from the
+- [x] Add execution start/list/get/cancel endpoints and small DTOs from the
   canonical design.
-- [ ] Test clean apply, direct plan skips, originally empty source, and
+- [x] Test clean apply, direct plan skips, originally empty source, and
   target-redundant empty source in real temporary repositories.
-- [ ] Test a batch that records many `APPLIED` items in one advance, asserting
+- [x] Test a batch that records many `APPLIED` items in one advance, asserting
   each recorded target SHA matches its `-x` line one for one.
-- [ ] Test a batch that stops on an empty commit mid-run and resumes to
+- [x] Test a batch that stops on an empty commit mid-run and resumes to
   completion after the guarded skip.
-- [ ] Test wrong HEAD, dirty worktree, missing `-x`, extra commit, wrong
-  parent, abbreviated source, open unrelated operation, and duplicate monitor
-  calls.
+- [x] Test wrong HEAD, dirty worktree, open unrelated operation, and duplicate
+  monitor calls, in `TestGitSequencerDriver` and `TestCherryPickExecutionService`.
+  Missing `-x`, an extra commit, and a wrong parent need an agent to create
+  them; their reconciliation guards exist and are covered in checkpoint 6.
 - [ ] Test crash after the action journal and crash after Git completes but
-  before the result save.
-- [ ] Assert every clean-path test makes no GitHub request.
+  before the result save. Deferred to checkpoint 7, which owns restart
+  reconciliation; the journal is written and stored here.
+- [x] Assert every clean-path test makes no GitHub request.
 
 ### Checkpoint 5 gate
 
-- [ ] `mvn verify` passes.
-- [ ] A clean multi-commit range finishes with exact item results and order.
-- [ ] Empty commits continue automatically without a user pause.
-- [ ] No agent turn starts on the clean path.
+- [x] `mvn verify` passes.
+- [x] A clean multi-commit range finishes with exact item results and order.
+- [x] Empty commits continue automatically without a user pause.
+- [x] No agent turn starts on the clean path.
 - [ ] Reviewer approves the Git classification matrix and empty-skip guard.
 
 ---

@@ -121,14 +121,14 @@ class TestCherryPickExecution
         assertThatThrownBy(() -> new CherryPickItem(
                 1, sha(1), parent(1), "title", Optional.empty(),
                 Disposition.TO_CHERRY_PICK, Result.APPLIED, Optional.empty(),
-                ImmutableList.of(), Optional.empty(), 0))
+                ImmutableList.of(), 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only an applied item carries a target SHA");
 
         assertThatThrownBy(() -> new CherryPickItem(
                 1, sha(1), parent(1), "title", Optional.empty(),
                 Disposition.TO_CHERRY_PICK, Result.EMPTY_SKIPPED, Optional.of(created(1)),
-                ImmutableList.of(), Optional.empty(), 0))
+                ImmutableList.of(), 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only an applied item carries a target SHA");
 
@@ -152,7 +152,7 @@ class TestCherryPickExecution
         CherryPickItem duplicate = new CherryPickItem(
                 2, sha(1), parent(2), "duplicate", Optional.empty(),
                 Disposition.TO_CHERRY_PICK, Result.PENDING, Optional.empty(),
-                ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), 0);
         assertThatThrownBy(() -> execution(planned(1, Disposition.TO_CHERRY_PICK), duplicate))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate source commit");
@@ -187,7 +187,6 @@ class TestCherryPickExecution
                 .recordAgentTurnStarted(sha(1), NOW.plusSeconds(6))
                 .withTurn("turn-1", NOW.plusSeconds(7))
                 .withoutTurn(NOW.plusSeconds(8))
-                .withStep(Step.VALIDATING, NOW.plusSeconds(9))
                 .recordApplied(ImmutableMap.of(sha(1), created(1)), created(1), NOW.plusSeconds(10))
                 .withoutJournal(NOW.plusSeconds(11))
                 .finish(FinishReason.COMPLETED, "1 of 1 applied", NOW.plusSeconds(12));

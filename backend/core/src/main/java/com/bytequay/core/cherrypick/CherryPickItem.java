@@ -42,7 +42,6 @@ public record CherryPickItem(
         Result result,
         Optional<String> targetSha,
         List<ConflictPath> conflictPaths,
-        Optional<Validation> validation,
         int agentTurnCount)
 {
     public static final int MAX_AGENT_TURNS = 3;
@@ -62,7 +61,6 @@ public record CherryPickItem(
         requireNonNull(conflictPaths, "conflictPaths is null");
         conflictPaths = ImmutableList.copyOf(conflictPaths);
         checkArgument(conflictPaths.size() <= MAX_CONFLICT_PATHS, "conflictPaths exceeds " + MAX_CONFLICT_PATHS + " values");
-        requireNonNull(validation, "validation is null");
         checkArgument(agentTurnCount >= 0 && agentTurnCount <= MAX_AGENT_TURNS, "agentTurnCount is out of range");
         validate(disposition, result, targetSha);
     }
@@ -85,7 +83,6 @@ public record CherryPickItem(
                 initialResult(disposition),
                 Optional.empty(),
                 ImmutableList.of(),
-                Optional.empty(),
                 0);
     }
 
@@ -108,7 +105,6 @@ public record CherryPickItem(
                 Result.APPLIED,
                 Optional.of(checkSha(createdTargetSha, "createdTargetSha")),
                 conflictPaths,
-                validation,
                 agentTurnCount);
     }
 
@@ -125,7 +121,6 @@ public record CherryPickItem(
                 Result.EMPTY_SKIPPED,
                 Optional.empty(),
                 conflictPaths,
-                validation,
                 agentTurnCount);
     }
 
@@ -142,24 +137,6 @@ public record CherryPickItem(
                 result,
                 targetSha,
                 paths,
-                validation,
-                agentTurnCount);
-    }
-
-    public CherryPickItem withValidation(Validation outcome)
-    {
-        requireNonNull(outcome, "outcome is null");
-        return new CherryPickItem(
-                position,
-                sourceSha,
-                sourceParentSha,
-                title,
-                pullRequest,
-                disposition,
-                result,
-                targetSha,
-                conflictPaths,
-                Optional.of(outcome),
                 agentTurnCount);
     }
 
@@ -177,7 +154,6 @@ public record CherryPickItem(
                 result,
                 targetSha,
                 conflictPaths,
-                validation,
                 agentTurnCount + 1);
     }
 
@@ -256,15 +232,5 @@ public record CherryPickItem(
         BINARY,
         SUBMODULE,
         UNKNOWN
-    }
-
-    public record Validation(String targetSha, boolean passed, String diagnostics)
-    {
-        public Validation
-        {
-            checkSha(targetSha, "targetSha");
-            requireNonNull(diagnostics, "diagnostics is null");
-            checkArgument(diagnostics.length() <= 16 * 1024, "diagnostics exceeds 16384 characters");
-        }
     }
 }

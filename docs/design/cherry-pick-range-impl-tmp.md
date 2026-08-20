@@ -25,8 +25,7 @@ This file orders implementation work; it must not silently change that design.
   current step, item result, and pause reason. The cursor is derived, never
   stored.
 - [ ] Keep execution status limited to `RUNNING`, `PAUSED`, and `FINISHED`.
-- [ ] Keep the current step limited to `APPLYING`, `RESOLVING`, and
-  `VALIDATING`.
+- [ ] Keep the current step limited to `APPLYING` and `RESOLVING`.
 - [ ] Keep item results limited to `PENDING`, `ALREADY_ON_TARGET`,
   `USER_SKIPPED`, `APPLIED`, and `EMPTY_SKIPPED`.
 - [ ] Never use commit titles, pull-request titles, patch similarity, agent
@@ -38,7 +37,7 @@ This file orders implementation work; it must not silently change that design.
   skip selection only.
 - [ ] Create at most one target commit for one source commit.
 - [ ] Let the program, never the agent, run `git cherry-pick --continue` for
-  conflict completion. Validation repair uses `git commit --amend --no-edit`.
+  conflict completion.
 - [ ] Let only the program skip an empty cherry-pick. The agent must not call
   `git cherry-pick --skip`.
 - [ ] Do not push, comment, approve, merge, rerun GitHub Actions, or otherwise
@@ -156,8 +155,7 @@ is implemented.
   timestamps. Do not store a cursor.
 - [x] Add `CherryPickItem` with position, source SHA, source parent SHA, commit
   and pull-request display metadata, confirmed disposition, result, optional
-  target SHA, conflict information, validation information, and agent-turn
-  count.
+  target SHA, conflict information, and agent-turn count.
 - [x] Add enums for exactly the statuses, steps, and results in the canonical
   design.
 - [x] Add one small `CherryPickActionJournal` containing action type, source
@@ -189,9 +187,9 @@ is implemented.
 - [x] Add one `cherry_pick_execution` entity; do not create a table per
   implementation phase.
 - [x] Store frequently queried scalar fields as columns.
-- [x] Store the immutable item list, action journal, bounded diagnostics,
-  validation results, and final range review in JSON columns using the
-  existing Jackson converter pattern.
+- [x] Store the immutable item list, action journal, bounded diagnostics, and
+  final range review in JSON columns using the existing Jackson converter
+  pattern.
 - [x] Add a unique constraint for the start idempotency key.
 - [x] Add `@Version` optimistic locking.
 - [x] Add repository queries for recent and running executions.
@@ -615,7 +613,7 @@ Goal: execute confirmed commits without an agent when no conflict occurs.
 
 ---
 
-## Checkpoint 6 — Agent conflict resolution and validation
+## Checkpoint 6 — Agent conflict resolution
 
 Goal: resolve only the current conflicted commit and accept it from program
 facts.
@@ -626,11 +624,10 @@ facts.
   bounded diagnostics, and agent-turn count on the current item.
 - [x] Add one package-private prompt builder using the canonical prompt shape.
 - [x] Include full source SHA, expected target parent, current step, conflict
-  paths/types, exact validation argv, latest program diagnostic, and attempt
-  number.
+  paths/types, and attempt number.
 - [x] State that the agent stages resolutions and stops; the program runs
-  `git cherry-pick --continue`. Validation repair uses
-  `git commit --amend --no-edit`.
+  `git cherry-pick --continue`.
+- [x] Ask the agent to build what it touched and to report when it could not.
 - [x] State that an empty result must be left open for the program.
 - [x] Forbid skip, abort, fixup commit, next cherry-pick, rebase, push, `gh`,
   and GitHub writes.
@@ -652,39 +649,17 @@ facts.
 - [x] Route a conflict resolution that becomes empty through the same guarded
   empty-skip logic from checkpoint 5.
 
-### Validation planning
+### Validation
 
-- [x] Keep validation planning and running as concrete package-private
-  collaborators; do not create `CherryPickValidationService`.
-- [x] Build the authoritative changed-path set from conflict paths plus the
-  verified target commit diff.
-- [x] Find the nearest ancestor `pom.xml` for each changed path.
-- [x] If all paths map to Maven modules and a checked-in `mvnw` exists, plan:
-  `./mvnw -pl <comma-separated-modules> -am -DskipTests package`.
-- [x] If a root-level change cannot be isolated, plan:
-  `./mvnw -DskipTests package`.
-- [x] Store canonical working directory, argv list, fixed timeout, and output
-  limit before execution.
-- [x] Reuse `BoundedProcessRunner` with an argv list and no shell.
-- [x] Use a fixed 30-minute timeout and bounded output for the first
-  implementation.
-- [x] Pause `VALIDATION_UNAVAILABLE` when no checked-in Maven wrapper or safe
-  module/project command can be formed.
-- [x] Do not accept agent claims that compilation passed.
-
-### Validation and repair
-
-- [x] Set `VALIDATING` only after one structurally correct target commit
-  exists.
-- [x] Tie every validation result to the exact inspected target SHA.
-- [x] On failure, start a repair turn with bounded compiler diagnostics.
-- [x] Require repair to amend the same commit with
-  `git commit --amend --no-edit`.
-- [x] After an amend, rerun the full stored validation plan.
-- [x] After validation passes, inspect Git again and require the same target
-  SHA, expected parent, exact `-x` line, clean state, and the marker-only
-  `diff --check`. Reconciliation does this for every created commit.
-- [x] Record `APPLIED` only after that final inspection.
+- [x] Removed. ByteQuay no longer plans or runs a build. It cannot know a
+  project's build tool, module layout, or whether a command runs offline, and a
+  build it invents is a guess, not an observation. The agent is asked to build
+  what it touched and to report when it could not; `Step.VALIDATING`, the
+  validation record, the repair-by-amend turn, and the `VALIDATION_FAILED` and
+  `VALIDATION_UNAVAILABLE` pause reasons are gone with it.
+- [x] Keep the final Git inspection: same target SHA, expected parent, exact
+  `-x` line, clean state, and the marker-only `diff --check`. Reconciliation
+  does this for every created commit, and `APPLIED` is recorded only after it.
 
 ### Tests
 
@@ -697,9 +672,7 @@ facts.
   the reconciliation and marker guards are exercised through the driver and
   the retry path. Scripting each specific misbehaviour belongs with the
   end-to-end harness in checkpoint 9.
-- [x] Test validation pass, validation failure followed by amend, and
-  validation unavailable. Timeout and an amend that reaches another module
-  need a slow or multi-module fixture and belong with the end-to-end harness.
+- [x] Test that a resolution is accepted without being built, in one turn.
 - [x] Test conflict resolution becoming empty with unchanged HEAD and no extra
   agent turn.
 - [x] Assert one source commit creates at most one target commit.

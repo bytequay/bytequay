@@ -16,7 +16,6 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
-import com.bytequay.app.service.github.BoundedProcessRunner;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
@@ -67,11 +66,6 @@ class TestCherryPickExecutionService
         fork = init("fork");
         write(upstream, "seed.txt", "seed\n");
         write(upstream, "pom.xml", "<project/>\n");
-        // A checked-in wrapper so validation runs for real. It fails when a
-        // resolution leaves the marker behind, which is how the repair tests
-        // make a build go red.
-        writeExecutable(upstream, "mvnw", "#!/bin/sh\nif grep -q BROKEN seed.txt; then\n"
-                + "  echo 'compilation failure: seed.txt is BROKEN'\n  exit 1\nfi\nexit 0\n");
         commit(upstream, "Seed");
         git(fork, "remote", "add", "upstream", upstream.toString());
         git(fork, "fetch", "--quiet", "upstream");
@@ -106,7 +100,6 @@ class TestCherryPickExecutionService
                 agent,
                 agent,
                 agent,
-                new CherryPickValidation(new BoundedProcessRunner()),
                 CLOCK);
     }
 
@@ -407,11 +400,12 @@ class TestCherryPickExecutionService
                 .contains("push, use gh, or")
                 .contains("Your final message is for the user")
                 .contains("Conflict files:")
-                .contains("seed.txt");
+                .contains("seed.txt")
+                .contains("Build or type-check the modules you touched");
     }
 
     @Test
-    void repairsAFailedValidationByAmendingTheSameCommit()
+    void acceptsAResolutionWithoutBuildingIt()
     {
         String base = head(upstream);
         write(upstream, "seed.txt", "upstream edit\n");
@@ -422,31 +416,17 @@ class TestCherryPickExecutionService
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
-        // The first resolution compiles red; the repair amends the same commit.
-        agent.then(() -> resolve(worktree, "seed.txt", "BROKEN resolution\n"), TurnState.COMPLETED)
-                .then(() -> {
-                    write(worktree, "seed.txt", "good resolution\n");
-                    git(worktree, "add", "seed.txt");
-                    git(worktree, "commit", "--quiet", "--amend", "--no-edit");
-                }, TurnState.COMPLETED);
+        agent.then(() -> resolve(worktree, "seed.txt", "BROKEN resolution\n"), TurnState.COMPLETED);
 
         CherryPickExecution finished = runToCompletion(started);
 
+        // ByteQuay cannot tell whether a resolution compiles, so it does not try.
+        // The agent owns that judgement, and one turn is all this conflict costs.
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
-        assertThat(item(finished, conflicting).validation().orElseThrow().passed()).isTrue();
-        assertThat(agent.turnsStarted()).isEqualTo(2);
+        assertThat(agent.turnsStarted()).isEqualTo(1);
         assertThat(git(worktree, "rev-list", "--count", finished.range().initialTargetSha() + "..HEAD"))
-                .as("a repair amends rather than adding a commit")
                 .isEqualTo("1");
-        assertThat(git(worktree, "log", "-1", "--format=%B"))
-                .as("amending preserves the -x line")
-                .contains("(cherry picked from commit " + conflicting + ")");
-        assertThat(agent.prompts().getLast())
-                .contains("amend the same commit")
-                .contains("git commit --amend --no-edit")
-                .contains("compilation failure")
-                .contains("saying it passes does not make it pass");
     }
 
     private static void resolve(Path worktree, String name, String content)
@@ -649,12 +629,6 @@ class TestCherryPickExecutionService
         git(root, "config", "user.name", "ByteQuay Test");
         git(root, "config", "user.email", "bytequay@example.com");
         return root.toRealPath();
-    }
-
-    private static void writeExecutable(Path repository, String name, String content)
-    {
-        write(repository, name, content);
-        assertThat(repository.resolve(name).toFile().setExecutable(true)).isTrue();
     }
 
     private static void write(Path repository, String name, String content)

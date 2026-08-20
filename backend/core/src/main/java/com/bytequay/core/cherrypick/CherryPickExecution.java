@@ -233,13 +233,6 @@ public record CherryPickExecution(
         return edit(now, draft -> draft.items = replace(sourceSha, item -> item.withConflict(paths)));
     }
 
-    public CherryPickExecution recordValidation(String sourceSha, CherryPickItem.Validation outcome, Instant now)
-    {
-        requireRunning(now);
-        checkSha(sourceSha, "sourceSha");
-        return edit(now, draft -> draft.items = replace(sourceSha, item -> item.withValidation(outcome)));
-    }
-
     public CherryPickExecution recordAgentTurnStarted(String sourceSha, Instant now)
     {
         requireRunning(now);
@@ -409,8 +402,7 @@ public record CherryPickExecution(
     public enum Step
     {
         APPLYING,
-        RESOLVING,
-        VALIDATING
+        RESOLVING
     }
 
     public enum PauseReason
@@ -418,9 +410,7 @@ public record CherryPickExecution(
         UNSAFE_GIT_STATE,
         RECONCILIATION_MISMATCH,
         AGENT_TURN_FAILED,
-        RETRY_LIMIT_REACHED,
-        VALIDATION_FAILED,
-        VALIDATION_UNAVAILABLE
+        RETRY_LIMIT_REACHED
     }
 
     public enum FinishReason

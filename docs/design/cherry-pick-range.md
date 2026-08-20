@@ -486,7 +486,6 @@ and, while `RUNNING`, one current step:
 ```text
 APPLYING
 RESOLVING
-VALIDATING
 ```
 
 Each plan item has one result:
@@ -510,8 +509,8 @@ cursor is therefore derived, not stored: it is the lowest-position item still
 answers to one question, and they would disagree after any crash.
 
 Only `CherryPickExecutionService` writes `status`, `currentStep`, `result`, or
-`pauseReason`. The sequencer driver, agent service, validation runner,
-controller, and store cannot make those decisions.
+`pauseReason`. The sequencer driver, agent service, controller, and
+store cannot make those decisions.
 
 ### 13.2 How the program knows the result
 
@@ -561,8 +560,13 @@ already contains. Git stops on them identically, so there is no second
 detection mechanism and no tree comparison that bypasses the sequencer.
 
 The step is `RESOLVING` while the sequencer is stopped with conflict or
-staged-resolution work. It is `VALIDATING` only after the sequence has run to
-completion and the created range is structurally correct.
+staged-resolution work.
+
+ByteQuay does not build the result. Whether a resolution compiles is not
+something it can observe the way it observes Git, and a build it invented is a
+guess about a project it does not know: the module layout, the tool, whether
+the command can run offline. The agent is asked to build what it touched and
+to say when it could not. Its answer is reported, never treated as a result.
 
 Any mismatch — an unexpected commit, a missing `-x` line, a source SHA that is
 not the next pending item, dirty files, or uncertain Git state — pauses the
@@ -580,7 +584,7 @@ Each action uses two short SQLite transactions:
 
 1. Store the intended action, expected HEAD, and optimistic version.
 2. Commit that transaction.
-3. Run one sequencer action, one agent turn, or one validation command without
+3. Run one sequencer action or one agent turn without
    a database transaction.
 4. Inspect the result.
 5. Store the observed step and any final results in another short transaction.
@@ -594,12 +598,11 @@ The transition rules are:
 | Program observation | Service decision |
 | --- | --- |
 | No sequence started yet | Begin one with every `TO_CHERRY_PICK` item, in plan order |
-| Sequence ran to completion | Reconcile the created range, then set `VALIDATING` or finish |
+| Sequence ran to completion | Reconcile the created range, then continue or finish |
 | Sequence stopped on a conflict | Reconcile commits created so far, set `RESOLVING`, start one agent turn |
 | Sequence stopped and the item is provably empty | Guarded `--skip`, record `EMPTY_SKIPPED`, continue |
 | Agent staged a resolution | Run `git cherry-pick --continue` |
-| Validation passes and Git still matches | Record the remaining results and finish |
-| Git, agent, or validation is unsafe or uncertain | Set `PAUSED`; leave items `PENDING` |
+| Git or the agent turn is unsafe or uncertain | Set `PAUSED`; leave items `PENDING` |
 | Every item has a result | Set `FINISHED` |
 
 Confirmed `ALREADY_ON_TARGET` and `USER_SKIPPED` items never enter the
@@ -614,7 +617,6 @@ user skip from depending on any Git behavior.
 | `CherryPickExecutionStore` | Persist and atomically version the execution; make no decisions |
 | `GitSequencerDriver` | Shared with the rebase service: begin, observe, continue, guarded-skip, and abort one Git sequence. Decides nothing about plans |
 | Existing `AgentTaskService` and `AgentTurnService` | Run one worktree-scoped agent conversation and report turn state |
-| Existing bounded process runner | Run the stored module or project validation command |
 
 `GitSequencerDriver` is the shared part because it is the part that is
 genuinely identical. What is *not* shared is the layer above it: cherry-pick
@@ -632,49 +634,52 @@ cannot update item results or execution status, and it never runs `--continue`,
 
 ### 13.5 Agent goal and prompt
 
-The same prompt shape is used for the first conflict and later repair attempts.
-The program adds current Git facts and the latest validation error.
+One prompt shape covers every attempt at one stopped commit. The program adds
+current Git facts.
 
 ```text
 Resolve only this cherry-pick.
 
 Source commit: <full source SHA>
 Expected target parent: <full target SHA>
-Current step: <RESOLVING or VALIDATING>
+Current step: RESOLVING
+Attempt: <n> of 3
 Conflict files:
 - <path and conflict type>
-Latest program diagnostic:
-- <diagnostic, when retrying>
 
 Goal:
-- If the cherry-pick is stopped on a conflict, resolve every conflict and stage
-  the result. Then stop. ByteQuay runs git cherry-pick --continue itself.
-- If a target commit already exists and validation failed, fix it and run
-  git commit --amend --no-edit.
-- Run the listed validation command when possible:
-  <working directory and argv>
+- Resolve every conflict and stage the result. Then stop.
+  ByteQuay runs git cherry-pick --continue itself.
 - Leave no conflict markers and no unrelated changes.
+- Build or type-check the modules you touched, using whatever this project
+  already uses, and fix what your resolution broke. Skip this when the project
+  has no runnable build or it cannot run offline, and say so in your final
+  message.
 
 If git reports that the cherry-pick is empty, stop and leave it open.
 ByteQuay will inspect and skip it safely.
 
-Do not run git cherry-pick --continue, --skip, or --abort. Do not create a
-fixup commit, pick another commit, rebase, push, or write to GitHub.
+Do not run git cherry-pick --continue, --skip, or --abort. Do not commit,
+amend, create a fixup commit, pick another commit, rebase, push, use gh, or
+write to GitHub.
 
-Your final message is for the user. ByteQuay will inspect Git and rerun
-validation itself.
+Your final message is for the user. ByteQuay inspects Git and decides.
 ```
+
+The agent's sandbox denies network access, so a build needing an uncached
+dependency cannot run there. That is why building is best effort and why the
+agent is asked to say when it was skipped, rather than being trusted to have
+done it.
 
 One source commit creates at most one target commit. The program, not the
 agent, runs `git cherry-pick --continue`, because the sequencer then carries on
-through the remaining commits and ByteQuay must inspect each stop. A later
-validation repair uses `git commit --amend --no-edit`, not a `fixup!` commit.
+through the remaining commits and ByteQuay must inspect each stop.
 
 This is the same division the rebase service uses, and it is why the two can
 share one driver: the agent resolves files, the program moves the sequence.
 
 The program allows at most three agent turns for one source commit. If the
-same safe conflict or validation failure remains after that, it pauses.
+same safe conflict remains after that, it pauses.
 
 ### 13.6 Java contracts
 
@@ -743,7 +748,7 @@ public interface CherryPickExecutionService
      * Reconciles Git and performs at most one next action.
      *
      * <p>This is the only method that advances the current commit. It first
-     * stores intent, runs no more than one Git, agent, or validation action,
+     * stores intent, runs no more than one Git or agent action,
      * inspects actual facts, and then stores the next step or final result.
      *
      * @param executionId execution selected by the local monitor
@@ -904,12 +909,9 @@ stateDiagram-v2
     APPLYING --> RESOLVING: sequence stopped on a conflict
     RESOLVING --> APPLYING: resolution staged, --continue resumes the sequence
     RESOLVING --> RESOLVING: retry within the turn limit
-    APPLYING --> VALIDATING: sequence completed, created range reconciled
-    VALIDATING --> FINISHED: validation and final Git checks pass
-    VALIDATING --> RESOLVING: validation failed, repair by amend
+    APPLYING --> FINISHED: sequence completed, created range reconciled
     APPLYING --> PAUSED: unsafe or uncertain
     RESOLVING --> PAUSED: turn fails or retry limit reached
-    VALIDATING --> PAUSED: validation unavailable or unsafe
 ```
 
 The concrete call flow is:
@@ -931,11 +933,9 @@ The concrete call flow is:
    `STOPPED_RESOLVED` state leads to `continueSequence(...)`, which resumes the
    remaining commits. Anything unsafe pauses.
 8. When the sequence reports `COMPLETED`, the service reconciles the full
-   created range against the plan and sets `VALIDATING`.
-9. The existing bounded process runner executes module or project validation.
-   Passing validation plus a final Git inspection completes the range.
-10. When every item has a result, the service performs final range accounting
-    and records `FINISHED`.
+   created range against the plan.
+9. When every item has a result, the service performs final range accounting
+   and records `FINISHED`.
 
 A single `advance(...)` may therefore record many `APPLIED` items at once. That
 is the intended consequence of letting Git's sequencer run: the program checks
@@ -949,7 +949,6 @@ created commit is what keeps the mapping back to plan items exact.
 | Empty before a conflict | Verify, guarded skip, record `EMPTY_SKIPPED`, sequence resumes |
 | Conflict resolution becomes empty | Same guarded skip path, no extra agent turn |
 | Conflict remains after a turn | Retry the same stop, up to three total turns |
-| Validation fails | Give bounded diagnostics to the same task; agent amends the one commit |
 | Extra commit, missing `-x`, out-of-order source SHA, or dirty worktree | Pause without changing history |
 | Agent runs `--continue`, `--skip`, or `--abort` itself | Detected as an unexpected sequencer position; pause |
 | Backend stops mid-sequence | Read Git's todo file and the stored results; never blindly rerun |
@@ -957,7 +956,7 @@ created commit is what keeps the mapping back to plan items exact.
 | User cancels | Stop future actions, abort the open sequence, and remove the generated work branch and worktree |
 
 Focused tests use temporary Git repositories and cover clean apply, ordinary
-conflict, validation repair by amend, empty before and after conflict, invalid
+conflict, empty before and after conflict, invalid
 history, restart reconciliation, retry exhaustion, and cancellation. Every test
 asserts the final item results from stored state and confirms that no path
 writes to GitHub.

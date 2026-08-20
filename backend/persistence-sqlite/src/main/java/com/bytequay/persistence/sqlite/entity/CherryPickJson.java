@@ -21,7 +21,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
-import com.bytequay.core.cherrypick.CherryPickItem.Validation;
 import com.bytequay.core.cherrypick.CherryPickStorageException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -110,12 +109,6 @@ final class CherryPickJson
                 item.conflictPaths().stream()
                         .map(path -> new ConflictValue(path.path(), path.type().name(), path.module().orElse(null)))
                         .collect(toImmutableList()),
-                item.validation()
-                        .map(validation -> new ValidationValue(
-                                validation.targetSha(),
-                                validation.passed(),
-                                validation.diagnostics()))
-                        .orElse(null),
                 item.agentTurnCount());
     }
 
@@ -139,11 +132,6 @@ final class CherryPickJson
                                         ConflictType.valueOf(path.type()),
                                         Optional.ofNullable(path.module())))
                                 .collect(toImmutableList()),
-                Optional.ofNullable(value.validation())
-                        .map(validation -> new Validation(
-                                validation.targetSha(),
-                                validation.passed(),
-                                validation.diagnostics())),
                 value.agentTurnCount());
     }
 
@@ -167,14 +155,11 @@ final class CherryPickJson
             String result,
             String targetSha,
             List<ConflictValue> conflictPaths,
-            ValidationValue validation,
             int agentTurnCount) {}
 
     private record PullRequestValue(int number, String title, String url) {}
 
     private record ConflictValue(String path, String type, String module) {}
-
-    private record ValidationValue(String targetSha, boolean passed, String diagnostics) {}
 
     private record JournalValue(
             String type,

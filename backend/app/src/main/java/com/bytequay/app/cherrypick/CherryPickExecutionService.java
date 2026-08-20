@@ -46,7 +46,6 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
-import com.bytequay.core.cherrypick.CherryPickItem.Validation;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -93,7 +92,6 @@ public class CherryPickExecutionService
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final AgentCompletionService completions;
-    private final CherryPickValidation validation;
     private final Clock clock;
     private final Striped<Lock> advanceLocks = Striped.lock(64);
 
@@ -106,7 +104,6 @@ public class CherryPickExecutionService
             AgentTaskService tasks,
             AgentTurnService turns,
             AgentCompletionService completions,
-            CherryPickValidation validation,
             Clock clock)
     {
         this.previews = requireNonNull(previews, "previews is null");
@@ -117,7 +114,6 @@ public class CherryPickExecutionService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.completions = requireNonNull(completions, "completions is null");
-        this.validation = requireNonNull(validation, "validation is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -278,9 +274,6 @@ public class CherryPickExecutionService
         if (execution.currentTurnId().isPresent()) {
             return afterTurn(execution);
         }
-        if (execution.currentStep().filter(step -> step == Step.VALIDATING).isPresent()) {
-            return validate(execution);
-        }
         Path worktree = execution.workspace().worktree();
         String expectedHead = execution.currentTargetSha();
         SequenceState before = sequencer.observe(worktree);
@@ -323,8 +316,7 @@ public class CherryPickExecutionService
             if (after.kind() == SequenceState.Kind.UNSAFE) {
                 return pause(execution, PauseReason.UNSAFE_GIT_STATE, after.diagnostics());
             }
-            // An agent touched this commit, so its result waits on validation.
-            return store.save(execution.withStep(Step.VALIDATING, clock.instant()));
+            return reconcile(execution, expectedHead, after);
         }
         return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                 before.diagnostics().isBlank() ? "Unexpected Git state" : before.diagnostics());
@@ -546,8 +538,6 @@ public class CherryPickExecutionService
         String prompt = CherryPickPromptBuilder.resolveConflict(
                 current,
                 state.head(),
-                validationPlan(counted, stopped).map(CherryPickValidation.Plan::describe),
-                current.validation().map(Validation::diagnostics),
                 attempt,
                 userNote);
         try {
@@ -587,95 +577,6 @@ public class CherryPickExecutionService
         }
         // The turn finishing says nothing about the repository. Look.
         return act(cleared);
-    }
-
-    /**
-     * Runs the stored build and only then accepts the commit.
-     */
-    private CherryPickExecution validate(CherryPickExecution execution)
-    {
-        Path worktree = execution.workspace().worktree();
-        String expectedHead = execution.currentTargetSha();
-        SequenceState state = sequencer.observe(worktree);
-        if (state.kind() != SequenceState.Kind.COMPLETED) {
-            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
-                    "Cannot validate while a Git operation is open");
-        }
-        List<CreatedCommit> created = createdCommits(worktree, expectedHead, state.head());
-        if (created.isEmpty()) {
-            // The resolution turned out to contain nothing; the guarded skip
-            // handles it on the next pass, with no extra agent turn.
-            return store.save(execution.withoutJournal(clock.instant()));
-        }
-        Optional<CherryPickValidation.Plan> plan = validationPlan(execution, created.getLast().targetSha());
-        if (plan.isEmpty()) {
-            return pause(execution, PauseReason.VALIDATION_UNAVAILABLE,
-                    "No checked-in Maven wrapper, so ByteQuay cannot verify this resolution itself");
-        }
-        CherryPickValidation.Outcome outcome = validation.run(plan.orElseThrow());
-        String targetSha = created.getLast().targetSha();
-        String sourceSha = created.getLast().sourceSha().orElse(null);
-        if (sourceSha == null) {
-            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                    "Commit " + targetSha + " carries no cherry-pick origin line");
-        }
-        CherryPickExecution recorded = store.save(execution.recordValidation(
-                sourceSha, new Validation(targetSha, outcome.passed(), outcome.bounded()), clock.instant()));
-        if (!outcome.passed()) {
-            return startRepair(recorded, sourceSha, targetSha, plan.orElseThrow(), outcome);
-        }
-        return reconcile(recorded, expectedHead, state);
-    }
-
-    private CherryPickExecution startRepair(
-            CherryPickExecution execution,
-            String sourceSha,
-            String targetSha,
-            CherryPickValidation.Plan plan,
-            CherryPickValidation.Outcome outcome)
-    {
-        CherryPickItem item = itemOf(execution, sourceSha);
-        if (item.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
-            return pause(execution, PauseReason.VALIDATION_FAILED,
-                    "Validation still fails for " + targetSha + " after "
-                            + CherryPickItem.MAX_AGENT_TURNS + " attempts");
-        }
-        int attempt = item.agentTurnCount() + 1;
-        CherryPickExecution counted = store.save(execution.recordAgentTurnStarted(sourceSha, clock.instant()));
-        try {
-            AgentTurn turn = turns.start(new StartAgentTurnCommand(
-                    TaskId.valueOf(counted.agentTaskId().orElseThrow()),
-                    CherryPickPromptBuilder.repairValidation(
-                            item, targetSha, plan.describe(), outcome.bounded(), attempt),
-                    ImmutableList.of(),
-                    turnKey(counted, item.position(), attempt)));
-            return store.save(counted.withTurn(turn.id().toString(), clock.instant()));
-        }
-        catch (RuntimeException failure) {
-            return pause(counted, PauseReason.AGENT_TURN_FAILED,
-                    "Cannot start a repair turn: " + failure.getMessage());
-        }
-    }
-
-    private Optional<CherryPickValidation.Plan> validationPlan(CherryPickExecution execution, String reference)
-    {
-        Path worktree = execution.workspace().worktree();
-        GitCommandRunner.Result changed = git.run(
-                worktree, "show", "--name-only", "--no-renames", "--format=", reference);
-        ImmutableList.Builder<String> paths = ImmutableList.builder();
-        if (changed.successful()) {
-            changed.output().lines().map(String::strip).filter(line -> !line.isEmpty()).forEach(paths::add);
-        }
-        itemsOf(execution, reference).forEach(path -> paths.add(path));
-        return validation.plan(worktree, paths.build());
-    }
-
-    private static List<String> itemsOf(CherryPickExecution execution, String sourceSha)
-    {
-        return execution.items().stream()
-                .filter(item -> item.sourceSha().equals(sourceSha))
-                .flatMap(item -> item.conflictPaths().stream().map(ConflictPath::path))
-                .collect(toImmutableList());
     }
 
     private static List<ConflictPath> conflictPaths(CherryPickExecution execution, SequenceState state)

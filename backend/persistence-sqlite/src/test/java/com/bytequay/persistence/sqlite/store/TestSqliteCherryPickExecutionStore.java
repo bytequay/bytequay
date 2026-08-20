@@ -30,7 +30,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
-import com.bytequay.core.cherrypick.CherryPickItem.Validation;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.google.common.collect.ImmutableList;
@@ -97,7 +96,7 @@ class TestSqliteCherryPickExecutionStore
     }
 
     @Test
-    void roundTripsConflictValidationAndJournalDetail()
+    void roundTripsConflictAndJournalDetail()
     {
         CherryPickExecution created = store.createOrGet(execution("detail", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution updated = store.save(created
@@ -117,21 +116,16 @@ class TestSqliteCherryPickExecutionStore
                                 ConflictType.MODIFY_DELETE,
                                 Optional.of("core/trino-main"))),
                         NOW.plusSeconds(2))
-                .recordValidation(
-                        sha(1),
-                        new Validation(created(1), false, "compile error"),
-                        NOW.plusSeconds(3))
-                .withStep(Step.VALIDATING, NOW.plusSeconds(4)));
+                .withStep(Step.RESOLVING, NOW.plusSeconds(3)));
 
         CherryPickExecution loaded = store.find(updated.id()).orElseThrow();
         CherryPickItem item = loaded.items().getFirst();
         assertThat(loaded.journal().orElseThrow().type()).isEqualTo(ActionType.CONTINUE_SEQUENCE);
         assertThat(loaded.journal().orElseThrow().attempt()).isEqualTo(2);
-        assertThat(loaded.currentStep()).contains(Step.VALIDATING);
+        assertThat(loaded.currentStep()).contains(Step.RESOLVING);
         assertThat(item.conflictPaths()).hasSize(1);
         assertThat(item.conflictPaths().getFirst().type()).isEqualTo(ConflictType.MODIFY_DELETE);
         assertThat(item.conflictPaths().getFirst().module()).contains("core/trino-main");
-        assertThat(item.validation().orElseThrow().passed()).isFalse();
         assertThat(item.pullRequest().orElseThrow().number()).isEqualTo(1001);
     }
 

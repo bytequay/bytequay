@@ -13,6 +13,17 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.SequenceState;
@@ -30,7 +41,10 @@ import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
+import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
+import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.cherrypick.CherryPickItem.Validation;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -73,6 +87,9 @@ public class CherryPickExecutionService
     private final CherryPickWorkspace workspaces;
     private final GitSequencerDriver sequencer;
     private final GitCommandRunner git;
+    private final AgentTaskService tasks;
+    private final AgentTurnService turns;
+    private final CherryPickValidation validation;
     private final Clock clock;
     private final Striped<Lock> advanceLocks = Striped.lock(64);
 
@@ -82,6 +99,9 @@ public class CherryPickExecutionService
             CherryPickWorkspace workspaces,
             GitSequencerDriver sequencer,
             GitCommandRunner git,
+            AgentTaskService tasks,
+            AgentTurnService turns,
+            CherryPickValidation validation,
             Clock clock)
     {
         this.previews = requireNonNull(previews, "previews is null");
@@ -89,6 +109,9 @@ public class CherryPickExecutionService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.sequencer = requireNonNull(sequencer, "sequencer is null");
         this.git = requireNonNull(git, "git is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.validation = requireNonNull(validation, "validation is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -131,7 +154,7 @@ public class CherryPickExecutionService
                 preview.targetSha());
         try {
             requireOnItsBranch(created);
-            CherryPickExecution execution = store.createOrGet(CherryPickExecution.create(
+            CherryPickExecution created0 = store.createOrGet(CherryPickExecution.create(
                     CherryPickExecutionId.random(),
                     command.idempotencyKey(),
                     new Workspace(
@@ -146,6 +169,11 @@ public class CherryPickExecutionService
                     new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
                     items,
                     clock.instant()));
+            // Created while the worktree is still clean, even though a clean
+            // range never uses a turn.
+            CherryPickExecution execution = created0.agentTaskId().isPresent()
+                    ? created0
+                    : store.save(created0.withAgentTask(agentTask(created0).toString(), clock.instant()));
             if (!execution.workspace().workBranch().equals(created.branch())) {
                 // A repeated idempotency key returns the original execution, so
                 // the workspace this call created is surplus.
@@ -226,6 +254,12 @@ public class CherryPickExecutionService
 
     private CherryPickExecution act(CherryPickExecution execution)
     {
+        if (execution.currentTurnId().isPresent()) {
+            return afterTurn(execution);
+        }
+        if (execution.currentStep().filter(step -> step == Step.VALIDATING).isPresent()) {
+            return validate(execution);
+        }
         Path worktree = execution.workspace().worktree();
         String expectedHead = execution.currentTargetSha();
         SequenceState before = sequencer.observe(worktree);
@@ -258,11 +292,16 @@ public class CherryPickExecutionService
                     after);
         }
         if (before.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
-            // Agent resolution arrives in the next checkpoint. Until then the
-            // range pauses rather than pretending it can continue.
-            return pause(execution, PauseReason.AGENT_TURN_FAILED,
-                    "Conflict on " + before.stoppedCommit().orElse("an unknown commit")
-                            + "; agent resolution is not enabled yet");
+            return startResolution(execution, before);
+        }
+        if (before.kind() == SequenceState.Kind.STOPPED_RESOLVED) {
+            String stopped = before.stoppedCommit().orElseThrow();
+            SequenceState after = sequencer.continueSequence(worktree, stopped);
+            if (after.kind() == SequenceState.Kind.UNSAFE) {
+                return pause(execution, PauseReason.UNSAFE_GIT_STATE, after.diagnostics());
+            }
+            // An agent touched this commit, so its result waits on validation.
+            return store.save(execution.withStep(Step.VALIDATING, clock.instant()));
         }
         return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                 before.diagnostics().isBlank() ? "Unexpected Git state" : before.diagnostics());
@@ -312,11 +351,9 @@ public class CherryPickExecutionService
             return store.save(updated.finish(FinishReason.COMPLETED, summary(updated), clock.instant()));
         }
         if (after.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
-            // The conflict is already known, so pause now rather than leaving a
-            // conflicted range marked RUNNING until the next monitor tick.
-            return pause(updated, PauseReason.AGENT_TURN_FAILED,
-                    "Conflict on " + after.stoppedCommit().orElse("an unknown commit")
-                            + "; agent resolution is not enabled yet");
+            // The conflict is already known, so hand it over now rather than
+            // leaving a conflicted range idle until the next monitor tick.
+            return startResolution(updated, after);
         }
         return store.save(updated.withoutJournal(clock.instant()));
     }
@@ -442,6 +479,223 @@ public class CherryPickExecutionService
             return Disposition.ALREADY_ON_TARGET;
         }
         return skipped.contains(commit.sourceSha()) ? Disposition.USER_SKIPPED : Disposition.TO_CHERRY_PICK;
+    }
+
+    /**
+     * Hands one conflict to the agent, or stops when it has had its attempts.
+     *
+     * <p>The agent stages files. It never moves the sequence, so a turn cannot
+     * make progress the program has not verified.
+     */
+    private CherryPickExecution startResolution(CherryPickExecution execution, SequenceState state)
+    {
+        String stopped = state.stoppedCommit().orElseThrow();
+        CherryPickItem item = execution.items().stream()
+                .filter(value -> value.sourceSha().equals(stopped))
+                .findFirst()
+                .orElse(null);
+        if (item == null) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Sequencer stopped on " + stopped + ", which is not in the confirmed plan");
+        }
+        if (item.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
+            return pause(execution, PauseReason.RETRY_LIMIT_REACHED,
+                    "Conflict on " + stopped + " remains after " + CherryPickItem.MAX_AGENT_TURNS + " attempts");
+        }
+
+        CherryPickExecution withConflict = store.save(execution
+                .recordConflict(stopped, conflictPaths(execution, state), clock.instant())
+                .withStep(Step.RESOLVING, clock.instant()));
+        CherryPickItem current = itemOf(withConflict, stopped);
+        int attempt = current.agentTurnCount() + 1;
+        CherryPickExecution counted = store.save(withConflict
+                .recordAgentTurnStarted(stopped, clock.instant())
+                .withJournal(journal(ActionType.AGENT_TURN, Optional.of(stopped), state.head()), clock.instant()));
+
+        String prompt = CherryPickPromptBuilder.resolveConflict(
+                current,
+                state.head(),
+                validationPlan(counted, stopped).map(CherryPickValidation.Plan::describe),
+                current.validation().map(Validation::diagnostics),
+                attempt);
+        try {
+            AgentTurn turn = turns.start(new StartAgentTurnCommand(
+                    TaskId.valueOf(counted.agentTaskId().orElseThrow()),
+                    prompt,
+                    ImmutableList.of(),
+                    turnKey(counted, current.position(), attempt)));
+            return store.save(counted.withTurn(turn.id().toString(), clock.instant()));
+        }
+        catch (RuntimeException failure) {
+            return pause(counted, PauseReason.AGENT_TURN_FAILED,
+                    "Cannot start an agent turn: " + failure.getMessage());
+        }
+    }
+
+    /**
+     * Reads what the turn left behind, never what it said.
+     */
+    private CherryPickExecution afterTurn(CherryPickExecution execution)
+    {
+        AgentTurn turn;
+        try {
+            turn = turns.get(TurnId.valueOf(execution.currentTurnId().orElseThrow()));
+        }
+        catch (RuntimeException failure) {
+            return pause(execution, PauseReason.AGENT_TURN_FAILED,
+                    "Cannot read the agent turn: " + failure.getMessage());
+        }
+        if (turn.state().active()) {
+            return execution;
+        }
+        CherryPickExecution cleared = store.save(execution.withoutTurn(clock.instant()));
+        if (turn.state() != TurnState.COMPLETED) {
+            return pause(cleared, PauseReason.AGENT_TURN_FAILED,
+                    "Agent turn ended " + turn.state() + "; the worktree is left as it is");
+        }
+        // The turn finishing says nothing about the repository. Look.
+        return act(cleared);
+    }
+
+    /**
+     * Runs the stored build and only then accepts the commit.
+     */
+    private CherryPickExecution validate(CherryPickExecution execution)
+    {
+        Path worktree = execution.workspace().worktree();
+        String expectedHead = execution.currentTargetSha();
+        SequenceState state = sequencer.observe(worktree);
+        if (state.kind() != SequenceState.Kind.COMPLETED) {
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    "Cannot validate while a Git operation is open");
+        }
+        List<CreatedCommit> created = createdCommits(worktree, expectedHead, state.head());
+        if (created.isEmpty()) {
+            // The resolution turned out to contain nothing; the guarded skip
+            // handles it on the next pass, with no extra agent turn.
+            return store.save(execution.withoutJournal(clock.instant()));
+        }
+        Optional<CherryPickValidation.Plan> plan = validationPlan(execution, created.getLast().targetSha());
+        if (plan.isEmpty()) {
+            return pause(execution, PauseReason.VALIDATION_UNAVAILABLE,
+                    "No checked-in Maven wrapper, so ByteQuay cannot verify this resolution itself");
+        }
+        CherryPickValidation.Outcome outcome = validation.run(plan.orElseThrow());
+        String targetSha = created.getLast().targetSha();
+        String sourceSha = created.getLast().sourceSha().orElse(null);
+        if (sourceSha == null) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Commit " + targetSha + " carries no cherry-pick origin line");
+        }
+        CherryPickExecution recorded = store.save(execution.recordValidation(
+                sourceSha, new Validation(targetSha, outcome.passed(), outcome.bounded()), clock.instant()));
+        if (!outcome.passed()) {
+            return startRepair(recorded, sourceSha, targetSha, plan.orElseThrow(), outcome);
+        }
+        return reconcile(recorded, expectedHead, state);
+    }
+
+    private CherryPickExecution startRepair(
+            CherryPickExecution execution,
+            String sourceSha,
+            String targetSha,
+            CherryPickValidation.Plan plan,
+            CherryPickValidation.Outcome outcome)
+    {
+        CherryPickItem item = itemOf(execution, sourceSha);
+        if (item.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
+            return pause(execution, PauseReason.VALIDATION_FAILED,
+                    "Validation still fails for " + targetSha + " after "
+                            + CherryPickItem.MAX_AGENT_TURNS + " attempts");
+        }
+        int attempt = item.agentTurnCount() + 1;
+        CherryPickExecution counted = store.save(execution.recordAgentTurnStarted(sourceSha, clock.instant()));
+        try {
+            AgentTurn turn = turns.start(new StartAgentTurnCommand(
+                    TaskId.valueOf(counted.agentTaskId().orElseThrow()),
+                    CherryPickPromptBuilder.repairValidation(
+                            item, targetSha, plan.describe(), outcome.bounded(), attempt),
+                    ImmutableList.of(),
+                    turnKey(counted, item.position(), attempt)));
+            return store.save(counted.withTurn(turn.id().toString(), clock.instant()));
+        }
+        catch (RuntimeException failure) {
+            return pause(counted, PauseReason.AGENT_TURN_FAILED,
+                    "Cannot start a repair turn: " + failure.getMessage());
+        }
+    }
+
+    private Optional<CherryPickValidation.Plan> validationPlan(CherryPickExecution execution, String reference)
+    {
+        Path worktree = execution.workspace().worktree();
+        GitCommandRunner.Result changed = git.run(
+                worktree, "show", "--name-only", "--no-renames", "--format=", reference);
+        ImmutableList.Builder<String> paths = ImmutableList.builder();
+        if (changed.successful()) {
+            changed.output().lines().map(String::strip).filter(line -> !line.isEmpty()).forEach(paths::add);
+        }
+        itemsOf(execution, reference).forEach(path -> paths.add(path));
+        return validation.plan(worktree, paths.build());
+    }
+
+    private static List<String> itemsOf(CherryPickExecution execution, String sourceSha)
+    {
+        return execution.items().stream()
+                .filter(item -> item.sourceSha().equals(sourceSha))
+                .flatMap(item -> item.conflictPaths().stream().map(ConflictPath::path))
+                .collect(toImmutableList());
+    }
+
+    private static List<ConflictPath> conflictPaths(CherryPickExecution execution, SequenceState state)
+    {
+        Path worktree = execution.workspace().worktree();
+        return state.conflicts().stream()
+                .map(conflict -> new ConflictPath(
+                        conflict.path(),
+                        switch (conflict.type()) {
+                            case CONTENT -> ConflictType.CONTENT;
+                            case ADD_ADD -> ConflictType.ADD_ADD;
+                            case MODIFY_DELETE -> ConflictType.MODIFY_DELETE;
+                            case SUBMODULE -> ConflictType.SUBMODULE;
+                        },
+                        module(worktree, conflict.path())))
+                .collect(toImmutableList());
+    }
+
+    private static Optional<String> module(Path worktree, String path)
+    {
+        Path directory = worktree.resolve(path).getParent();
+        while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {
+            if (java.nio.file.Files.isRegularFile(directory.resolve("pom.xml"))) {
+                return Optional.of(worktree.relativize(directory).toString());
+            }
+            directory = directory.getParent();
+        }
+        return Optional.empty();
+    }
+
+    private static CherryPickItem itemOf(CherryPickExecution execution, String sourceSha)
+    {
+        return execution.items().stream()
+                .filter(item -> item.sourceSha().equals(sourceSha))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("commit is not in the plan: " + sourceSha));
+    }
+
+    /** Stable per attempt, so a retried advance cannot start a second turn. */
+    private static String turnKey(CherryPickExecution execution, int position, int attempt)
+    {
+        return execution.id() + ":" + position + ":" + attempt;
+    }
+
+    private TaskId agentTask(CherryPickExecution execution)
+    {
+        return tasks.create(new CreateAgentTaskCommand(
+                new AgentLaneId(execution.workspace().laneId()),
+                execution.workspace().worktree(),
+                RepositoryIdentity.valueOf(execution.workspace().repository().fullName()),
+                "Cherry-pick " + execution.workspace().workBranch(),
+                AgentPermissionPolicy.CHERRY_PICK)).id();
     }
 
     private record CreatedCommit(String targetSha, Optional<String> sourceSha) {}

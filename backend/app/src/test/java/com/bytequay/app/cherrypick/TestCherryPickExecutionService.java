@@ -13,11 +13,14 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
+import com.bytequay.app.service.github.BoundedProcessRunner;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
+import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
@@ -54,6 +57,7 @@ class TestCherryPickExecutionService
     private InMemoryCherryPickExecutionStore store;
     private CherryPickPreviewService previews;
     private CherryPickExecutionService service;
+    private ScriptedCherryPickAgent agent;
 
     @BeforeEach
     void setUp()
@@ -62,14 +66,24 @@ class TestCherryPickExecutionService
         upstream = init("upstream");
         fork = init("fork");
         write(upstream, "seed.txt", "seed\n");
+        write(upstream, "pom.xml", "<project/>\n");
+        // A checked-in wrapper so validation runs for real. It fails when a
+        // resolution leaves the marker behind, which is how the repair tests
+        // make a build go red.
+        writeExecutable(upstream, "mvnw", "#!/bin/sh\nif grep -q BROKEN seed.txt; then\n"
+                + "  echo 'compilation failure: seed.txt is BROKEN'\n  exit 1\nfi\nexit 0\n");
         commit(upstream, "Seed");
         git(fork, "remote", "add", "upstream", upstream.toString());
         git(fork, "fetch", "--quiet", "upstream");
         git(fork, "checkout", "--quiet", "-B", "main", "upstream/main");
 
         clone = init("clone");
-        git(clone, "remote", "add", "origin", upstream.toString());
-        git(clone, "remote", "add", "cork", fork.toString());
+        // GitHub-shaped remote URLs mapped to the local fixtures, so repository
+        // identity parses the way it will in production.
+        git(clone, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
+        git(clone, "remote", "add", "cork", "https://github.com/cork/trino.git");
+        git(clone, "config", "url." + upstream.toUri() + ".insteadOf", "https://github.com/trinodb/trino.git");
+        git(clone, "config", "url." + fork.toUri() + ".insteadOf", "https://github.com/cork/trino.git");
         worktreeParent = Files.createDirectories(temporaryDirectory.resolve("worktrees"));
 
         store = new InMemoryCherryPickExecutionStore();
@@ -82,12 +96,16 @@ class TestCherryPickExecutionService
                             throw new IllegalStateException("execution tests use no GitHub credential");
                         }),
                 CLOCK);
+        agent = new ScriptedCherryPickAgent(temporaryDirectory);
         service = new CherryPickExecutionService(
                 previews,
                 store,
                 new CherryPickWorkspace(GIT),
                 new GitSequencerDriver(GIT),
                 GIT,
+                agent,
+                agent,
+                new CherryPickValidation(new BoundedProcessRunner()),
                 CLOCK);
     }
 
@@ -186,24 +204,6 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void pausesOnAConflictWithoutInventingAResult()
-    {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        String conflicting = head(upstream);
-
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
-
-        CherryPickExecution paused = service.advance(start(base, ImmutableList.of()).id());
-
-        assertThat(paused.status()).isEqualTo(Status.PAUSED);
-        assertThat(item(paused, conflicting).result()).isEqualTo(Result.PENDING);
-        assertThat(paused.summary().orElseThrow()).contains(conflicting);
-    }
-
-    @Test
     void returnsTheSameExecutionForARepeatedIdempotencyKey()
     {
         String base = head(upstream);
@@ -284,10 +284,180 @@ class TestCherryPickExecutionService
         assertThat(service.cancel(started.id(), clone).status()).isEqualTo(Status.FINISHED);
     }
 
+    @Test
+    void handsAConflictToTheAgentAndAcceptsOnlyWhatGitShows()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String conflicting = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> resolve(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+
+        CherryPickExecution finished = runToCompletion(started);
+
+        assertThat(finished.status()).isEqualTo(Status.FINISHED);
+        assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
+        assertThat(item(finished, conflicting).agentTurnCount()).isEqualTo(1);
+        assertThat(agent.turnsStarted()).isEqualTo(1);
+
+        String message = git(worktree, "log", "-1", "--format=%B",
+                item(finished, conflicting).targetSha().orElseThrow());
+        assertThat(message)
+                .as("the -x line survives the agent's resolution")
+                .contains("(cherry picked from commit " + conflicting + ")");
+        assertThat(git(worktree, "rev-list", "--count", finished.range().initialTargetSha() + "..HEAD"))
+                .as("one source commit creates at most one target commit")
+                .isEqualTo("1");
+    }
+
+    @Test
+    void retriesTheSameConflictAndStopsAfterThreeAttempts()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String conflicting = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        // The agent claims success every time but never stages anything.
+        agent.then(() -> {}, TurnState.COMPLETED)
+                .then(() -> {}, TurnState.COMPLETED)
+                .then(() -> {}, TurnState.COMPLETED);
+
+        CherryPickExecution paused = runToCompletion(started);
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.RETRY_LIMIT_REACHED);
+        assertThat(item(paused, conflicting).result()).isEqualTo(Result.PENDING);
+        assertThat(item(paused, conflicting).agentTurnCount()).isEqualTo(3);
+        assertThat(agent.turnsStarted()).as("three attempts, then stop").isEqualTo(3);
+    }
+
+    @Test
+    void pausesWhenTheTurnItselfFails()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        agent.then(() -> {}, TurnState.FAILED);
+
+        CherryPickExecution paused = runToCompletion(started);
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.AGENT_TURN_FAILED);
+        assertThat(agent.turnsStarted()).isEqualTo(1);
+    }
+
+    @Test
+    void skipsAResolutionThatBecomesEmptyWithoutAnotherTurn()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "shared result\n");
+        commit(upstream, "Conflicting change");
+        String conflicting = head(upstream);
+        write(upstream, "later.txt", "later\n");
+        commit(upstream, "Later change");
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        // Resolving back to what the target already has leaves nothing to commit.
+        agent.then(() -> resolve(worktree, "seed.txt", "fork edit\n"), TurnState.COMPLETED);
+
+        CherryPickExecution finished = runToCompletion(started);
+
+        assertThat(finished.status()).isEqualTo(Status.FINISHED);
+        assertThat(item(finished, conflicting).result()).isEqualTo(Result.EMPTY_SKIPPED);
+        assertThat(item(finished, conflicting).targetSha()).isEmpty();
+        assertThat(agent.turnsStarted()).as("an empty resolution needs no second turn").isEqualTo(1);
+    }
+
+    @Test
+    void promptTellsTheAgentToStageAndStopAndNeverReadsItsReply()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> resolve(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+        runToCompletion(started);
+
+        assertThat(agent.prompts()).hasSize(1);
+        assertThat(agent.prompts().getFirst())
+                .contains("stage the result. Then stop")
+                .contains("ByteQuay runs git cherry-pick --continue itself")
+                .contains("Do not run git cherry-pick --continue, --skip, or --abort")
+                .contains("push, use gh, or")
+                .contains("Your final message is for the user")
+                .contains("Conflict files:")
+                .contains("seed.txt");
+    }
+
+    @Test
+    void repairsAFailedValidationByAmendingTheSameCommit()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String conflicting = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        // The first resolution compiles red; the repair amends the same commit.
+        agent.then(() -> resolve(worktree, "seed.txt", "BROKEN resolution\n"), TurnState.COMPLETED)
+                .then(() -> {
+                    write(worktree, "seed.txt", "good resolution\n");
+                    git(worktree, "add", "seed.txt");
+                    git(worktree, "commit", "--quiet", "--amend", "--no-edit");
+                }, TurnState.COMPLETED);
+
+        CherryPickExecution finished = runToCompletion(started);
+
+        assertThat(finished.status()).isEqualTo(Status.FINISHED);
+        assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
+        assertThat(item(finished, conflicting).validation().orElseThrow().passed()).isTrue();
+        assertThat(agent.turnsStarted()).isEqualTo(2);
+        assertThat(git(worktree, "rev-list", "--count", finished.range().initialTargetSha() + "..HEAD"))
+                .as("a repair amends rather than adding a commit")
+                .isEqualTo("1");
+        assertThat(git(worktree, "log", "-1", "--format=%B"))
+                .as("amending preserves the -x line")
+                .contains("(cherry picked from commit " + conflicting + ")");
+        assertThat(agent.prompts().getLast())
+                .contains("amend the same commit")
+                .contains("git commit --amend --no-edit")
+                .contains("compilation failure")
+                .contains("saying it passes does not make it pass");
+    }
+
+    private static void resolve(Path worktree, String name, String content)
+    {
+        write(worktree, name, content);
+        git(worktree, "add", name);
+    }
+
     private CherryPickExecution runToCompletion(CherryPickExecution execution)
     {
         CherryPickExecution current = execution;
-        for (int step = 0; step < 20 && current.status() == Status.RUNNING; step++) {
+        for (int step = 0; step < 30 && current.status() == Status.RUNNING; step++) {
             current = service.advance(current.id());
         }
         return current;
@@ -336,6 +506,12 @@ class TestCherryPickExecutionService
         git(root, "config", "user.name", "ByteQuay Test");
         git(root, "config", "user.email", "bytequay@example.com");
         return root.toRealPath();
+    }
+
+    private static void writeExecutable(Path repository, String name, String content)
+    {
+        write(repository, name, content);
+        assertThat(repository.resolve(name).toFile().setExecutable(true)).isTrue();
     }
 
     private static void write(Path repository, String name, String content)

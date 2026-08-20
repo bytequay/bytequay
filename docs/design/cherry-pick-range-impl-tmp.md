@@ -622,91 +622,95 @@ facts.
 
 ### Conflict facts and prompt
 
-- [ ] Persist conflict paths, stage-derived conflict types, module mapping,
+- [x] Persist conflict paths, stage-derived conflict types, module mapping,
   bounded diagnostics, and agent-turn count on the current item.
-- [ ] Add one package-private prompt builder using the canonical prompt shape.
-- [ ] Include full source SHA, expected target parent, current step, conflict
+- [x] Add one package-private prompt builder using the canonical prompt shape.
+- [x] Include full source SHA, expected target parent, current step, conflict
   paths/types, exact validation argv, latest program diagnostic, and attempt
   number.
-- [ ] State that the agent stages resolutions and stops; the program runs
+- [x] State that the agent stages resolutions and stops; the program runs
   `git cherry-pick --continue`. Validation repair uses
   `git commit --amend --no-edit`.
-- [ ] State that an empty result must be left open for the program.
-- [ ] Forbid skip, abort, fixup commit, next cherry-pick, rebase, push, `gh`,
+- [x] State that an empty result must be left open for the program.
+- [x] Forbid skip, abort, fixup commit, next cherry-pick, rebase, push, `gh`,
   and GitHub writes.
-- [ ] Treat the final agent response as display-only.
+- [x] Treat the final agent response as display-only.
 
 ### Turn lifecycle
 
-- [ ] Store `RESOLVING` and the turn-start intent before calling
+- [x] Store `RESOLVING` and the turn-start intent before calling
   `AgentTurnService.start(...)`.
-- [ ] Derive a stable turn idempotency key from execution ID, item position,
+- [x] Derive a stable turn idempotency key from execution ID, item position,
   and attempt number.
-- [ ] Store the returned turn ID on the execution.
-- [ ] While a turn is accepted/running, return without another action.
-- [ ] Inspect Git only after a `COMPLETED` turn.
-- [ ] Pause for `FAILED`, `CANCELLED`, or `INTERRUPTED` turns.
-- [ ] If the same safe conflict remains, start another turn with actual
+- [x] Store the returned turn ID on the execution.
+- [x] While a turn is accepted/running, return without another action.
+- [x] Inspect Git only after a `COMPLETED` turn.
+- [x] Pause for `FAILED`, `CANCELLED`, or `INTERRUPTED` turns.
+- [x] If the same safe conflict remains, start another turn with actual
   diagnostics.
-- [ ] Limit automatic turns to three per source item.
-- [ ] Route a conflict resolution that becomes empty through the same guarded
+- [x] Limit automatic turns to three per source item.
+- [x] Route a conflict resolution that becomes empty through the same guarded
   empty-skip logic from checkpoint 5.
 
 ### Validation planning
 
-- [ ] Keep validation planning and running as concrete package-private
+- [x] Keep validation planning and running as concrete package-private
   collaborators; do not create `CherryPickValidationService`.
-- [ ] Build the authoritative changed-path set from conflict paths plus the
+- [x] Build the authoritative changed-path set from conflict paths plus the
   verified target commit diff.
-- [ ] Find the nearest ancestor `pom.xml` for each changed path.
-- [ ] If all paths map to Maven modules and a checked-in `mvnw` exists, plan:
+- [x] Find the nearest ancestor `pom.xml` for each changed path.
+- [x] If all paths map to Maven modules and a checked-in `mvnw` exists, plan:
   `./mvnw -pl <comma-separated-modules> -am -DskipTests package`.
-- [ ] If a root-level change cannot be isolated, plan:
+- [x] If a root-level change cannot be isolated, plan:
   `./mvnw -DskipTests package`.
-- [ ] Store canonical working directory, argv list, fixed timeout, and output
+- [x] Store canonical working directory, argv list, fixed timeout, and output
   limit before execution.
-- [ ] Reuse `BoundedProcessRunner` with an argv list and no shell.
-- [ ] Use a fixed 30-minute timeout and bounded output for the first
+- [x] Reuse `BoundedProcessRunner` with an argv list and no shell.
+- [x] Use a fixed 30-minute timeout and bounded output for the first
   implementation.
-- [ ] Pause `VALIDATION_UNAVAILABLE` when no checked-in Maven wrapper or safe
+- [x] Pause `VALIDATION_UNAVAILABLE` when no checked-in Maven wrapper or safe
   module/project command can be formed.
-- [ ] Do not accept agent claims that compilation passed.
+- [x] Do not accept agent claims that compilation passed.
 
 ### Validation and repair
 
-- [ ] Set `VALIDATING` only after one structurally correct target commit
+- [x] Set `VALIDATING` only after one structurally correct target commit
   exists.
-- [ ] Tie every validation result to the exact inspected target SHA.
-- [ ] On failure, start a repair turn with bounded compiler diagnostics.
-- [ ] Require repair to amend the same commit with
+- [x] Tie every validation result to the exact inspected target SHA.
+- [x] On failure, start a repair turn with bounded compiler diagnostics.
+- [x] Require repair to amend the same commit with
   `git commit --amend --no-edit`.
-- [ ] After an amend, rerun the full stored validation plan.
-- [ ] After validation passes, inspect Git again and require the same target
+- [x] After an amend, rerun the full stored validation plan.
+- [x] After validation passes, inspect Git again and require the same target
   SHA, expected parent, exact `-x` line, clean state, and the marker-only
-  `diff --check`.
-- [ ] Record `APPLIED` only after that final inspection.
+  `diff --check`. Reconciliation does this for every created commit.
+- [x] Record `APPLIED` only after that final inspection.
 
 ### Tests
 
-- [ ] Add a scripted agent driver and temporary-repository harness based on
+- [x] Add a scripted agent driver and temporary-repository harness based on
   the existing CI Autofix end-to-end fixtures.
-- [ ] Test ordinary text conflict, conflict left open, conflict retry, and
+- [x] Test ordinary text conflict, conflict left open, conflict retry, and
   retry exhaustion.
 - [ ] Test agent-created extra commit, wrong parent, missing `-x`, skip,
-  abort, rebase, dirty files, and leftover conflict markers.
-- [ ] Test validation pass, validation failure followed by amend, validation
-  timeout, validation unavailable, and amend that changes another module.
-- [ ] Test conflict resolution becoming empty with unchanged HEAD and no extra
+  abort, rebase, dirty files, and leftover conflict markers. Partly covered:
+  the reconciliation and marker guards are exercised through the driver and
+  the retry path. Scripting each specific misbehaviour belongs with the
+  end-to-end harness in checkpoint 9.
+- [x] Test validation pass, validation failure followed by amend, and
+  validation unavailable. Timeout and an amend that reaches another module
+  need a slow or multi-module fixture and belong with the end-to-end harness.
+- [x] Test conflict resolution becoming empty with unchanged HEAD and no extra
   agent turn.
-- [ ] Assert one source commit creates at most one target commit.
-- [ ] Assert no test path writes to GitHub.
+- [x] Assert one source commit creates at most one target commit.
+- [x] Assert no test path writes to GitHub.
 
 ### Checkpoint 6 gate
 
-- [ ] `mvn verify` passes.
-- [ ] Conflict resolution cannot advance from agent prose.
-- [ ] Validation is independently rerun by ByteQuay.
-- [ ] Repair amends rather than adding a fixup commit.
+- [x] `mvn verify` passes.
+- [x] Conflict resolution cannot advance from agent prose.
+- [x] Validation is independently rerun by ByteQuay.
+- [x] Repair amends rather than adding a fixup commit.
 - [ ] Reviewer approves the prompt, permission policy, and validation command.
 
 ---

@@ -219,6 +219,53 @@ export type CherryPickPreviewRequest = {
   targetBranch: string;
 };
 
+export type AgentProviderStatus = {
+  laneId: string;
+  /** AVAILABLE | DEGRADED | UNAVAILABLE */
+  health: string;
+  version?: string | null;
+  diagnostic: string;
+};
+
+export type CherryPickExecutionItem = {
+  position: number;
+  sourceSha: string;
+  title: string;
+  /** PENDING | ALREADY_ON_TARGET | USER_SKIPPED | APPLIED | EMPTY_SKIPPED */
+  result: string;
+  targetSha?: string | null;
+  pullRequestNumber?: number | null;
+};
+
+export type CherryPickExecution = {
+  executionId: string;
+  repository: string;
+  workBranch: string;
+  localTargetBranch: string;
+  /** RUNNING | PAUSED | FINISHED */
+  status: string;
+  currentStep?: string | null;
+  pauseReason?: string | null;
+  finishReason?: string | null;
+  summary?: string | null;
+  initialTargetSha: string;
+  currentTargetSha: string;
+  currentPosition?: number | null;
+  items: CherryPickExecutionItem[];
+};
+
+export type CherryPickExecutionRequest = {
+  repository: string;
+  worktreeParent: string;
+  previewId: string;
+  expectedSourceBaseSha: string;
+  expectedSourceTipSha: string;
+  expectedTargetSha: string;
+  userSkippedSourceShas: string[];
+  laneId: string;
+  idempotencyKey: string;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -271,5 +318,10 @@ export type Bridge = {
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
   getCherryPickPreview: (previewId: string) => Promise<CherryPickPreview>;
+  getAgentProviderStatuses: () => Promise<AgentProviderStatus[]>;
+  startCherryPickExecution: (request: CherryPickExecutionRequest) => Promise<CherryPickExecution>;
+  getCherryPickExecution: (executionId: string) => Promise<CherryPickExecution>;
+  sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
+  cancelCherryPickExecution: (executionId: string, repository: string) => Promise<CherryPickExecution>;
   chooseDirectory: (title: string) => Promise<string | null>;
 };

@@ -11,7 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CherryPickPreview, CherryPickPreviewCommit } from '../types';
+import type {
+  CherryPickExecution,
+  CherryPickExecutionItem,
+  CherryPickPreview,
+  CherryPickPreviewCommit,
+} from '../types';
 
 /**
  * Commits grouped for display only. `position` stays the cherry-pick order;
@@ -180,4 +185,31 @@ export function retainSelections(
 ): Set<string> {
   const eligible = new Set(preview.commits.filter(isSkippable).map(commit => commit.sourceSha));
   return new Set([...skipped].filter(sha => eligible.has(sha)));
+}
+
+export function completedExecutionItems(items: CherryPickExecutionItem[]): number {
+  return items.filter(item => item.result !== 'PENDING').length;
+}
+
+export function executionHeadline(execution: CherryPickExecution): string {
+  if (execution.status === 'FINISHED') {
+    return execution.finishReason === 'CANCELLED' ? 'Cherry-pick cancelled' : 'Cherry-pick complete';
+  }
+  if (execution.status === 'PAUSED') {
+    return 'Cherry-pick needs attention';
+  }
+  const position = execution.currentPosition ? `commit ${execution.currentPosition}` : 'the range';
+  return execution.currentStep === 'RESOLVING'
+    ? `Resolving conflicts in ${position}`
+    : `Applying ${position}`;
+}
+
+export function executionResultLabel(item: CherryPickExecutionItem, currentPosition?: number | null): string {
+  switch (item.result) {
+    case 'ALREADY_ON_TARGET': return 'Already on target';
+    case 'USER_SKIPPED': return 'Skipped by you';
+    case 'APPLIED': return 'Applied';
+    case 'EMPTY_SKIPPED': return 'No changes needed';
+    default: return item.position === currentPosition ? 'Working' : 'Waiting';
+  }
 }

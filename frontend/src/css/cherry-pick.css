@@ -31,7 +31,9 @@
   color: var(--text-muted);
 }
 
-.cherry-pick-field input {
+.cherry-pick-field input,
+.cherry-pick-field select,
+.cherry-pick-field textarea {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-input, var(--bg-elevated));
@@ -39,6 +41,11 @@
   padding: 6px 8px;
   font-size: 13px;
   min-width: 0;
+}
+
+.cherry-pick-field textarea {
+  min-height: 84px;
+  resize: vertical;
 }
 
 .cherry-pick-field-path {
@@ -208,6 +215,79 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.cherry-pick-confirm-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px 12px;
+  margin: 12px 0;
+}
+
+.cherry-pick-execution-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.cherry-pick-execution-head h2,
+.cherry-pick-execution-head p {
+  margin: 0;
+}
+
+.cherry-pick-execution-head p {
+  margin-top: 4px;
+}
+
+.cherry-pick-status,
+.cherry-pick-result {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cherry-pick-status-running,
+.cherry-pick-result-pending {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.cherry-pick-status-paused {
+  color: var(--danger, #d33);
+  border-color: var(--danger, #d33);
+}
+
+.cherry-pick-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.cherry-pick-execution-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.cherry-pick-execution-row {
+  display: grid;
+  grid-template-columns: 34px 92px minmax(180px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.cherry-pick-execution-row + .cherry-pick-execution-row {
+  border-top: 1px solid var(--border-subtle, var(--border));
+}
+
+.cherry-pick-execution-row.is-current {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .cherry-pick-empty {

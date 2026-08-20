@@ -1,6 +1,6 @@
 # Cherry-pick Range Design
 
-> **Status: locked.** This is the approved backend design. Implementation
+> **Status: locked.** This is the approved range design. Implementation
 > progress is tracked in
 > [Cherry-pick Range Implementation Checklist](cherry-pick-range-impl-tmp.md).
 
@@ -411,6 +411,20 @@ items[]:
 ```
 
 Temporary `C` and `F` are recovery details and are not final API fields.
+
+The renderer starts an execution only from the user's explicit confirmation.
+It sends the frozen preview SHAs, exact skipped source SHAs, selected conflict
+resolver, worktree parent, and one stable idempotency key. While the execution
+is `RUNNING`, it polls the durable `GET` response and displays the per-item
+results without deriving Git state itself.
+
+The renderer stores only the active execution ID and the selected local clone
+path so the progress screen and cancel action survive navigation or an app
+restart. `PAUSED` stops polling and shows the backend summary plus a bounded
+user note field. Sending that note is an explicit retry action. Cancellation
+is also an explicit user action and is available while running or paused.
+`FINISHED` shows the final per-item accounting and allows a new range to be
+started. The backend remains the sole owner of every status and result.
 
 The main application contract is the concrete service currently used by the
 Spring controller:

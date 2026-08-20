@@ -76,6 +76,13 @@ const bridge: Bridge = {
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
   getCherryPickPreview: previewId => ipcRenderer.invoke('cherrypick:preview:get', previewId),
+  getAgentProviderStatuses: () => ipcRenderer.invoke('cherrypick:providers'),
+  startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
+  getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
+  sendCherryPickMessage: (executionId, message) =>
+    ipcRenderer.invoke('cherrypick:execution:message', executionId, message),
+  cancelCherryPickExecution: (executionId, repository) =>
+    ipcRenderer.invoke('cherrypick:execution:cancel', executionId, repository),
   chooseDirectory: title => ipcRenderer.invoke('cherrypick:choose-directory', title),
 };
 

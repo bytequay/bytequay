@@ -1,6 +1,7 @@
 # Cherry-pick Range Implementation Checklist
 
-Status: implementation complete; explicitly deferred work remains below.
+Status: execution and progress UI complete; explicitly deferred work remains
+below.
 
 Canonical behavior is locked in
 [Cherry-pick Range Design](cherry-pick-range.md). A box is checked only when
@@ -169,10 +170,32 @@ Final gate:
 - [x] The locked design, code, persistence, API, and tests describe the same
   one-commit-or-empty result for every source item.
 
+## Checkpoint 8 — Confirm and observe from the UI
+
+Goal: let the user start and follow the durable execution without moving
+transition ownership into the renderer.
+
+- [x] Expose provider status and execution start/get/message/cancel through the
+  preload bridge.
+- [x] Start only after the user confirms the exact preview, skipped SHAs,
+  worktree parent, and available conflict resolver.
+- [x] Reuse one idempotency key when a start request is retried.
+- [x] Poll only `RUNNING` executions and render backend-owned per-item results.
+- [x] Restore the progress screen from the execution ID and local clone path.
+- [x] Stop polling at `PAUSED`, show the backend explanation, and require a
+  bounded user note for an explicit retry.
+- [x] Make cancellation an explicit confirmed action while running or paused.
+- [x] Show final accounting and allow the user to start another range.
+- [x] Test progress counts and user-facing state labels as pure renderer logic.
+- [x] Run the full frontend lint, type, test, and package gates.
+
+Checkpoint gate:
+
+- [x] The renderer observes durable state only and the packaged app builds.
+
 ## Deferred work
 
 - [ ] User-selected project validation profiles.
-- [ ] Execution progress UI beyond the existing API response.
 - [ ] Program-owned Branch Rebase Service.
 - [ ] CI Autofix migration to Branch Rebase Service.
 - [ ] Push and pull-request creation for the generated work branch.

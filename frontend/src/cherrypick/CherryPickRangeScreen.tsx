@@ -12,9 +12,18 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CherryPickPreview, CherryPickPreviewCommit } from '../types';
+import type {
+  AgentProviderStatus,
+  CherryPickExecution,
+  CherryPickExecutionItem,
+  CherryPickPreview,
+  CherryPickPreviewCommit,
+} from '../types';
 import {
+  completedExecutionItems,
   countCommits,
+  executionHeadline,
+  executionResultLabel,
   groupCommits,
   groupSelection,
   isSkippable,
@@ -30,6 +39,32 @@ const CONFLICT_LABELS: Record<string, string> = {
   CONFLICT: 'Conflicts',
   NOT_ANALYZED: 'Not analyzed',
 };
+
+const ACTIVE_EXECUTION_KEY = 'bytequay.activeCherryPickExecution';
+
+type StoredExecution = {
+  executionId: string;
+  repository: string;
+};
+
+function readStoredExecution(): StoredExecution | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(ACTIVE_EXECUTION_KEY) ?? 'null') as unknown;
+    if (typeof value !== 'object' || value === null) return null;
+    const candidate = value as Partial<StoredExecution>;
+    return typeof candidate.executionId === 'string' && typeof candidate.repository === 'string'
+      ? { executionId: candidate.executionId, repository: candidate.repository }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function providerName(laneId: string): string {
+  if (laneId === 'claude') return 'Claude';
+  if (laneId === 'codex') return 'Codex';
+  return laneId;
+}
 
 function shortSha(sha: string): string {
   return sha.slice(0, 12);
@@ -72,20 +107,89 @@ export default function CherryPickRangeScreen() {
   const [sourceTipRef, setSourceTipRef] = useState('');
   const [targetRemote, setTargetRemote] = useState('origin');
   const [targetBranch, setTargetBranch] = useState('master');
+  const [worktreeParent, setWorktreeParent] = useState('');
 
   const [preview, setPreview] = useState<CherryPickPreview | null>(null);
+  const [previewRepository, setPreviewRepository] = useState('');
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [providers, setProviders] = useState<AgentProviderStatus[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [laneId, setLaneId] = useState('');
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [execution, setExecution] = useState<CherryPickExecution | null>(null);
+  const [executionRepository, setExecutionRepository] = useState('');
+  const [message, setMessage] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const idempotencyKey = useRef<string | null>(null);
 
   const groups = useMemo(() => (preview ? groupCommits(preview.commits) : []), [preview]);
   const counts = useMemo(
     () => countCommits(preview?.commits ?? [], skipped),
     [preview, skipped],
   );
+
+  useEffect(() => {
+    let active = true;
+    void window.bridge.getAgentProviderStatuses()
+      .then(statuses => {
+        if (!active) return;
+        setProviders(statuses);
+        const preferred = statuses.find(status => status.health !== 'UNAVAILABLE') ?? statuses[0];
+        setLaneId(current => current || preferred?.laneId || '');
+      })
+      .catch(failure => {
+        if (active) setProviderError(failure instanceof Error ? failure.message : String(failure));
+      })
+      .finally(() => {
+        if (active) setProvidersLoaded(true);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredExecution();
+    if (!stored) return;
+    let active = true;
+    void window.bridge.getCherryPickExecution(stored.executionId)
+      .then(value => {
+        if (!active) return;
+        setExecution(value);
+        setExecutionRepository(stored.repository);
+      })
+      .catch(() => localStorage.removeItem(ACTIVE_EXECUTION_KEY));
+    return () => { active = false; };
+  }, []);
+
+  const executionId = execution?.executionId;
+  const executionStatus = execution?.status;
+  useEffect(() => {
+    if (!executionId || executionStatus !== 'RUNNING') return;
+    let active = true;
+    let polling = false;
+    const refresh = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const value = await window.bridge.getCherryPickExecution(executionId);
+        if (active) setExecution(value);
+      } catch (failure) {
+        if (active) setError(failure instanceof Error ? failure.message : String(failure));
+      } finally {
+        polling = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [executionId, executionStatus]);
 
   async function runPreview() {
     setBusy(true);
@@ -103,6 +207,9 @@ export default function CherryPickRangeScreen() {
       // carried over silently.
       setSkipped(current => retainSelections(next, current));
       setPreview(next);
+      setPreviewRepository(repository.trim());
+      setConfirming(false);
+      idempotencyKey.current = null;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -115,6 +222,84 @@ export default function CherryPickRangeScreen() {
     if (chosen) {
       setRepository(chosen);
     }
+  }
+
+  async function chooseWorktreeParent() {
+    const chosen = await window.bridge.chooseDirectory('Choose where ByteQuay should create the work branch');
+    if (chosen) setWorktreeParent(chosen);
+  }
+
+  async function startExecution() {
+    if (!preview) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      idempotencyKey.current ??= crypto.randomUUID();
+      const next = await window.bridge.startCherryPickExecution({
+        repository: previewRepository,
+        worktreeParent: worktreeParent.trim(),
+        previewId: preview.previewId,
+        expectedSourceBaseSha: preview.sourceBaseSha,
+        expectedSourceTipSha: preview.sourceTipSha,
+        expectedTargetSha: preview.targetSha,
+        userSkippedSourceShas: skippedShasForConfirmation(preview, skipped),
+        laneId,
+        idempotencyKey: idempotencyKey.current,
+      });
+      setExecution(next);
+      setExecutionRepository(previewRepository);
+      localStorage.setItem(ACTIVE_EXECUTION_KEY, JSON.stringify({
+        executionId: next.executionId,
+        repository: previewRepository,
+      } satisfies StoredExecution));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function sendMessage() {
+    if (!execution || !message.trim()) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      setExecution(await window.bridge.sendCherryPickMessage(execution.executionId, message.trim()));
+      setMessage('');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function cancelExecution() {
+    if (!execution || !executionRepository) return;
+    if (!window.confirm('Cancel this cherry-pick and remove its generated work branch?')) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      setExecution(await window.bridge.cancelCherryPickExecution(
+        execution.executionId,
+        executionRepository,
+      ));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  function startNewRange() {
+    localStorage.removeItem(ACTIVE_EXECUTION_KEY);
+    setExecution(null);
+    setExecutionRepository('');
+    setPreview(null);
+    setSkipped(new Set());
+    setConfirming(false);
+    setMessage('');
+    setError(null);
+    idempotencyKey.current = null;
   }
 
   function toggleExpanded(sha: string) {
@@ -133,6 +318,27 @@ export default function CherryPickRangeScreen() {
     && sourceBaseRef.trim() !== ''
     && sourceTipRef.trim() !== ''
     && targetBranch.trim() !== '';
+  const selectedProvider = providers.find(provider => provider.laneId === laneId);
+  const canStart = preview !== null
+    && worktreeParent.trim() !== ''
+    && selectedProvider !== undefined
+    && selectedProvider.health !== 'UNAVAILABLE';
+
+  if (execution) {
+    return (
+      <ExecutionProgress
+        execution={execution}
+        repositoryAvailable={executionRepository !== ''}
+        message={message}
+        busy={actionBusy}
+        error={error}
+        onMessageChange={setMessage}
+        onSendMessage={() => { void sendMessage(); }}
+        onCancel={() => { void cancelExecution(); }}
+        onNewRange={startNewRange}
+      />
+    );
+  }
 
   return (
     <div className="cherry-pick">
@@ -304,11 +510,51 @@ export default function CherryPickRangeScreen() {
                 Confirmation sends these exact commit IDs:{' '}
                 {skippedShasForConfirmation(preview, skipped).map(shortSha).join(', ') || 'none'}
               </p>
-              <p className="cherry-pick-group-meta">
-                Execution lands in a later checkpoint; nothing is written yet.
-              </p>
+              <div className="cherry-pick-confirm-fields">
+                <div className="cherry-pick-field">
+                  <label htmlFor="cp-worktree-parent">Work branch folder</label>
+                  <div className="cherry-pick-field-path">
+                    <input
+                      id="cp-worktree-parent"
+                      value={worktreeParent}
+                      placeholder="/Users/you/IdeaProjects/worktrees"
+                      onChange={event => setWorktreeParent(event.target.value)}
+                    />
+                    <button type="button" onClick={() => { void chooseWorktreeParent(); }}>Choose…</button>
+                  </div>
+                </div>
+                <div className="cherry-pick-field">
+                  <label htmlFor="cp-provider">Conflict resolver</label>
+                  <select id="cp-provider" value={laneId} onChange={event => setLaneId(event.target.value)}>
+                    {providers.map(provider => (
+                      <option key={provider.laneId} value={provider.laneId}>
+                        {providerName(provider.laneId)}
+                        {provider.health === 'UNAVAILABLE' ? ' · unavailable' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {selectedProvider && (
+                <p className="cherry-pick-group-meta">
+                  {providerName(selectedProvider.laneId)} {selectedProvider.version ?? ''}
+                  {' · '}{selectedProvider.diagnostic}
+                </p>
+              )}
+              {providersLoaded && providers.length === 0 && !providerError && (
+                <p className="cherry-pick-error" role="alert">
+                  No conflict resolver is configured.
+                </p>
+              )}
+              {!providersLoaded && !providerError && (
+                <p className="cherry-pick-group-meta">Checking available conflict resolvers…</p>
+              )}
+              {providerError && <p className="cherry-pick-error" role="alert">{providerError}</p>}
               <div className="cherry-pick-actions">
-                <button type="button" onClick={() => setConfirming(false)}>Close</button>
+                <button type="button" disabled={!canStart || actionBusy} onClick={() => { void startExecution(); }}>
+                  {actionBusy ? 'Starting…' : 'Start cherry-pick'}
+                </button>
+                <button type="button" disabled={actionBusy} onClick={() => setConfirming(false)}>Back</button>
               </div>
             </div>
           )}
@@ -317,6 +563,134 @@ export default function CherryPickRangeScreen() {
 
       {preview && preview.commits.length === 0 && (
         <div className="cherry-pick-empty">This range contains no commits.</div>
+      )}
+    </div>
+  );
+}
+
+function ExecutionProgress({
+  execution,
+  repositoryAvailable,
+  message,
+  busy,
+  error,
+  onMessageChange,
+  onSendMessage,
+  onCancel,
+  onNewRange,
+}: {
+  execution: CherryPickExecution;
+  repositoryAvailable: boolean;
+  message: string;
+  busy: boolean;
+  error: string | null;
+  onMessageChange: (value: string) => void;
+  onSendMessage: () => void;
+  onCancel: () => void;
+  onNewRange: () => void;
+}) {
+  const completed = completedExecutionItems(execution.items);
+  const active = execution.status !== 'FINISHED';
+  const statusLabel = execution.status === 'RUNNING'
+    ? 'In progress'
+    : execution.status === 'PAUSED'
+      ? 'Needs attention'
+      : execution.finishReason === 'CANCELLED' ? 'Cancelled' : 'Done';
+
+  return (
+    <div className="cherry-pick">
+      <div className="cherry-pick-execution-head">
+        <div>
+          <h2>{executionHeadline(execution)}</h2>
+          <p className="cherry-pick-group-meta">
+            {execution.repository} · {execution.workBranch} from {execution.localTargetBranch}
+          </p>
+        </div>
+        <span className={`cherry-pick-status cherry-pick-status-${execution.status.toLowerCase()}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <progress
+        className="cherry-pick-progress"
+        max={Math.max(execution.items.length, 1)}
+        value={completed}
+      />
+      <div className="cherry-pick-counts">
+        <span><strong>{completed}</strong> finished</span>
+        <span><strong>{execution.items.length - completed}</strong> remaining</span>
+        <span>HEAD <strong className="cherry-pick-sha">{shortSha(execution.currentTargetSha)}</strong></span>
+      </div>
+
+      {error && <div className="cherry-pick-error" role="alert">{error}</div>}
+
+      {execution.status === 'PAUSED' && (
+        <div className="cherry-pick-warning">
+          <p>{execution.summary ?? 'ByteQuay paused before changing any more commits.'}</p>
+          <div className="cherry-pick-field">
+            <label htmlFor="cp-retry-message">Note for the conflict resolver</label>
+            <textarea
+              id="cp-retry-message"
+              value={message}
+              maxLength={4000}
+              placeholder="Explain what should be checked or changed before retrying."
+              onChange={event => onMessageChange(event.target.value)}
+            />
+          </div>
+          <div className="cherry-pick-actions">
+            <button type="button" disabled={busy || message.trim() === ''} onClick={onSendMessage}>
+              {busy ? 'Retrying…' : 'Send note and retry'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {execution.status === 'FINISHED' && execution.summary && (
+        <div className="cherry-pick-warning">{execution.summary}</div>
+      )}
+
+      <div className="cherry-pick-execution-list">
+        {execution.items.map(item => (
+          <ExecutionItemRow
+            key={item.sourceSha}
+            item={item}
+            current={item.position === execution.currentPosition && item.result === 'PENDING'}
+          />
+        ))}
+      </div>
+
+      <div className="cherry-pick-actions">
+        {active && repositoryAvailable && (
+          <button type="button" disabled={busy} onClick={onCancel}>Cancel cherry-pick</button>
+        )}
+        {execution.status === 'FINISHED' && (
+          <button type="button" onClick={onNewRange}>Start another range</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExecutionItemRow({
+  item,
+  current,
+}: {
+  item: CherryPickExecutionItem;
+  current: boolean;
+}) {
+  return (
+    <div className={`cherry-pick-execution-row${current ? ' is-current' : ''}`}>
+      <span className="cherry-pick-position">{item.position}</span>
+      <span className="cherry-pick-sha">{shortSha(item.sourceSha)}</span>
+      <span className="cherry-pick-commit-title">{item.title}</span>
+      {item.pullRequestNumber && (
+        <span className="cherry-pick-group-meta">#{item.pullRequestNumber}</span>
+      )}
+      <span className={`cherry-pick-result cherry-pick-result-${item.result.toLowerCase()}`}>
+        {executionResultLabel(item, current ? item.position : null)}
+      </span>
+      {item.targetSha && (
+        <span className="cherry-pick-sha">→ {shortSha(item.targetSha)}</span>
       )}
     </div>
   );

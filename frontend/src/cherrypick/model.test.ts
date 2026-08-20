@@ -14,6 +14,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   countCommits,
+  completedExecutionItems,
+  executionHeadline,
+  executionResultLabel,
   groupCommits,
   groupSelection,
   matchesSearch,
@@ -22,7 +25,12 @@ import {
   toggleCommit,
   toggleGroup,
 } from './model';
-import type { CherryPickPreview, CherryPickPreviewCommit } from '../types';
+import type {
+  CherryPickExecution,
+  CherryPickExecutionItem,
+  CherryPickPreview,
+  CherryPickPreviewCommit,
+} from '../types';
 
 function commit(
   position: number,
@@ -198,5 +206,45 @@ describe('counts and stale previews', () => {
     const refreshed = preview([commit(1), commit(2), commit(4, { alreadyOnTarget: true })]);
 
     expect([...retainSelections(refreshed, skipped)]).toEqual([before[0].sourceSha]);
+  });
+});
+
+describe('execution progress', () => {
+  const items: CherryPickExecutionItem[] = [
+    { position: 1, sourceSha: '1'.repeat(40), title: 'Present', result: 'ALREADY_ON_TARGET' },
+    { position: 2, sourceSha: '2'.repeat(40), title: 'Applied', result: 'APPLIED', targetSha: 'a'.repeat(40) },
+    { position: 3, sourceSha: '3'.repeat(40), title: 'Current', result: 'PENDING' },
+  ];
+  const execution: CherryPickExecution = {
+    executionId: 'execution-1',
+    repository: 'trinodb/trino',
+    workBranch: 'bump-477-478-a7',
+    localTargetBranch: 'cork-master',
+    status: 'RUNNING',
+    currentStep: 'RESOLVING',
+    initialTargetSha: 'b'.repeat(40),
+    currentTargetSha: 'a'.repeat(40),
+    currentPosition: 3,
+    items,
+  };
+
+  it('counts only durable non-pending results as complete', () => {
+    expect(completedExecutionItems(items)).toBe(2);
+  });
+
+  it('describes running, paused, completed, and cancelled states', () => {
+    expect(executionHeadline(execution)).toBe('Resolving conflicts in commit 3');
+    expect(executionHeadline({ ...execution, status: 'PAUSED' })).toBe('Cherry-pick needs attention');
+    expect(executionHeadline({ ...execution, status: 'FINISHED', finishReason: 'COMPLETED' }))
+      .toBe('Cherry-pick complete');
+    expect(executionHeadline({ ...execution, status: 'FINISHED', finishReason: 'CANCELLED' }))
+      .toBe('Cherry-pick cancelled');
+  });
+
+  it('uses a special label only for the current pending item', () => {
+    expect(executionResultLabel(items[0], 3)).toBe('Already on target');
+    expect(executionResultLabel(items[1], 3)).toBe('Applied');
+    expect(executionResultLabel(items[2], 3)).toBe('Working');
+    expect(executionResultLabel(items[2], 4)).toBe('Waiting');
   });
 });

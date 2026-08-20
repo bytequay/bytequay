@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -43,6 +44,7 @@ public record CherryPickCommitPreview(
 {
     public CherryPickCommitPreview
     {
+        checkArgument(position >= 1, "position is not one-based");
         requireNonNull(sourceSha, "sourceSha is null");
         requireNonNull(sourceParentSha, "sourceParentSha is null");
         requireNonNull(title, "title is null");

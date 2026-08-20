@@ -507,5 +507,16 @@ public class CherryPickPreviewService
             String title,
             String author,
             Instant committedAt,
-            List<String> changedPaths) {}
+            List<String> changedPaths)
+    {
+        private RangeCommit
+        {
+            requireNonNull(sha, "sha is null");
+            requireNonNull(parentSha, "parentSha is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(author, "author is null");
+            requireNonNull(committedAt, "committedAt is null");
+            changedPaths = ImmutableList.copyOf(requireNonNull(changedPaths, "changedPaths is null"));
+        }
+    }
 }

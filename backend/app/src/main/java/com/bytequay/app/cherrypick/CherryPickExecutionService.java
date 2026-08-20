@@ -868,5 +868,12 @@ public class CherryPickExecutionService
         }
     }
 
-    private record CreatedCommit(String targetSha, Optional<String> sourceSha) {}
+    private record CreatedCommit(String targetSha, Optional<String> sourceSha)
+    {
+        private CreatedCommit
+        {
+            requireNonNull(targetSha, "targetSha is null");
+            requireNonNull(sourceSha, "sourceSha is null");
+        }
+    }
 }

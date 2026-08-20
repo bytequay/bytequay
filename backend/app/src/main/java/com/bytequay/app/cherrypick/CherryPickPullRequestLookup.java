@@ -201,7 +201,14 @@ class CherryPickPullRequestLookup
                 chosen.mergedAt()));
     }
 
-    private record Lookup(String sha, Optional<PullRequestAssociation> association) {}
+    private record Lookup(String sha, Optional<PullRequestAssociation> association)
+    {
+        private Lookup
+        {
+            requireNonNull(sha, "sha is null");
+            requireNonNull(association, "association is null");
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record AssociatedPullRequest(

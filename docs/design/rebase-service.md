@@ -1,7 +1,8 @@
 # Branch Rebase Service
 
-> **Status: proposed and deferred.** This service is not implemented and is not
-> part of the locked cherry-pick execution path.
+> **Status: implemented and verified.** This service is not part of the
+> cherry-pick execution path. Explicit UI and CI Autofix callers remain
+> separate, approved migrations.
 
 This document specifies a program-owned rebase of one local branch onto another
 local branch, with agent-assisted conflict resolution. Its intended consumers
@@ -70,14 +71,14 @@ CHERRY_PICK_HEAD                 .git/rebase-merge/git-rebase-todo
                                     pick a37c5ca S3 clean
 ```
 
-**Shared later: low-level Git observation.** The current
-`GitSequencerDriver` is cherry-pick-shaped because it reads
+**Shared: low-level Git concepts.** `GitSequencerDriver` remains
+cherry-pick-shaped because it reads
 `CHERRY_PICK_HEAD` and runs cherry-pick continue/skip/abort. Rebase may reuse
 the command runner, conflict-stage records, clean-worktree checks, and the
 `COMPLETED`/`STOPPED_*`/`UNSAFE` vocabulary, but its operation-marker and
-continue/skip/abort commands must be rebase-aware. Generalize those facts only
-when this second caller is implemented; do not make the working cherry-pick
-driver speculative now. The current contract is in
+continue/skip/abort commands are rebase-aware in the separate
+`RebaseSequencerDriver`. The cherry-pick driver was not generalized. Its
+contract is in
 [Cherry-pick Range §10](cherry-pick-range.md#10-api-contract).
 
 That covers the Git observation and sequencer mutations both services need,
@@ -85,9 +86,9 @@ but it does not force them to use the same conflict history. Rebase hands the
 open conflict to an agent and lets the program continue the sequence after the
 resolution is staged. Cherry-pick temporarily commits the conflict snapshot,
 lets the agent append one fixup, then normalizes both into one final commit or
-removes them when empty. The worktree-state inspection currently
-inside `CiGitOperations` moves into the driver rather than being duplicated a
-third time.
+removes them when empty. A later CI Autofix migration can replace its current
+worktree-state inspection with this rebase driver instead of duplicating that
+logic a third time.
 
 **Not shared: the plan layer or conflict-commit policy.** Their durable state
 and accepted history remain service-specific:
@@ -113,8 +114,9 @@ merging into either of these.
 - One rebase moves one local work branch onto one local base branch.
 - Both branches are local. The service never fetches, pushes, or contacts
   GitHub. Synchronizing the base branch happens before the service is called.
-- The work branch is checked out in a leased worktree; the base branch is not
-  checked out anywhere.
+- The work branch is checked out in a worktree already leased by the caller's
+  live agent task; the base branch is not checked out anywhere. The rebase
+  service reuses that task and never tries to acquire a second lease.
 - The service never rebases onto a remote-tracking ref and never rebases a
   detached HEAD.
 - Git state decides every outcome. Agent response text is shown to the user and
@@ -157,7 +159,13 @@ status, currentStep?, pauseReason?
 conflictCommitSha?       the commit the sequencer stopped on
 agentTaskId, currentTurnId?, attemptCount
 resultWorkTip?           object ID after a successful rebase
+actionJournal?           START, AGENT_TURN, CONTINUE, SKIP, or ABORT intent
 ```
+
+The caller owns the agent task lifecycle. The rebase stores its task ID so it
+can start a bounded conflict-resolution turn, but it does not create, complete,
+or release the task. This lets an explicit rebase action and CI Autofix use the
+same service without nested worktree leases.
 
 ## 5. Flow
 
@@ -168,15 +176,15 @@ resultWorkTip?           object ID after a successful rebase
    `FINISHED` without running anything. Git reports `Current branch <name> is up
    to date` for this case anyway; checking first means the service records a
    terminal result without starting an operation it would have to inspect.
-3. **Start.** Call the future rebase-specific driver, which runs one
+3. **Start.** Persist a `START` intent, then call the rebase-specific driver,
+   which runs one
    non-interactive rebase:
 
    ```text
    git rebase --no-autosquash <baseSha>
    ```
 
-   A plain rebase opens no editor, and the shared Git runner already sets
-   `GIT_TERMINAL_PROMPT=0`, so no further isolation is needed.
+   The driver also disables commit signing for the program-owned operation.
    `--no-autosquash` is not redundant: autosquash is off by default but a
    repository may enable `rebase.autoSquash`, and a work branch carrying
    `fixup!` subjects would then be silently squashed, changing the commits the
@@ -184,11 +192,12 @@ resultWorkTip?           object ID after a successful rebase
 4. **Clean result.** Inspect Git. Accept only when no operation remains, the
    index and worktree are clean, and the new tip is a descendant of `baseSha`.
    Record `resultWorkTip` and `FINISHED`.
-5. **Conflict.** Record `RESOLVING` and `conflictCommitSha` from
-   `git rebase --show-current-patch`, then start one agent turn.
+5. **Conflict.** Record `RESOLVING` and `conflictCommitSha` from the exact
+   `REBASE_HEAD` object ID, then start one agent turn.
 6. **After a turn.** Call `observe(...)` and read the `SequenceState`, never
    the agent's text:
-   - `STOPPED_RESOLVED` → the program runs guarded `git rebase --continue`,
+   - `STOPPED_RESOLVED` with the same HEAD and `REBASE_HEAD` the agent received
+     → the program runs guarded `git -c core.editor=true rebase --continue`,
      which resumes the remaining commits in one action;
    - `STOPPED_EMPTY` → the program runs guarded `git rebase --skip`, safe here
      because the sequencer, not a user selection, owns the commit list;
@@ -196,9 +205,13 @@ resultWorkTip?           object ID after a successful rebase
      the actual diagnostics;
    - `COMPLETED` → validate;
    - `UNSAFE` → `PAUSED`.
-7. **Validation.** After the rebase completes, run the stored validation command
-   once against the final tree. The intermediate commits of a rebase are not
-   individually validated; only the finished branch is.
+   - a moved HEAD, changed `REBASE_HEAD`, or closed rebase after an agent turn
+     → pause because the agent or a person advanced history outside the
+     program-owned command.
+7. **Validation.** After the rebase completes, call the explicit ByteQuay
+   validation hook once against the final tree. The hook is a successful no-op
+   until a user-approved project validation profile supplies a command. The
+   intermediate commits of a rebase are not individually validated.
 8. **Limit.** At most three agent turns per conflicted commit. Exhaustion
    pauses.
 
@@ -215,6 +228,8 @@ resultWorkTip?           object ID after a successful rebase
   pauses instead of continuing.
 - `originalWorkTip` is reported in every terminal state so a user can recover
   the pre-rebase branch with `git reset --hard <sha>` even after a success.
+- If an abort finished before its result was saved, recovery accepts only a
+  clean worktree on the exact work branch at `originalWorkTip`.
 
 ## 7. Agent prompt
 
@@ -255,15 +270,16 @@ package com.bytequay.app.rebase;
  * Rebases one local branch onto another with agent-assisted conflict
  * resolution, deciding every outcome from Git state.
  */
-public interface BranchRebaseService
+public final class BranchRebaseService
 {
     /**
      * Starts or returns the rebase for an idempotent request.
      *
-     * @param command work branch, base branch, leased worktree, and idempotency key
+     * @param command caller-owned task, work branch, base branch, leased
+     * worktree, and idempotency key
      * @return the durable rebase
      */
-    BranchRebase start(StartBranchRebaseCommand command);
+    public BranchRebase start(StartBranchRebaseCommand command);
 
     /**
      * Returns one rebase for the UI.
@@ -271,7 +287,7 @@ public interface BranchRebaseService
      * @param rebaseId rebase identifier
      * @return current status, step, and recorded object IDs
      */
-    BranchRebase get(BranchRebaseId rebaseId);
+    public BranchRebase get(BranchRebaseId rebaseId);
 
     /**
      * Inspects Git and performs at most one next action.
@@ -279,7 +295,16 @@ public interface BranchRebaseService
      * @param rebaseId rebase selected by the local monitor
      * @return rebase after one bounded action
      */
-    BranchRebase advance(BranchRebaseId rebaseId);
+    public BranchRebase advance(BranchRebaseId rebaseId);
+
+    /**
+     * Resumes a paused conflict with one bounded, untrusted user note.
+     *
+     * @param rebaseId rebase identifier
+     * @param message note to include in the next conflict-resolution turn
+     * @return running, paused, or finished rebase after one bounded action
+     */
+    public BranchRebase sendMessage(BranchRebaseId rebaseId, String message);
 
     /**
      * Aborts the rebase and restores the recorded original branch tip.
@@ -287,12 +312,12 @@ public interface BranchRebaseService
      * @param rebaseId rebase identifier
      * @return finished or safely paused rebase
      */
-    BranchRebase cancel(BranchRebaseId rebaseId);
+    public BranchRebase cancel(BranchRebaseId rebaseId);
 }
 ```
 
 The service lives in `app` beside the other application services. Its Git
-helper is package-private and concrete, like `CherryPickGit`.
+helper is the concrete `RebaseSequencerDriver` component.
 
 ## 9. Acceptance criteria
 
@@ -310,3 +335,8 @@ helper is package-private and concrete, like `CherryPickGit`.
    pauses if it cannot.
 8. A restart mid-rebase re-inspects Git and never repeats a mutation blindly.
 9. No path fetches, pushes, or writes to GitHub.
+10. Merge commits in the replay range are rejected instead of silently
+    flattened.
+11. A program-owned continue cannot open an editor.
+12. If the agent runs continue, skip, abort, commit, or otherwise moves the
+    sequence, the service pauses instead of accepting it.

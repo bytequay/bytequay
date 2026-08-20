@@ -510,7 +510,7 @@ During a rebase conflict the agent edits and stages only; the program runs
 todo list, so appending an agent fixup after a temporary replayed commit is not
 stable. A commit that becomes empty during replay is skipped by the program.
 
-The proposed [Branch Rebase Service](rebase-service.md) is primarily for an
+The implemented [Branch Rebase Service](rebase-service.md) is primarily for an
 explicit rebase operation and a later CI Autofix migration. It is not invoked
 automatically by this cherry-pick flow.
 

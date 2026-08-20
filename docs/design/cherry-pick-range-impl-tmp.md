@@ -196,6 +196,6 @@ Checkpoint gate:
 ## Deferred work
 
 - [ ] User-selected project validation profiles.
-- [ ] Program-owned Branch Rebase Service.
+- [x] Program-owned Branch Rebase Service.
 - [ ] CI Autofix migration to Branch Rebase Service.
 - [ ] Push and pull-request creation for the generated work branch.

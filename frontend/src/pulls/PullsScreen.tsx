@@ -12,18 +12,18 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import Avatar from '../Avatar';
 import type { DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
 import PullChanges from './PullChanges';
+import PullOverview, { isQueued } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
-import { PULL_TABS, rowsForTab, type PullRow, type PullTab } from './model';
+import { PULL_TABS, reconcilePullRequestDetail, rowsForTab, type PullRow, type PullTab } from './model';
 import '../css/pulls.css';
 
 type DetailTab = 'overview' | 'changes';
 
-const DETAIL_MIN = 460;
-const DETAIL_MAX = 980;
-const DETAIL_DEFAULT = 720;
+const DETAIL_MIN = 680;
+const DETAIL_MAX = 1600;
+const DETAIL_DEFAULT = 1120;
 
 export default function PullsScreen({
   initialPr,
@@ -62,11 +62,25 @@ export default function PullsScreen({
   }, []);
 
   useEffect(() => {
-    if (!initialPr || prs.length === 0) return;
+    if (!initialPr || loading) return;
     const match = prs.find(pr => pr.repo.toLowerCase() === initialPr.repo.toLowerCase()
       && pr.number === initialPr.number);
-    if (match) setSelected(match.id);
-  }, [initialPr, prs]);
+    if (match) {
+      setSelected(match.id);
+      return;
+    }
+    let cancelled = false;
+    window.bridge.fetchPullRequestDetail(initialPr.repo, initialPr.number).then(value => {
+      if (cancelled) return;
+      const remote = remotePullRequest(value);
+      setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
+      setDetail(value);
+      setSelected(remote.id);
+    }).catch(e => {
+      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+    });
+    return () => { cancelled = true; };
+  }, [initialPr, loading, prs]);
 
   const rows = useMemo(() => rowsForTab(prs, tab), [prs, tab]);
   const selectedPr = prs.find(pr => pr.id === selected) ?? null;
@@ -76,12 +90,19 @@ export default function PullsScreen({
       setDetail(null);
       return;
     }
+    if (detail?.repo.toLowerCase() === selectedPr.repo.toLowerCase()
+        && detail.number === selectedPr.number) return;
     let cancelled = false;
     setDetailLoading(true);
     setError(null);
     window.bridge.fetchPullRequestDetail(selectedPr.repo, selectedPr.number)
       .then(value => {
-        if (!cancelled) setDetail(value);
+        if (!cancelled) {
+          setDetail(value);
+          setPrs(current => current.map(pr => pr.id === selectedPr.id
+            ? reconcilePullRequestDetail(pr, value)
+            : pr));
+        }
       })
       .catch(e => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -90,7 +111,7 @@ export default function PullsScreen({
         if (!cancelled) setDetailLoading(false);
       });
     return () => { cancelled = true; };
-  }, [selectedPr]);
+  }, [selectedPr, detail?.repo, detail?.number]);
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
@@ -109,7 +130,11 @@ export default function PullsScreen({
     if (!selectedPr) return;
     setDetailLoading(true);
     try {
-      setDetail(await window.bridge.refreshPullRequestDetail(selectedPr.repo, selectedPr.number));
+      const value = await window.bridge.refreshPullRequestDetail(selectedPr.repo, selectedPr.number);
+      setDetail(value);
+      setPrs(current => current.map(pr => pr.id === selectedPr.id
+        ? reconcilePullRequestDetail(pr, value)
+        : pr));
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -122,7 +147,7 @@ export default function PullsScreen({
   const resizeDetail = (event: ReactMouseEvent) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = detailWidth;
+    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? detailWidth;
     const move = (next: globalThis.MouseEvent) => {
       setDetailWidth(Math.max(DETAIL_MIN, Math.min(
         DETAIL_MAX,
@@ -200,7 +225,8 @@ export default function PullsScreen({
 
       {paneShown && selectedPr !== null && (
         <section className="pull-detail" style={{ width: detailWidth }}>
-          <div className="pull-detail__resize" onMouseDown={resizeDetail} title="Drag to resize" />
+          <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
+            aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />
           <PullDetailHeader
             pr={selectedPr}
             detail={detail}
@@ -228,6 +254,37 @@ export default function PullsScreen({
   );
 }
 
+function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto {
+  const key = `${detail.repo.toLowerCase()}#${detail.number}`;
+  let hash = 0;
+  for (const character of key) hash = ((hash * 31) + character.charCodeAt(0)) | 0;
+  return {
+    id: -(Math.abs(hash) || 1),
+    repo: detail.repo,
+    number: detail.number,
+    title: detail.title ?? `${detail.repo} #${detail.number}`,
+    author: detail.author,
+    htmlUrl: detail.htmlUrl ?? `https://github.com/${detail.repo}/pull/${detail.number}`,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date(0).toISOString(),
+    origin: 'AUTHORED',
+    labels: detail.labels.map(label => label.name),
+    labelColors: Object.fromEntries(detail.labels.map(label => [label.name, label.color ?? 'd0d7de'])),
+    draft: detail.draft,
+    requestedReviewers: detail.reviewers.map(reviewer => reviewer.login),
+    ciStatus: detail.ciStatus,
+    additions: detail.additions,
+    deletions: detail.deletions,
+    commentCount: detail.recentActivity.filter(item =>
+      item.eventType === 'commented' || item.eventType === 'reviewed').length,
+    attentionReason: null,
+    state: detail.state,
+    mergeable: null,
+    mergeableState: null,
+    headRef: detail.headRef,
+  };
+}
+
 function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
@@ -235,27 +292,42 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const state = pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : pr.draft ? 'Draft' : 'Open';
+  const [mergeQueue, setMergeQueue] = useState<boolean | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const canMerge = detail !== null
+    && detail.state?.toLowerCase() === 'open'
+    && !detail.draft
+    && detail.viewerCanWrite
+    && !isQueued(detail.recentActivity);
+
+  useEffect(() => {
+    setMergeOpen(false);
+    setMergeQueue(null);
+    if (!canMerge || !detail?.baseRef) return;
+    let cancelled = false;
+    void window.bridge.fetchMergeMode(detail.repo, detail.baseRef)
+      .then(mode => { if (!cancelled) setMergeQueue(mode.mergeQueue); })
+      .catch(() => { if (!cancelled) setMergeQueue(null); });
+    return () => { cancelled = true; };
+  }, [canMerge, detail?.repo, detail?.number, detail?.baseRef]);
+
   return (
     <header className="pull-detail__header">
       <div className="pull-detail__title-row">
-        <h1>{pr.title} <span>#{pr.number}</span></h1>
+        <h1>{pr.title}</h1>
         <div className="pull-detail__header-actions">
           <button type="button" title="Refresh" aria-label="Refresh" onClick={() => { void onRefresh(); }}>
             <RefreshIcon />
           </button>
-          <button type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
+          <button className="pull-detail__open-github" type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
             Open on GitHub <span aria-hidden="true">↗</span>
           </button>
+          {canMerge && mergeQueue !== null && (
+            <button className="pull-detail__merge-action" type="button" onClick={() => setMergeOpen(true)}>
+              <MergeReadyIcon /> {mergeActionLabel(mergeQueue)}
+            </button>
+          )}
         </div>
-      </div>
-      <div className="pull-detail__branches">
-        <span className={`pull-detail__state is-${state.toLowerCase()}`}>
-          <PullRequestIcon merged={state === 'Merged'} /> {state}
-        </span>
-        <span className="pull-detail__branch is-dummy">base · dummy</span>
-        <span aria-hidden="true">←</span>
-        <span className="pull-detail__branch">{pr.headRef ?? 'branch unavailable'}</span>
       </div>
       <nav className="pull-detail__tabs" aria-label="Pull request detail">
         <button className={tab === 'overview' ? 'is-active' : ''} type="button" onClick={() => onTab('overview')}>
@@ -268,8 +340,104 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
           <span className="is-deletion">−{detail?.deletions ?? pr.deletions}</span>
         </button>
       </nav>
+      {mergeOpen && detail && mergeQueue !== null && (
+        <MergeDialog pr={pr} detail={detail} mergeQueue={mergeQueue}
+          onClose={() => setMergeOpen(false)} onRefresh={onRefresh} />
+      )}
     </header>
   );
+}
+
+export function mergeActionLabel(mergeQueue: boolean) {
+  return mergeQueue ? 'Merge when ready' : 'Rebase and merge';
+}
+
+export function unresolvedReviewCount(detail: PullRequestDetailDto) {
+  return detail.recentActivity.filter(activity =>
+    activity.eventType === 'review_thread' && !activity.payload.resolved).length;
+}
+
+function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  mergeQueue: boolean;
+  onClose: () => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unresolved = unresolvedReviewCount(detail);
+  const counts = detail.checkRuns.reduce((result, check) => {
+    result[check.category] = (result[check.category] ?? 0) + 1;
+    return result;
+  }, {} as Record<string, number>);
+  const pending = counts.pending ?? 0;
+  const failing = counts.failing ?? 0;
+  const successful = counts.successful ?? 0;
+
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !submitting) onClose(); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [onClose, submitting]);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
+      await onRefresh();
+      onClose();
+    }
+    catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="pr-merge-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-merge-title">
+      <div className="pr-merge-sheet__header">
+        <h2 id="pr-merge-title">Merge pull request</h2>
+        <button type="button" aria-label="Close merge dialog" disabled={submitting} onClick={onClose}>×</button>
+      </div>
+      <div className="pr-merge-sheet__content">
+        <div className="pr-merge-status-card">
+          <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />
+          <strong>{mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
+        </div>
+        <div className="pr-merge-status-card is-stacked">
+          <div>
+            <MergeReadyIcon />
+            <strong>{pending > 0 ? 'Checks are running' : failing > 0 ? 'Some checks were not successful' : 'All checks have passed'}</strong>
+          </div>
+          <div className="pr-merge-status-card__groups">
+            {pending > 0 && <span>In progress ({pending})</span>}
+            {failing > 0 && <span>Failing ({failing})</span>}
+            {successful > 0 && <span>Successful ({successful})</span>}
+            {detail.checkRuns.length === 0 && <span>No checks reported</span>}
+          </div>
+        </div>
+        {unresolved > 0 && (
+          <div className="pr-merge-status-card is-danger">
+            <span aria-hidden="true">×</span>
+            <strong>{unresolved} unresolved review comment{unresolved === 1 ? '' : 's'}</strong>
+          </div>
+        )}
+        {error && <div className="pr-merge-sheet__error" role="alert">{error}</div>}
+      </div>
+      <footer className="pr-merge-sheet__footer">
+        <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
+        <button className="is-primary" type="button" disabled={submitting} onClick={() => { void submit(); }}>
+          <PullRequestIcon /> {submitting ? 'Submitting…' : mergeQueue ? 'Queue when ready' : 'Rebase and merge'}
+        </button>
+      </footer>
+    </section>
+  );
+}
+
+function MergeReadyIcon() {
+  return <span className="pr-merge-ready-icon" aria-hidden="true"><i /></span>;
 }
 
 function DetailBody({
@@ -285,196 +453,11 @@ function DetailBody({
   diffs: DiffFileDto[] | null;
   onRefresh: () => Promise<void>;
 }) {
-  const [comment, setComment] = useState('');
-  const [posting, setPosting] = useState(false);
-
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges files={diffs} /></div>;
   }
-
-  const submitComment = async () => {
-    if (!comment.trim()) return;
-    setPosting(true);
-    try {
-      await window.bridge.commentPr(pr.repo, pr.number, comment.trim());
-      setComment('');
-      await onRefresh();
-    }
-    finally {
-      setPosting(false);
-    }
-  };
-
-  return (
-    <div className="pull-detail__body">
-      <div className="pull-detail__metadata">
-        <span className={detail.ciStatus === 'PASSING' ? 'is-good' : detail.ciStatus === 'FAILING' ? 'is-bad' : ''}>
-          CI {detail.ciStatus.toLowerCase()}
-        </span>
-        <span>{detail.changedFiles} files</span>
-        <span>{detail.approvalCount} approvals</span>
-        <span>{pr.requestedReviewers.length > 0
-          ? `Reviewers · ${pr.requestedReviewers.join(', ')}`
-          : 'Reviewers · none'}</span>
-        <span className="is-dummy">Assignee · dummy</span>
-        {pr.labels.map(label => <span key={label}>{label}</span>)}
-      </div>
-      <article className="pull-card pull-description">
-        <header>
-          <span className="pull-card__actor">
-            <Avatar login={pr.author ?? 'unknown'} size={24} />
-            <span><strong>{pr.author ?? 'Unknown author'}</strong> opened this pull request</span>
-          </span>
-          <small>{new Date(pr.updatedAt).toLocaleString()}</small>
-        </header>
-        <p>{detail.body || 'No description provided.'}</p>
-      </article>
-      <article className={`pull-card pull-ci is-${detail.ciStatus.toLowerCase()}`}>
-        <header>
-          <span className="pull-ci__title">
-            <span aria-hidden="true">{detail.ciStatus === 'PASSING' ? '✓' : detail.ciStatus === 'FAILING' ? '✕' : '●'}</span>
-            <strong>Continuous integration</strong>
-          </span>
-          <span>{detail.checkRuns.length} checks</span>
-        </header>
-        <div className="pull-ci__summary">
-          <strong>{detail.ciStatus === 'PASSING'
-            ? 'All checks have passed'
-            : detail.ciStatus === 'FAILING'
-              ? 'Some checks were not successful'
-              : detail.ciStatus === 'PENDING'
-                ? 'Checks are still running'
-                : 'No CI status reported'}</strong>
-        </div>
-        {detail.checkRuns.length > 0 && (
-          <details className="pull-ci__checks">
-            <summary>View check details</summary>
-            {detail.checkRuns.map((check, index) => (
-              <div className="pull-check" key={check.githubId ?? index}>
-                <span>{check.conclusion === 'success' ? '✓' : check.conclusion === 'failure' ? '✕' : '•'}</span>
-                <span>{check.name ?? 'Check'}</span>
-                <small>{check.conclusion ?? check.status ?? 'unknown'}</small>
-              </div>
-            ))}
-          </details>
-        )}
-        {detail.checkRuns.length === 0 && <div className="hp-empty">No checks reported.</div>}
-      </article>
-      <MergeabilityBox pr={pr} detail={detail} onRefresh={onRefresh} />
-      <section className="pull-timeline" aria-label="Pull request activity">
-        {detail.recentActivity.map((item, index) => (
-          <article className="pull-timeline__item" key={item.githubId ?? `${item.eventType}-${index}`}>
-            <Avatar login={item.actor || 'github'} size={24} />
-            <div className="pull-card">
-              <header>
-                <strong>{item.actor || 'github'}</strong>
-                <span>{item.eventType.replaceAll('_', ' ')}</span>
-                {item.timestamp && <small>{new Date(item.timestamp).toLocaleString()}</small>}
-              </header>
-              {item.body && <p>{item.body}</p>}
-            </div>
-          </article>
-        ))}
-        {detail.recentActivity.length === 0 && <div className="hp-empty">No activity cached yet.</div>}
-      </section>
-      <article className="pull-card pull-composer">
-        <header><strong>Leave a comment</strong></header>
-        <textarea
-          value={comment}
-          onChange={event => setComment(event.target.value)}
-          placeholder="Leave a comment on GitHub"
-          rows={5}
-        />
-        <div className="pull-composer__actions">
-          <button type="button" disabled={posting || !comment.trim()} onClick={() => { void submitComment(); }}>
-            {posting ? 'Posting…' : 'Comment'}
-          </button>
-        </div>
-      </article>
-    </div>
-  );
-}
-
-function MergeabilityBox({ pr, detail, onRefresh }: {
-  pr: PullRequestDto;
-  detail: PullRequestDetailDto;
-  onRefresh: () => Promise<void>;
-}) {
-  const [running, setRunning] = useState<'approve' | 'merge' | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const terminal = pr.state === 'merged' || pr.state === 'closed';
-  const mergeState = pr.mergeableState ?? 'dummy';
-  const repositoryBlocked = ['blocked', 'dirty', 'behind', 'unstable']
-    .includes(mergeState.toLowerCase());
-  const requirementsBlocked = detail.ciStatus === 'FAILING' || repositoryBlocked;
-  const mergeBlocked = pr.mergeable === false || requirementsBlocked;
-  const canMerge = detail.viewerCanWrite && !terminal
-    && pr.mergeable === true && !requirementsBlocked;
-  const title = terminal
-    ? `Pull request is ${pr.state}`
-    : pr.mergeable === null
-      ? 'Mergeability is unavailable'
-      : mergeBlocked
-        ? 'This pull request cannot be merged yet'
-        : 'This pull request can be merged';
-  const message = pr.mergeable === null
-    ? 'Merge state is not supplied by the retained backend.'
-    : detail.ciStatus === 'FAILING'
-      ? 'Required checks must pass before merging.'
-      : repositoryBlocked
-        ? 'Repository merge requirements are still blocking this pull request.'
-        : pr.mergeable
-          ? 'The branch has no reported conflicts.'
-          : 'Resolve conflicts before merging.';
-
-  const run = async (action: 'approve' | 'merge') => {
-    setRunning(action);
-    setActionError(null);
-    try {
-      if (action === 'approve') await window.bridge.approvePr(pr.id, pr.repo, pr.number);
-      else await window.bridge.mergePr(pr.id, pr.repo, pr.number, 'rebase');
-      await onRefresh();
-    }
-    catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    }
-    finally {
-      setRunning(null);
-    }
-  };
-
-  return (
-    <article className={`pull-card pull-merge${pr.mergeable === null ? ' is-dummy' : mergeBlocked ? ' is-blocked' : ''}`}>
-      <div className="pull-merge__status" aria-hidden="true">
-        {pr.mergeable === null ? '•' : mergeBlocked ? '!' : '✓'}
-      </div>
-      <div className="pull-merge__body">
-        <strong>{title}</strong>
-        <span>{message}</span>
-        <small className={pr.mergeableState === null ? 'is-dummy' : ''}>
-          merge state · {mergeState}
-        </small>
-        {actionError && <p role="alert">{actionError}</p>}
-      </div>
-      <div className="pull-merge__actions">
-        <button
-          type="button"
-          disabled={!detail.viewerCanWrite || terminal || running !== null}
-          onClick={() => { void run('approve'); }}
-        >
-          {running === 'approve' ? 'Approving…' : 'Approve'}
-        </button>
-        <button
-          type="button"
-          disabled={!canMerge || running !== null}
-          onClick={() => { void run('merge'); }}
-        >
-          {running === 'merge' ? 'Merging…' : 'Merge with rebase'}
-        </button>
-      </div>
-    </article>
-  );
+  return <div className="pull-detail__body"><PullOverview pr={pr} detail={detail} onRefresh={onRefresh} /></div>;
 }
 
 function RefreshIcon() {

@@ -17,8 +17,10 @@ import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
@@ -30,8 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
-import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -44,7 +45,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.util.concurrent.Futures.getDone;
 import static com.google.common.util.concurrent.Futures.getUnchecked;
-import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.Futures.submit;
 import static com.google.common.util.concurrent.Futures.transformAsync;
 import static com.google.common.util.concurrent.Futures.whenAllSucceed;
@@ -61,10 +61,6 @@ import static java.util.Objects.requireNonNullElse;
 final class PullRequestDetailFetcher
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestDetailFetcher.class);
-
-    // Incremental fetches restart slightly before the last sync so events
-    // written while that sync was running are not missed.
-    private static final Duration WATERMARK_OVERLAP = Duration.ofSeconds(60);
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubActionsClient actions;
@@ -85,19 +81,34 @@ final class PullRequestDetailFetcher
 
     StoredPrDetail fetch(String pat, PullRequestRef ref)
     {
-        Instant watermark = incrementalWatermark(ref);
         ListenableFuture<PrRawDetail> detail = fetchAsync("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
-        ListenableFuture<List<PrReviewState>> reviews = fetchListAsync("fetchPrReviews", ref, () -> gitHub.fetchPrReviews(pat, ref));
-        ListenableFuture<List<PrTimelineEvent>> timeline = fetchListAsync("fetchPrTimeline", ref, () -> gitHub.fetchPrTimeline(pat, ref, watermark));
-        ListenableFuture<List<PrTimelineEvent>> comments = fetchListAsync("fetchPrIssueComments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, watermark));
-        ListenableFuture<List<PrCheckRunState>> checks = transformAsync(detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor());
+        ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
+                "fetchPrReviews", "reviews", ref, () -> gitHub.fetchPrReviews(pat, ref));
+        ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
+                "fetchPrTimeline", "timeline", ref, () -> gitHub.fetchPrTimeline(pat, ref, null));
+        ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
+                "fetchPrIssueComments", "comments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, null));
+        ListenableFuture<SourceItems<PrTimelineEvent>> commits = fetchOptionalListAsync(
+                "fetchPrCommits", "commits", ref, () -> gitHub.fetchPrCommits(pat, ref));
+        ListenableFuture<SourceItems<PrTimelineEvent>> threads = fetchOptionalListAsync(
+                "fetchPrReviewThreads", "reviewThreads", ref, () -> gitHub.fetchPrReviewThreads(pat, ref));
+        ListenableFuture<SourceItems<PrReaction>> descriptionReactions = fetchOptionalListAsync(
+                "fetchPrDescriptionReactions", "reactions", ref, () -> gitHub.fetchPrDescriptionReactions(pat, ref));
+        ListenableFuture<SourceItems<PrCheckRunState>> checks = transformAsync(
+                detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor());
 
-        return await(whenAllSucceed(detail, reviews, timeline, comments, checks)
+        return await(whenAllSucceed(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
                 .call(() -> new StoredPrDetail(
                                 requireRaw(getDone(detail)),
-                                getDone(reviews),
-                                mergeTimeline(getDone(timeline), getDone(comments)),
-                                getDone(checks)),
+                                getDone(reviews).items(),
+                                gitHub.enrichTimelineReferences(pat, ref, mergeTimeline(
+                                        getDone(timeline).items(),
+                                        getDone(comments).items(),
+                                        getDone(commits).items(),
+                                        getDone(threads).items(),
+                                        getDone(descriptionReactions).items())),
+                                getDone(checks).items(),
+                                unavailable(reviews, timeline, comments, commits, threads, descriptionReactions, checks)),
                         directExecutor()));
     }
 
@@ -122,25 +133,39 @@ final class PullRequestDetailFetcher
         }
     }
 
-    private Instant incrementalWatermark(PullRequestRef ref)
-    {
-        return detailStore.findSyncedAt(repoFullName(ref), ref.number())
-                .map(syncedAt -> syncedAt.minus(WATERMARK_OVERLAP))
-                .orElse(null);
-    }
-
-    private ListenableFuture<List<PrCheckRunState>> fetchCheckRunsAsync(String pat, PullRequestRef ref, PrRawDetail detail)
+    private ListenableFuture<SourceItems<PrCheckRunState>> fetchCheckRunsAsync(
+            String pat,
+            PullRequestRef ref,
+            PrRawDetail detail)
     {
         if (detail == null || detail.headSha() == null) {
-            return immediateFuture(ImmutableList.of());
+            return com.google.common.util.concurrent.Futures.immediateFuture(
+                    new SourceItems<>(ImmutableList.of(), null));
         }
-        return fetchListAsync("fetchPrCheckRuns", ref,
+        return fetchOptionalListAsync("fetchPrCheckRuns", "checks", ref,
                 () -> actions.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
     }
 
     private <T> ListenableFuture<List<T>> fetchListAsync(String name, PullRequestRef ref, Supplier<List<T>> task)
     {
         return fetchAsync(name, ref, () -> requireNonNullElse(task.get(), ImmutableList.of()));
+    }
+
+    private <T> ListenableFuture<SourceItems<T>> fetchOptionalListAsync(
+            String name,
+            String section,
+            PullRequestRef ref,
+            Supplier<List<T>> task)
+    {
+        return submit(() -> {
+            try {
+                return new SourceItems<>(requireNonNullElse(task.get(), ImmutableList.of()), null);
+            }
+            catch (RuntimeException e) {
+                log.warn("{}({}#{}) unavailable: {}", name, repoFullName(ref), ref.number(), e.toString());
+                return new SourceItems<>(ImmutableList.of(), section);
+            }
+        }, ioExecutor);
     }
 
     private <T> ListenableFuture<T> fetchAsync(String name, PullRequestRef ref, Supplier<T> task)
@@ -160,16 +185,56 @@ final class PullRequestDetailFetcher
      * The timeline and issue-comment endpoints both report issue comments;
      * where both returned the same comment, keep the issue-comment copy.
      */
-    private static List<PrTimelineEvent> mergeTimeline(List<PrTimelineEvent> timeline, List<PrTimelineEvent> comments)
+    private static List<PrTimelineEvent> mergeTimeline(
+            List<PrTimelineEvent> timeline,
+            List<PrTimelineEvent> comments,
+            List<PrTimelineEvent> commits,
+            List<PrTimelineEvent> threads,
+            List<PrReaction> descriptionReactions)
     {
         Set<String> commentKeys = comments.stream()
                 .map(PullRequestDetailFetcher::commentKey)
                 .filter(Objects::nonNull)
                 .collect(toImmutableSet());
-        return Stream.concat(
+        List<PrTimelineEvent> base = Stream.concat(
                         timeline.stream().filter(event -> !"commented".equals(event.event()) || !commentKeys.contains(commentKey(event))),
                         comments.stream())
                 .collect(toImmutableList());
+        Set<String> commitShas = base.stream()
+                .map(event -> event.payload().commitSha())
+                .filter(Objects::nonNull)
+                .collect(toImmutableSet());
+        Stream<PrTimelineEvent> events = Stream.of(
+                        base.stream(),
+                        commits.stream().filter(event -> !commitShas.contains(event.payload().commitSha())),
+                        threads.stream())
+                .flatMap(stream -> stream);
+        if (!descriptionReactions.isEmpty()) {
+            events = Stream.concat(events, Stream.of(new PrTimelineEvent(
+                    null,
+                    "description_reactions",
+                    null,
+                    null,
+                    null,
+                    PrTimelinePayload.withReactions(descriptionReactions),
+                    java.util.Optional.empty())));
+        }
+        return events
+                .collect(toImmutableList());
+    }
+
+    @SafeVarargs
+    private static List<String> unavailable(ListenableFuture<? extends SourceItems<?>>... futures)
+            throws Exception
+    {
+        List<String> sections = new ArrayList<>();
+        for (ListenableFuture<? extends SourceItems<?>> future : futures) {
+            String section = getDone(future).unavailableSection();
+            if (section != null) {
+                sections.add(section);
+            }
+        }
+        return ImmutableList.copyOf(sections);
     }
 
     private static String commentKey(PrTimelineEvent event)
@@ -183,4 +248,6 @@ final class PullRequestDetailFetcher
     {
         return ref.owner() + "/" + ref.repo();
     }
+
+    private record SourceItems<T>(List<T> items, String unavailableSection) {}
 }

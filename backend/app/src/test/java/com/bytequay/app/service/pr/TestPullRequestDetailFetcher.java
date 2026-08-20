@@ -35,6 +35,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -56,7 +59,10 @@ class TestPullRequestDetailFetcher
     void setUp()
     {
         fetcher = new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run);
-        when(detailStore.findSyncedAt("owner/repo", 7)).thenReturn(Optional.empty());
+        lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(List.of());
+        lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(List.of());
+        lenient().when(gitHub.enrichTimelineReferences(eq("pat"), eq(REF), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
     }
 
     @Test
@@ -123,7 +129,7 @@ class TestPullRequestDetailFetcher
     }
 
     @Test
-    void propagatesFetchFailureWithItsOriginalType()
+    void reportsAnOptionalSourceFailureWithoutHidingThePullRequest()
     {
         ResponseStatusException notFound = new ResponseStatusException(NOT_FOUND, "gone");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
@@ -131,7 +137,10 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> fetcher.fetch("pat", REF)).isSameAs(notFound);
+        StoredPrDetail stored = fetcher.fetch("pat", REF);
+
+        assertThat(stored.reviews()).isEmpty();
+        assertThat(stored.unavailableSections()).containsExactly("reviews");
     }
 
     @Test
@@ -152,20 +161,17 @@ class TestPullRequestDetailFetcher
     }
 
     @Test
-    void refetchesIncrementallyFromBehindTheLastSync()
+    void refetchesTheFullMutableTimeline()
     {
-        Instant syncedAt = Instant.parse("2026-08-15T10:00:00Z");
-        Instant watermark = syncedAt.minusSeconds(60);
-        when(detailStore.findSyncedAt("owner/repo", 7)).thenReturn(Optional.of(syncedAt));
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
-        when(gitHub.fetchPrTimeline("pat", REF, watermark)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, watermark)).thenReturn(List.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
 
         fetcher.fetch("pat", REF);
 
-        verify(gitHub).fetchPrTimeline("pat", REF, watermark);
-        verify(gitHub).fetchPrIssueComments("pat", REF, watermark);
+        verify(gitHub).fetchPrTimeline("pat", REF, null);
+        verify(gitHub).fetchPrIssueComments("pat", REF, null);
     }
 
     private static PrRawDetail raw(String headSha)

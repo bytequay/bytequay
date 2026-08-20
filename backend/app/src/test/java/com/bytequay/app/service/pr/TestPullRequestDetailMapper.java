@@ -17,12 +17,14 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,6 +74,41 @@ class TestPullRequestDetailMapper
         assertThat(detail.viewerCanWrite()).isTrue();
     }
 
+    @Test
+    void mapsACompleteHeaderAndChronologicalTypedTimeline()
+    {
+        PrTimelinePayload label = new PrTimelinePayload(
+                "https://avatars/bot", true, null, null, "docs", "d4c5f9",
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, false, false, List.of(), List.of());
+        StoredPrDetail stored = new StoredPrDetail(
+                richRaw(),
+                List.of(
+                        new PrReviewState("bob", "APPROVED", Instant.parse("2026-08-20T10:00:00Z")),
+                        new PrReviewState("bob", "CHANGES_REQUESTED", Instant.parse("2026-08-20T11:00:00Z"))),
+                List.of(
+                        new PrTimelineEvent(2L, "renamed", "alice", Instant.parse("2026-08-20T10:02:00Z"), null, java.util.Optional.empty()),
+                        new PrTimelineEvent(1L, "labeled", "github-actions[bot]", Instant.parse("2026-08-20T10:01:00Z"), null, label, java.util.Optional.empty())),
+                List.of(
+                        new PrCheckRunState(1L, "build", "completed", "failure"),
+                        new PrCheckRunState(2L, "license", "completed", "success")),
+                List.of("reviewThreads"));
+
+        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 42, stored, false);
+
+        assertThat(detail.title()).isEqualTo("Overview");
+        assertThat(detail.state()).isEqualTo("open");
+        assertThat(detail.baseRef()).isEqualTo("main");
+        assertThat(detail.labels()).singleElement().satisfies(value -> assertThat(value.color()).isEqualTo("d4c5f9"));
+        assertThat(detail.reviewers()).extracting(PullRequestDetail.Reviewer::login).containsExactly("carol", "bob");
+        assertThat(detail.approvalCount()).isZero();
+        assertThat(detail.recentActivity()).extracting(PullRequestDetail.ActivityItem::eventType)
+                .containsExactly("labeled", "renamed");
+        assertThat(detail.checkRuns()).extracting(PullRequestDetail.CheckRun::category)
+                .containsExactly("failing", "successful");
+        assertThat(detail.unavailableSections()).containsExactly("reviewThreads");
+    }
+
     private static PrCheckRunState check(String name, String status, String conclusion)
     {
         return new PrCheckRunState(1L, name, status, conclusion);
@@ -82,5 +119,34 @@ class TestPullRequestDetailMapper
         return new PrRawDetail(
                 "body", List.of(), false, true, "clean", 10, 2, 3, 0, List.of(),
                 "head", "feature");
+    }
+
+    private static PrRawDetail richRaw()
+    {
+        return new PrRawDetail(
+                "Overview",
+                "https://github.com/owner/repo/pull/42",
+                "open",
+                "alice",
+                "https://avatars/alice",
+                Instant.parse("2026-08-20T09:00:00Z"),
+                Instant.parse("2026-08-20T11:00:00Z"),
+                null,
+                "body",
+                List.of("docs"),
+                Map.of("docs", "d4c5f9"),
+                List.of("dave"),
+                "v1",
+                false,
+                true,
+                "clean",
+                10,
+                2,
+                3,
+                1,
+                List.of("carol"),
+                "head",
+                "feature",
+                "main");
     }
 }

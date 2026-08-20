@@ -40,6 +40,10 @@ public class PrCheckRunEntity
 
     private String conclusion;
 
+    private String detailsUrl;
+
+    private String source;
+
     public PrCheckRunEntity() {}
 
     public Long getId() { return id; }
@@ -58,4 +62,10 @@ public class PrCheckRunEntity
 
     public String getConclusion() { return conclusion; }
     public void setConclusion(String conclusion) { this.conclusion = conclusion; }
+
+    public String getDetailsUrl() { return detailsUrl; }
+    public void setDetailsUrl(String detailsUrl) { this.detailsUrl = detailsUrl; }
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
 }

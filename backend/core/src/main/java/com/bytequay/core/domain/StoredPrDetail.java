@@ -19,6 +19,15 @@ public record StoredPrDetail(
         PrRawDetail raw,
         List<PrReviewState> reviews,
         List<PrTimelineEvent> timeline,
-        List<PrCheckRunState> checkRuns)
+        List<PrCheckRunState> checkRuns,
+        List<String> unavailableSections)
 {
+    public StoredPrDetail(
+            PrRawDetail raw,
+            List<PrReviewState> reviews,
+            List<PrTimelineEvent> timeline,
+            List<PrCheckRunState> checkRuns)
+    {
+        this(raw, reviews, timeline, checkRuns, List.of());
+    }
 }

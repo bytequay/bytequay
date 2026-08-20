@@ -18,4 +18,12 @@ public record PrCheckRunState(
         Long githubId,
         String name,
         String status,
-        String conclusion) {}
+        String conclusion,
+        String detailsUrl,
+        String source)
+{
+    public PrCheckRunState(Long githubId, String name, String status, String conclusion)
+    {
+        this(githubId, name, status, conclusion, null, "check_run");
+    }
+}

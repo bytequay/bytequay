@@ -77,6 +77,23 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    public void replyToReviewComment(String pat, PullRequestRef pr, long commentId, String body)
+    {
+        try {
+            gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
+                            pr.owner(), pr.repo(), pr.number(), commentId)
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("body", body))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     private static PrTimelineEvent toTimelineEvent(GitHubIssueComment comment)
     {
         return new PrTimelineEvent(

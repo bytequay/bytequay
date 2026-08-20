@@ -32,6 +32,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -40,6 +41,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -157,6 +159,21 @@ public class PullRequestService
         return store.findAll();
     }
 
+    public List<RepoUser> listRepositoryUsers(String repo)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, 1);
+        return gitHub.fetchAssignableUsers(pat, RepoRef.of(ref.owner(), ref.repo()));
+    }
+
+    public boolean hasMergeQueue(String repo, String baseRef)
+    {
+        requireNotBlank(baseRef, "baseRef");
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, 1);
+        return merges.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
+    }
+
     /**
      * Fetches the PR list from GitHub, persists it, then refreshes detail for any PR whose
      * {@code updatedAt} changed (or is new). Stale detail for removed PRs is cleaned up.
@@ -250,6 +267,7 @@ public class PullRequestService
             Optional<StoredPrDetail> stored = detailStore.find(prId.get());
             if (stored.isPresent()) {
                 log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body", repo, number);
+                updateListState(prId.get(), stored.get());
                 return PullRequestDetailMapper.toPullRequestDetail(repo, number, stored.get(), viewerCanWrite);
             }
             log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub", repo, number);
@@ -265,6 +283,7 @@ public class PullRequestService
             // Propagate the aggregate CI status onto the PR row so Home and
             // the PR list update without waiting for the next bulk sync.
             store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
+            updateListState(id, fetched);
         });
         return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite);
     }
@@ -300,9 +319,21 @@ public class PullRequestService
                         && "commented".equals(event.event()));
                 timeline.add(created);
                 return new StoredPrDetail(
-                        cached.raw(), cached.reviews(), List.copyOf(timeline), cached.checkRuns());
+                        cached.raw(),
+                        cached.reviews(),
+                        List.copyOf(timeline),
+                        cached.checkRuns(),
+                        cached.unavailableSections());
             });
         }
+    }
+
+    public void replyToReviewComment(String repo, int number, long commentId, String body)
+    {
+        requireNotBlank(body, "reply body must not be blank");
+        String pat = credentialService.resolveGitHubToken();
+        pullRequestWrites.replyToReviewComment(pat, parseRef(repo, number), commentId, body);
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**
@@ -320,6 +351,9 @@ public class PullRequestService
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
+        if ("queue".equalsIgnoreCase(strategy)) {
+            return enqueuePullRequest(pat, ref, repo, number);
+        }
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result;
         try {
@@ -327,12 +361,7 @@ public class PullRequestService
         }
         catch (ResponseStatusException e) {
             if (requiresMergeQueue(e)) {
-                Optional<String> nodeId = merges.pullRequestNodeId(pat, ref);
-                if (nodeId.isPresent()) {
-                    MergeResult queued = merges.enqueuePullRequest(pat, nodeId.get());
-                    invalidatePullRequestCaches(repo, number);
-                    return queued;
-                }
+                return enqueuePullRequest(pat, ref, repo, number);
             }
             throw e;
         }
@@ -341,6 +370,15 @@ public class PullRequestService
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync
         // (~2 min) to refresh the cached StoredPrDetail.
+        invalidatePullRequestCaches(repo, number);
+        return result;
+    }
+
+    private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number)
+    {
+        String nodeId = merges.pullRequestNodeId(pat, ref)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
+        MergeResult result = merges.enqueuePullRequest(pat, nodeId);
         invalidatePullRequestCaches(repo, number);
         return result;
     }
@@ -517,19 +555,12 @@ public class PullRequestService
     {
         try {
             PullRequestRef ref = parseRef(pr.repo(), pr.number());
-            // Existing detail in the store ⇒ this is an incremental refresh
-            // (the detail fetcher sees the watermark and uses `since=`);
-            // route through saveIncremental so old timeline/thread rows
-            // survive and only the new ones get appended. First-time syncs
-            // hit the regular wholesale save() path.
-            boolean incremental = detailStore.findSyncedAt(pr.repo(), pr.number()).isPresent();
             StoredPrDetail detail = detailFetcher.fetch(pat, ref);
-            if (incremental) {
-                detailStore.saveIncremental(pr.id(), detail);
-            }
-            else {
-                detailStore.save(pr.id(), detail);
-            }
+            // A full replacement keeps mutable review-thread resolution and
+            // edited comment payloads accurate. Detail syncs only run for a
+            // changed PR (or a throttled backfill), so this remains bounded.
+            detailStore.save(pr.id(), detail);
+            updateListState(pr.id(), detail);
             // One viewState lookup feeds both reconcile (handledAction) and
             // the MENTIONED rule (viewedAt anchors which mentions are "new").
             PrViewState viewState = viewStateStore.findAll().get(pr.id());
@@ -551,6 +582,17 @@ public class PullRequestService
         }
         catch (Exception e) {
             log.warn("Failed to sync detail for PR {}/{}: {}", pr.repo(), pr.number(), e.getMessage());
+        }
+    }
+
+    private void updateListState(long prId, StoredPrDetail detail)
+    {
+        if (detail.raw() != null && detail.raw().state() != null) {
+            store.updateState(
+                    prId,
+                    detail.raw().state(),
+                    detail.raw().updatedAt(),
+                    detail.raw().mergedAt());
         }
     }
 

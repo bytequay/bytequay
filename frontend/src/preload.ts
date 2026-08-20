@@ -20,10 +20,14 @@ const bridge: Bridge = {
   fetchPrs: () => ipcRenderer.invoke('prs:list'),
   syncPrs: () => ipcRenderer.invoke('prs:sync'),
   fetchPullRequestDetail: (repo, number) => ipcRenderer.invoke('prs:detail', repo, number),
+  fetchRepoUsers: repo => ipcRenderer.invoke('prs:users', repo),
+  fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
   refreshPullRequestDetail: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh', repo, number),
   fetchPrDiffFiles: (repo, number) => ipcRenderer.invoke('prs:diff', repo, number),
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
+  replyToReviewComment: (repo, number, commentId, body) =>
+    ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),
   approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),

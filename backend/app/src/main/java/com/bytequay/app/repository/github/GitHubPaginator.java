@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -32,7 +33,7 @@ import static java.util.Objects.requireNonNull;
 final class GitHubPaginator
 {
     /** Hard cap on pages so a runaway request cannot tie up the executor. */
-    private static final int MAX_PAGES = 10;
+    private static final int MAX_PAGES = 50;
     private static final int PAGE_SIZE = 100;
 
     private final RestClient gitHubRestClient;
@@ -72,6 +73,15 @@ final class GitHubPaginator
         return List.copyOf(seen);
     }
 
+    <T> List<T> paginate(
+            String pat,
+            String pathTemplate,
+            ParameterizedTypeReference<List<T>> typeRef,
+            Object... uriVariables)
+    {
+        return paginateSince(pat, pathTemplate, typeRef, null, uriVariables);
+    }
+
     private <T> List<T> fetchPage(
             String pat,
             String pathTemplate,
@@ -97,7 +107,7 @@ final class GitHubPaginator
             return rows == null ? List.of() : rows;
         }
         catch (RestClientResponseException e) {
-            return List.of();
+            throw toReadableException(e);
         }
     }
 }

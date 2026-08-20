@@ -118,7 +118,7 @@ public class GitHubActionsClient
     {
         List<PrCheckRunState> result = new ArrayList<>();
         int collected = 0;
-        for (int page = 1; page <= 5; page++) {
+        for (int page = 1; page <= MAX_PAGES; page++) {
             int currentPage = page;
             try {
                 GitHubCheckRunsResponse response = gitHubRestClient.get()
@@ -134,7 +134,12 @@ public class GitHubActionsClient
                 }
                 for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
                     result.add(new PrCheckRunState(
-                            check.id(), check.name(), check.status(), check.conclusion()));
+                            check.id(),
+                            check.name(),
+                            check.status(),
+                            check.conclusion(),
+                            check.detailsUrl(),
+                            "check_run"));
                 }
                 collected += response.checkRuns().size();
                 if (collected >= response.totalCount() || response.checkRuns().size() < PAGE_SIZE) {
@@ -142,10 +147,44 @@ public class GitHubActionsClient
                 }
             }
             catch (RestClientResponseException e) {
-                break;
+                throw toReadableException(e);
             }
         }
+        result.addAll(fetchCommitStatuses(pat, owner, repo, sha));
         return List.copyOf(result);
+    }
+
+    private List<PrCheckRunState> fetchCommitStatuses(
+            String pat,
+            String owner,
+            String repo,
+            String sha)
+    {
+        try {
+            GitHubCombinedStatusResponse response = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/commits/{sha}/status", owner, repo, sha)
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubCombinedStatusResponse.class);
+            return Optional.ofNullable(response)
+                    .map(GitHubCombinedStatusResponse::statuses)
+                    .orElse(ImmutableList.of()).stream()
+                    .map(status -> new PrCheckRunState(
+                            status.id(),
+                            status.context(),
+                            "pending".equals(status.state()) ? "in_progress" : "completed",
+                            switch (Optional.ofNullable(status.state()).orElse("")) {
+                                case "success" -> "success";
+                                case "failure", "error" -> "failure";
+                                default -> null;
+                            },
+                            status.targetUrl(),
+                            "status"))
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
     }
 
     @Override

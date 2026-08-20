@@ -13,7 +13,9 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import com.bytequay.persistence.sqlite.converter.PrTimelinePayloadConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -51,6 +53,10 @@ public class PrTimelineEntity
     @Column(name = "local_event_key", unique = true)
     private String localEventKey;
 
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = PrTimelinePayloadConverter.class)
+    private PrTimelinePayload payload;
+
     public PrTimelineEntity() {}
 
     public Long getId() { return id; }
@@ -75,4 +81,7 @@ public class PrTimelineEntity
 
     public String getLocalEventKey() { return localEventKey; }
     public void setLocalEventKey(String localEventKey) { this.localEventKey = localEventKey; }
+
+    public PrTimelinePayload getPayload() { return payload; }
+    public void setPayload(PrTimelinePayload payload) { this.payload = payload; }
 }

@@ -11,14 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDto } from '../types';
+import type { PullRequestDetailDto, PullRequestDto } from '../types';
 import { relativeTime } from '../relativeTime';
 
 export type PullTab = 'all' | 'active' | 'req' | 'done';
 export const PULL_TABS: { key: PullTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'active', label: 'My PRs' },
-  { key: 'req', label: 'Review requests' },
+  { key: 'req', label: 'Review' },
   { key: 'done', label: 'Done' },
 ];
 
@@ -39,6 +39,7 @@ export type PullRow = {
 };
 
 function toRow(pr: PullRequestDto): PullRow {
+  const kind = pullRequestKind(pr.state);
   return {
     id: pr.id,
     repo: pr.repo,
@@ -46,7 +47,7 @@ function toRow(pr: PullRequestDto): PullRow {
     title: pr.title,
     author: (pr.author ?? 'unknown').replace(/^@/, ''),
     time: relativeTime(pr.updatedAt),
-    kind: pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : 'open',
+    kind,
     labels: pr.labels,
     labelColors: pr.labelColors,
     status: pr.ciStatus === 'PASSING' ? 'passing'
@@ -61,7 +62,7 @@ function toRow(pr: PullRequestDto): PullRow {
 export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
   return prs
     .filter(pr => {
-      const done = pr.state === 'merged' || pr.state === 'closed';
+      const done = pullRequestKind(pr.state) !== 'open';
       if (tab === 'done') return done;
       if (done) return false;
       if (tab === 'active') return pr.origin === 'AUTHORED';
@@ -70,4 +71,18 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
     })
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .map(toRow);
+}
+
+export function reconcilePullRequestDetail(
+  pr: PullRequestDto,
+  detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>,
+): PullRequestDto {
+  const state = detail.state?.toLowerCase() ?? pr.state;
+  const updatedAt = detail.updatedAt ?? pr.updatedAt;
+  return state === pr.state && updatedAt === pr.updatedAt ? pr : { ...pr, state, updatedAt };
+}
+
+function pullRequestKind(state: string | null): PullRow['kind'] {
+  const normalized = state?.toLowerCase();
+  return normalized === 'merged' ? 'merged' : normalized === 'closed' ? 'closed' : 'open';
 }

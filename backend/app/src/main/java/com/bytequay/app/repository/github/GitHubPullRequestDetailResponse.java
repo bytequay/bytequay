@@ -16,27 +16,50 @@ package com.bytequay.app.repository.github;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestDetailResponse(
+        String title,
+        @JsonProperty("html_url") String htmlUrl,
+        String state,
+        User user,
+        @JsonProperty("created_at") Instant createdAt,
+        @JsonProperty("updated_at") Instant updatedAt,
+        @JsonProperty("merged_at") Instant mergedAt,
         String body,
         List<Label> labels,
+        List<Assignee> assignees,
+        Milestone milestone,
         boolean draft,
         int additions,
         int deletions,
         @JsonProperty("changed_files") int changedFiles,
         @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
         Head head,
+        Base base,
         Boolean mergeable,
         @JsonProperty("mergeable_state") String mergeableState)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Label(String name) {}
+    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Label(String name, String color) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Assignee(String login) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Milestone(String title) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RequestedReviewer(String login) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Head(String sha, String ref) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Base(String ref) {}
 }

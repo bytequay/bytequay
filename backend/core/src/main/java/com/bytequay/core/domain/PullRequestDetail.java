@@ -19,7 +19,22 @@ import java.util.List;
 public record PullRequestDetail(
         String repo,
         int number,
+        String title,
+        String htmlUrl,
+        String state,
+        boolean draft,
+        String author,
+        String authorAvatarUrl,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant mergedAt,
+        String baseRef,
+        String headRef,
         String body,
+        List<Label> labels,
+        List<String> assignees,
+        String milestone,
+        List<Reviewer> reviewers,
         int additions,
         int deletions,
         int changedFiles,
@@ -27,6 +42,7 @@ public record PullRequestDetail(
         CiStatus ciStatus,
         List<ActivityItem> recentActivity,
         List<CheckRun> checkRuns,
+        List<String> unavailableSections,
         boolean viewerCanWrite)
 {
     public enum CiStatus
@@ -42,11 +58,32 @@ public record PullRequestDetail(
             String eventType,
             Instant timestamp,
             String body,
-            Long githubId)
+            Long githubId,
+            PrTimelinePayload payload)
     {
+        public ActivityItem(
+                String actor,
+                String eventType,
+                Instant timestamp,
+                String body,
+                Long githubId)
+        {
+            this(actor, eventType, timestamp, body, githubId, PrTimelinePayload.empty());
+        }
     }
 
-    public record CheckRun(Long githubId, String name, String status, String conclusion)
+    public record Label(String name, String color) {}
+
+    public record Reviewer(String login, String avatarUrl, String state) {}
+
+    public record CheckRun(
+            Long githubId,
+            String name,
+            String status,
+            String conclusion,
+            String detailsUrl,
+            String source,
+            String category)
     {
     }
 }

@@ -94,12 +94,12 @@ function Meta({ row }: { row: PullRow }) {
   return (
     <span className="pull-row__meta">
       <Avatar login={owner} size={16} />
-      <span>{row.repo}</span>
+      <span className="pull-row__meta-name" title={row.repo}>{row.repo}</span>
       <span>·</span>
       <Avatar login={row.author} size={16} />
-      <span>{row.author}</span>
+      <span className="pull-row__meta-name" title={row.author}>{row.author}</span>
       <span>·</span>
-      <span>{row.time}</span>
+      <span className="pull-row__meta-time">{row.time}</span>
     </span>
   );
 }

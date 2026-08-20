@@ -33,11 +33,23 @@ public class PrReviewEntity
     @Column(nullable = false)
     private Long prId;
 
+    @Column(name = "github_id")
+    private Long githubId;
+
     @Column(nullable = false)
     private String login;
 
     @Column(nullable = false)
     private String state;
+
+    private String avatarUrl;
+
+    private Boolean bot;
+
+    @Column(columnDefinition = "TEXT")
+    private String body;
+
+    private String htmlUrl;
 
     @Column(name = "submitted_at")
     private Instant submittedAt;
@@ -49,11 +61,26 @@ public class PrReviewEntity
     public Long getPrId() { return prId; }
     public void setPrId(Long prId) { this.prId = prId; }
 
+    public Long getGithubId() { return githubId; }
+    public void setGithubId(Long githubId) { this.githubId = githubId; }
+
     public String getLogin() { return login; }
     public void setLogin(String login) { this.login = login; }
 
     public String getState() { return state; }
     public void setState(String state) { this.state = state; }
+
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+
+    public boolean isBot() { return Boolean.TRUE.equals(bot); }
+    public void setBot(boolean bot) { this.bot = bot; }
+
+    public String getBody() { return body; }
+    public void setBody(String body) { this.body = body; }
+
+    public String getHtmlUrl() { return htmlUrl; }
+    public void setHtmlUrl(String htmlUrl) { this.htmlUrl = htmlUrl; }
 
     public Instant getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }

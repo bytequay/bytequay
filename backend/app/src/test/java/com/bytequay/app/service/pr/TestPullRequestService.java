@@ -45,6 +45,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -105,6 +106,26 @@ class TestPullRequestService
     }
 
     @Test
+    void reconcilesCachedMergedDetailIntoTheListRow()
+    {
+        Instant updatedAt = Instant.parse("2026-08-21T01:00:00Z");
+        Instant mergedAt = Instant.parse("2026-08-21T00:59:00Z");
+        StoredPrDetail stored = new StoredPrDetail(
+                new PrRawDetail(
+                        "title", "url", "merged", "alice", null, null, updatedAt, mergedAt,
+                        "body", List.of(), Map.of(), List.of(), null, false, false, "unknown",
+                        1, 1, 1, 0, List.of(), "head", "feature", "main"),
+                List.of(), List.of(), List.of());
+        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored));
+
+        service.getPullRequestDetail("owner/repo", 7);
+
+        verify(store).updateState(12L, "merged", updatedAt, mergedAt);
+    }
+
+    @Test
     void fetchesAndCachesColdDetail()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
@@ -149,6 +170,17 @@ class TestPullRequestService
     }
 
     @Test
+    void repliesToReviewCommentAndInvalidatesDetail()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.replyToReviewComment("owner/repo", 7, 99L, "fixed");
+
+        verify(writes).replyToReviewComment("pat", PullRequestRef.of("owner", "repo", 7), 99L, "fixed");
+        verify(detailStore).deleteByPrIds(Set.of(12L));
+    }
+
+    @Test
     void approvesAndMarksReviewed()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -189,6 +221,22 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.queued()).isTrue();
+        verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
+        verify(detailStore).deleteByPrIds(Set.of(12L));
+    }
+
+    @Test
+    void enqueuesDirectlyForQueueAction()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(merges.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(merges.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "queue");
+
+        assertThat(result.queued()).isTrue();
+        verify(merges, never()).mergePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
         verify(detailStore).deleteByPrIds(Set.of(12L));
     }

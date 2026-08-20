@@ -25,10 +25,23 @@ public record PrTimelineEvent(
         String actor,
         Instant timestamp,
         String body,
+        PrTimelinePayload payload,
         Optional<String> localEventKey)
 {
     public PrTimelineEvent
     {
+        requireNonNull(payload, "payload is null");
         requireNonNull(localEventKey, "localEventKey is null");
+    }
+
+    public PrTimelineEvent(
+            Long githubId,
+            String event,
+            String actor,
+            Instant timestamp,
+            String body,
+            Optional<String> localEventKey)
+    {
+        this(githubId, event, actor, timestamp, body, PrTimelinePayload.empty(), localEventKey);
     }
 }

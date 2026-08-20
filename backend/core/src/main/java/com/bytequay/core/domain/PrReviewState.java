@@ -24,12 +24,25 @@ import java.time.Instant;
  * Callers that need to filter by time window must treat null as
  * "unknown" and skip rather than include.
  */
-public record PrReviewState(String login, String state, Instant submittedAt)
+public record PrReviewState(
+        Long githubId,
+        String login,
+        String avatarUrl,
+        boolean bot,
+        String state,
+        Instant submittedAt,
+        String body,
+        String htmlUrl)
 {
     /** Convenience for call sites (mostly tests) that don't care about
      *  the submission timestamp. Equivalent to passing null. */
     public PrReviewState(String login, String state)
     {
-        this(login, state, null);
+        this(null, login, null, login != null && login.endsWith("[bot]"), state, null, null, null);
+    }
+
+    public PrReviewState(String login, String state, Instant submittedAt)
+    {
+        this(null, login, null, login != null && login.endsWith("[bot]"), state, submittedAt, null, null);
     }
 }

@@ -35,6 +35,8 @@ public interface PullRequestStore
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
 
+    void updateState(long prId, String state, Instant updatedAt, Instant mergedAt);
+
     void updateEnrichment(
             long prId,
             PullRequestDetail.CiStatus ciStatus,

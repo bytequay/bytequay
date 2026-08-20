@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -25,6 +26,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubClientMergeQueue
 {
+    @Test
+    void detectsMergeQueueForBranch()
+    {
+        Fixture fixture = fixture();
+        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"repository":{"mergeQueue":{"id":"MQ_1"}}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().hasMergeQueue("pat", RepoRef.of("owner", "repo"), "main")).isTrue();
+    }
+
     @Test
     void enqueuesPullRequest()
     {

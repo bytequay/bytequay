@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto } from '../types';
-import { rowsForTab } from './model';
+import { reconcilePullRequestDetail, rowsForTab } from './model';
 
 function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
   return {
@@ -58,5 +58,17 @@ describe('rowsForTab', () => {
     const closed = pr({ id: 3, state: 'closed' });
 
     expect(rowsForTab([open, merged, closed], 'done').map(row => row.id)).toEqual([2, 3]);
+  });
+
+  it('moves a stale open row to Done when detail reports it merged', () => {
+    const updated = reconcilePullRequestDetail(pr({ id: 1, state: 'open' }), {
+      state: 'merged',
+      updatedAt: '2026-08-21T01:00:00Z',
+    });
+
+    expect(rowsForTab([updated], 'all')).toEqual([]);
+    expect(rowsForTab([updated], 'active')).toEqual([]);
+    expect(rowsForTab([updated], 'req')).toEqual([]);
+    expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');
   });
 });

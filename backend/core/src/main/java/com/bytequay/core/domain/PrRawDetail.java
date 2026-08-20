@@ -13,7 +13,9 @@
  */
 package com.bytequay.core.domain;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Raw data returned by a single GitHub pull-request API call, before business-logic aggregation.
@@ -22,8 +24,19 @@ import java.util.List;
  * @param headRef branch name on the head side.
  */
 public record PrRawDetail(
+        String title,
+        String htmlUrl,
+        String state,
+        String author,
+        String authorAvatarUrl,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant mergedAt,
         String body,
         List<String> labels,
+        Map<String, String> labelColors,
+        List<String> assignees,
+        String milestone,
         boolean draft,
         Boolean mergeable,
         String mergeableState,
@@ -33,4 +46,28 @@ public record PrRawDetail(
         int requestedReviewerCount,
         List<String> requestedReviewers,
         String headSha,
-        String headRef) {}
+        String headRef,
+        String baseRef)
+{
+    public PrRawDetail(
+            String body,
+            List<String> labels,
+            boolean draft,
+            Boolean mergeable,
+            String mergeableState,
+            int additions,
+            int deletions,
+            int changedFiles,
+            int requestedReviewerCount,
+            List<String> requestedReviewers,
+            String headSha,
+            String headRef)
+    {
+        this(
+                null, null, null, null, null, null, null, null,
+                body, labels, Map.of(), List.of(), null, draft, mergeable,
+                mergeableState, additions, deletions, changedFiles,
+                requestedReviewerCount, requestedReviewers, headSha, headRef,
+                null);
+    }
+}

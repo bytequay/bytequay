@@ -28,14 +28,41 @@ public record GitHubTimelineEvent(
         Actor actor,
         User user,
         String body,
-        Author author)
+        String state,
+        @JsonProperty("html_url") String htmlUrl,
+        Author author,
+        Label label,
+        Rename rename,
+        Milestone milestone,
+        Source source,
+        String sha,
+        String message,
+        GitHubReactions reactions)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Actor(String login) {}
+    public record Actor(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record User(String login) {}
+    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Author(String name, Instant date) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Label(String name, String color) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Rename(String from, String to) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Milestone(String title) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Source(Issue issue) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Issue(
+            int number,
+            String title,
+            @JsonProperty("html_url") String htmlUrl) {}
 }

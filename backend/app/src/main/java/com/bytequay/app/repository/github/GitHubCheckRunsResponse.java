@@ -28,5 +28,6 @@ public record GitHubCheckRunsResponse(
             Long id,
             String name,
             String status,
-            String conclusion) {}
+            String conclusion,
+            @JsonProperty("details_url") String detailsUrl) {}
 }

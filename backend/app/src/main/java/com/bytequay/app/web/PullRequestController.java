@@ -19,8 +19,10 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.RepoUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -48,6 +50,12 @@ public class PullRequestController
     public List<PullRequest> list()
     {
         return pullRequests.listPullRequests();
+    }
+
+    @GetMapping("/prs/users")
+    public List<RepoUser> users(@RequestParam("repo") String repo)
+    {
+        return pullRequests.listRepositoryUsers(repo);
     }
 
     @PostMapping("/api/settings/sync/trigger")
@@ -79,6 +87,14 @@ public class PullRequestController
         return pullRequests.getPullRequestDiffFiles(repo, number);
     }
 
+    @GetMapping("/prs/merge-mode")
+    public Map<String, Boolean> mergeMode(
+            @RequestParam("repo") String repo,
+            @RequestParam("branch") String branch)
+    {
+        return Map.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch));
+    }
+
     public record CommentRequest(String body) {}
 
     @PostMapping("/prs/comment")
@@ -89,6 +105,17 @@ public class PullRequestController
     {
         pullRequests.commentOnPullRequest(repo, number, request.body());
         return Map.of("result", "commented");
+    }
+
+    @PostMapping("/prs/review-comments/{commentId}/replies")
+    public Map<String, String> replyToReviewComment(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @PathVariable("commentId") long commentId,
+            @RequestBody CommentRequest request)
+    {
+        pullRequests.replyToReviewComment(repo, number, commentId, request.body());
+        return Map.of("result", "replied");
     }
 
     @PostMapping("/prs/approve")

@@ -39,10 +39,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static com.bytequay.app.ci.CiRerunResult.Outcome.ACCEPTED;
 import static com.bytequay.app.ci.CiRerunResult.Outcome.OBSOLETE;
 import static com.bytequay.app.ci.CiRerunResult.Outcome.REJECTED;
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -283,12 +285,51 @@ class TestGitHubActionsClient
                           "output":{"title":"Tests failed","summary":"One failure"}
                         }]}
                         """, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+                .andRespond(withSuccess("""
+                        {"statuses":[{"id":100,"context":"license","state":"success",
+                          "target_url":"https://github.com/owner/repo/status/100"}]}
+                        """, MediaType.APPLICATION_JSON));
 
-        PrCheckRunState check = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head").getFirst();
+        List<PrCheckRunState> checks = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head");
+        PrCheckRunState check = checks.getFirst();
 
         assertThat(check.githubId()).isEqualTo(99L);
         assertThat(check.name()).isEqualTo("build");
         assertThat(check.conclusion()).isEqualTo("failure");
+        assertThat(checks).hasSize(2);
+        assertThat(checks.get(1).source()).isEqualTo("status");
+        fixture.verify();
+    }
+
+    @Test
+    void readsEveryPrCheckRunPage()
+    {
+        Fixture fixture = fixture();
+        String firstPage = IntStream.range(0, 100)
+                .mapToObj(index -> """
+                        {"id":%d,"name":"check-%d","status":"completed","conclusion":"success"}
+                        """.formatted(index + 1, index + 1))
+                .collect(joining(",", "{\"total_count\":101,\"check_runs\":[", "]}"));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+                .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=2"))
+                .andRespond(withSuccess("""
+                        {"total_count":101,"check_runs":[
+                          {"id":101,"name":"check-101","status":"completed","conclusion":"success"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+                .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
+
+        List<PrCheckRunState> checks = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head");
+
+        assertThat(checks).hasSize(101);
+        assertThat(checks.getLast().name()).isEqualTo("check-101");
         fixture.verify();
     }
 

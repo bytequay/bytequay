@@ -181,6 +181,20 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
+    public void updateState(long prId, String state, Instant updatedAt, Instant mergedAt)
+    {
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            entity.setState(state);
+            if (updatedAt != null) {
+                entity.setUpdatedAt(updatedAt);
+            }
+            entity.setMergedAt(mergedAt);
+            jpaRepository.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
     public void updateEnrichment(
             long prId,
             PullRequestDetail.CiStatus ciStatus,

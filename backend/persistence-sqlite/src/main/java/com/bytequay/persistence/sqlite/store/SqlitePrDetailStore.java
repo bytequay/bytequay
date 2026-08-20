@@ -80,14 +80,15 @@ public class SqlitePrDetailStore
                 timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
                         .map(SqlitePrDetailStore::toTimeline)
                         .toList(),
-                checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).toList()));
+                checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).toList(),
+                detail.getUnavailableSections() != null ? detail.getUnavailableSections() : List.of()));
     }
 
     @Override
     @Transactional
     public void save(long prId, StoredPrDetail detail)
     {
-        saveHeader(prId, detail.raw());
+        saveHeader(prId, detail.raw(), detail.unavailableSections());
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).toList());
@@ -125,7 +126,7 @@ public class SqlitePrDetailStore
     @Transactional
     public void saveIncremental(long prId, StoredPrDetail detail)
     {
-        saveHeader(prId, detail.raw());
+        saveHeader(prId, detail.raw(), detail.unavailableSections());
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).toList());
@@ -155,12 +156,24 @@ public class SqlitePrDetailStore
         }
     }
 
-    private void saveHeader(long prId, PrRawDetail raw)
+    private void saveHeader(long prId, PrRawDetail raw, List<String> unavailableSections)
     {
         PrDetailEntity entity = detailRepo.findById(prId).orElseGet(PrDetailEntity::new);
         entity.setPrId(prId);
+        entity.setTitle(raw.title());
+        entity.setHtmlUrl(raw.htmlUrl());
+        entity.setState(raw.state());
+        entity.setAuthor(raw.author());
+        entity.setAuthorAvatarUrl(raw.authorAvatarUrl());
+        entity.setCreatedAt(raw.createdAt());
+        entity.setUpdatedAt(raw.updatedAt());
+        entity.setMergedAt(raw.mergedAt());
         entity.setBody(raw.body());
         entity.setLabels(raw.labels() != null ? raw.labels() : List.of());
+        entity.setLabelColors(raw.labelColors() != null ? raw.labelColors() : java.util.Map.of());
+        entity.setAssignees(raw.assignees() != null ? raw.assignees() : List.of());
+        entity.setMilestone(raw.milestone());
+        entity.setUnavailableSections(unavailableSections != null ? unavailableSections : List.of());
         entity.setDraft(raw.draft());
         entity.setMergeable(raw.mergeable());
         entity.setMergeableState(raw.mergeableState());
@@ -171,6 +184,7 @@ public class SqlitePrDetailStore
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : List.of());
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());
+        entity.setBaseRef(raw.baseRef());
         entity.setSyncedAt(Instant.now());
         detailRepo.save(entity);
     }
@@ -178,8 +192,19 @@ public class SqlitePrDetailStore
     private static PrRawDetail toRawDetail(PrDetailEntity detail)
     {
         return new PrRawDetail(
+                detail.getTitle(),
+                detail.getHtmlUrl(),
+                detail.getState(),
+                detail.getAuthor(),
+                detail.getAuthorAvatarUrl(),
+                detail.getCreatedAt(),
+                detail.getUpdatedAt(),
+                detail.getMergedAt(),
                 detail.getBody(),
                 detail.getLabels(),
+                detail.getLabelColors() != null ? detail.getLabelColors() : java.util.Map.of(),
+                detail.getAssignees() != null ? detail.getAssignees() : List.of(),
+                detail.getMilestone(),
                 detail.isDraft(),
                 detail.getMergeable(),
                 detail.getMergeableState(),
@@ -189,21 +214,35 @@ public class SqlitePrDetailStore
                 detail.getRequestedReviewerCount(),
                 detail.getRequestedReviewers() != null ? detail.getRequestedReviewers() : List.of(),
                 detail.getHeadSha(),
-                detail.getHeadRef());
+                detail.getHeadRef(),
+                detail.getBaseRef());
     }
 
     private static PrReviewState toReview(PrReviewEntity entity)
     {
-        return new PrReviewState(entity.getLogin(), entity.getState(), entity.getSubmittedAt());
+        return new PrReviewState(
+                entity.getGithubId(),
+                entity.getLogin(),
+                entity.getAvatarUrl(),
+                entity.isBot(),
+                entity.getState(),
+                entity.getSubmittedAt(),
+                entity.getBody(),
+                entity.getHtmlUrl());
     }
 
     private static PrReviewEntity toEntity(long prId, PrReviewState review)
     {
         PrReviewEntity entity = new PrReviewEntity();
         entity.setPrId(prId);
+        entity.setGithubId(review.githubId());
         entity.setLogin(review.login());
+        entity.setAvatarUrl(review.avatarUrl());
+        entity.setBot(review.bot());
         entity.setState(review.state());
         entity.setSubmittedAt(review.submittedAt());
+        entity.setBody(review.body());
+        entity.setHtmlUrl(review.htmlUrl());
         return entity;
     }
 
@@ -213,7 +252,9 @@ public class SqlitePrDetailStore
                 entity.getGithubId(),
                 entity.getName(),
                 entity.getStatus(),
-                entity.getConclusion());
+                entity.getConclusion(),
+                entity.getDetailsUrl(),
+                entity.getSource());
     }
 
     private static PrCheckRunEntity toEntity(long prId, PrCheckRunState check)
@@ -224,6 +265,8 @@ public class SqlitePrDetailStore
         entity.setName(check.name());
         entity.setStatus(check.status());
         entity.setConclusion(check.conclusion());
+        entity.setDetailsUrl(check.detailsUrl());
+        entity.setSource(check.source());
         return entity;
     }
 
@@ -235,6 +278,7 @@ public class SqlitePrDetailStore
                 entity.getActor(),
                 entity.getTimestamp(),
                 entity.getBody(),
+                entity.getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : entity.getPayload(),
                 Optional.ofNullable(entity.getLocalEventKey()));
     }
 
@@ -247,6 +291,7 @@ public class SqlitePrDetailStore
         entity.setActor(event.actor());
         entity.setTimestamp(event.timestamp());
         entity.setBody(event.body());
+        entity.setPayload(event.payload());
         entity.setLocalEventKey(event.localEventKey().orElse(null));
         return entity;
     }

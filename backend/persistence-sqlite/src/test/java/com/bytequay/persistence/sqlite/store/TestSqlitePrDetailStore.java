@@ -14,7 +14,9 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
@@ -128,6 +130,37 @@ class TestSqlitePrDetailStore
         store.deleteByPrIds(Set.of(PR_ID));
 
         assertThat(timeline.count()).isZero();
+    }
+
+    @Test
+    void roundTripsTheTypedTimelinePayloadAndUnavailableSections()
+    {
+        PrTimelinePayload payload = new PrTimelinePayload(
+                "https://avatars/bot", true, null, "https://github/event", "docs", "d4c5f9",
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, false, false,
+                List.of(new PrReaction("+1", 2)), List.of());
+        StoredPrDetail detail = new StoredPrDetail(
+                new PrRawDetail(
+                        "Overview", "https://github/pr/42", "open", "alice", "https://avatars/alice",
+                        NOW, NOW, null, "body", List.of("docs"), Map.of("docs", "d4c5f9"),
+                        List.of("bob"), "v1", false, true, "clean", 1, 1, 1, 0, List.of(),
+                        "a".repeat(40), "feature", "main"),
+                List.of(),
+                List.of(new PrTimelineEvent(10L, "labeled", "bot", NOW, null, payload, Optional.empty())),
+                List.of(),
+                List.of("checks"));
+
+        store.save(PR_ID, detail);
+
+        StoredPrDetail restored = store.find(PR_ID).orElseThrow();
+        assertThat(restored.raw().baseRef()).isEqualTo("main");
+        assertThat(restored.raw().labelColors()).containsEntry("docs", "d4c5f9");
+        assertThat(restored.timeline()).singleElement().satisfies(event -> {
+            assertThat(event.payload().label()).isEqualTo("docs");
+            assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2));
+        });
+        assertThat(restored.unavailableSections()).containsExactly("checks");
     }
 
     private static StoredPrDetail detail(PrTimelineEvent event)

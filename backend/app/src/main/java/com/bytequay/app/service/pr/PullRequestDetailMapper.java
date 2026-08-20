@@ -22,17 +22,15 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 
 final class PullRequestDetailMapper
 {
-    private static final Set<String> INTERESTING_EVENTS = Set.of(
-            "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
-            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue", "ci_autofix");
-    private static final Set<String> FAILED_CHECK_CONCLUSIONS = Set.of(
+    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = java.util.Set.of(
             "failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
     private PullRequestDetailMapper() {}
@@ -44,7 +42,24 @@ final class PullRequestDetailMapper
         return new PullRequestDetail(
                 repo,
                 number,
+                raw.title(),
+                raw.htmlUrl(),
+                raw.state(),
+                raw.draft(),
+                raw.author(),
+                raw.authorAvatarUrl(),
+                raw.createdAt(),
+                raw.updatedAt(),
+                raw.mergedAt(),
+                raw.baseRef(),
+                raw.headRef(),
                 raw.body(),
+                raw.labels().stream()
+                        .map(label -> new PullRequestDetail.Label(label, raw.labelColors().get(label)))
+                        .toList(),
+                raw.assignees(),
+                raw.milestone(),
+                reviewers(raw, stored.reviews()),
                 raw.additions(),
                 raw.deletions(),
                 raw.changedFiles(),
@@ -52,6 +67,7 @@ final class PullRequestDetailMapper
                 aggregateCiStatus(stored.checkRuns()),
                 toActivityItems(stored.timeline()),
                 toCheckRuns(stored.checkRuns()),
+                stored.unavailableSections(),
                 viewerCanWrite);
     }
 
@@ -70,13 +86,21 @@ final class PullRequestDetailMapper
     {
         return dedupeCheckRunsByName(checkRuns).stream()
                 .map(checkRun -> new PullRequestDetail.CheckRun(
-                        checkRun.githubId(), checkRun.name(), checkRun.status(), checkRun.conclusion()))
+                        checkRun.githubId(),
+                        checkRun.name(),
+                        checkRun.status(),
+                        checkRun.conclusion(),
+                        checkRun.detailsUrl(),
+                        checkRun.source(),
+                        checkCategory(checkRun)))
                 .toList();
     }
 
     static int countApprovals(List<PrReviewState> reviews)
     {
-        return (int) reviews.stream().filter(review -> GithubReviewState.APPROVED.equals(review.state())).count();
+        return (int) latestReviews(reviews).values().stream()
+                .filter(review -> GithubReviewState.APPROVED.equals(review.state()))
+                .count();
     }
 
     static PullRequestDetail.CiStatus aggregateCiStatus(List<PrCheckRunState> checkRuns)
@@ -99,10 +123,15 @@ final class PullRequestDetailMapper
     static List<PullRequestDetail.ActivityItem> toActivityItems(List<PrTimelineEvent> timeline)
     {
         return timeline.stream()
-                .filter(event -> INTERESTING_EVENTS.contains(event.event()))
-                .sorted((left, right) -> time(right).compareTo(time(left)))
+                .sorted(Comparator.comparing(PullRequestDetailMapper::time)
+                        .thenComparing(event -> Optional.ofNullable(event.githubId()).orElse(Long.MAX_VALUE)))
                 .map(event -> new PullRequestDetail.ActivityItem(
-                        event.actor(), event.event(), event.timestamp(), event.body(), event.githubId()))
+                        event.actor(),
+                        event.event(),
+                        event.timestamp(),
+                        event.body(),
+                        event.githubId(),
+                        event.payload()))
                 .toList();
     }
 
@@ -133,6 +162,47 @@ final class PullRequestDetailMapper
             }
         }
         return Map.copyOf(out);
+    }
+
+    private static List<PullRequestDetail.Reviewer> reviewers(
+            PrRawDetail raw,
+            List<PrReviewState> reviews)
+    {
+        Map<String, PrReviewState> latest = latestReviews(reviews);
+        Map<String, PullRequestDetail.Reviewer> out = new LinkedHashMap<>();
+        for (String login : raw.requestedReviewers()) {
+            out.put(login, new PullRequestDetail.Reviewer(login, null, "PENDING"));
+        }
+        latest.forEach((login, review) -> out.put(login, new PullRequestDetail.Reviewer(
+                login, review.avatarUrl(), review.state())));
+        out.remove(raw.author());
+        return List.copyOf(out.values());
+    }
+
+    private static Map<String, PrReviewState> latestReviews(List<PrReviewState> reviews)
+    {
+        Map<String, PrReviewState> latest = new LinkedHashMap<>();
+        reviews.stream()
+                .filter(review -> review.login() != null && review.state() != null)
+                .sorted(Comparator.comparing(
+                        review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
+                .forEach(review -> latest.put(review.login(), review));
+        return latest;
+    }
+
+    private static String checkCategory(PrCheckRunState check)
+    {
+        if ("queued".equals(check.status()) || "in_progress".equals(check.status())) {
+            return "pending";
+        }
+        return switch (Optional.ofNullable(check.conclusion()).orElse("")) {
+            case "success" -> "successful";
+            case "failure", "timed_out", "action_required", "startup_failure" -> "failing";
+            case "cancelled" -> "cancelled";
+            case "skipped" -> "skipped";
+            case "neutral", "stale" -> "neutral";
+            default -> "pending";
+        };
     }
 
     private static Instant time(PrTimelineEvent event)

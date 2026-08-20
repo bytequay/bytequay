@@ -46,10 +46,33 @@ export type DiffFileDto = {
   patch: string | null;
 };
 
+export type RepoUserDto = {
+  login: string;
+  avatarUrl: string | null;
+  bot: boolean;
+};
+
+export type MergeModeDto = { mergeQueue: boolean };
+
 export type PullRequestDetailDto = {
   repo: string;
   number: number;
+  title: string | null;
+  htmlUrl: string | null;
+  state: string | null;
+  draft: boolean;
+  author: string | null;
+  authorAvatarUrl: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  mergedAt: string | null;
+  baseRef: string | null;
+  headRef: string | null;
   body: string | null;
+  labels: Array<{ name: string; color: string | null }>;
+  assignees: string[];
+  milestone: string | null;
+  reviewers: Array<{ login: string; avatarUrl: string | null; state: string }>;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -61,14 +84,62 @@ export type PullRequestDetailDto = {
     timestamp: string | null;
     body: string | null;
     githubId: number | null;
+    payload: PullTimelinePayloadDto;
   }>;
   checkRuns: Array<{
     githubId: number | null;
     name: string | null;
     status: string | null;
     conclusion: string | null;
+    detailsUrl: string | null;
+    source: string | null;
+    category: 'failing' | 'pending' | 'successful' | 'neutral' | 'skipped' | 'cancelled';
   }>;
+  unavailableSections: string[];
   viewerCanWrite: boolean;
+};
+
+export type PullReactionDto = { content: string; count: number };
+
+export type PullTimelineCommentDto = {
+  githubId: number | null;
+  actor: string | null;
+  actorAvatarUrl: string | null;
+  actorBot: boolean;
+  timestamp: string | null;
+  body: string | null;
+  htmlUrl: string | null;
+  reviewId: number | null;
+  inReplyToId: number | null;
+  reactions: PullReactionDto[];
+};
+
+export type PullTimelinePayloadDto = {
+  actorAvatarUrl: string | null;
+  actorBot: boolean;
+  state: string | null;
+  htmlUrl: string | null;
+  label: string | null;
+  labelColor: string | null;
+  renameFrom: string | null;
+  renameTo: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
+  sourceNumber: number | null;
+  milestoneTitle: string | null;
+  path: string | null;
+  diffHunk: string | null;
+  line: number | null;
+  originalLine: number | null;
+  startLine: number | null;
+  originalStartLine: number | null;
+  side: string | null;
+  resolved: boolean;
+  outdated: boolean;
+  reactions: PullReactionDto[];
+  comments: PullTimelineCommentDto[];
 };
 
 export type WatchedRepoDto = {
@@ -272,9 +343,12 @@ export type Bridge = {
   fetchPrs: () => Promise<PullRequestDto[]>;
   syncPrs: () => Promise<void>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  fetchRepoUsers: (repo: string) => Promise<RepoUserDto[]>;
+  fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
   refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
+  replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 

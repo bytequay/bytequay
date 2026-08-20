@@ -319,6 +319,17 @@ function registerIpc(): void {
     backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
   ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
+  ipcMain.handle('prs:users', (_event, repo: string) => {
+    const url = new URL('/prs/users', BACKEND_BASE);
+    url.searchParams.set('repo', repo);
+    return backendJson(url);
+  });
+  ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) => {
+    const url = new URL('/prs/merge-mode', BACKEND_BASE);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('branch', branch);
+    return backendJson(url);
+  });
   ipcMain.handle('prs:detail:refresh', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh', repo, number);
     return backendJson(url, { method: 'POST' });
@@ -332,6 +343,20 @@ function registerIpc(): void {
     body: string,
   ) => {
     const url = prUrl('/prs/comment', repo, number);
+    return backendVoid(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    });
+  });
+  ipcMain.handle('prs:review-comment:reply', (
+    _event,
+    repo: string,
+    number: number,
+    commentId: number,
+    body: string,
+  ) => {
+    const url = prUrl(`/prs/review-comments/${commentId}/replies`, repo, number);
     return backendVoid(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

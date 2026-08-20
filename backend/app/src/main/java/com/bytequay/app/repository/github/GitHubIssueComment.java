@@ -24,8 +24,10 @@ public record GitHubIssueComment(
         long id,
         User user,
         String body,
-        @JsonProperty("created_at") Instant createdAt)
+        @JsonProperty("created_at") Instant createdAt,
+        @JsonProperty("html_url") String htmlUrl,
+        GitHubReactions reactions)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record User(String login) {}
+    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 }

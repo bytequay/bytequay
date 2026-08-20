@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
@@ -47,6 +48,36 @@ public class GitHubMergeClient
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphqlRestClient = requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
+    }
+
+    public boolean hasMergeQueue(String pat, RepoRef repo, String branch)
+    {
+        String query = "query($owner: String!, $name: String!, $branch: String!) {"
+                + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
+        Map<String, Object> body = Map.of(
+                "query", query,
+                "variables", Map.of("owner", repo.owner(), "name", repo.repo(), "branch", branch));
+        try {
+            MergeQueueResponse response = graphqlRestClient
+                    .post()
+                    .header("Authorization", authorization(pat))
+                    .body(body)
+                    .retrieve()
+                    .body(MergeQueueResponse.class);
+            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "GitHub merge queue lookup failed: " + response.errors().getFirst().message());
+            }
+            if (response == null || response.data() == null || response.data().repository() == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
+            }
+            return response.data().repository().mergeQueue() != null;
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
     }
 
     public MergeResult mergePullRequest(
@@ -173,6 +204,18 @@ public class GitHubMergeClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbeResponse(ProbeData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueResponse(MergeQueueData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueData(MergeQueueRepository repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueRepository(MergeQueue mergeQueue) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueue(String id) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbeData(ProbeRepository repository) {}

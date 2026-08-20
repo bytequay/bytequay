@@ -49,6 +49,7 @@ public record CiAutofixRun(
         RerunCounter rerunCounter,
         Optional<FinalFixupCheck> finalFixupCheck,
         Optional<String> currentTurnId,
+        Optional<String> currentRebaseId,
         Optional<PushJournal> pushJournal,
         Optional<RerunJournal> rerunJournal,
         List<Warning> warnings,
@@ -79,6 +80,9 @@ public record CiAutofixRun(
         requireNonNull(rerunCounter, "rerunCounter is null");
         requireNonNull(finalFixupCheck, "finalFixupCheck is null");
         checkOptionalText(currentTurnId, "currentTurnId", 128);
+        checkOptionalText(currentRebaseId, "currentRebaseId", 128);
+        checkArgument(currentTurnId.isEmpty() || currentRebaseId.isEmpty(),
+                "run cannot own a fix turn and a branch rebase together");
         requireNonNull(pushJournal, "pushJournal is null");
         requireNonNull(rerunJournal, "rerunJournal is null");
         requireNonNull(warnings, "warnings is null");
@@ -101,7 +105,7 @@ public record CiAutofixRun(
         terminalAt.ifPresent(value -> {
             checkArgument(!value.isBefore(createdAt), "terminalAt is before createdAt");
         });
-        validateStatus(status, pauseReason, finishReason, summary, currentTurnId, terminalAt);
+        validateStatus(status, pauseReason, finishReason, summary, currentTurnId, currentRebaseId, terminalAt);
     }
 
     public static CiAutofixRun create(
@@ -127,6 +131,7 @@ public record CiAutofixRun(
                 authorization,
                 0,
                 RerunCounter.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -162,6 +167,7 @@ public record CiAutofixRun(
     {
         requireActive(now);
         checkText(turnId, "turnId", 128);
+        checkState(currentRebaseId.isEmpty(), "run already owns a branch rebase");
         checkState(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "run already owns another current turn");
         CiAutofixAttempt attempt = requireAttempt(attempts, attemptId);
         boolean alreadyLinked = attempt.agentTurnId().isPresent();
@@ -179,6 +185,7 @@ public record CiAutofixRun(
     {
         requireActive(now);
         checkText(turnId, "turnId", 128);
+        checkState(currentRebaseId.isEmpty(), "run already owns a branch rebase");
         checkState(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "run already owns another current turn");
         return edit(now, run -> run.currentTurnId = Optional.of(turnId));
     }
@@ -198,6 +205,38 @@ public record CiAutofixRun(
         checkText(turnId, "turnId", 128);
         checkArgument(currentTurnId.isEmpty() || currentTurnId.orElseThrow().equals(turnId), "turnId is not the current turn");
         return edit(now, run -> run.currentTurnId = Optional.empty());
+    }
+
+    public CiAutofixRun linkBranchRebase(String rebaseId, Instant now)
+    {
+        requireActive(now);
+        checkText(rebaseId, "rebaseId", 128);
+        checkState(currentTurnId.isEmpty(), "run already owns a fix turn");
+        checkState(currentRebaseId.isEmpty() || currentRebaseId.orElseThrow().equals(rebaseId),
+                "run already owns another branch rebase");
+        return edit(now, run -> run.currentRebaseId = Optional.of(rebaseId));
+    }
+
+    public CiAutofixRun completeBranchRebase(String rebaseId, String baseSha, Instant now)
+    {
+        requireActive(now);
+        checkText(rebaseId, "rebaseId", 128);
+        checkSha(baseSha, "baseSha");
+        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(),
+                "rebaseId is not the current branch rebase");
+        return edit(now, run -> {
+            run.currentRebaseId = Optional.empty();
+            run.latestObservedBaseSha = baseSha;
+        });
+    }
+
+    public CiAutofixRun clearBranchRebase(String rebaseId, Instant now)
+    {
+        requireActive(now);
+        checkText(rebaseId, "rebaseId", 128);
+        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(),
+                "rebaseId is not the current branch rebase");
+        return edit(now, run -> run.currentRebaseId = Optional.empty());
     }
 
     public CiAutofixRun recordPushJournal(PushJournal journal, Instant now)
@@ -364,6 +403,7 @@ public record CiAutofixRun(
             run.finishReason = Optional.of(reason);
             run.summary = Optional.of(finalSummary);
             run.currentTurnId = Optional.empty();
+            run.currentRebaseId = Optional.empty();
             run.terminalAt = Optional.of(now);
         });
     }
@@ -408,6 +448,7 @@ public record CiAutofixRun(
         private RerunCounter rerunCounter;
         private Optional<FinalFixupCheck> finalFixupCheck;
         private Optional<String> currentTurnId;
+        private Optional<String> currentRebaseId;
         private Optional<PushJournal> pushJournal;
         private Optional<RerunJournal> rerunJournal;
         private List<Warning> warnings;
@@ -434,6 +475,7 @@ public record CiAutofixRun(
             this.rerunCounter = run.rerunCounter;
             this.finalFixupCheck = run.finalFixupCheck;
             this.currentTurnId = run.currentTurnId;
+            this.currentRebaseId = run.currentRebaseId;
             this.pushJournal = run.pushJournal;
             this.rerunJournal = run.rerunJournal;
             this.warnings = run.warnings;
@@ -461,6 +503,7 @@ public record CiAutofixRun(
                     rerunCounter,
                     finalFixupCheck,
                     currentTurnId,
+                    currentRebaseId,
                     pushJournal,
                     rerunJournal,
                     warnings,
@@ -510,6 +553,7 @@ public record CiAutofixRun(
             Optional<FinishReason> finishReason,
             Optional<String> summary,
             Optional<String> currentTurnId,
+            Optional<String> currentRebaseId,
             Optional<Instant> terminalAt)
     {
         switch (status) {
@@ -525,7 +569,7 @@ public record CiAutofixRun(
             }
             case FINISHED -> {
                 checkArgument(pauseReason.isEmpty() && finishReason.isPresent() && summary.isPresent()
-                                && currentTurnId.isEmpty() && terminalAt.isPresent(),
+                                && currentTurnId.isEmpty() && currentRebaseId.isEmpty() && terminalAt.isPresent(),
                         "finished run facts are inconsistent");
             }
         }
@@ -566,6 +610,7 @@ public record CiAutofixRun(
         TURN_INTERRUPTED,
         TURN_CANCELLED,
         INVALID_GIT_RESULT,
+        REBASE_PAUSED,
         INVALID_FIXUP_POSITION,
         RERUN_UNAVAILABLE,
         RERUN_EXHAUSTED,

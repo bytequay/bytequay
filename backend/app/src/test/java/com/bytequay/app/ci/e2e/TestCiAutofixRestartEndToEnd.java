@@ -26,6 +26,7 @@ import com.bytequay.app.ByteQuayApplication;
 import com.bytequay.app.ci.CheckFixupPositionsCommand;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.ci.CiBaseSynchronization;
 import com.bytequay.app.ci.CiGitInspection;
 import com.bytequay.app.ci.CiGitOperations;
 import com.bytequay.app.ci.CiGitService;
@@ -36,6 +37,7 @@ import com.bytequay.app.ci.FixupPositionCheck;
 import com.bytequay.app.ci.InspectAgentResultCommand;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.ci.SynchronizeCiBaseCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
@@ -359,6 +361,18 @@ class TestCiAutofixRestartEndToEnd
         private LostPushCiGitService(CiGitService delegate)
         {
             this.delegate = requireNonNull(delegate, "delegate is null");
+        }
+
+        @Override
+        public CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command)
+        {
+            return delegate.synchronizeBase(command);
+        }
+
+        @Override
+        public boolean removeSynchronizedBase(SynchronizeCiBaseCommand command)
+        {
+            return delegate.removeSynchronizedBase(command);
         }
 
         @Override

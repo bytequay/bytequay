@@ -52,6 +52,47 @@ class TestCiGitOperations
     Path temporaryDirectory;
 
     @Test
+    void synchronizesTheExactFetchedBaseAndRemovesThePrivateRef()
+            throws IOException
+    {
+        Repository fixture = repository("base-sync");
+        SynchronizeCiBaseCommand existingCommand = synchronize(fixture, fixture.baseSha());
+        assertThat(service().synchronizeBase(existingCommand).outcome())
+                .isEqualTo(CiBaseSynchronization.Outcome.READY);
+        assertThat(git(fixture.worktree(), "rev-parse", "refs/heads/" + existingCommand.localBaseBranch()))
+                .isEqualTo(fixture.baseSha());
+
+        String nextBase = advanceRemoteBase(fixture);
+        gitFailure(fixture.worktree(), "cat-file", "-e", nextBase + "^{commit}");
+        SynchronizeCiBaseCommand command = synchronize(fixture, nextBase);
+
+        CiBaseSynchronization synchronizedBase = service().synchronizeBase(command);
+
+        assertThat(synchronizedBase.outcome()).isEqualTo(CiBaseSynchronization.Outcome.READY);
+        assertThat(synchronizedBase.localBaseBranch()).contains(command.localBaseBranch());
+        assertThat(git(fixture.worktree(), "rev-parse", "refs/heads/" + command.localBaseBranch()))
+                .isEqualTo(nextBase);
+        assertThat(service().removeSynchronizedBase(command)).isTrue();
+        assertThat(service().removeSynchronizedBase(command)).isTrue();
+        gitFailure(fixture.worktree(), "rev-parse", "--verify", "refs/heads/" + command.localBaseBranch());
+    }
+
+    @Test
+    void rejectsAnUnavailableExactBase()
+            throws IOException
+    {
+        Repository fixture = repository("missing-base");
+        SynchronizeCiBaseCommand command = synchronize(fixture, "f".repeat(40));
+
+        CiBaseSynchronization result = service().synchronizeBase(command);
+
+        assertThat(result.outcome()).isEqualTo(CiBaseSynchronization.Outcome.INVALID);
+        assertThat(result.localBaseBranch()).isEmpty();
+        assertThat(result.diagnostics()).contains("exact pull request base SHA is unavailable");
+        gitFailure(fixture.worktree(), "rev-parse", "--verify", "refs/heads/" + command.localBaseBranch());
+    }
+
+    @Test
     void inspectsNoChangeAndOneCommittedFixup()
             throws IOException
     {
@@ -401,7 +442,31 @@ class TestCiGitOperations
         commit(worktree, "Target change");
         String input = head(worktree);
         git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
-        return new Repository(worktree.toRealPath(), base, input);
+        return new Repository(worktree.toRealPath(), remote.toRealPath(), base, input);
+    }
+
+    private String advanceRemoteBase(Repository fixture)
+            throws IOException
+    {
+        Path publisher = fixture.remote().getParent().resolve("publisher");
+        git(fixture.remote().getParent(), "clone", "--branch", "main", fixture.remote().toString(), publisher.toString());
+        git(publisher, "config", "user.name", "ByteQuay Test");
+        git(publisher, "config", "user.email", "bytequay@example.com");
+        write(publisher.resolve("base-next.txt"), "new base\n");
+        commit(publisher, "Advance base");
+        git(publisher, "push", "origin", "HEAD:refs/heads/main");
+        return head(publisher);
+    }
+
+    private static SynchronizeCiBaseCommand synchronize(Repository fixture, String baseSha)
+    {
+        return new SynchronizeCiBaseCommand(
+                fixture.worktree(),
+                REPOSITORY,
+                HEAD_REF,
+                "main",
+                baseSha,
+                "bytequay/ci-base/test-run");
     }
 
     private static InspectAgentResultCommand inspect(Repository fixture)
@@ -532,7 +597,7 @@ class TestCiGitOperations
         }
     }
 
-    private record Repository(Path worktree, String baseSha, String inputSha) {}
+    private record Repository(Path worktree, Path remote, String baseSha, String inputSha) {}
 
     private record GitResult(int exitCode, String output) {}
 }

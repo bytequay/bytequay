@@ -31,6 +31,8 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.pr.PullRequestTimelineService;
+import com.bytequay.app.rebase.BranchRebaseService;
+import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -53,6 +55,9 @@ import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.rebase.BranchRebase;
+import com.bytequay.core.rebase.BranchRebaseId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
@@ -92,6 +97,7 @@ public class DefaultCiAutofixService
     private final CiAutofixLogReader logReader;
     private final CiMemoryService memoryService;
     private final CiGitService gitService;
+    private final BranchRebaseService rebaseService;
     private final PullRequestTimelineService timelineService;
     private final CredentialService credentials;
     private final GitHubAccountClient accounts;
@@ -109,6 +115,7 @@ public class DefaultCiAutofixService
             CiAutofixLogReader logReader,
             CiMemoryService memoryService,
             CiGitService gitService,
+            BranchRebaseService rebaseService,
             PullRequestTimelineService timelineService,
             CredentialService credentials,
             GitHubAccountClient accounts,
@@ -123,6 +130,7 @@ public class DefaultCiAutofixService
         this.logReader = requireNonNull(logReader, "logReader is null");
         this.memoryService = requireNonNull(memoryService, "memoryService is null");
         this.gitService = requireNonNull(gitService, "gitService is null");
+        this.rebaseService = requireNonNull(rebaseService, "rebaseService is null");
         this.timelineService = requireNonNull(timelineService, "timelineService is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
@@ -194,15 +202,16 @@ public class DefaultCiAutofixService
 
         run = store.update(run.assignAgentTask(task.id().toString(), Instant.now(clock)));
         try {
-            return startFixTurn(run, task, snapshot);
+            RebaseGate gate = ensureBranchRebase(run, task, snapshot, Instant.now(clock));
+            return gate.ready() ? startFixTurn(gate.run(), task, snapshot) : gate.run();
         }
         catch (RuntimeException failure) {
-            log.error("Cannot start first agent turn for CI Autofix run {} task {}", run.id(), task.id(), failure);
+            log.error("Cannot prepare initial CI Autofix work for run {} task {}", run.id(), task.id(), failure);
             CiAutofixRun current = store.find(run.id()).orElse(run);
             if (current.status() == Status.ACTIVE) {
                 return store.update(current.pause(
                         PauseReason.ERROR,
-                        failureSummary("CI fix turn could not start", failure),
+                        failureSummary("Initial CI Autofix work could not be prepared", failure),
                         Instant.now(clock)));
             }
             throw failure;
@@ -243,6 +252,9 @@ public class DefaultCiAutofixService
         if (matchesCurrentMessage(run, command.idempotencyKey())) {
             return run;
         }
+        if (run.status() == Status.ACTIVE && run.currentRebaseId().isPresent()) {
+            return run;
+        }
         if (run.status() != Status.PAUSED) {
             throw new CiAutofixConflictException("Only a paused CI Autofix run accepts a message");
         }
@@ -258,7 +270,9 @@ public class DefaultCiAutofixService
                     now);
         }
         if (run.attempts().isEmpty() || run.agentTaskId().isEmpty()) {
-            throw new CiAutofixConflictException("CI Autofix run has no resumable fix attempt");
+            if (run.currentRebaseId().isEmpty()) {
+                throw new CiAutofixConflictException("CI Autofix run has no resumable work");
+            }
         }
 
         CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
@@ -269,6 +283,10 @@ public class DefaultCiAutofixService
         }
         AgentTask task = requireReadyTask(run);
         workspaceService.restore(task.id(), task.worktree(), task.repository());
+
+        if (run.currentRebaseId().isPresent()) {
+            return resumeBranchRebase(run, command.message());
+        }
         validateMessageWorkspace(task, run, workspaceService.inspect(task.worktree()));
 
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
@@ -365,11 +383,31 @@ public class DefaultCiAutofixService
                     "Pull request head changed outside this CI Autofix run",
                     now);
         }
-        if (!snapshot.baseSha().equals(run.latestObservedBaseSha())) {
-            return store.update(run.observeBase(snapshot.headSha(), snapshot.baseSha(), now));
-        }
         if (run.currentTurnId().isPresent()) {
             return observeCurrentTurn(run, now);
+        }
+        boolean refreshPreparedAttempt = preparedAttemptNeedsNewBase(run, snapshot);
+        boolean basePrepared = false;
+        if (run.currentRebaseId().isPresent()) {
+            RebaseGate gate = advanceBranchRebase(run, snapshot, now);
+            if (!gate.ready()) {
+                return gate.run();
+            }
+            run = gate.run();
+            basePrepared = run.latestObservedBaseSha().equals(snapshot.baseSha());
+        }
+        if (!basePrepared && needsBranchRebase(run, snapshot)) {
+            RebaseGate gate = ensureBranchRebase(run, requireReadyTask(run), snapshot, now);
+            if (!gate.ready()) {
+                return gate.run();
+            }
+            run = gate.run();
+        }
+        if (!snapshot.baseSha().equals(run.latestObservedBaseSha())) {
+            run = store.update(run.observeBase(snapshot.headSha(), snapshot.baseSha(), now));
+        }
+        if (refreshPreparedAttempt) {
+            return refreshPreparedAttempt(run, requireReadyTask(run), now);
         }
         if (run.attempts().isEmpty()) {
             return snapshot.actionableFailures().isEmpty()
@@ -450,11 +488,14 @@ public class DefaultCiAutofixService
             CiHeadSnapshot snapshot,
             Instant now)
     {
+        String inspectionBaseline = attempt.inputSha().equals(run.expectedRemoteHead())
+                ? attempt.inputSha()
+                : run.expectedRemoteHead();
         CiGitInspection inspection = gitService.inspectAgentResult(new InspectAgentResultCommand(
                 run.scope().worktree(),
                 repository(run.scope().pullRequest()),
                 run.scope().headRef(),
-                attempt.inputSha(),
+                inspectionBaseline,
                 snapshot.baseSha()));
         return switch (inspection.outcome()) {
             case READY -> journalPush(run, attempt, inspection, now);
@@ -714,7 +755,10 @@ public class DefaultCiAutofixService
         TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
                 TaskId.valueOf(run.agentTaskId().orElseThrow()),
                 Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
-        return store.update(run.finish(FinishReason.GREEN, completionSummary(run, completion), now));
+        CiAutofixRun finished = store.update(run.finish(
+                FinishReason.GREEN, completionSummary(run, completion), now));
+        cleanupSynchronizedBase(finished);
+        return finished;
     }
 
     private CiAutofixRun observeCi(
@@ -727,12 +771,201 @@ public class DefaultCiAutofixService
         return refreshMemory(store.update(run.observeCiResult(attempt.id(), result, snapshot.baseSha(), now)));
     }
 
+    private RebaseGate ensureBranchRebase(
+            CiAutofixRun run,
+            AgentTask task,
+            CiHeadSnapshot snapshot,
+            Instant now)
+    {
+        SynchronizeCiBaseCommand syncCommand = synchronizeBaseCommand(run, snapshot.baseSha());
+        CiBaseSynchronization synchronization = gitService.synchronizeBase(syncCommand);
+        if (synchronization.outcome() != CiBaseSynchronization.Outcome.READY) {
+            return RebaseGate.waiting(store.update(run.pause(
+                    PauseReason.REBASE_PAUSED,
+                    summary("The pull request base could not be synchronized", synchronization.diagnostics()),
+                    now)));
+        }
+        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
+        validateMessageWorkspace(task, run, workspace);
+        if (workspace.dirty()) {
+            return RebaseGate.waiting(store.update(run.pause(
+                    PauseReason.REBASE_PAUSED,
+                    "The worktree is dirty before the target rebase",
+                    now)));
+        }
+        try {
+            BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
+                    task.id(),
+                    RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()),
+                    run.scope().worktree(),
+                    run.scope().headRef(),
+                    synchronization.localBaseBranch().orElseThrow(),
+                    rebaseKey(run, workspace.head(), snapshot.baseSha())));
+            verifyBranchRebaseScope(run, rebase, snapshot.baseSha());
+            if (rebase.status() == BranchRebase.Status.FINISHED) {
+                return finishedBranchRebase(run, rebase, now);
+            }
+            return RebaseGate.waiting(store.update(run.linkBranchRebase(rebase.id().toString(), now)));
+        }
+        catch (RuntimeException failure) {
+            return RebaseGate.waiting(store.update(run.pause(
+                    PauseReason.REBASE_PAUSED,
+                    failureSummary("The target rebase could not start", failure),
+                    now)));
+        }
+    }
+
+    private RebaseGate advanceBranchRebase(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
+    {
+        BranchRebase rebase = rebaseService.get(BranchRebaseId.valueOf(run.currentRebaseId().orElseThrow()));
+        verifyBranchRebaseScope(run, rebase, rebase.baseSha());
+        if (!rebase.baseSha().equals(snapshot.baseSha())) {
+            // Finish the already-started exact rebase. A newer base is handled before the next fix action.
+            log.debug("CI Autofix run {} is finishing rebase {} before observing newer base {}",
+                    run.id(), rebase.id(), snapshot.baseSha());
+        }
+        if (rebase.status() == BranchRebase.Status.RUNNING) {
+            rebase = rebaseService.advance(rebase.id());
+        }
+        if (rebase.status() == BranchRebase.Status.FINISHED) {
+            RebaseGate finished = finishedBranchRebase(run, rebase, now);
+            return rebase.baseSha().equals(snapshot.baseSha())
+                    ? finished
+                    : RebaseGate.waiting(finished.run());
+        }
+        return switch (rebase.status()) {
+            case RUNNING -> RebaseGate.waiting(run);
+            case PAUSED -> RebaseGate.waiting(store.update(run.pause(
+                    PauseReason.REBASE_PAUSED,
+                    summary("The target rebase is paused", rebase.summary().orElse("Inspect the worktree")),
+                    now)));
+            case FINISHED -> throw new AssertionError("finished rebase was handled above");
+        };
+    }
+
+    private RebaseGate finishedBranchRebase(CiAutofixRun run, BranchRebase rebase, Instant now)
+    {
+        if (rebase.finishReason().filter(BranchRebase.FinishReason.COMPLETED::equals).isEmpty()) {
+            CiAutofixRun cleared = run.currentRebaseId().isPresent()
+                    ? run.clearBranchRebase(rebase.id().toString(), now)
+                    : run;
+            return RebaseGate.waiting(store.update(cleared.pause(
+                    PauseReason.REBASE_PAUSED,
+                    "The program-owned target rebase was cancelled",
+                    now)));
+        }
+        CiAutofixRun prepared = run.currentRebaseId().isPresent()
+                ? run.completeBranchRebase(rebase.id().toString(), rebase.baseSha(), now)
+                : run.observeBase(run.expectedRemoteHead(), rebase.baseSha(), now);
+        return RebaseGate.ready(store.update(prepared));
+    }
+
+    private CiAutofixRun resumeBranchRebase(CiAutofixRun run, String message)
+    {
+        BranchRebase rebase = rebaseService.get(BranchRebaseId.valueOf(run.currentRebaseId().orElseThrow()));
+        verifyBranchRebaseScope(run, rebase, rebase.baseSha());
+        if (rebase.status() == BranchRebase.Status.PAUSED) {
+            rebase = rebaseService.sendMessage(rebase.id(), message.strip());
+        }
+        if (rebase.status() == BranchRebase.Status.PAUSED) {
+            return run;
+        }
+        Instant now = Instant.now(clock);
+        CiAutofixRun resumed = run.resume(now);
+        if (rebase.status() == BranchRebase.Status.FINISHED) {
+            return finishedBranchRebase(resumed, rebase, now).run();
+        }
+        return store.update(resumed);
+    }
+
+    private void cancelBranchRebase(CiAutofixRun run)
+    {
+        run.currentRebaseId().ifPresent(value ->
+                rebaseService.cancel(BranchRebaseId.valueOf(value)));
+    }
+
+    private void cleanupSynchronizedBase(CiAutofixRun run)
+    {
+        if (!gitService.removeSynchronizedBase(
+                synchronizeBaseCommand(run, run.latestObservedBaseSha()))) {
+            log.debug("Private CI base branch remains for run {}", run.id());
+        }
+    }
+
+    private static boolean needsBranchRebase(CiAutofixRun run, CiHeadSnapshot snapshot)
+    {
+        if (run.attempts().isEmpty()) {
+            return true;
+        }
+        CiAutofixAttempt attempt = run.attempts().getLast();
+        if (attempt.agentTurnId().isEmpty()) {
+            return !snapshot.baseSha().equals(run.latestObservedBaseSha());
+        }
+        if (attempt.pushedSha().isEmpty() && attempt.gitResult().isEmpty()) {
+            return true;
+        }
+        return attempt.observedCiResult() == CiResult.FAILED
+                && run.attemptsUsed() < run.authorization().maxFixAttempts()
+                && !snapshot.baseSha().equals(run.latestObservedBaseSha());
+    }
+
+    private static boolean preparedAttemptNeedsNewBase(CiAutofixRun run, CiHeadSnapshot snapshot)
+    {
+        return !run.attempts().isEmpty()
+                && run.attempts().getLast().agentTurnId().isEmpty()
+                && !snapshot.baseSha().equals(run.latestObservedBaseSha());
+    }
+
+    private CiAutofixRun refreshPreparedAttempt(CiAutofixRun run, AgentTask task, Instant now)
+    {
+        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
+        validateMessageWorkspace(task, run, workspace);
+        checkArgument(!workspace.dirty(), "CI Autofix worktree is dirty after the target rebase");
+        CiAutofixAttempt attempt = run.attempts().getLast();
+        return store.update(run.updateAttempt(attempt.withPreparedInput(workspace.head(), now), now));
+    }
+
+    private static void verifyBranchRebaseScope(CiAutofixRun run, BranchRebase rebase, String baseSha)
+    {
+        if (!rebase.agentTaskId().equals(run.agentTaskId().orElseThrow())
+                || !rebase.repository().equals(RepoRef.of(
+                        run.scope().pullRequest().owner(), run.scope().pullRequest().repo()))
+                || !rebase.worktree().equals(run.scope().worktree())
+                || !rebase.workBranch().equals(run.scope().headRef())
+                || !rebase.baseBranch().equals(localBaseBranch(run))
+                || !rebase.baseSha().equals(baseSha)) {
+            throw new CiAutofixConflictException("Branch rebase is outside the CI Autofix scope");
+        }
+    }
+
+    private static String rebaseKey(CiAutofixRun run, String localHead, String baseSha)
+    {
+        return "ci-rebase:" + run.id() + ":" + localHead + ":" + baseSha;
+    }
+
+    private static String localBaseBranch(CiAutofixRun run)
+    {
+        return "bytequay/ci-base/" + run.id();
+    }
+
+    private static SynchronizeCiBaseCommand synchronizeBaseCommand(CiAutofixRun run, String baseSha)
+    {
+        return new SynchronizeCiBaseCommand(
+                run.scope().worktree(),
+                repository(run.scope().pullRequest()),
+                run.scope().headRef(),
+                run.scope().baseRef(),
+                baseSha,
+                localBaseBranch(run));
+    }
+
     private CiAutofixRun finishRun(
             CiAutofixRun run,
             FinishReason reason,
             String message,
             Instant now)
     {
+        cancelBranchRebase(run);
         run.currentTurnId().ifPresent(value -> {
             AgentTurn turn = turnService.get(TurnId.valueOf(value));
             if (turn.state().active()) {
@@ -740,6 +973,7 @@ public class DefaultCiAutofixService
             }
         });
         CiAutofixRun finished = store.update(run.finish(reason, message, now));
+        cleanupSynchronizedBase(finished);
         completeFinishedTask(finished);
         return finished;
     }
@@ -749,6 +983,7 @@ public class DefaultCiAutofixService
         if (run.agentTaskId().isEmpty()) {
             return;
         }
+        cleanupSynchronizedBase(run);
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         try {
             AgentTask task = taskService.get(taskId);
@@ -808,12 +1043,15 @@ public class DefaultCiAutofixService
     {
         List<FailureEvidence> failures = logReader.readFailures(task.id(), snapshot);
         checkArgument(!failures.isEmpty(), "CI snapshot has no readable actionable failure");
+        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
+        validateMessageWorkspace(task, run, workspace);
+        checkArgument(!workspace.dirty(), "CI Autofix worktree is dirty before the fix attempt");
         Instant now = Instant.now(clock);
         CiAutofixAttempt attempt = CiAutofixAttempt.create(
                 CiAutofixAttemptId.random(),
                 run.id(),
                 run.attempts().size() + 1,
-                snapshot.headSha(),
+                workspace.head(),
                 failures,
                 now);
         return refreshMemory(store.update(run.addAttempt(attempt, now)));
@@ -827,7 +1065,7 @@ public class DefaultCiAutofixService
         }
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 task.id(),
-                promptBuilder.build(snapshot, attempt.failures()),
+                promptBuilder.build(snapshot, attempt),
                 logReader.attachments(task.id(), attempt.failures()),
                 attempt.id().toString()));
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
@@ -1002,5 +1240,18 @@ public class DefaultCiAutofixService
         requireNonNull(value, name + " is null");
         checkArgument(!value.isBlank(), name + " is blank");
         checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
+    }
+
+    private record RebaseGate(CiAutofixRun run, boolean ready)
+    {
+        private static RebaseGate ready(CiAutofixRun run)
+        {
+            return new RebaseGate(run, true);
+        }
+
+        private static RebaseGate waiting(CiAutofixRun run)
+        {
+            return new RebaseGate(run, false);
+        }
     }
 }

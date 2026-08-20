@@ -226,6 +226,20 @@ class TestCiAutofixHttpApi
         assertThat(git.commitSubjectsTruncated()).isTrue();
     }
 
+    @Test
+    void exposesTheLinkedRebaseAsProgramOwnedActivity()
+    {
+        CiAutofixRun rebasing = run()
+                .assignAgentTask("task-1", NOW.plusSeconds(1))
+                .linkBranchRebase("rebase-1", NOW.plusSeconds(2));
+
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(rebasing, Optional.empty());
+
+        assertThat(response.activity()).isEqualTo("REBASING");
+        assertThat(response.currentRebaseId()).contains("rebase-1");
+        assertThat(response.currentTurnId()).isEmpty();
+    }
+
     private static CiAutofixRun run()
     {
         return CiAutofixRun.create(

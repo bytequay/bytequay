@@ -197,5 +197,5 @@ Checkpoint gate:
 
 - [ ] User-selected project validation profiles.
 - [x] Program-owned Branch Rebase Service.
-- [ ] CI Autofix migration to Branch Rebase Service.
+- [x] CI Autofix migration to Branch Rebase Service.
 - [ ] Push and pull-request creation for the generated work branch.

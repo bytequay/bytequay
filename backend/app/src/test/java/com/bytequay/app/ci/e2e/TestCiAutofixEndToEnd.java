@@ -572,7 +572,7 @@ class TestCiAutofixEndToEnd
     }
 
     @Test
-    void acceptsARebasedTargetBranchAndLeasePushesTheCleanHistory()
+    void programRebasesAMovedTargetAndLeasePushesTheCleanHistory()
             throws Exception
     {
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture(temporaryDirectory, "target-moved");
@@ -582,15 +582,20 @@ class TestCiAutofixEndToEnd
         agent.enqueueCompleted(
                 repository.pullRequest(),
                 repository.worktree(),
-                "Rebased, resolved, checked locally, and created the fixup.",
-                ignored -> repository.rebaseOntoBaseAndCreatePositionedFixup("rebase-fix.txt", "fixed\n"));
+                "Resolved the program-owned target rebase conflict.",
+                ignored -> repository.resolveTargetRebaseConflict());
+        agent.enqueueCompleted(
+                repository.pullRequest(),
+                repository.worktree(),
+                "Checked locally and created the fixup.",
+                ignored -> repository.createPositionedFixup("rebase-fix.txt", "fixed\n"));
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "target-moved-start");
         CiAutofixRun published = harness.driveUntil(
                 started.runId(),
-                run -> run.attempts().getFirst().pushedSha().isPresent(),
-                8);
+                run -> !run.attempts().isEmpty() && run.attempts().getFirst().pushedSha().isPresent(),
+                20);
         String pushedSha = published.attempts().getFirst().pushedSha().orElseThrow();
 
         assertThat(published.latestObservedBaseSha()).isEqualTo(movedBase);

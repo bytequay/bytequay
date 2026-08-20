@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 
 import java.util.List;
@@ -35,11 +36,12 @@ final class CiAutofixPromptBuilder
             those checks when possible. If a check finds a code problem, fix it. If a check
             cannot run because of the environment, continue and explain that to the user.
 
-            You own the local code and Git history for this turn. If the fetched target
-            branch advanced, rebase the PR branch onto it and resolve conflicts. Commit the
-            repair as "fixup! <target subject>" and place it immediately after the commit
-            the repair belongs to. If that target already has a fixup, combine the new
-            repair into the existing fixup so only one fixup follows the target.
+            ByteQuay already synchronized and prepared this local branch on the exact base
+            SHA shown above. Do not fetch, update, or rebase onto the target branch in this
+            turn. Commit the repair as "fixup! <target subject>" and place it immediately
+            after the commit the repair belongs to. If that target already has a fixup,
+            combine the new repair into the existing fixup so only one fixup follows the
+            target.
 
             Before finishing, check the complete PR history yourself. Preserve the order
             of authored commits, keep every fixup immediately after its target, leave at
@@ -55,14 +57,16 @@ final class CiAutofixPromptBuilder
             local-check result so later memory is useful.
             """;
 
-    public String build(CiHeadSnapshot snapshot, List<FailureEvidence> failures)
+    public String build(CiHeadSnapshot snapshot, CiAutofixAttempt attempt)
     {
         requireNonNull(snapshot, "snapshot is null");
-        requireNonNull(failures, "failures is null");
+        requireNonNull(attempt, "attempt is null");
+        List<FailureEvidence> failures = attempt.failures();
         StringBuilder prompt = new StringBuilder()
                 .append("Verified current CI context:\n")
                 .append("- Pull request: ").append(snapshot.pullRequest().fullName()).append('\n')
-                .append("- Head: ").append(snapshot.headSha()).append(" (").append(snapshot.headRef()).append(")\n")
+                .append("- Remote head: ").append(snapshot.headSha()).append(" (").append(snapshot.headRef()).append(")\n")
+                .append("- Prepared local head: ").append(attempt.inputSha()).append('\n')
                 .append("- Base: ").append(snapshot.baseSha()).append(" (").append(snapshot.baseRef()).append(")\n")
                 .append("- Failed jobs:\n");
         failures.forEach(failure -> prompt.append("  - ")

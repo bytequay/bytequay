@@ -123,6 +123,28 @@ class TestCiAutofixRun
     }
 
     @Test
+    void linksOneBranchRebaseWithoutOwningItsTurn()
+    {
+        CiAutofixRun run = newRun("start-rebase", "feature-rebase", NOW)
+                .assignAgentTask("task-1", NOW.plusSeconds(1))
+                .linkBranchRebase("rebase-1", NOW.plusSeconds(2));
+
+        assertThat(run.currentRebaseId()).contains("rebase-1");
+        assertThat(run.currentTurnId()).isEmpty();
+        CiAutofixRun linked = run;
+        assertThatThrownBy(() -> linked.linkUserTurn("turn-1", NOW.plusSeconds(3)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("branch rebase");
+
+        run = run.pause(PauseReason.REBASE_PAUSED, "resolve the rebase", NOW.plusSeconds(3))
+                .resume(NOW.plusSeconds(4))
+                .completeBranchRebase("rebase-1", "c".repeat(40), NOW.plusSeconds(5));
+
+        assertThat(run.currentRebaseId()).isEmpty();
+        assertThat(run.latestObservedBaseSha()).isEqualTo("c".repeat(40));
+    }
+
+    @Test
     void boundsRerunsPerUnchangedHeadAndRejectsAnUnobservedNewHead()
     {
         CiAutofixRun run = newRun("start-3", "feature-3", NOW);

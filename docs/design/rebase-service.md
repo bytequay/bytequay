@@ -1,13 +1,13 @@
 # Branch Rebase Service
 
 > **Status: implemented and verified.** This service is not part of the
-> cherry-pick execution path. Explicit UI and CI Autofix callers remain
-> separate, approved migrations.
+> cherry-pick execution path. CI Autofix uses it for target rebases; an
+> explicit branch-rebase UI remains a separate future feature.
 
 This document specifies a program-owned rebase of one local branch onto another
-local branch, with agent-assisted conflict resolution. Its intended consumers
-are an explicit future branch-rebase action and a future migration away from
-the agent-driven rebase that CI Autofix currently asks for in prose.
+local branch, with agent-assisted conflict resolution. CI Autofix is its first
+caller. An explicit future branch-rebase action may also use it without
+changing the service boundary.
 
 The locked cherry-pick range flow does not invoke this service. It synchronizes
 and freezes the target immediately before creating the work branch. A moved
@@ -32,31 +32,18 @@ They share exactly one thing: a conflict appears, an agent resolves it in a
 leased worktree, and the program decides from Git state whether the resolution
 is acceptable. That shared part is what this service owns.
 
-### 1.1 What CI Autofix does today
+### 1.1 How CI Autofix uses it
 
-CI Autofix has no program-owned rebase. Its prompt tells the agent to perform
-one:
+CI Autofix synchronizes the exact GitHub-reported target SHA into a private
+local branch, then calls this service before the first fix turn and before it
+accepts a completed fix result. CI Autofix stores only the linked rebase ID.
+This service owns the rebase journal, Git sequencer, conflict-resolution turns,
+continue, skip, abort, and crash recovery.
 
-```text
-If the fetched target branch advanced, rebase the PR branch onto it and
-resolve conflicts.
-```
-
-and `CiGitOperations` only detects a rebase that was left open:
-
-```java
-ImmutableList.of("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply", "sequencer")
-```
-
-So the rebase itself is unverified: the program never learns which commits were
-replayed, whether any were dropped, or whether history was rewritten beyond the
-intended range. That contradicts the rule the rest of the system follows, that
-Git state decides what happened. Moving CI Autofix onto this service is the
-reason to build it as a service rather than as cherry-pick-private code.
-
-Migrating CI Autofix is separate from implementing this service. CI Autofix
-stays unchanged until the rebase service has its own tests and explicit
-approval. Cherry-pick does not wait for or invoke it.
+The CI fix prompt no longer asks the agent to fetch or rebase the target. If a
+rebase stops, the service starts a separate agent turn that may edit and stage
+only the conflict resolution; the program decides the next Git action.
+Cherry-pick does not wait for or invoke this service.
 
 ## 2. What is shared, and what is not
 
@@ -86,9 +73,8 @@ but it does not force them to use the same conflict history. Rebase hands the
 open conflict to an agent and lets the program continue the sequence after the
 resolution is staged. Cherry-pick temporarily commits the conflict snapshot,
 lets the agent append one fixup, then normalizes both into one final commit or
-removes them when empty. A later CI Autofix migration can replace its current
-worktree-state inspection with this rebase driver instead of duplicating that
-logic a third time.
+removes them when empty. CI Autofix calls this rebase driver rather than
+duplicating sequencer and conflict recovery inside its attempt loop.
 
 **Not shared: the plan layer or conflict-commit policy.** Their durable state
 and accepted history remain service-specific:
@@ -270,7 +256,7 @@ package com.bytequay.app.rebase;
  * Rebases one local branch onto another with agent-assisted conflict
  * resolution, deciding every outcome from Git state.
  */
-public final class BranchRebaseService
+public class BranchRebaseService
 {
     /**
      * Starts or returns the rebase for an idempotent request.

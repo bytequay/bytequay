@@ -150,6 +150,8 @@ public class CiAutofixRunEntity
 
     private String currentTurnId;
 
+    private String currentRebaseId;
+
     private String pushAttemptId;
 
     private String pushExpectedRemoteSha;
@@ -240,6 +242,7 @@ public class CiAutofixRunEntity
         rerunsUsed = run.rerunCounter().used();
         updateFinalCheck(run.finalFixupCheck());
         currentTurnId = run.currentTurnId().orElse(null);
+        currentRebaseId = run.currentRebaseId().orElse(null);
         updatePushJournal(run.pushJournal());
         updateRerunJournal(run.rerunJournal());
         warningsJson = CiAutofixJson.encodeWarnings(run.warnings());
@@ -280,6 +283,7 @@ public class CiAutofixRunEntity
                 new RerunCounter(Optional.ofNullable(rerunHeadSha), rerunsUsed),
                 finalCheck(),
                 Optional.ofNullable(currentTurnId),
+                Optional.ofNullable(currentRebaseId),
                 pushJournal(),
                 rerunJournal(),
                 CiAutofixJson.decodeWarnings(warningsJson),

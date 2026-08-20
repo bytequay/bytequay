@@ -1,6 +1,7 @@
 # CI Autofix Service Design
 
-> **Status: backend implemented on 2026-08-18.** The implementation follows the
+> **Status: backend implemented; program-owned target rebase implemented on
+> 2026-08-20.** The implementation follows the
 > locked scope, authority boundary, services, durable status model, and program
 > control facts approved on 2026-08-17. Verification evidence is recorded in
 > [Implementation status](#12-implementation-status).
@@ -19,16 +20,16 @@ The agent owns the local fix:
 - diagnose the current GitHub Actions failures;
 - edit the code;
 - discover and run useful local compile/test commands when possible;
-- rebase the local PR branch onto the fetched target branch when needed;
-- resolve rebase conflicts;
 - commit the repair as `fixup! <target subject>`;
 - place that fixup immediately after the target commit; and
 - when the target already has a fixup, combine the changes into that one fixup.
 
-The program owns orchestration and GitHub writes:
+The program owns orchestration, target synchronization, and GitHub writes:
 
 - verify author consent and limits;
 - fetch CI facts, logs, and remote refs;
+- synchronize the exact target SHA and run the program-owned branch rebase;
+- use an agent turn only to resolve a stopped rebase conflict;
 - start and observe agent turns;
 - check the actual local Git repository after a completed turn;
 - push with an exact remote-head lease;
@@ -70,10 +71,11 @@ The initial limits are:
 - GitHub Actions only; and
 - no GitHub comments, approvals, merges, branch deletion, or plain force push.
 
-The agent may edit, commit, amend, squash, reorder, cherry-pick, and rebase only
-inside the leased worktree. It never receives a GitHub credential or a GitHub
-write tool, and its runtime policy denies network writes. Only the program may
-push or rerun GitHub Actions.
+The agent may edit, commit, amend, squash, and reorder fixups only inside the
+leased worktree. During a program-owned target rebase it may edit and stage the
+current conflict, but only the program may continue, skip, or abort. It never
+receives a GitHub credential or a GitHub write tool, and its runtime policy
+denies network writes. Only the program may push or rerun GitHub Actions.
 
 ## 3. Services
 
@@ -203,6 +205,23 @@ package com.bytequay.app.ci;
 
 public interface CiGitService
 {
+    /**
+     * Fetches the exact reported target SHA when needed and points one private
+     * local branch at it without moving the PR branch.
+     *
+     * @param command authorized worktree, target ref/SHA, and private branch
+     * @return ready private branch or bounded invalid diagnostics
+     */
+    CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command);
+
+    /**
+     * Deletes only the private local base branch named by the command.
+     *
+     * @param command same guarded scope used to create the private branch
+     * @return whether the branch is absent after the call
+     */
+    boolean removeSynchronizedBase(SynchronizeCiBaseCommand command);
+
     /**
      * Inspects the local result of one completed agent fix turn.
      *
@@ -415,9 +434,9 @@ scripts, manifests, and checked-in wrappers to choose useful local checks. Run
 those checks when possible. If a check finds a code problem, fix it. If a check
 cannot run because of the environment, continue and explain that to the user.
 
-You own the local code and Git history for this turn. If the fetched target
-branch advanced, rebase the PR branch onto it and resolve conflicts. Commit the
-repair as "fixup! <target subject>" and place it immediately after the commit
+ByteQuay has synchronized and prepared the local PR branch on the exact target
+SHA shown above. Do not rebase onto, fetch, or update the target branch in this
+turn. Commit the repair as "fixup! <target subject>" and place it immediately after the commit
 the repair belongs to. If that target already has a fixup, combine the new
 repair into the existing fixup so only one fixup follows the target.
 
@@ -453,7 +472,8 @@ flowchart TD
     ENABLE["User enables CI Autofix for authored PR"]
     WATCH["Program reads head, base, and CI"]
     TURN["Program stores logs and starts fix turn"]
-    FIX["Agent fixes, tests, rebases, and creates positioned fixup"]
+    REBASE["Program synchronizes target and owns rebase"]
+    FIX["Agent fixes, tests, and creates positioned fixup"]
     LIFE{"Program reads AgentTurn.state"}
     GIT{"Program inspects actual Git"}
     PUSH["Program pushes with exact lease"]
@@ -464,7 +484,7 @@ flowchart TD
     DONE["Program completes task"]
 
     ENABLE --> WATCH
-    WATCH -->|"actionable failure"| TURN --> FIX --> LIFE
+    WATCH -->|"actionable failure"| REBASE --> TURN --> FIX --> LIFE
     LIFE -->|"running"| LIFE
     LIFE -->|"failed / interrupted"| PAUSE
     LIFE -->|"completed"| GIT
@@ -483,7 +503,8 @@ The operations are:
 | --- | --- | --- |
 | Enable run | User, then program | Verified author and stored consent |
 | Select current failures | Program | Latest GitHub job attempts for exact head SHA |
-| Fix, test, rebase, commit, and position fixup | Agent | Local Git mutations only; response is display-only |
+| Synchronize and rebase onto target | Program plus conflict-resolution agent turn | Exact base SHA and durable rebase state |
+| Fix, test, commit, and position fixup | Agent | Local Git mutations only; response is display-only |
 | Decide turn ended | Agent service | Durable lifecycle from provider/process protocol |
 | Accept local result | Program | Clean Git state and committed local head |
 | Push | Program | Exact expected remote SHA and local fingerprint |
@@ -510,6 +531,11 @@ if an agent turn is running:
     wait
 if the latest turn FAILED, CANCELLED, or INTERRUPTED:
     pause and preserve the worktree
+before the first fix turn or inspection of a completed fix:
+    synchronize the exact reported base SHA into bytequay/ci-base/<run-id>
+    start or advance the linked Branch Rebase
+    if it pauses: pause CI Autofix and retain currentRebaseId
+    if it completes: clear currentRebaseId and continue
 if a completed turn has not been inspected:
     inspect actual Git
     if committed and clean: journal and push the local head
@@ -683,7 +709,8 @@ These files use the agent task's existing seven-day retention policy.
 - authorization scope and expiry;
 - maximum/used fix attempts and per-head rerun count;
 - final-fixup-check head SHA, result, and timestamp;
-- current turn ID, push journal, optimistic version, and timestamps.
+- current turn ID, linked branch-rebase ID, push journal, optimistic version,
+  and timestamps.
 
 `ci_autofix_attempt` stores:
 
@@ -713,13 +740,16 @@ The start request contains repository, PR number, worktree, agent lane,
 rewrites, and exact-lease branch pushes. It requires an `Idempotency-Key`.
 
 The response contains status, derived activity, authorization expiry, current
-head/base/check facts, attempts, agent task/turn links, metrics, warnings,
-pushes, final-check result, and summary. Agent messages remain in the existing
-event stream and are labeled display-only.
+head/base/check facts, attempts, agent task/turn/rebase links, metrics,
+warnings, pushes, final-check result, and summary. A live linked rebase renders
+as `REBASING`. Agent messages remain in the existing event stream and are
+labeled display-only.
 
 ## 10. Restart and idempotency
 
 - Repeating a start or message idempotency key returns the existing result.
+- A linked `currentRebaseId` resumes through `BranchRebaseService`; CI Autofix
+  does not reconstruct or duplicate the rebase sequencer state.
 - On restart, a live turn without a live provider execution becomes
   `INTERRUPTED`; CI Autofix pauses.
 - A push journal stores local head and expected remote SHA before push.
@@ -743,6 +773,8 @@ event stream and are labeled display-only.
 5. Monitor CI, handle bounded empty-result reruns, and repeat failed heads.
 6. Run the one final fixup-position check, record the local timeline event, and
    complete the task when CI is green.
+7. Synchronize the exact target SHA and gate initial/finished fix work through
+   the program-owned Branch Rebase Service.
 
 The first implementation is complete when one consented authored PR can move
 from a failing GitHub Actions head to green, survive backend restart, and never
@@ -751,6 +783,16 @@ use agent response text to control the program.
 ## 12. Implementation status
 
 The backend implementation completed on 2026-08-18.
+
+The program-owned target-rebase migration completed on 2026-08-20.
+`mvn verify` passed the full reactor in 1 minute 8 seconds with zero
+Checkstyle violations; the `app` module ran 250 tests with no failures or
+errors and produced the repackaged backend jar. The focused tests cover exact
+base fetch and cleanup, durable CI/rebase links, base movement before a turn,
+pause/resume/cancel ownership, and publishing a program-rebased head. The real
+Git target-moved journey proves the program starts and continues the rebase,
+while the conflict agent only edits and stages the stopped conflict. The
+two-context restart journey also passed against the persisted schema.
 
 Verification evidence:
 
@@ -886,10 +928,12 @@ on Mockito invocation order.
 
 ### 13.4 Agent/program boundary under test
 
-The scripted agent may inspect the repository, read a bounded CI-memory result,
-edit files, run local commands, create/reorder/fold fixup commits, rebase, emit
-events, and complete/fail/cancel a turn. It never updates a CI Autofix row,
-calls GitHub, or publishes a branch.
+The scripted CI fix agent may inspect the repository, read a bounded CI-memory
+result, edit files, run local commands, create/reorder/fold fixup commits, emit
+events, and complete/fail/cancel a turn. A rebase-conflict turn may edit and
+stage the stopped conflict, but may not start, continue, skip, or abort the
+rebase. Neither agent updates a CI Autofix row, calls GitHub, or publishes a
+branch.
 
 The program alone reads the terminal `AgentTurn` state, inspects Git, validates
 fixup history, journals and exact-lease pushes, interprets GitHub checks, writes
@@ -911,7 +955,7 @@ does not reproduce MCP or CLI protocols.
 | Authorization guard | A non-author, fork, or missing consent is rejected through HTTP before task creation, rerun, or push |
 | Early actionable failure | A failed compile job starts fixing while an unrelated slow job remains pending |
 | Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |
-| Target branch moved | The agent may rebase and resolve conflicts; the program accepts only a clean, linear, correctly positioned result and then lease-pushes it |
+| Target branch moved | The program synchronizes and rebases the exact target SHA; an agent only stages a stopped conflict resolution; the program continues and later lease-pushes the clean, linear, correctly positioned result |
 | Empty agent result | No Git change causes a failed-job rerun, not a push; a later green snapshot finishes the run |
 | Empty-result bound | One empty result may consume at most three failed-job reruns for the unchanged head, then pauses without a fourth rerun |
 | Invalid Git recovery | An invalid result pauses immediately with no push; a user HTTP message may start a repair turn on the same task; another invalid result remains paused |

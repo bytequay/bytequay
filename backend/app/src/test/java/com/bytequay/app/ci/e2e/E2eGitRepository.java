@@ -192,20 +192,10 @@ final class E2eGitRepository
         moveFeatureToHead();
     }
 
-    void rebaseOntoBaseAndCreatePositionedFixup(String relativePath, String content)
+    void resolveTargetRebaseConflict()
     {
-        try {
-            git(worktree, "rebase", BASE_REF);
-        }
-        catch (IllegalStateException conflict) {
-            if (!conflict.getMessage().contains("CONFLICT")) {
-                throw conflict;
-            }
-            write(worktree.resolve("target.txt"), "base target\ntarget\n");
-            git(worktree, "add", "target.txt");
-            git(worktree, "-c", "core.editor=true", "rebase", "--continue");
-        }
-        createPositionedFixup(relativePath, content);
+        write(worktree.resolve("target.txt"), "base target\ntarget\n");
+        git(worktree, "add", "target.txt");
     }
 
     void foldPositionedFixup(String relativePath, String content)

@@ -57,6 +57,7 @@ final class CiAutofixHttpModels
                 run.rerunCounter().used(),
                 run.agentTaskId(),
                 run.currentTurnId(),
+                run.currentRebaseId(),
                 run.pauseReason().map(Enum::name),
                 run.finishReason().map(Enum::name),
                 run.summary(),
@@ -122,6 +123,9 @@ final class CiAutofixHttpModels
         if (run.currentTurnId().isPresent()) {
             return "FIXING";
         }
+        if (run.currentRebaseId().isPresent()) {
+            return "REBASING";
+        }
         if (run.pushJournal().isPresent()) {
             return "PUSHING";
         }
@@ -164,6 +168,7 @@ final class CiAutofixHttpModels
             int rerunsUsed,
             Optional<String> agentTaskId,
             Optional<String> currentTurnId,
+            Optional<String> currentRebaseId,
             Optional<String> pauseReason,
             Optional<String> finishReason,
             Optional<String> summary,

@@ -64,6 +64,69 @@ public final class CiGitOperations
     }
 
     @Override
+    public CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.headRef());
+            requireCleanAndResolved(worktree);
+            requireValidBranch(worktree, command.baseRef());
+            requireValidBranch(worktree, command.localBaseBranch());
+            if (!hasCommit(worktree, command.expectedBaseSha())) {
+                Result fetched = runner.run(worktree, ImmutableList.of(
+                        "fetch",
+                        "--no-tags",
+                        "--no-recurse-submodules",
+                        "--no-write-fetch-head",
+                        REMOTE,
+                        "refs/heads/" + command.baseRef()));
+                if (!fetched.successful() || !hasCommit(worktree, command.expectedBaseSha())) {
+                    throw problem("The exact pull request base SHA is unavailable after fetch");
+                }
+            }
+            Result updated = runner.run(
+                    worktree,
+                    "update-ref",
+                    "refs/heads/" + command.localBaseBranch(),
+                    command.expectedBaseSha());
+            if (!updated.successful()) {
+                throw problem("The private local base branch could not be updated");
+            }
+            return CiBaseSynchronization.ready(command.localBaseBranch());
+        }
+        catch (GitProblem problem) {
+            return CiBaseSynchronization.invalid(problem.getMessage());
+        }
+    }
+
+    @Override
+    public boolean removeSynchronizedBase(SynchronizeCiBaseCommand command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.headRef());
+            requireValidBranch(worktree, command.localBaseBranch());
+            Result current = runner.run(
+                    worktree,
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/" + command.localBaseBranch());
+            if (!current.successful()) {
+                return true;
+            }
+            return runner.run(
+                    worktree,
+                    "update-ref",
+                    "-d",
+                    "refs/heads/" + command.localBaseBranch()).successful();
+        }
+        catch (GitProblem problem) {
+            return false;
+        }
+    }
+
+    @Override
     public CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
     {
         requireNonNull(command, "command is null");
@@ -302,6 +365,11 @@ public final class CiGitOperations
         if (!result.successful()) {
             throw problem("Git cannot resolve the " + name + " commit");
         }
+    }
+
+    private boolean hasCommit(Path worktree, String sha)
+    {
+        return runner.run(worktree, "cat-file", "-e", sha + "^{commit}").successful();
     }
 
     private boolean isAncestor(Path worktree, String ancestor, String descendant)

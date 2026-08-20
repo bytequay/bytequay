@@ -53,7 +53,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Owns every durable transition of one local branch rebase. */
 @Service
-public final class BranchRebaseService
+public class BranchRebaseService
 {
     private static final Logger log = LoggerFactory.getLogger(BranchRebaseService.class);
     private static final int MAX_MESSAGE_CHARACTERS = 16 * 1024;

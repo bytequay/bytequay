@@ -41,6 +41,8 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.pr.PullRequestTimelineService;
+import com.bytequay.app.rebase.BranchRebaseService;
+import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -57,6 +59,8 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.rebase.BranchRebase;
+import com.bytequay.core.rebase.BranchRebaseId;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,6 +81,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.lang.Math.toIntExact;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,6 +122,7 @@ class TestDefaultCiAutofixService
     private CiAutofixLogReader logReader;
     private CiMemoryService memoryService;
     private CiGitService gitService;
+    private BranchRebaseService rebaseService;
     private PullRequestTimelineService timelineService;
     private CredentialService credentials;
     private GitHubAccountClient accounts;
@@ -143,6 +149,7 @@ class TestDefaultCiAutofixService
         eventService = mock(AgentEventService.class);
         memoryService = mock(CiMemoryService.class);
         gitService = mock(CiGitService.class);
+        rebaseService = mock(BranchRebaseService.class);
         timelineService = mock(PullRequestTimelineService.class);
         credentials = mock(CredentialService.class);
         accounts = mock(GitHubAccountClient.class);
@@ -186,6 +193,12 @@ class TestDefaultCiAutofixService
         when(taskService.get(taskId)).thenReturn(activeTask());
         when(turnService.start(any())).thenReturn(runningTurn);
         when(turnService.get(turnId)).thenReturn(runningTurn);
+        when(gitService.synchronizeBase(any())).thenAnswer(invocation -> {
+            SynchronizeCiBaseCommand command = invocation.getArgument(0);
+            return CiBaseSynchronization.ready(command.localBaseBranch());
+        });
+        when(gitService.removeSynchronizedBase(any())).thenReturn(true);
+        when(rebaseService.start(any())).thenAnswer(invocation -> completedRebase(invocation.getArgument(0)));
         when(resourceService.require(taskId)).thenReturn(resources);
         when(eventService.readAfter(any(), any(Long.class), any(Integer.class))).thenReturn(ImmutableList.of());
         logReader = new CiAutofixLogReader(gitHub, resourceService, eventService);
@@ -200,6 +213,7 @@ class TestDefaultCiAutofixService
                 logReader,
                 memoryService,
                 gitService,
+                rebaseService,
                 timelineService,
                 credentials,
                 accounts,
@@ -230,12 +244,14 @@ class TestDefaultCiAutofixService
         order.verify(turnService).start(turn.capture());
         assertThat(turn.getValue().idempotencyKey()).isEqualTo(run.attempts().getFirst().id().toString());
         assertThat(turn.getValue().message())
-                .contains("- Head: " + HEAD + " (feature)")
+                .contains("- Remote head: " + HEAD + " (feature)")
+                .contains("- Prepared local head: " + HEAD)
                 .contains("- Base: " + BASE + " (main)")
                 .contains("Build / compile failed at Compile")
                 .contains("call read_ci_memory")
                 .contains("Fix compile, type-check, dependency, or build failures before downstream test")
-                .contains("Commit the\nrepair as \"fixup! <target subject>\"")
+                .contains("Do not fetch, update, or rebase onto the target branch")
+                .contains("Commit the repair as \"fixup! <target subject>\"")
                 .contains("ByteQuay does not parse it");
         Path expectedAttachment = resources.blobsDirectory().resolve("ci.log").toRealPath();
         assertThat(turn.getValue().attachments()).singleElement().satisfies(attachment -> {
@@ -248,6 +264,201 @@ class TestDefaultCiAutofixService
         verify(gitHub, never()).rerunFailedJobs(any());
         assertThat(service.get(run.id())).isEqualTo(run);
         assertThat(service.list(10)).containsExactly(run);
+    }
+
+    @Test
+    void waitsForTheOwnedRebaseBeforeStartingTheFirstFixTurn()
+    {
+        AtomicReference<BranchRebase> started = new AtomicReference<>();
+        doAnswer(invocation -> {
+            BranchRebase rebase = runningRebase(invocation.getArgument(0));
+            started.set(rebase);
+            return rebase;
+        }).when(rebaseService).start(any());
+
+        CiAutofixRun run = service.start(startCommand("wait-for-rebase"));
+        BranchRebase rebase = started.get();
+        assertThat(run.currentRebaseId()).contains(rebase.id().toString());
+        assertThat(run.attempts()).isEmpty();
+        verify(turnService, never()).start(any());
+
+        when(rebaseService.get(rebase.id())).thenReturn(rebase);
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
+                BranchRebase.FinishReason.COMPLETED,
+                "Base prepared",
+                Optional.of(HEAD),
+                NOW.plusSeconds(1)));
+
+        run = service.advance(run.id());
+        assertThat(run.currentRebaseId()).isEmpty();
+        assertThat(run.attempts()).singleElement();
+        assertThat(run.currentTurnId()).isEmpty();
+
+        run = service.advance(run.id());
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        verify(turnService).start(any());
+    }
+
+    @Test
+    void refreshesAnUnstartedAttemptWhenTheBaseMoves()
+    {
+        AtomicReference<BranchRebase> firstRebase = new AtomicReference<>();
+        AtomicInteger starts = new AtomicInteger();
+        doAnswer(invocation -> {
+            StartBranchRebaseCommand command = invocation.getArgument(0);
+            if (starts.getAndIncrement() == 0) {
+                BranchRebase rebase = runningRebase(command);
+                firstRebase.set(rebase);
+                return rebase;
+            }
+            return completedRebase(command);
+        }).when(rebaseService).start(any());
+        CiAutofixRun run = service.start(startCommand("base-moves-before-turn"));
+        BranchRebase rebase = firstRebase.get();
+        when(rebaseService.get(rebase.id())).thenReturn(rebase);
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
+                BranchRebase.FinishReason.COMPLETED,
+                "Base prepared",
+                Optional.of(HEAD),
+                NOW.plusSeconds(1)));
+        run = service.advance(run.id());
+        assertThat(run.attempts().getFirst().inputSha()).isEqualTo(HEAD);
+
+        String movedBase = "d".repeat(40);
+        snapshot = failedSnapshot(HEAD, movedBase, 1);
+        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(workspaceService.inspect(worktree)).thenReturn(workspace(false, FIXED_HEAD));
+        run = service.advance(run.id());
+
+        assertThat(run.latestObservedBaseSha()).isEqualTo(movedBase);
+        assertThat(run.attempts().getFirst().inputSha()).isEqualTo(FIXED_HEAD);
+        assertThat(run.currentTurnId()).isEmpty();
+        run = service.advance(run.id());
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        verify(rebaseService, times(2)).start(any());
+    }
+
+    @Test
+    void mirrorsARebasePauseAndResumesItFromTheUserMessage()
+    {
+        AtomicReference<BranchRebase> started = new AtomicReference<>();
+        doAnswer(invocation -> {
+            BranchRebase rebase = runningRebase(invocation.getArgument(0));
+            started.set(rebase);
+            return rebase;
+        }).when(rebaseService).start(any());
+        CiAutofixRun run = service.start(startCommand("paused-rebase"));
+        BranchRebase pausedRebase = started.get().pause(
+                BranchRebase.PauseReason.UNSAFE_GIT_STATE,
+                "Resolve the worktree state",
+                NOW.plusSeconds(1));
+        when(rebaseService.get(pausedRebase.id())).thenReturn(pausedRebase);
+
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.REBASE_PAUSED);
+        assertThat(run.currentRebaseId()).contains(pausedRebase.id().toString());
+
+        when(rebaseService.sendMessage(pausedRebase.id(), "Continue the rebase"))
+                .thenReturn(pausedRebase.resume(NOW.plusSeconds(2)));
+        SendCiAutofixMessageCommand message = new SendCiAutofixMessageCommand(
+                run.id(),
+                "Continue the rebase",
+                "resume-rebase");
+        CiAutofixRun resumed = service.sendMessage(message);
+
+        assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
+        assertThat(resumed.currentRebaseId()).contains(pausedRebase.id().toString());
+        assertThat(service.sendMessage(message)).isEqualTo(resumed);
+        verify(rebaseService).sendMessage(pausedRebase.id(), "Continue the rebase");
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void cancelsTheLinkedRebaseWhenTheCiRunIsCancelled()
+    {
+        AtomicReference<BranchRebase> started = new AtomicReference<>();
+        doAnswer(invocation -> {
+            BranchRebase rebase = runningRebase(invocation.getArgument(0));
+            started.set(rebase);
+            return rebase;
+        }).when(rebaseService).start(any());
+        CiAutofixRun run = service.start(startCommand("cancel-rebase"));
+        when(rebaseService.cancel(started.get().id())).thenReturn(started.get());
+
+        CiAutofixRun cancelled = service.cancel(run.id());
+
+        assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(cancelled.currentRebaseId()).isEmpty();
+        verify(rebaseService).cancel(started.get().id());
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void doesNotFinishCiUntilTheLinkedRebaseAbortIsDurable()
+    {
+        AtomicReference<BranchRebase> started = new AtomicReference<>();
+        doAnswer(invocation -> {
+            BranchRebase rebase = runningRebase(invocation.getArgument(0));
+            started.set(rebase);
+            return rebase;
+        }).when(rebaseService).start(any());
+        CiAutofixRun run = service.start(startCommand("cancel-rebase-failure"));
+        when(rebaseService.cancel(started.get().id()))
+                .thenThrow(new IllegalStateException("rebase store unavailable"));
+
+        assertThatThrownBy(() -> service.cancel(run.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("rebase store unavailable");
+        assertThat(service.get(run.id()).status()).isEqualTo(Status.ACTIVE);
+        assertThat(service.get(run.id()).currentRebaseId()).contains(started.get().id().toString());
+        verify(completionService, never()).complete(any());
+    }
+
+    @Test
+    void publishesAProgramRebaseEvenWhenTheAgentAddsNoCommit()
+    {
+        AtomicReference<BranchRebase> firstRebase = new AtomicReference<>();
+        AtomicInteger starts = new AtomicInteger();
+        doAnswer(invocation -> {
+            StartBranchRebaseCommand command = invocation.getArgument(0);
+            if (starts.getAndIncrement() == 0) {
+                BranchRebase rebase = runningRebase(command);
+                firstRebase.set(rebase);
+                return rebase;
+            }
+            return completedRebase(command);
+        }).when(rebaseService).start(any());
+        CiAutofixRun run = service.start(startCommand("publish-program-rebase"));
+        BranchRebase rebase = firstRebase.get();
+        when(rebaseService.get(rebase.id())).thenReturn(rebase);
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
+                BranchRebase.FinishReason.COMPLETED,
+                "Base prepared",
+                Optional.of(FIXED_HEAD),
+                NOW.plusSeconds(1)));
+        when(workspaceService.inspect(worktree)).thenReturn(workspace(false, FIXED_HEAD));
+
+        run = service.advance(run.id());
+        assertThat(run.attempts().getFirst().inputSha()).isEqualTo(FIXED_HEAD);
+        run = service.advance(run.id());
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
+                FIXED_HEAD,
+                "rebased-fingerprint",
+                ImmutableList.of("base.txt"),
+                ImmutableList.of("Target change")));
+
+        run = service.advance(run.id());
+
+        ArgumentCaptor<InspectAgentResultCommand> inspection =
+                ArgumentCaptor.forClass(InspectAgentResultCommand.class);
+        verify(gitService).inspectAgentResult(inspection.capture());
+        assertThat(inspection.getValue().inputSha()).isEqualTo(HEAD);
+        assertThat(inspection.getValue().baseSha()).isEqualTo(BASE);
+        assertThat(run.pushJournal()).isPresent();
+        verify(rebaseService, times(2)).start(any());
     }
 
     @Test
@@ -939,10 +1150,38 @@ class TestDefaultCiAutofixService
                 logReader,
                 memoryService,
                 gitService,
+                rebaseService,
                 timelineService,
                 credentials,
                 accounts,
                 requestedClock);
+    }
+
+    private BranchRebase completedRebase(StartBranchRebaseCommand command)
+    {
+        BranchRebase running = runningRebase(command);
+        WorkspaceSnapshot workspace = workspaceService.inspect(command.worktree());
+        return running.finish(
+                BranchRebase.FinishReason.COMPLETED,
+                "Base prepared",
+                Optional.of(workspace.head()),
+                NOW);
+    }
+
+    private BranchRebase runningRebase(StartBranchRebaseCommand command)
+    {
+        WorkspaceSnapshot workspace = workspaceService.inspect(command.worktree());
+        return BranchRebase.create(
+                        BranchRebaseId.random(),
+                        command.idempotencyKey(),
+                        command.agentTaskId().toString(),
+                        command.repository(),
+                        command.worktree(),
+                        command.workBranch(),
+                        command.baseBranch(),
+                        workspace.head(),
+                        snapshot.baseSha(),
+                        NOW);
     }
 
     private StartCiAutofixCommand startCommand(String key)

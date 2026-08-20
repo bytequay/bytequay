@@ -123,6 +123,32 @@ public record CiAutofixAttempt(
                 now);
     }
 
+    public CiAutofixAttempt withPreparedInput(String preparedInputSha, Instant now)
+    {
+        checkSha(preparedInputSha, "preparedInputSha");
+        requireUpdateTime(now);
+        checkState(agentTurnId.isEmpty() && gitResult.isEmpty() && expectedRemoteSha.isEmpty()
+                        && pushedSha.isEmpty() && timelineEventKey.isEmpty()
+                        && observedCiResult == CiResult.UNKNOWN,
+                "attempt has already started");
+        return new CiAutofixAttempt(
+                id,
+                runId,
+                number,
+                preparedInputSha,
+                failures,
+                agentTurnId,
+                untrustedAgentNote,
+                gitResult,
+                expectedRemoteSha,
+                pushedSha,
+                pushedAt,
+                observedCiResult,
+                timelineEventKey,
+                createdAt,
+                now);
+    }
+
     public CiAutofixAttempt withAgentNote(String note, Instant now)
     {
         checkText(note, "note", 16 * 1024);

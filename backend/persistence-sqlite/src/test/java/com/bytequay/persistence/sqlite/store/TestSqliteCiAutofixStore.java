@@ -164,6 +164,21 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
+    void roundTripsAPausedBranchRebaseLink()
+    {
+        CiAutofixRun run = newRun("rebase-link", "feature-rebase", NOW)
+                .assignAgentTask("task-rebase", NOW.plusSeconds(1))
+                .linkBranchRebase("rebase-1", NOW.plusSeconds(2))
+                .pause(PauseReason.REBASE_PAUSED, "rebase paused", NOW.plusSeconds(3));
+
+        store.insert(run);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.find(run.id())).contains(run);
+    }
+
+    @Test
     void rejectsDuplicateStartIdempotencyKey()
     {
         store.insert(newRun("same-key", "feature-a", NOW));

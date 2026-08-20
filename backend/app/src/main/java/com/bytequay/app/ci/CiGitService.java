@@ -16,6 +16,23 @@ package com.bytequay.app.ci;
 public interface CiGitService
 {
     /**
+     * Fetches the exact reported target SHA when needed and points one private
+     * local branch at it without moving the PR branch.
+     *
+     * @param command authorized worktree, target ref/SHA, and private branch
+     * @return ready private branch or bounded invalid diagnostics
+     */
+    CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command);
+
+    /**
+     * Deletes only the private local base branch named by the command.
+     *
+     * @param command same guarded scope used to create the private branch
+     * @return whether the branch is absent after the call
+     */
+    boolean removeSynchronizedBase(SynchronizeCiBaseCommand command);
+
+    /**
      * Inspects the local result of one completed agent fix turn.
      *
      * <p>Returns no-change when HEAD is unchanged and the worktree is clean.

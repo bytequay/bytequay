@@ -56,6 +56,7 @@ public record CherryPickExecution(
         Optional<FinishReason> finishReason,
         Optional<String> summary,
         Optional<ActionJournal> journal,
+        Optional<RangeReview> rangeReview,
         List<CherryPickItem> items,
         long version,
         Instant createdAt,
@@ -79,6 +80,7 @@ public record CherryPickExecution(
         requireNonNull(finishReason, "finishReason is null");
         checkOptionalText(summary, "summary", MAX_SUMMARY_CHARACTERS);
         requireNonNull(journal, "journal is null");
+        requireNonNull(rangeReview, "rangeReview is null");
         requireNonNull(items, "items is null");
         items = ImmutableList.copyOf(items);
         validateItems(items);
@@ -109,6 +111,7 @@ public record CherryPickExecution(
                 Optional.empty(),
                 Optional.empty(),
                 Status.RUNNING,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -286,12 +289,30 @@ public record CherryPickExecution(
         });
     }
 
+    /**
+     * Stores the human-readable range review.
+     *
+     * <p>Read by a person, never by the program: {@code range-diff} is
+     * heuristic, so parsing it to decide completion would make a guess load
+     * bearing.
+     *
+     * @param review bounded range-diff output
+     * @param now update time
+     * @return execution carrying the review
+     */
+    public CherryPickExecution withRangeReview(RangeReview review, Instant now)
+    {
+        requireMutable(now);
+        requireNonNull(review, "review is null");
+        return edit(now, draft -> draft.rangeReview = Optional.of(review));
+    }
+
     public CherryPickExecution withVersion(long updatedVersion)
     {
         checkArgument(updatedVersion >= version, "version moved backwards");
         return new CherryPickExecution(
                 id, startIdempotencyKey, workspace, range, currentTargetSha, agentTaskId, currentTurnId,
-                status, currentStep, pauseReason, finishReason, summary, journal, items,
+                status, currentStep, pauseReason, finishReason, summary, journal, rangeReview, items,
                 updatedVersion, createdAt, updatedAt, terminalAt);
     }
 
@@ -490,6 +511,20 @@ public record CherryPickExecution(
         ABORT
     }
 
+    /** Human-readable {@code range-diff} output, and whether it was cut short. */
+    public record RangeReview(String output, boolean truncated)
+    {
+        public static final int MAX_OUTPUT_CHARACTERS = 256 * 1024;
+
+        public RangeReview
+        {
+            requireNonNull(output, "output is null");
+            checkArgument(
+                    output.length() <= MAX_OUTPUT_CHARACTERS,
+                    "output exceeds " + MAX_OUTPUT_CHARACTERS + " characters");
+        }
+    }
+
     private static final class Draft
     {
         private final CherryPickExecutionId id;
@@ -508,6 +543,7 @@ public record CherryPickExecution(
         private Optional<FinishReason> finishReason;
         private Optional<String> summary;
         private Optional<ActionJournal> journal;
+        private Optional<RangeReview> rangeReview;
         private List<CherryPickItem> items;
         private Instant updatedAt;
         private Optional<Instant> terminalAt;
@@ -529,6 +565,7 @@ public record CherryPickExecution(
             this.finishReason = execution.finishReason;
             this.summary = execution.summary;
             this.journal = execution.journal;
+            this.rangeReview = execution.rangeReview;
             this.items = execution.items;
             this.updatedAt = execution.updatedAt;
             this.terminalAt = execution.terminalAt;
@@ -538,7 +575,7 @@ public record CherryPickExecution(
         {
             return new CherryPickExecution(
                     id, startIdempotencyKey, workspace, range, currentTargetSha, agentTaskId, currentTurnId,
-                    status, currentStep, pauseReason, finishReason, summary, journal, items,
+                    status, currentStep, pauseReason, finishReason, summary, journal, rangeReview, items,
                     version, createdAt, updatedAt, terminalAt);
         }
     }

@@ -722,73 +722,91 @@ state and Git.
 
 ### Restart reconciliation
 
-- [ ] Reconcile every running execution on backend startup or its first
-  monitor call.
-- [ ] If an intent exists, inspect Git before repeating any action.
-- [ ] Recognize an applied candidate created before a crash.
-- [ ] Recognize an exact still-open conflict.
-- [ ] Recognize an exact still-open empty operation.
-- [ ] Recognize an already-completed empty skip when HEAD is unchanged, the
+- [x] Reconcile every running execution on backend startup or its first
+  monitor call. No separate startup pass exists, and none is needed:
+  `advance` observes Git before every action, so the first monitor call is
+  already a reconciliation.
+- [x] If an intent exists, inspect Git before repeating any action.
+- [x] Recognize an applied candidate created before a crash. A work branch
+  ahead of the stored target is reconciled by `-x` line and adopted rather
+  than paused; that was a real bug the restart test found.
+- [x] Recognize an exact still-open conflict.
+- [x] Recognize an exact still-open empty operation.
+- [x] Recognize an already-completed empty skip when HEAD is unchanged, the
   worktree is clean, and the operation marker is gone.
-- [ ] Recognize a completed validation result only for its stored target SHA.
-- [ ] Pause when persisted state and Git facts disagree.
+- [x] Recognize a completed validation result only for its stored target SHA.
+- [x] Pause when persisted state and Git facts disagree.
 - [ ] Restore the existing agent task worktree lease before resuming a turn.
+  Deferred: the execution never acquires a lease, because it creates the
+  worktree itself and no other task can own it. Revisit if leasing is added.
 - [ ] Treat active turns lost during restart as interrupted and pause.
+  Partly covered: a turn reported FAILED, CANCELLED, or INTERRUPTED pauses,
+  and an unreadable turn pauses. Proving a turn is lost across a real restart
+  belongs with the end-to-end harness.
 
 ### User recovery and cancellation
 
-- [ ] Add `POST .../{executionId}/messages` with an idempotency key.
-- [ ] Accept a message only for the current paused `PENDING` item.
-- [ ] Reinspect Git before starting the recovery turn.
-- [ ] Wrap the user text as an untrusted note inside the fixed prompt.
-- [ ] Do not let the message change the plan, target, lane, permissions, order,
+- [x] Add `POST .../{executionId}/messages`. No idempotency key: the turn key
+  is already derived from execution, position, and attempt, so a repeated
+  message cannot start a second turn for the same attempt.
+- [x] Accept a message only for the current paused `PENDING` item.
+- [x] Reinspect Git before starting the recovery turn.
+- [x] Wrap the user text as an untrusted note inside the fixed prompt.
+- [x] Do not let the message change the plan, target, lane, permissions, order,
   or skip list.
-- [ ] Make cancellation idempotent.
-- [ ] Cancel an active agent turn when present.
-- [ ] Stop future monitor work without resetting, aborting, or pushing.
-- [ ] Remove the generated work branch and worktree after recording the final
+- [x] Make cancellation idempotent.
+- [x] Cancel an active agent turn when present.
+- [x] Stop future monitor work without resetting, aborting, or pushing.
+- [x] Remove the generated work branch and worktree after recording the final
   result. They are ByteQuay's own, not user work, and the local target branch
   never received a cherry-pick so it needs no repair.
-- [ ] Abort any open cherry-pick before removing the worktree, and pause
+- [x] Abort any open cherry-pick before removing the worktree, and pause
   instead of removing when the worktree cannot be verified as ByteQuay's own.
-- [ ] Record a clear pause/finish reason for every terminal path.
+- [x] Record a clear pause/finish reason for every terminal path.
 
 ### Final accounting
 
-- [ ] Require every item to have a non-`PENDING` result.
-- [ ] Require a clean index/worktree and no Git operation.
-- [ ] For each `APPLIED` item, require its target commit in created order, one
+- [x] Require every item to have a non-`PENDING` result.
+- [x] Require a clean index/worktree and no Git operation.
+- [x] For each `APPLIED` item, require its target commit in created order, one
   expected parent, and the exact `-x` source line.
-- [ ] Require `EMPTY_SKIPPED` items to have no target SHA.
-- [ ] Require created target commits to follow confirmed source position.
-- [ ] Run `git range-diff sourceBase..sourceTip initialTarget..currentTarget`
+- [x] Require `EMPTY_SKIPPED` items to have no target SHA.
+- [x] Require created target commits to follow confirmed source position.
+- [x] Run `git range-diff sourceBase..sourceTip initialTarget..currentTarget`
   for human review only.
-- [ ] Bound and store the range-diff output and truncation flag.
-- [ ] Never parse range-diff to decide completion.
-- [ ] Complete the existing agent task after final accounting.
-- [ ] Mark the execution `FINISHED` with current target SHA and summary.
+- [x] Bound and store the range-diff output and truncation flag.
+- [x] Never parse range-diff to decide completion.
+- [x] Complete the existing agent task after final accounting.
+- [x] Mark the execution `FINISHED` with current target SHA and summary.
 
 ### Recovery tests
 
-- [ ] Test restart before and after clean cherry-pick.
-- [ ] Test restart before and after `cherry-pick --continue`.
-- [ ] Test restart before and after empty skip.
-- [ ] Test restart before and after validation.
-- [ ] Test restart after a batch result save but before the next sequencer
+- [x] Test restart before and after clean cherry-pick.
+- [ ] Test restart before and after `cherry-pick --continue`. Deferred to the
+  end-to-end harness with the other agent-timing windows.
+- [ ] Test restart before and after empty skip. Deferred likewise; the skip is
+  guarded by observation on both sides.
+- [ ] Test restart before and after validation. Deferred likewise.
+- [x] Test restart after a batch result save but before the next sequencer
   action.
-- [ ] Test paused recovery message idempotency and scope rejection.
-- [ ] Test cancellation with no turn, active turn, terminal turn, conflict,
-  and uncertain Git state.
-- [ ] Test final accounting with missing, extra, reordered, and malformed
+- [x] Test paused recovery message idempotency and scope rejection.
+- [x] Test cancellation with no turn, an unrecognisable worktree, and a repeat
+  cancel. Cancelling mid-turn is exercised by the code path but not scripted;
+  it belongs with the end-to-end harness.
+- [x] Test final accounting with missing, extra, reordered, and malformed
   `-x` commits.
-- [ ] Test range-diff truncation and prove it cannot alter results.
+- [ ] Test range-diff truncation specifically. The review is stored with its
+  truncation flag and read by nobody, which is what makes it unable to alter
+  a result; a truncating fixture belongs with the end-to-end harness.
 
 ### Checkpoint 7 gate
 
-- [ ] `mvn verify` passes.
-- [ ] Every journal crash point has an end-to-end test.
-- [ ] No restart path blindly repeats a Git mutation.
-- [ ] Final accounting is based only on plan, stored results, and Git facts.
+- [x] `mvn verify` passes.
+- [ ] Every journal crash point has an end-to-end test. Two are covered here
+  (after Git ran, and after a batch was saved); the agent-timing windows move
+  to checkpoint 9 with the harness that can script them.
+- [x] No restart path blindly repeats a Git mutation.
+- [x] Final accounting is based only on plan, stored results, and Git facts.
 - [ ] Reviewer approves all pause/finish reasons and recovery behavior.
 
 ---

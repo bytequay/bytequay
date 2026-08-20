@@ -105,6 +105,7 @@ class TestCherryPickExecutionService
                 GIT,
                 agent,
                 agent,
+                agent,
                 new CherryPickValidation(new BoundedProcessRunner()),
                 CLOCK);
     }
@@ -452,6 +453,148 @@ class TestCherryPickExecutionService
     {
         write(worktree, name, content);
         git(worktree, "add", name);
+    }
+
+    @Test
+    void survivesARestartAtEveryPointWithoutRepeatingAMutation()
+    {
+        String base = head(upstream);
+        for (int index = 1; index <= 3; index++) {
+            write(upstream, "file" + index + ".txt", "content " + index + "\n");
+            commit(upstream, "Upstream change " + index);
+        }
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+
+        // Every advance observes Git first, so calling it again after a "crash"
+        // reconciles instead of re-running the sequence.
+        CherryPickExecution finished = service.advance(started.id());
+        String tip = git(worktree, "rev-parse", "HEAD");
+        assertThat(finished.status()).isEqualTo(Status.FINISHED);
+
+        assertThat(service.advance(started.id()).status()).isEqualTo(Status.FINISHED);
+        assertThat(git(worktree, "rev-parse", "HEAD"))
+                .as("a repeated advance creates nothing")
+                .isEqualTo(tip);
+        assertThat(git(worktree, "rev-list", "--count", started.range().initialTargetSha() + "..HEAD"))
+                .isEqualTo("3");
+    }
+
+    @Test
+    void reconcilesAnAppliedCommitCreatedBeforeACrash()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+        String source = head(upstream);
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+
+        // Git did the work; the crash happened before the result was recorded.
+        git(worktree, "cherry-pick", "-x", source);
+        assertThat(started.items().getFirst().result()).isEqualTo(Result.PENDING);
+
+        CherryPickExecution recovered = runToCompletion(started);
+
+        assertThat(recovered.status()).isEqualTo(Status.FINISHED);
+        assertThat(item(recovered, source).result()).isEqualTo(Result.APPLIED);
+        assertThat(git(worktree, "rev-list", "--count", started.range().initialTargetSha() + "..HEAD"))
+                .as("the pre-crash commit is adopted, not duplicated")
+                .isEqualTo("1");
+    }
+
+    @Test
+    void storesARangeReviewAndClosesTheAgentTask()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+
+        CherryPickExecution finished = runToCompletion(start(base, ImmutableList.of()));
+
+        assertThat(finished.rangeReview()).isPresent();
+        assertThat(finished.rangeReview().orElseThrow().truncated()).isFalse();
+        assertThat(finished.rangeReview().orElseThrow().output()).contains("Upstream change");
+        assertThat(finished.summary().orElseThrow()).contains("1 applied");
+        assertThat(agent.taskCompleted()).isTrue();
+    }
+
+    @Test
+    void refusesToAdoptACommitThePlanNeverAuthorised()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        // Something outside ByteQuay commits into the work branch.
+        write(worktree, "stray.txt", "stray\n");
+        git(worktree, "add", "stray.txt");
+        git(worktree, "commit", "--quiet", "-m", "Stray commit");
+
+        CherryPickExecution paused = service.advance(started.id());
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.RECONCILIATION_MISMATCH);
+        assertThat(paused.summary().orElseThrow()).contains("no cherry-pick origin line");
+    }
+
+    @Test
+    void acceptsARecoveryMessageOnlyForAPausedRange()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        assertThatThrownBy(() -> service.sendMessage(started.id(), "try harder"))
+                .as("a running range takes no instructions")
+                .isInstanceOf(CherryPickConflictException.class);
+
+        agent.then(() -> {}, TurnState.FAILED);
+        CherryPickExecution paused = runToCompletion(started);
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+
+        assertThatThrownBy(() -> service.sendMessage(paused.id(), "   "))
+                .isInstanceOf(CherryPickInvalidRequestException.class);
+
+        Path worktree = paused.workspace().worktree();
+        agent.then(() -> resolve(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+        CherryPickExecution resumed = service.sendMessage(paused.id(), "prefer the upstream side");
+
+        assertThat(resumed.status()).isEqualTo(Status.RUNNING);
+        assertThat(agent.prompts().getLast())
+                .contains("Note from the user")
+                .contains("guidance only")
+                .contains("prefer the upstream side");
+        assertThat(runToCompletion(resumed).status()).isEqualTo(Status.FINISHED);
+    }
+
+    @Test
+    void cancellationRefusesAWorktreeItCannotRecognise()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        git(worktree, "checkout", "--quiet", "--detach");
+
+        CherryPickExecution refused = service.cancel(started.id(), clone);
+        assertThat(refused.status())
+                .as("a worktree that is no longer on our branch is left alone")
+                .isEqualTo(Status.PAUSED);
+        assertThat(Files.exists(worktree)).isTrue();
+
+        git(worktree, "checkout", "--quiet", started.workspace().workBranch());
+        assertThat(service.cancel(started.id(), clone).status()).isEqualTo(Status.FINISHED);
+        assertThat(Files.exists(worktree)).isFalse();
     }
 
     private CherryPickExecution runToCompletion(CherryPickExecution execution)

@@ -81,6 +81,16 @@ public class CherryPickExecutionController
         return CherryPickExecutionResponse.of(executions.get(executionId(executionId)));
     }
 
+    @PostMapping("/{executionId}/messages")
+    public CherryPickExecutionResponse sendMessage(
+            @PathVariable String executionId,
+            @RequestBody CherryPickMessageRequest request)
+    {
+        requireNonNull(request, "request is null");
+        return CherryPickExecutionResponse.of(executions.sendMessage(
+                executionId(executionId), text(request.message(), "message")));
+    }
+
     @PostMapping("/{executionId}/cancel")
     public CherryPickExecutionResponse cancel(
             @PathVariable String executionId,

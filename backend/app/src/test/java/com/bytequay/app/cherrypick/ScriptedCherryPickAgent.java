@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -42,7 +44,7 @@ import java.util.Optional;
  * what proves the service reads Git rather than the agent.
  */
 final class ScriptedCherryPickAgent
-        implements AgentTaskService, AgentTurnService
+        implements AgentTaskService, AgentTurnService, AgentCompletionService
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
 
@@ -51,6 +53,7 @@ final class ScriptedCherryPickAgent
     private final List<String> prompts = new ArrayList<>();
     private final List<AgentTurn> started = new ArrayList<>();
     private AgentTask task;
+    private boolean completed;
 
     ScriptedCherryPickAgent(Path worktree)
     {
@@ -124,6 +127,25 @@ final class ScriptedCherryPickAgent
         AgentTurn turn = turn(scripted.state());
         started.add(turn);
         return turn;
+    }
+
+    @Override
+    public com.bytequay.agent.core.TaskCompletion complete(CompleteAgentTaskCommand command)
+    {
+        completed = true;
+        return null;
+    }
+
+    @Override
+    public com.bytequay.agent.core.CleanupResult cleanup(TaskId taskId)
+    {
+        return null;
+    }
+
+    /** True once the range closed the task it opened. */
+    boolean taskCompleted()
+    {
+        return completed;
     }
 
     @Override

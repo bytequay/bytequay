@@ -74,6 +74,20 @@ public class SqliteCherryPickExecutionStore
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<CherryPickExecution> findByIdempotencyKey(String idempotencyKey)
+    {
+        requireNonNull(idempotencyKey, "idempotencyKey is null");
+        try {
+            return repository.findByStartIdempotencyKey(idempotencyKey)
+                    .map(CherryPickExecutionEntity::toExecution);
+        }
+        catch (DataAccessException e) {
+            throw new CherryPickStorageException("Cannot read cherry-pick idempotency key", e);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<CherryPickExecution> find(CherryPickExecutionId executionId)
     {
         requireNonNull(executionId, "executionId is null");

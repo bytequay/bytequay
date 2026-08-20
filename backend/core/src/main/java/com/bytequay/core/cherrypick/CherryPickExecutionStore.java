@@ -34,6 +34,18 @@ public interface CherryPickExecutionStore
     CherryPickExecution createOrGet(CherryPickExecution execution);
 
     /**
+     * Finds the execution created by one start idempotency key.
+     *
+     * <p>A repeated start must be answered before anything is created, so this
+     * is separate from {@link #createOrGet}.
+     *
+     * @param idempotencyKey bounded start idempotency key
+     * @return matching execution, or empty
+     * @throws CherryPickStorageException when persistence fails
+     */
+    Optional<CherryPickExecution> findByIdempotencyKey(String idempotencyKey);
+
+    /**
      * Finds one complete execution projection.
      *
      * @param executionId execution identifier

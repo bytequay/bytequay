@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -73,9 +74,20 @@ public final class GitCommandRunner
      */
     public Result run(Path worktree, Duration timeout, List<String> arguments)
     {
+        return run(worktree, timeout, Map.of(), arguments);
+    }
+
+    /**
+     * Runs one Git command with extra environment variables, for commands whose
+     * behavior only the environment controls (such as authorship of
+     * {@code commit-tree}).
+     */
+    public Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments)
+    {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(timeout, "timeout is null");
         checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
+        requireNonNull(environment, "environment is null");
         requireNonNull(arguments, "arguments is null");
         List<String> command = ImmutableList.<String>builderWithExpectedSize(arguments.size() + 3)
                 .add(executable, "-C", worktree.toString())
@@ -87,6 +99,7 @@ public final class GitCommandRunner
                     .redirectErrorStream(true);
             builder.environment().put("GIT_TERMINAL_PROMPT", "0");
             builder.environment().put("LC_ALL", "C");
+            builder.environment().putAll(environment);
             process = builder.start();
             process.getOutputStream().close();
         }

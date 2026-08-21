@@ -31,9 +31,9 @@ import java.util.Optional;
 
 @Entity
 @Table(
-        name = "workspaces",
+        name = "watched_repo_workspaces",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_workspaces_selected_repository_id",
+                name = "uq_watched_repo_workspaces_selected_repo_id",
                 columnNames = "selected_repository_id"))
 public class WorkspaceEntity
 {

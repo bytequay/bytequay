@@ -26,11 +26,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -54,14 +57,25 @@ class TestSqliteWorkspaceStore
     @Autowired
     private WorkspaceJpaRepository repository;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
+        createLegacyWorkspaceTable();
         registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON");
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        registry.add("spring.jpa.hibernate.ddl-auto", () -> "update");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
+    }
+
+    @Test
+    void keepsLegacyWorkspaceTableSeparate()
+    {
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM workspaces", Long.class)).isEqualTo(1);
+        assertThat(store.findAll()).isEmpty();
     }
 
     @Test
@@ -114,6 +128,29 @@ class TestSqliteWorkspaceStore
         return workspace(
                 id, selectedId, repository, Optional.empty(), Optional.empty(), selectedId,
                 repository, Topology.DIRECT, Optional.empty(), displayOrder);
+    }
+
+    private static void createLegacyWorkspaceTable()
+    {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + DATABASE_PATH);
+                var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE workspaces (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at varchar(255) NOT NULL,
+                        last_opened_at varchar(255),
+                        name varchar(255) NOT NULL,
+                        repos TEXT NOT NULL,
+                        slug varchar(255) NOT NULL)
+                    """);
+            statement.execute("""
+                    INSERT INTO workspaces (created_at, name, repos, slug)
+                    VALUES ('2026-08-01T00:00:00Z', 'Legacy workspace', '[]', 'legacy-workspace')
+                    """);
+        }
+        catch (SQLException e) {
+            throw new ExceptionInInitializerError(e);
+        }
     }
 
     private static Workspace fork(String id, long selectedId, long upstreamId, int displayOrder)

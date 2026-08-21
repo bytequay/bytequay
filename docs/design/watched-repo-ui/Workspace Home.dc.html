@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button{font-family:inherit}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqpulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</helmet>
+<div id="board-wshome" style="padding:36px 44px 60px;width:max-content">
+  <div style="max-width:1480px">
+    <div style="font-size:20px;font-weight:700">Workspace Home — state board</div>
+    <div style="font-size:13px;color:#57606a;margin-top:4px;max-width:800px">Evolution of the coded Workspace Home in <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">WorkspaceShell.tsx</span>: title, stat cards, recent activity, and Browse commits stay. New: a Repository routing card, an independent code/metadata Status card, and plain-language explanations on disabled tabs. Opens in every state.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:44px;margin-top:32px;align-items:flex-start;width:1040px">
+
+    <div style="width:1040px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">A · FORK — READY, METADATA STALE</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);display:flex;background:#ffffff">
+        <div style="width:230px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+          <div style="display:flex;align-items:center;gap:8px;padding:16px 16px 10px"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span></div>
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 16px 2px;font-size:12px;color:#8c959f">‹ Workspaces</div>
+          <div style="padding:2px 16px 10px;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/trino</div>
+          <div style="flex:1;padding:2px 8px">
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;background:#e4e4e8"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⌂</span><span style="font-size:14px;font-weight:600">Home</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">☑</span><span style="font-size:14px">Tasks</span><span style="margin-left:auto;font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:1px 7px">2</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⑃</span><span style="font-size:14px">Pull requests</span><span style="margin-left:auto;font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:1px 7px">4</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">◉</span><span style="font-size:14px">Issues</span><span style="margin-left:auto;font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:1px 7px">7</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⑂</span><span style="font-size:14px">Commits</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">✦</span><span style="font-size:14px">Memory</span></div>
+          </div>
+          <div style="padding:8px;border-top:1px solid #ececef"><div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⚙</span><span style="font-size:14px">Settings</span></div></div>
+        </div>
+        <div data-screen-label="Workspace Home · fork ready" style="flex:1;min-width:0;padding:26px 32px 32px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h1 style="margin:0;font-size:20px;font-weight:700;white-space:nowrap">jackchen/trino</h1>
+            <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ fork of trinodb/trino</span>
+            <div style="flex:1"></div>
+            <button style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">⟳ Sync now</button>
+          </div>
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;margin-top:4px">master · branches start from upstream/master · pushes go to origin</div>
+          <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">4</div><div style="font-size:12px;color:#57606a;margin-top:2px">Open pull requests</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">2</div><div style="font-size:12px;color:#57606a;margin-top:2px">Active tasks</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">12</div><div style="font-size:12px;color:#57606a;margin-top:2px">Finished tasks</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:170px;display:flex;flex-direction:column;justify-content:center"><div style="font-size:14px;font-weight:600;color:#0969da">Browse commits →</div><div style="font-size:12px;color:#57606a;margin-top:3px">history &amp; cherry-pick</div></button>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;align-items:start">
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">REPOSITORY</div>
+              <div style="display:grid;grid-template-columns:158px 1fr;row-gap:8px;padding:12px 14px;font-size:12.5px;color:#57606a">
+                <span>Selected fork · <span style="font-family:ui-monospace,Menlo,monospace">origin</span></span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">jackchen/trino <span style="color:#1a7f37;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap">✓ you can push</span></span>
+                <span>Followed for updates</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino</span>
+                <span>Default branch</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">master</span>
+                <span>Branches start from</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">upstream/master</span>
+                <span>Pull requests target</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino · master</span>
+              </div>
+            </div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">STATUS</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px">
+                <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✓ code ready</span>
+                <span style="font-size:12.5px;color:#57606a;flex:1">Clone is up to date · fetched 2 min ago</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2">
+                <span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">contributors 9 days old</span>
+                <span style="font-size:12.5px;color:#57606a;flex:1;display:inline-flex;align-items:center;gap:7px"><span style="width:11px;height:11px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Refreshing contributors from trinodb/trino…</span>
+              </div>
+              <div style="padding:9px 14px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f">Contributors refresh weekly · labels &amp; topics monthly · older data keeps working meanwhile</div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;font-weight:700;color:#656d76;letter-spacing:.4px;margin:24px 0 8px">RECENT CHERRY-PICK ACTIVITY</div>
+          <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;color:#24292f"><span style="width:18px;text-align:center;color:#8c959f">⑂</span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cherry-pick cp-0142 — resolving conflict on acdfbb7 (item 5 of 12)</span><span style="flex:none;font-size:12px;color:#8c959f">5 min ago</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #f0f0f2;font-size:13px;color:#24292f"><span style="width:18px;text-align:center;color:#8c959f">☑</span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cherry-pick cp-0139 finished — 3 applied to release-1.4</span><span style="flex:none;font-size:12px;color:#8c959f">yesterday</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #f0f0f2;font-size:13px;color:#24292f"><span style="width:18px;text-align:center;color:#8c959f">⑃</span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">PR #409 Cherry-pick upstream CI hardening — checks running</span><span style="flex:none;font-size:12px;color:#8c959f">1 hour ago</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:1040px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">B · DIRECT — READY</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+        <div data-screen-label="Workspace Home · direct ready" style="padding:26px 32px 32px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h1 style="margin:0;font-size:20px;font-weight:700;white-space:nowrap">trinodb/charts</h1>
+            <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct repository</span>
+            <div style="flex:1"></div>
+            <button style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">⟳ Sync now</button>
+          </div>
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;margin-top:4px">main · branches start from origin/main · pushes go to origin</div>
+          <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">3</div><div style="font-size:12px;color:#57606a;margin-top:2px">Open pull requests</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">1</div><div style="font-size:12px;color:#57606a;margin-top:2px">Active task</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">8</div><div style="font-size:12px;color:#57606a;margin-top:2px">Finished tasks</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:170px;display:flex;flex-direction:column;justify-content:center"><div style="font-size:14px;font-weight:600;color:#0969da">Browse commits →</div><div style="font-size:12px;color:#57606a;margin-top:3px">history &amp; cherry-pick</div></button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;align-items:start">
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">REPOSITORY</div>
+              <div style="padding:12px 14px;font-size:12.5px;color:#57606a;line-height:1.5">Everything uses <strong style="color:#1f2328">trinodb/charts</strong> — code, issues, pull requests, and pushes.</div>
+              <div style="display:grid;grid-template-columns:158px 1fr;row-gap:8px;padding:0 14px 12px;font-size:12.5px;color:#57606a">
+                <span>Default branch</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">main</span>
+                <span>Branches start from</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">origin/main</span>
+                <span>Pull requests target</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/charts · main</span>
+              </div>
+            </div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">STATUS</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px"><span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✓ code ready</span><span style="font-size:12.5px;color:#57606a">Clone is up to date · fetched 2 min ago</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2"><span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✓ labels &amp; people</span><span style="font-size:12.5px;color:#57606a">Refreshed 2 days ago · next check in 5 days</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px">Sidebar omitted here — identical to frame A. Direct repositories collapse the routing card to one sentence plus three rows; no fork chip, no upstream row.</div>
+    </div>
+
+    <div style="width:1040px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">C · FORK — STILL CLONING (OPENED FROM A PENDING CARD)</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);display:flex;background:#ffffff">
+        <div style="width:230px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+          <div style="display:flex;align-items:center;gap:8px;padding:16px 16px 10px"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span></div>
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 16px 2px;font-size:12px;color:#8c959f">‹ Workspaces</div>
+          <div style="padding:2px 16px 10px;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/presto</div>
+          <div style="flex:1;padding:2px 8px">
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;background:#e4e4e8"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⌂</span><span style="font-size:14px;font-weight:600">Home</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">☑</span><span style="font-size:14px">Tasks</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⑃</span><span style="font-size:14px">Pull requests</span><span style="margin-left:auto;font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:1px 7px">9</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">◉</span><span style="font-size:14px">Issues</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;opacity:.45"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⑂</span><span style="font-size:14px">Commits</span></div>
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">✦</span><span style="font-size:14px">Memory</span></div>
+          </div>
+          <div style="padding:8px;border-top:1px solid #ececef"><div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⚙</span><span style="font-size:14px">Settings</span></div></div>
+        </div>
+        <div data-screen-label="Workspace Home · fork cloning" style="flex:1;min-width:0;padding:26px 32px 32px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h1 style="margin:0;font-size:20px;font-weight:700;white-space:nowrap">jackchen/presto</h1>
+            <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ fork of prestodb/presto</span>
+          </div>
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;margin-top:4px">master · branches start from upstream/master · pushes go to origin</div>
+          <div style="display:flex;gap:10px;border:1px solid rgba(9,105,218,.3);background:#ddf4ff;border-radius:8px;padding:11px 14px;margin-top:18px;max-width:720px">
+            <span style="width:14px;height:14px;flex:none;border:2px solid #b6e3ff;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite;margin-top:1px"></span>
+            <div style="font-size:12.5px;color:#57606a;line-height:1.5"><strong style="color:#1f2328">Getting this workspace ready.</strong> Cloning the selected fork and fetching prestodb/presto — usually a few minutes for a large repository. You can leave; this keeps going.</div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:18px;flex-wrap:wrap">
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">9</div><div style="font-size:12px;color:#57606a;margin-top:2px">Open pull requests</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">0</div><div style="font-size:12px;color:#57606a;margin-top:2px">Active tasks</div></button>
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">3</div><div style="font-size:12px;color:#57606a;margin-top:2px">Finished tasks</div></button>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;background:#fcfcfd;padding:14px 18px;text-align:left;min-width:170px;opacity:.6"><div style="font-size:14px;font-weight:600;color:#57606a">Browse commits</div><div style="font-size:12px;color:#8c959f;margin-top:3px">opens when the clone finishes</div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;align-items:start">
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">REPOSITORY</div>
+              <div style="display:grid;grid-template-columns:158px 1fr;row-gap:8px;padding:12px 14px;font-size:12.5px;color:#57606a">
+                <span>Selected fork · <span style="font-family:ui-monospace,Menlo,monospace">origin</span></span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">jackchen/presto <span style="color:#1a7f37;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap">✓ you can push</span></span>
+                <span>Followed for updates</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">prestodb/presto</span>
+                <span>Default branch</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">master</span>
+                <span>Pull requests target</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">prestodb/presto · master</span>
+              </div>
+            </div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">STATUS</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px"><span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none"><span style="width:10px;height:10px;border:2px solid #b6e3ff;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>cloning…</span><span style="font-size:12.5px;color:#57606a">Cloning jackchen/presto · started 40 s ago</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2"><span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✓ labels &amp; people</span><span style="font-size:12.5px;color:#57606a">Fetched from prestodb/presto just now</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px">Only Commits is dimmed — it is the one tab that needs the finished clone. Tasks and Memory stay available (execution history and notes need no code). Pull requests already works — it has its own sync state, independent of both the clone and reference metadata.</div>
+    </div>
+
+    <div style="width:1040px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">D · DIRECT — CLONE FAILED, RETRYABLE</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+        <div data-screen-label="Workspace Home · clone failed" style="padding:26px 32px 32px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h1 style="margin:0;font-size:20px;font-weight:700;white-space:nowrap">jackchen/trino-python-client</h1>
+            <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct repository</span>
+          </div>
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;margin-top:4px">master · branches start from origin/master</div>
+          <div style="display:flex;gap:10px;border:1px solid rgba(207,34,46,.35);background:#ffebe9;border-radius:8px;padding:11px 14px;margin-top:18px;max-width:720px">
+            <span style="color:#cf222e;font-size:13px">✕</span>
+            <div style="flex:1;font-size:12.5px;color:#57606a;line-height:1.5"><strong style="color:#1f2328">Clone failed — couldn't reach github.com.</strong> Nothing was lost; the workspace is saved and will pick up where it left off.</div>
+            <button style="flex:none;align-self:center;padding:4px 12px;border:1px solid rgba(207,34,46,.4);border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer;white-space:nowrap">Retry clone</button>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:18px;flex-wrap:wrap">
+            <button style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:140px"><div style="font-size:22px;font-weight:700">2</div><div style="font-size:12px;color:#57606a;margin-top:2px">Open pull requests</div></button>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;background:#fcfcfd;padding:14px 18px;text-align:left;min-width:170px;opacity:.6"><div style="font-size:14px;font-weight:600;color:#57606a">Browse commits</div><div style="font-size:12px;color:#8c959f;margin-top:3px">needs a successful clone</div></div>
+          </div>
+          <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden;margin-top:24px;max-width:720px">
+            <div style="padding:9px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12px;font-weight:700;color:#57606a">STATUS</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px"><span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✕ clone failed</span><span style="font-size:12.5px;color:#57606a">4 min ago · network error (details in log)</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2"><span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;flex:none">✓ labels &amp; people</span><span style="font-size:12.5px;color:#57606a">Fetched 4 min ago — unaffected by the clone failure</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px">A code failure never hides metadata (and vice versa). The error banner carries the retry; the same retry also lives on the Workspaces and Home cards.</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

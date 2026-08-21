@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button{font-family:inherit}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqpulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</helmet>
+<div id="board-workspaces" style="padding:36px 44px 60px;width:max-content">
+  <div style="max-width:1480px">
+    <div style="font-size:20px;font-weight:700">Workspaces — state board</div>
+    <div style="font-size:13px;color:#57606a;margin-top:4px;max-width:780px">The Workspaces page lists the same backend workspaces created by Watch — no local checkouts, no folder picker. Every card is clickable in every state, including pending and failed. Code and metadata status are shown independently.</div>
+  </div>
+
+  <div style="margin-top:32px">
+    <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">FULL PAGE — ALL CARD STATES IN ONE GRID</div>
+    <div style="width:1040px;border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);display:flex;background:#ffffff">
+      <div style="width:230px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+        <div style="display:flex;align-items:center;gap:8px;padding:16px 16px 10px">
+          <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+        </div>
+        <div style="padding:10px 16px 6px;font-size:11px;font-weight:700;color:#8c959f;letter-spacing:.5px">BYTEQUAY</div>
+        <div style="flex:1;padding:2px 8px">
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;background:transparent"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⌂</span><span style="font-size:14px">Home</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;background:#e4e4e8"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">▦</span><span style="font-size:14px;font-weight:600">Workspaces</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⑃</span><span style="font-size:14px">Pull requests</span></div>
+        </div>
+        <div style="padding:8px;border-top:1px solid #ececef">
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px"><span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⚙</span><span style="font-size:14px">Settings</span></div>
+        </div>
+      </div>
+      <div data-screen-label="Workspaces" style="flex:1;min-width:0;padding:30px 36px 36px">
+        <div style="display:flex;align-items:baseline;gap:12px">
+          <h1 style="margin:0;font-size:22px;font-weight:700;white-space:nowrap">Workspaces</h1>
+          <span style="font-size:13px;color:#8c959f">8 watched repositories</span>
+          <div style="flex:1"></div>
+          <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">+ Watch repository</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:22px">
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">trinodb/charts</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">main</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ code ready</span>
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ labels &amp; people</span>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:12px;font-size:12.5px;color:#57606a"><span style="white-space:nowrap"><strong style="color:#1f2328">3</strong> open PRs</span><span style="white-space:nowrap"><strong style="color:#1f2328">1</strong> task</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#1a7f37"></span>synced 2 min ago</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/trino</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ trinodb/trino</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">master · follows trinodb/trino</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ code ready</span>
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ labels &amp; people</span>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:12px;font-size:12.5px;color:#57606a"><span style="white-space:nowrap"><strong style="color:#1f2328">4</strong> open PRs</span><span style="white-space:nowrap"><strong style="color:#1f2328">2</strong> tasks</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#bf8700"></span>cherry-pick cp-0142 running · 5 min ago</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/airlift</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ airlift/airlift</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">master · follows airlift/airlift</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#8c959f;animation:bqpulse 1.6s ease infinite"></span>queued</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:#8c959f;animation:bqpulse 1.6s ease infinite"></span>queued</span>
+            </div>
+            <div style="font-size:12px;color:#57606a;margin-top:12px">Saved — waiting to clone. You can open it now.</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#8c959f"></span>saved just now</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/presto</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ prestodb/presto</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">master · follows prestodb/presto</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:10px;height:10px;flex:none;border:2px solid #b6e3ff;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>cloning…</span>
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ labels &amp; people</span>
+            </div>
+            <div style="font-size:12px;color:#57606a;margin-top:12px">Cloning the selected fork — Commits opens when it finishes.</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#0969da"></span>started 40 s ago</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">trinodb/trino-gateway</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">main</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:10px;height:10px;flex:none;border:2px solid #b6e3ff;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>fetching latest</span>
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ labels &amp; people</span>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:12px;font-size:12.5px;color:#57606a"><span style="white-space:nowrap"><strong style="color:#1f2328">1</strong> open PR</span><span style="white-space:nowrap"><strong style="color:#1f2328">0</strong> tasks</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#0969da"></span>syncing · last success 1 hour ago</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/iceberg</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ apache/iceberg</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">main · follows apache/iceberg</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ code ready</span>
+              <span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">contributors 9 days old</span>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:12px;font-size:12.5px;color:#57606a"><span style="white-space:nowrap"><strong style="color:#1f2328">2</strong> open PRs</span><span style="white-space:nowrap"><strong style="color:#1f2328">0</strong> tasks</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f"><span style="width:7px;height:7px;border-radius:50%;background:#bf8700"></span>refreshing contributors…</div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid rgba(207,34,46,.4);border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/trino-python-client</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:1px 8px;white-space:nowrap">needs attention</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">master · follows trinodb/trino-python-client</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:2px 9px;white-space:nowrap">✕ clone failed</span>
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ labels &amp; people</span>
+            </div>
+            <div style="font-size:12px;color:#cf222e;margin-top:12px">Couldn't reach github.com — nothing was lost.</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2">
+              <span style="font-size:11.5px;color:#8c959f">failed 4 min ago</span>
+              <div style="flex:1"></div>
+              <button style="padding:3px 11px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Retry clone</button>
+            </div>
+          </article>
+
+          <article style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 12px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/arrow</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ apache/arrow</span></div>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">main · follows apache/arrow</div>
+            <div style="display:flex;gap:6px;margin-top:12px">
+              <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ code ready</span>
+              <span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:2px 9px;white-space:nowrap">✕ labels &amp; people failed</span>
+            </div>
+            <div style="font-size:12px;color:#57606a;margin-top:12px">GitHub sync failed — showing what was fetched last week. Commits still works.</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2">
+              <span style="font-size:11.5px;color:#8c959f">code synced 10 min ago</span>
+              <div style="flex:1"></div>
+              <button style="padding:3px 11px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Retry sync</button>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#8c959f;margin-top:10px;max-width:900px">Cards top-left to bottom-right: direct ready · fork ready · pending (queued) · cloning with metadata already ready · syncing · metadata stale (code fine) · clone failed with retry · metadata failed with retry. The mono line replaces the old local path — managed workspaces have no user-visible filesystem path.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:44px;margin-top:44px;align-items:flex-start;width:1040px">
+    <div style="width:498px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">CARD ANATOMY</div>
+      <div style="border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;padding:18px 20px;font-size:12.5px;color:#57606a;line-height:1.7">
+        <div><strong style="color:#1f2328">Row 1</strong> — workspace name + topology chip: gray <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct</span> or amber <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ upstream/name</span>; red <span style="font-size:10.5px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:1px 8px;white-space:nowrap">needs attention</span> replaces it when anything failed.</div>
+        <div style="margin-top:8px"><strong style="color:#1f2328">Row 2</strong> — mono context: default branch, and for a fork the followed upstream.</div>
+        <div style="margin-top:8px"><strong style="color:#1f2328">Row 3</strong> — two independent status chips, always in the same order: code, then labels &amp; people (metadata).</div>
+        <div style="margin-top:8px"><strong style="color:#1f2328">Row 4</strong> — PR/task counts when ready, otherwise a one-line plain-language status.</div>
+        <div style="margin-top:8px"><strong style="color:#1f2328">Footer</strong> — activity dot + last event; a Retry button appears only on retryable failures. Each card is an article whose whole surface opens the workspace via its primary link; Retry is a sibling button, never nested inside another control.</div>
+      </div>
+    </div>
+    <div style="width:498px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">STATUS CHIP VOCABULARY (SHARED WITH HOME &amp; WORKSPACE HOME)</div>
+      <div style="border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;padding:18px 20px">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;font-size:12.5px;color:#57606a">
+          <span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:2px 9px;white-space:nowrap;justify-self:start">queued</span><span>saved, work not started</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap;justify-self:start"><span style="width:10px;height:10px;border:2px solid #b6e3ff;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>cloning… / fetching latest</span><span>clone or sync in progress</span>
+          <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap;justify-self:start">✓ code ready / ✓ labels &amp; people</span><span>up to date and usable</span>
+          <span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap;justify-self:start">contributors 9 days old</span><span>that projection is stale — labels &amp; topics remain current</span>
+          <span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:2px 9px;white-space:nowrap;justify-self:start">✕ clone failed / ✕ sync failed</span><span>retryable; never blocks opening</span>
+        </div>
+        <div style="font-size:12px;color:#8c959f;margin-top:14px;line-height:1.5">"Labels &amp; people" is the user-facing name for cached repository metadata (contributors · 7 days, labels &amp; topics · 30 days). Internal terms like PENDING or metadataState never appear in UI copy.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

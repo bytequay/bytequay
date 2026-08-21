@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button,textarea{font-family:inherit}
+::placeholder{color:#8c959f}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqpulse{0%,100%{opacity:1}50%{opacity:.35}}
+</style>
+</helmet>
+<div id="board-watch" style="padding:36px 44px 60px;width:max-content">
+  <div style="max-width:1480px">
+    <div style="font-size:20px;font-weight:700">Watch Repository — state board</div>
+    <div style="font-size:13px;color:#57606a;margin-top:4px;max-width:760px">Home → Watch repository. One modal, four steps: search → results → confirm → saved. The workspace is saved on Watch; clone and metadata sync run in the background on the Home card. No folder picking anywhere.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:44px;margin-top:32px;align-items:flex-start;width:1040px">
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">1 · SEARCH — INITIAL</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="display:flex;align-items:center;padding:16px 20px 0">
+          <div style="font-size:16px;font-weight:700;white-space:nowrap">Watch a repository</div>
+          <div style="flex:1"></div>
+          <button style="border:none;background:none;color:#8c959f;font-size:15px;cursor:pointer">✕</button>
+        </div>
+        <div style="padding:14px 20px 20px">
+          <input placeholder="Search your GitHub repositories…" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #0969da;border-radius:6px;font-size:13.5px;outline:2px solid rgba(9,105,218,.25)">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:44px 0 34px;text-align:center">
+            <div style="font-size:22px;color:#8c959f">⌕</div>
+            <div style="font-size:13.5px;font-weight:600;color:#57606a;white-space:nowrap">Find a repository to watch</div>
+            <div style="font-size:12.5px;color:#8c959f;max-width:380px">Search by name or owner/name. ByteQuay clones it for you and keeps it in sync — no folder picking.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">2 · SEARCHING</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="display:flex;align-items:center;padding:16px 20px 0">
+          <div style="font-size:16px;font-weight:700;white-space:nowrap">Watch a repository</div>
+          <div style="flex:1"></div>
+          <button style="border:none;background:none;color:#8c959f;font-size:15px;cursor:pointer">✕</button>
+        </div>
+        <div style="padding:14px 20px 20px">
+          <input value="trino" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:13.5px;color:#1f2328">
+          <div style="display:flex;align-items:center;gap:9px;padding:34px 0 26px;justify-content:center;font-size:13px;color:#57606a;white-space:nowrap">
+            <span style="width:14px;height:14px;border:2px solid #d0d7de;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>
+            Searching GitHub…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">3 · RESULTS</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="display:flex;align-items:center;padding:16px 20px 0">
+          <div style="font-size:16px;font-weight:700;white-space:nowrap">Watch a repository</div>
+          <div style="flex:1"></div>
+          <button style="border:none;background:none;color:#8c959f;font-size:15px;cursor:pointer">✕</button>
+        </div>
+        <div style="padding:14px 20px 8px">
+          <input value="trino" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:13.5px;color:#1f2328">
+        </div>
+        <div style="padding:0 8px 10px">
+          <button style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:12px;text-align:left;border:none;background:#f1f8ff;cursor:pointer;padding:10px 12px;border-radius:8px">
+            <span style="width:28px;height:28px;flex:none;border-radius:6px;background:#ddf4ff;color:#0969da;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center">J</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;color:#1f2328;white-space:nowrap">jackchen/<strong>trino</strong></span><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ fork of trinodb/trino</span></span>
+              <span style="display:block;font-size:12px;color:#8c959f;margin-top:2px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">master</span> · updated 2 days ago</span>
+            </span>
+            <span style="color:#8c959f;font-size:13px">›</span>
+          </button>
+          <button style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:12px;text-align:left;border:none;background:none;cursor:pointer;padding:10px 12px;border-radius:8px" style-hover="background:#f6f8fa">
+            <span style="width:28px;height:28px;flex:none;border-radius:6px;background:#eceff2;color:#57606a;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center">T</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;color:#1f2328;white-space:nowrap">trinodb/<strong>trino</strong></span></span>
+              <span style="display:block;font-size:12px;color:#8c959f;margin-top:2px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">master</span> · updated 14 minutes ago</span>
+            </span>
+            <span style="color:#8c959f;font-size:13px">›</span>
+          </button>
+          <button style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:12px;text-align:left;border:none;background:none;cursor:pointer;padding:10px 12px;border-radius:8px" style-hover="background:#f6f8fa">
+            <span style="width:28px;height:28px;flex:none;border-radius:6px;background:#eceff2;color:#57606a;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center">T</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;color:#1f2328;white-space:nowrap">trinodb/<strong>trino-gateway</strong></span><span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">Private</span></span>
+              <span style="display:block;font-size:12px;color:#8c959f;margin-top:2px">Private · default branch <span style="font-family:ui-monospace,Menlo,monospace">main</span> · updated yesterday</span>
+            </span>
+            <span style="color:#8c959f;font-size:13px">›</span>
+          </button>
+          <button style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:12px;text-align:left;border:none;background:none;cursor:pointer;padding:10px 12px;border-radius:8px" style-hover="background:#f6f8fa">
+            <span style="width:28px;height:28px;flex:none;border-radius:6px;background:#eceff2;color:#57606a;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center">T</span>
+            <span style="flex:1;min-width:0">
+              <span style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;color:#1f2328;white-space:nowrap">trinodb/<strong>charts</strong></span><span style="font-size:10.5px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap">already watched</span></span>
+              <span style="display:block;font-size:12px;color:#8c959f;margin-top:2px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">main</span> · updated last week</span>
+            </span>
+            <span style="color:#8c959f;font-size:13px">›</span>
+          </button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px;max-width:560px">Fork and visibility markers appear directly in results. Repositories that are already watched are labeled before the user selects them.</div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">4 · CONFIRM — DIRECT REPOSITORY</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:16px 20px 0">
+          <button style="border:none;background:none;color:#8c959f;font-size:12px;cursor:pointer;padding:0">‹ Search</button>
+          <div style="flex:1"></div>
+          <button style="border:none;background:none;color:#8c959f;font-size:15px;cursor:pointer">✕</button>
+        </div>
+        <div style="padding:8px 20px 20px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:32px;height:32px;flex:none;border-radius:8px;background:#eceff2;color:#57606a;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center">T</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:700;white-space:nowrap">trinodb/trino</span><span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">direct repository</span></div>
+              <div style="font-size:12px;color:#8c959f;margin-top:1px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">master</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid #d0d7de;border-radius:8px;margin-top:14px;overflow:hidden">
+            <div style="padding:8px 14px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-size:12px;font-weight:700;color:#57606a">HOW THIS REPOSITORY WILL WORK</div>
+            <div style="padding:12px 14px;font-size:13px;color:#24292f;line-height:1.5">Everything uses <strong>trinodb/trino</strong> — code, issues, pull requests, and pushes.</div>
+            <div style="display:flex;gap:12px;padding:0 14px 12px;font-size:12.5px;color:#57606a">
+              <div style="flex:1;display:grid;grid-template-columns:170px 1fr;row-gap:6px">
+                <span>New branches start from</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">origin/master</span>
+                <span>Work branches push to</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">origin <span style="color:#1a7f37;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">✓ you can push</span></span>
+                <span>Pull requests open against</span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino · master</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Back</button>
+            <button style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;font-size:13px;font-weight:600;color:#ffffff;cursor:pointer;white-space:nowrap">Watch repository</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">5 · CONFIRM — FORK</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:16px 20px 0">
+          <button style="border:none;background:none;color:#8c959f;font-size:12px;cursor:pointer;padding:0">‹ Search</button>
+          <div style="flex:1"></div>
+          <button style="border:none;background:none;color:#8c959f;font-size:15px;cursor:pointer">✕</button>
+        </div>
+        <div style="padding:8px 20px 20px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:32px;height:32px;flex:none;border-radius:8px;background:#ddf4ff;color:#0969da;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center">J</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:700;white-space:nowrap">jackchen/trino</span><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ fork of trinodb/trino</span></div>
+              <div style="font-size:12px;color:#8c959f;margin-top:1px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">master</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid #d0d7de;border-radius:8px;margin-top:14px;overflow:hidden">
+            <div style="padding:8px 14px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-size:12px;font-weight:700;color:#57606a">HOW THIS FORK WILL WORK</div>
+            <div style="display:grid;grid-template-columns:170px 1fr;row-gap:9px;padding:12px 14px;font-size:12.5px;color:#57606a">
+              <span>Selected fork · <span style="font-family:ui-monospace,Menlo,monospace">origin</span></span>
+              <span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">jackchen/trino</span> <span style="color:#8c959f">— cloned for you; your work branches push here <span style="color:#1a7f37">✓ you can push</span></span></span>
+              <span>Followed for updates</span>
+              <span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino</span> <span style="color:#8c959f">— issues, pull requests, and contributors come from here</span></span>
+              <span>New branches start from</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">upstream/master</span>
+              <span>Pull requests open against</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino · master</span>
+            </div>
+            <div style="padding:10px 14px;border-top:1px solid #f0f0f2;font-size:12.5px;color:#57606a;line-height:1.5;background:#fcfcfd">ByteQuay clones the selected fork for local work and follows <strong style="color:#1f2328">trinodb/trino</strong> for new commits, issues, and pull requests. Finished work is pushed to the selected fork when writable and proposed back to trinodb/trino.</div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Back</button>
+            <button style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;font-size:13px;font-weight:600;color:#ffffff;cursor:pointer;white-space:nowrap">Watch fork</button>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px;max-width:560px">Fork routing is spelled out in one card before Watch is available. A nested fork shows its one resolved canonical upstream here — never a list.</div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">6 · FORK WITHOUT PUSH ACCESS</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="padding:16px 20px 20px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:32px;height:32px;flex:none;border-radius:8px;background:#eceff2;color:#57606a;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center">E</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:700;white-space:nowrap">ezra-b/trino</span><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ fork of trinodb/trino</span></div>
+              <div style="font-size:12px;color:#8c959f;margin-top:1px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">master</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;border:1px solid rgba(154,103,0,.35);background:#fff8c5;border-radius:8px;padding:11px 14px;margin-top:14px">
+            <span style="color:#9a6700;font-size:13px">⚠</span>
+            <div style="font-size:12.5px;color:#57606a;line-height:1.5"><strong style="color:#1f2328">You can't push to ezra-b/trino.</strong> You can still browse commits, cherry-pick, and work locally. Push and Open pull request stay off until you get write access — ByteQuay never pushes anywhere else on its own.</div>
+          </div>
+          <div style="border:1px solid #d0d7de;border-radius:8px;margin-top:12px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:170px 1fr;row-gap:9px;padding:12px 14px;font-size:12.5px;color:#57606a">
+              <span>Selected fork · <span style="font-family:ui-monospace,Menlo,monospace">origin</span></span>
+              <span><span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">ezra-b/trino</span> <span style="color:#bc4c00">✕ read-only for you</span></span>
+              <span>Followed for updates</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/trino</span>
+              <span>New branches start from</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">upstream/master</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Back</button>
+            <button style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;font-size:13px;font-weight:600;color:#ffffff;cursor:pointer;white-space:nowrap">Watch anyway</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:620px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">7 · ALREADY WATCHED</div>
+      <div style="border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 16px 48px rgba(27,31,36,.18);overflow:hidden">
+        <div style="padding:16px 20px 20px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:32px;height:32px;flex:none;border-radius:8px;background:#eceff2;color:#57606a;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center">T</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:700;white-space:nowrap">trinodb/charts</span><span style="font-size:10.5px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap">already watched</span></div>
+              <div style="font-size:12px;color:#8c959f;margin-top:1px">Public · default branch <span style="font-family:ui-monospace,Menlo,monospace">main</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;border:1px solid rgba(9,105,218,.3);background:#ddf4ff;border-radius:8px;padding:11px 14px;margin-top:14px">
+            <span style="color:#0969da;font-size:13px">ℹ</span>
+            <div style="font-size:12.5px;color:#57606a;line-height:1.5"><strong style="color:#1f2328">You're already watching this repository.</strong> A repository can be watched once — its workspace <span style="font-family:ui-monospace,Menlo,monospace;color:#1f2328">trinodb/charts</span> is ready with everything you've done there.</div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Back to search</button>
+            <button style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;font-size:13px;font-weight:600;color:#ffffff;cursor:pointer;white-space:nowrap">Open workspace →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:640px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">8 · AFTER WATCH — HOME CARDS (SAVED → PREPARING → FAILURE/RETRY)</div>
+      <div style="border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;padding:20px">
+        <div style="font-size:12px;font-weight:700;color:#656d76;letter-spacing:.4px">REPOS YOU WATCH</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
+          <div style="border:1px solid #e3e3e6;border-radius:12px;padding:16px 16px 12px;cursor:pointer" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/trino</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">⑂ trinodb/trino</span></div>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:10px;font-size:12px;color:#57606a"><span style="width:12px;height:12px;flex:none;border:2px solid #d0d7de;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Preparing — cloning the selected fork…</div>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:6px;font-size:12px;color:#57606a"><span style="width:7px;height:7px;flex:none;border-radius:50%;background:#1a7f37"></span>Labels &amp; people fetched from trinodb/trino</div>
+            <div style="margin-top:12px;padding-top:9px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f">Saved just now · open it any time</div>
+          </div>
+          <div style="border:1px solid rgba(207,34,46,.4);border-radius:12px;padding:16px 16px 12px;cursor:pointer" style-hover="box-shadow:0 4px 14px rgba(27,31,36,.08)">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">jackchen/trino</span><span style="flex:none;font-size:10.5px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:1px 8px;white-space:nowrap">needs attention</span></div>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:10px;font-size:12px;color:#cf222e"><span style="width:7px;height:7px;flex:none;border-radius:50%;background:#cf222e"></span>Clone failed — couldn't reach github.com</div>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:6px;font-size:12px;color:#57606a"><span style="width:7px;height:7px;flex:none;border-radius:50%;background:#1a7f37"></span>Labels &amp; people are ready</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:9px;border-top:1px solid #f0f0f2">
+              <span style="font-size:11.5px;color:#8c959f">Saved 4 min ago</span>
+              <div style="flex:1"></div>
+              <button style="padding:3px 11px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Retry clone</button>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#8c959f;margin-top:12px;line-height:1.5">The card appears the moment Watch is confirmed — before the clone starts. Code and metadata report independently; a failed card stays clickable and opens Workspace Home.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

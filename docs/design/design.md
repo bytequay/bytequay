@@ -28,6 +28,10 @@ The design deliberately separates current behavior from future implementation.
   target-presence detection, pull-request grouping and skip selection,
   conflict scope, immutable confirmation, local execution handoff, and final
   range review.
+- [Watched Repository / Workspace](watched-repo.md) specifies how watching a
+  GitHub repository creates a durable workspace, provisions direct and fork
+  repository routing, opens Workspace Home, and connects Commits to the
+  existing cherry-pick flow.
 
 When a cherry-pick conflicts, ByteQuay temporarily commits Git's conflict
 snapshot with the standard `-x` line. The agent resolves it in one direct

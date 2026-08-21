@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button{font-family:inherit}
+::placeholder{color:#8c959f}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqshimmer{0%{opacity:.55}50%{opacity:1}100%{opacity:.55}}
+</style>
+</helmet>
+<div id="board-wsprs" style="padding:36px 44px 60px;width:max-content">
+  <div style="max-width:1040px">
+    <div style="font-size:20px;font-weight:700">Workspace Pull Requests — state board</div>
+    <div style="font-size:13px;color:#57606a;margin-top:4px">Same list UI as the global Pulls page: All / My PRs / Review / Done tabs, filter box, label chips, repo + author avatars, CI and comment columns. The workspace tab only adds the monitored-repository scope chip (upstream for a fork) and repository-specific loading/empty/stale/error states. Clicking a card opens the existing PR detail/timeline on the right — unchanged, shown as a placeholder.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:44px;margin-top:32px;align-items:flex-start;width:1040px">
+
+    <div style="width:1040px">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">A · FORK WORKSPACE — LIST + SELECTED PR (SPLIT VIEW)</div>
+      <div data-screen-label="Workspace PRs · fork scoped" style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff;display:flex;height:640px">
+        <div style="width:470px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid #e3e3e6">
+          <div style="display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid #f0f0f2">
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:#e4e4e8;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer;white-space:nowrap">All</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">My PRs</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Review</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Done</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">from trinodb/trino</span>
+            <button style="width:26px;height:26px;border:none;border-radius:6px;background:none;font-size:13px;color:#57606a;cursor:pointer">⟳</button>
+            <button style="width:26px;height:26px;border:none;border-radius:6px;background:#e4e4e8;font-size:13px;color:#57606a;cursor:pointer">▥</button>
+          </div>
+          <div style="padding:8px 12px;border-bottom:1px solid #f0f0f2">
+            <input placeholder="⌕ Filter by title, author, label…" style="width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid #d0d7de;border-radius:6px;font-size:12.5px">
+          </div>
+          <div style="flex:1;overflow:auto;padding:6px 8px">
+
+            <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:#f1f3f5;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer">
+              <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600">Support sorted by nested fields in Iceberg <span style="color:#8c959f;font-weight:400">#30304</span></span>
+                <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">iceberg</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                  <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                  <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                  <span style="color:#d0d7de">·</span>
+                  <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#ffd8b5;color:#953800;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">e</span>ezra-b
+                  <span style="color:#d0d7de">·</span>35m ago
+                </span>
+              </span>
+              <span style="flex:none;font-size:11px;font-weight:600;color:#8250df;background:#fbefff;border-radius:10px;padding:1px 8px;white-space:nowrap;align-self:flex-start">review</span>
+            </button>
+
+            <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+              <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600">Push legacy CHAR to VARCHAR cast into connectors correctly <span style="color:#8c959f;font-weight:400">#30683</span></span>
+                <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#bf3989;background:#ffeff7;border-radius:10px;padding:1px 8px;white-space:nowrap">correctness</span>
+                  <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">RELEASE-BLOCKER</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">bigquery</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">snowflake</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#8c959f;background:#f6f8fa;border-radius:10px;padding:1px 8px;white-space:nowrap">+9</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                  <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                  <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                  <span style="color:#d0d7de">·</span>
+                  <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#d8f3dc;color:#1a7f37;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">f</span>finn-ep
+                  <span style="color:#d0d7de">·</span>48m ago
+                </span>
+              </span>
+            </button>
+
+            <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+              <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600">Fix memory blob cache caching partial content with stale length <span style="color:#8c959f;font-weight:400">#30835</span></span>
+                <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">iceberg</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                  <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                  <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                  <span style="color:#d0d7de">·</span>
+                  <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#e7dcf9;color:#8250df;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">c</span>chenjian2664
+                  <span style="color:#d0d7de">·</span>58m ago
+                </span>
+              </span>
+              <span style="flex:none;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap;align-self:flex-start">mine</span>
+            </button>
+
+            <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+              <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600">Add PR description check workflow <span style="color:#8c959f;font-weight:400">#30830</span></span>
+                <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">no-release-notes</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                  <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                  <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                  <span style="color:#d0d7de">·</span>
+                  <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#d8f3dc;color:#1a7f37;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">f</span>finn-ep
+                  <span style="color:#d0d7de">·</span>6h ago
+                </span>
+              </span>
+            </button>
+
+            <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+              <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600">New Sqlite connector <span style="color:#8c959f;font-weight:400">#27768</span></span>
+                <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap">docs</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">snowflake</span>
+                  <span style="font-size:10.5px;font-weight:500;color:#8c959f;background:#f6f8fa;border-radius:10px;padding:1px 8px;white-space:nowrap">+8</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                  <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                  <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                  <span style="color:#d0d7de">·</span>
+                  <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#ffe3e0;color:#cf222e;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">p</span>pryce-v
+                  <span style="color:#d0d7de">·</span>7h ago
+                </span>
+              </span>
+            </button>
+
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fcfcfd">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid #f0f0f2;background:#ffffff">
+            <span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Support sorted by nested fields in Iceberg</span>
+            <div style="flex:1"></div>
+            <button style="padding:4px 11px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Open on GitHub ↗</button>
+            <button style="padding:4px 11px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;font-size:12px;font-weight:600;color:#ffffff;cursor:pointer;white-space:nowrap">Submit review</button>
+          </div>
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;margin:16px;border:2px dashed #d0d7de;border-radius:10px">
+            <div style="text-align:center;max-width:360px;padding:20px">
+              <div style="font-size:22px;color:#8c959f">⑃</div>
+              <div style="font-size:13px;font-weight:600;color:#57606a;margin-top:8px">PR details &amp; timeline render here</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:6px;line-height:1.6">placeholder — existing PullOverview / PullChanges<br>(overview, description, timeline, reviews, checks, merge)<br>mounted unchanged for the clicked PR</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8c959f;margin-top:8px;max-width:960px">Tabs classify the scoped list: All · My PRs (authored) · Review (your review requested) · Done (merged/closed). In All, a small right-edge chip marks <span style="font-size:10.5px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 7px">mine</span> and <span style="font-size:10.5px;font-weight:600;color:#8250df;background:#fbefff;border-radius:10px;padding:1px 7px">review</span> rows. Long label sets truncate to a "+N" chip in the list. The amber scope chip appears only in workspaces (upstream repo for a fork); the global page stays unscoped and unchanged.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:36px;width:700px">
+
+      <div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">B · LOADING (FIRST REPOSITORY SYNC)</div>
+        <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+          <div style="display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid #f0f0f2">
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:#e4e4e8;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer;white-space:nowrap">All</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">My PRs</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Review</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Done</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">from trinodb/charts</span>
+          </div>
+          <div style="padding:14px 16px 18px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#57606a;white-space:nowrap"><span style="width:12px;height:12px;flex:none;border:2px solid #d0d7de;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Fetching pull requests from trinodb/charts for the first time…</div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden;margin-top:12px">
+              <div style="display:flex;align-items:center;gap:10px;padding:13px 14px"><span style="width:14px;height:14px;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="flex:1"><span style="display:block;height:11px;width:62%;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="display:block;height:9px;width:38%;border-radius:4px;background:#f0f2f5;margin-top:7px;animation:bqshimmer 1.4s ease infinite"></span></span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:13px 14px;border-top:1px solid #f0f0f2"><span style="width:14px;height:14px;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="flex:1"><span style="display:block;height:11px;width:48%;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="display:block;height:9px;width:30%;border-radius:4px;background:#f0f2f5;margin-top:7px;animation:bqshimmer 1.4s ease infinite"></span></span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:13px 14px;border-top:1px solid #f0f0f2"><span style="width:14px;height:14px;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="flex:1"><span style="display:block;height:11px;width:55%;border-radius:4px;background:#eceff2;animation:bqshimmer 1.4s ease infinite"></span><span style="display:block;height:9px;width:34%;border-radius:4px;background:#f0f2f5;margin-top:7px;animation:bqshimmer 1.4s ease infinite"></span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">C · EMPTY</div>
+        <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+          <div style="display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid #f0f0f2">
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:#e4e4e8;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer;white-space:nowrap">All</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">My PRs</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Review</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Done</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">from trinodb/charts</span>
+          </div>
+          <div style="padding:34px 20px 38px;text-align:center">
+            <div style="font-size:20px;color:#8c959f">⑃</div>
+            <div style="font-size:13.5px;font-weight:600;color:#57606a;margin-top:6px;white-space:nowrap">No open pull requests in trinodb/charts</div>
+            <div style="font-size:12.5px;color:#8c959f;margin-top:4px">Open pull requests will appear here after the next repository sync.</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">D · STALE (SHOWING LAST GOOD DATA)</div>
+        <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+          <div style="display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid #f0f0f2">
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:#e4e4e8;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer;white-space:nowrap">All</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">My PRs</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Review</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Done</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">from trinodb/trino</span>
+            <button style="width:26px;height:26px;border:none;border-radius:6px;background:none;font-size:13px;color:#57606a;cursor:pointer">⟳</button>
+          </div>
+          <div style="padding:12px 16px 16px">
+            <div style="display:flex;gap:10px;border:1px solid rgba(154,103,0,.35);background:#fff8c5;border-radius:8px;padding:9px 14px;align-items:center">
+              <span style="color:#9a6700;font-size:13px">⚠</span>
+              <span style="flex:1;font-size:12.5px;color:#57606a">Showing pull requests from <strong style="color:#1f2328">2 hours ago</strong> — the last refresh didn't finish.</span>
+              <button style="flex:none;padding:3px 11px;border:1px solid rgba(154,103,0,.4);border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#9a6700;cursor:pointer;white-space:nowrap">Refresh now</button>
+            </div>
+            <div style="margin-top:10px">
+              <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+                <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:13.5px;font-weight:600">SigV4 REST catalog support <span style="color:#8c959f;font-weight:400">#412</span></span>
+                  <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                    <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                    <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">iceberg</span>
+                  </span>
+                  <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                    <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                    <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                    <span style="color:#d0d7de">·</span>
+                    <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#e7dcf9;color:#8250df;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">j</span>jackchen
+                    <span style="color:#d0d7de">·</span>updated 3 hours ago
+                  </span>
+                </span>
+                <span style="flex:none;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap;align-self:flex-start">mine</span>
+              </button>
+              <button style="display:flex;width:100%;box-sizing:border-box;text-align:left;border:none;background:none;border-radius:8px;gap:9px;padding:10px 10px;cursor:pointer" style-hover="background:#f6f8fa">
+                <span style="color:#1a7f37;font-size:14px;flex:none;margin-top:1px">⑃</span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:13.5px;font-weight:600">Return metrics from Iceberg migrate procedure <span style="color:#8c959f;font-weight:400">#411</span></span>
+                  <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">
+                    <span style="font-size:10.5px;font-weight:500;color:#57606a;background:#eef1f4;border-radius:10px;padding:1px 8px;white-space:nowrap">cla-signed</span>
+                  </span>
+                  <span style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:#57606a;white-space:nowrap">
+                    <span style="font-size:11px;color:#8c959f">No CI</span><span style="color:#8c959f">🗨 0</span>
+                    <span style="width:13px;height:13px;flex:none;border-radius:3px;background:#ddf4ff;color:#0969da;font-size:8.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">t</span>trinodb/trino
+                    <span style="color:#d0d7de">·</span>
+                    <span style="width:14px;height:14px;flex:none;border-radius:50%;background:#ffd8b5;color:#953800;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">e</span>ezra-b
+                    <span style="color:#d0d7de">·</span>updated 5 hours ago
+                  </span>
+                </span>
+                <span style="flex:none;font-size:11px;font-weight:600;color:#8250df;background:#fbefff;border-radius:10px;padding:1px 8px;white-space:nowrap;align-self:flex-start">review</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;letter-spacing:.6px;color:#656d76;margin-bottom:8px">E · ERROR (NO LOCAL DATA YET)</div>
+        <div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);background:#ffffff">
+          <div style="display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid #f0f0f2">
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:#e4e4e8;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer;white-space:nowrap">All</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">My PRs</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Review</button>
+            <button style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Done</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">from trinodb/charts</span>
+          </div>
+          <div style="padding:34px 20px 38px;text-align:center">
+            <div style="font-size:20px;color:#cf222e">✕</div>
+            <div style="font-size:13.5px;font-weight:600;color:#57606a;margin-top:6px;white-space:nowrap">Couldn't fetch pull requests from trinodb/charts</div>
+            <div style="font-size:12.5px;color:#8c959f;margin-top:4px">GitHub didn't respond. Your access may have changed, or the network is down.</div>
+            <button style="margin-top:14px;padding:5px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Try again</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

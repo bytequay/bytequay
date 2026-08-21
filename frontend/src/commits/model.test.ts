@@ -36,6 +36,7 @@ function execution(status: string, finishReason?: string): CherryPickExecution {
     repository: 'bytequay/trino-fork',
     workBranch: 'bytequay/cp-1',
     localTargetBranch: 'master',
+    targetBranch: 'master',
     status,
     finishReason: finishReason ?? null,
     initialTargetSha: '41ab9e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',

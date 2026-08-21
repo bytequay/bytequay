@@ -45,6 +45,7 @@ public record CherryPickExecution(
         String startIdempotencyKey,
         Workspace workspace,
         Optional<PullRequestDraft> pullRequestDraft,
+        Optional<Delivery> delivery,
         Range range,
         String currentTargetSha,
         Optional<String> agentTaskId,
@@ -70,6 +71,7 @@ public record CherryPickExecution(
         checkText(startIdempotencyKey, "startIdempotencyKey", 200);
         requireNonNull(workspace, "workspace is null");
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
+        requireNonNull(delivery, "delivery is null");
         requireNonNull(range, "range is null");
         checkSha(currentTargetSha, "currentTargetSha");
         checkOptionalText(agentTaskId, "agentTaskId", 128);
@@ -91,6 +93,11 @@ public record CherryPickExecution(
         checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
         terminalAt.ifPresent(value -> checkArgument(!value.isBefore(createdAt), "terminalAt is before createdAt"));
         validateStatus(status, currentStep, pauseReason, finishReason, summary, currentTurnId, terminalAt, items);
+        delivery.ifPresent(value -> {
+            checkArgument(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED,
+                    "delivery belongs to an incomplete execution");
+            checkArgument(pullRequestDraft.isPresent(), "delivery has no pull-request draft");
+        });
     }
 
     public static CherryPickExecution create(
@@ -108,6 +115,7 @@ public record CherryPickExecution(
                 startIdempotencyKey,
                 workspace,
                 pullRequestDraft,
+                Optional.empty(),
                 range,
                 range.initialTargetSha(),
                 Optional.empty(),
@@ -284,9 +292,26 @@ public record CherryPickExecution(
     {
         checkArgument(updatedVersion >= version, "version moved backwards");
         return new CherryPickExecution(
-                id, startIdempotencyKey, workspace, pullRequestDraft, range, currentTargetSha, agentTaskId, currentTurnId,
+                id, startIdempotencyKey, workspace, pullRequestDraft, delivery, range, currentTargetSha, agentTaskId, currentTurnId,
                 status, currentStep, pauseReason, finishReason, summary, journal, rangeReview, items,
                 updatedVersion, createdAt, updatedAt, terminalAt);
+    }
+
+    /** Records the deliberate, non-force push of this execution's generated branch. */
+    public CherryPickExecution recordPush(String remote, String head, String sha, Instant now)
+    {
+        requireDeliverable(now);
+        checkState(delivery.isEmpty(), "execution branch is already pushed");
+        return edit(now, draft -> draft.delivery = Optional.of(Delivery.pushed(remote, head, sha)));
+    }
+
+    /** Records the provider pull request created from the previously pushed branch. */
+    public CherryPickExecution recordPullRequest(long providerId, int number, String url, Instant now)
+    {
+        requireDeliverable(now);
+        Delivery pushed = delivery.orElseThrow(() -> new IllegalStateException("execution branch is not pushed"));
+        checkState(pushed.pullRequestId().isEmpty(), "execution already has a pull request");
+        return edit(now, draft -> draft.delivery = Optional.of(pushed.withPullRequest(providerId, number, url)));
     }
 
     private List<CherryPickItem> replace(String sourceSha, java.util.function.UnaryOperator<CherryPickItem> edit)
@@ -317,6 +342,15 @@ public record CherryPickExecution(
     {
         requireMutable(now);
         checkState(status == Status.RUNNING, "execution is not running");
+    }
+
+    private void requireDeliverable(Instant now)
+    {
+        requireNonNull(now, "now is null");
+        checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
+        checkState(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED,
+                "execution did not complete successfully");
+        checkState(pullRequestDraft.isPresent(), "execution has no pull-request draft");
     }
 
     private CherryPickExecution edit(Instant now, Consumer<Draft> edits)
@@ -450,6 +484,43 @@ public record CherryPickExecution(
         }
     }
 
+    /** Durable remote-delivery facts for a successfully completed execution. */
+    public record Delivery(
+            String pushRemote,
+            String head,
+            String sha,
+            Optional<Long> pullRequestId,
+            Optional<Integer> pullRequestNumber,
+            Optional<String> pullRequestUrl)
+    {
+        public Delivery
+        {
+            checkText(pushRemote, "delivery pushRemote", 100);
+            checkText(head, "delivery head", 255);
+            checkSha(sha, "delivery sha");
+            requireNonNull(pullRequestId, "pullRequestId is null");
+            requireNonNull(pullRequestNumber, "pullRequestNumber is null");
+            requireNonNull(pullRequestUrl, "pullRequestUrl is null");
+            checkArgument(pullRequestId.isPresent() == pullRequestNumber.isPresent()
+                            && pullRequestId.isPresent() == pullRequestUrl.isPresent(),
+                    "pull-request delivery facts are incomplete");
+            pullRequestId.ifPresent(value -> checkArgument(value > 0, "pullRequestId is not positive"));
+            pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber is not positive"));
+            pullRequestUrl.ifPresent(value -> checkText(value, "pullRequestUrl", 2048));
+        }
+
+        private static Delivery pushed(String remote, String head, String sha)
+        {
+            return new Delivery(remote, head, sha, Optional.empty(), Optional.empty(), Optional.empty());
+        }
+
+        private Delivery withPullRequest(long providerId, int number, String url)
+        {
+            return new Delivery(
+                    pushRemote, head, sha, Optional.of(providerId), Optional.of(number), Optional.of(url));
+        }
+    }
+
     /** The frozen boundaries the plan was confirmed against. */
     public record Range(String sourceBaseSha, String sourceTipSha, String initialTargetSha)
     {
@@ -531,6 +602,7 @@ public record CherryPickExecution(
         private Optional<String> summary;
         private Optional<ActionJournal> journal;
         private Optional<RangeReview> rangeReview;
+        private Optional<Delivery> delivery;
         private List<CherryPickItem> items;
         private Instant updatedAt;
         private Optional<Instant> terminalAt;
@@ -541,6 +613,7 @@ public record CherryPickExecution(
             this.startIdempotencyKey = execution.startIdempotencyKey;
             this.workspace = execution.workspace;
             this.pullRequestDraft = execution.pullRequestDraft;
+            this.delivery = execution.delivery;
             this.range = execution.range;
             this.version = execution.version;
             this.createdAt = execution.createdAt;
@@ -562,7 +635,7 @@ public record CherryPickExecution(
         private CherryPickExecution build()
         {
             return new CherryPickExecution(
-                    id, startIdempotencyKey, workspace, pullRequestDraft, range, currentTargetSha, agentTaskId, currentTurnId,
+                    id, startIdempotencyKey, workspace, pullRequestDraft, delivery, range, currentTargetSha, agentTaskId, currentTurnId,
                     status, currentStep, pauseReason, finishReason, summary, journal, rangeReview, items,
                     version, createdAt, updatedAt, terminalAt);
         }

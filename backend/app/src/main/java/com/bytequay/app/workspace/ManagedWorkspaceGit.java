@@ -43,6 +43,7 @@ import static java.util.Objects.requireNonNull;
 /** Performs filesystem and Git operations inside a ByteQuay-owned workspace checkout. */
 @Component
 final class ManagedWorkspaceGit
+        implements WorkspaceBranchPusher
 {
     private static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(10);
     private static final String OWNERSHIP_FILE = ".bytequay-workspace";
@@ -88,6 +89,66 @@ final class ManagedWorkspaceGit
         Map<String, String> environment = authenticationEnvironment(current);
         reconcileRemotes(previous, current, repository);
         fetchConfiguredRemotes(current, repository, environment);
+    }
+
+    /** Pushes one ByteQuay-owned worktree branch to the persisted {@code origin} without force. */
+    @Override
+    public Push pushBranch(Workspace workspace, Path worktree, String branch)
+    {
+        requireNonNull(workspace, "workspace is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(branch, "branch is null");
+        validateRouting(workspace);
+        validateOwnedWorktree(workspace, worktree, branch);
+        if (!remoteUrl(worktree, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
+            throw remoteMismatch("origin remote does not match persisted push routing");
+        }
+        Result clean = git.run(worktree, "status", "--porcelain");
+        if (!clean.successful() || !clean.output().isBlank()) {
+            throw new Failure(
+                    "The generated branch has uncommitted changes. Finish or cancel the execution before pushing.",
+                    "Generated worktree is not clean");
+        }
+        Result head = git.run(worktree, "rev-parse", "--verify", "HEAD^{commit}");
+        requireGitSuccess(head, "inspect generated branch");
+        String sha = head.output().strip();
+        Result pushed = git.run(
+                worktree,
+                NETWORK_TIMEOUT,
+                authenticationEnvironment(workspace),
+                ImmutableList.of("push", "--porcelain", "origin", "HEAD:refs/heads/" + branch));
+        requireGitSuccess(pushed, "push generated branch to origin");
+        return new Push("origin", branch, sha);
+    }
+
+    private void validateOwnedWorktree(Workspace workspace, Path worktree, String branch)
+    {
+        try {
+            Path expectedParent = paths.worktrees(workspace.id()).toRealPath();
+            Path actual = worktree.toRealPath();
+            if (Files.isSymbolicLink(worktree)
+                    || !Files.isDirectory(worktree, LinkOption.NOFOLLOW_LINKS)
+                    || !actual.getParent().equals(expectedParent)) {
+                throw unknownDirectory();
+            }
+            Result topLevel = git.run(actual, "rev-parse", "--show-toplevel");
+            requireGitSuccess(topLevel, "inspect generated worktree");
+            if (!Path.of(topLevel.output().strip()).toRealPath().equals(actual)) {
+                throw unknownDirectory();
+            }
+            Result currentBranch = git.run(actual, "symbolic-ref", "--quiet", "--short", "HEAD");
+            if (!currentBranch.successful() || !currentBranch.output().strip().equals(branch)) {
+                throw new Failure(
+                        "The generated worktree is no longer on its recorded branch. Start another execution.",
+                        "Generated worktree branch does not match persisted execution");
+            }
+        }
+        catch (IOException failure) {
+            throw new Failure(
+                    "The generated worktree could not be verified. Start another execution.",
+                    "Validating generated worktree failed: " + failure.getMessage(),
+                    failure);
+        }
     }
 
     private Path prepareOwnedWorkspace(Workspace workspace)

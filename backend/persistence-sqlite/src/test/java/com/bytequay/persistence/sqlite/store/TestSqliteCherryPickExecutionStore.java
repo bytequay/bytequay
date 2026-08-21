@@ -205,6 +205,29 @@ class TestSqliteCherryPickExecutionStore
         assertThat(loaded.cursor()).isEmpty();
     }
 
+    @Test
+    void roundTripsPushAndProviderPullRequestIdentity()
+    {
+        CherryPickExecution created = store.createOrGet(execution(
+                "delivery", ImmutableList.of(planned(1, Disposition.USER_SKIPPED))));
+        CherryPickExecution finished = store.save(created.finish(
+                FinishReason.COMPLETED, "nothing to apply", NOW.plusSeconds(1)));
+        CherryPickExecution pushed = store.save(finished.recordPush(
+                "origin", "bump-delivery", TARGET, NOW.plusSeconds(2)));
+        store.save(pushed.recordPullRequest(
+                900, 12, "https://github.com/trinodb/trino/pull/12", NOW.plusSeconds(3)));
+
+        CherryPickExecution loaded = store.find(created.id()).orElseThrow();
+        assertThat(loaded.delivery()).hasValueSatisfying(delivery -> {
+            assertThat(delivery.pushRemote()).isEqualTo("origin");
+            assertThat(delivery.head()).isEqualTo("bump-delivery");
+            assertThat(delivery.sha()).isEqualTo(TARGET);
+            assertThat(delivery.pullRequestId()).contains(900L);
+            assertThat(delivery.pullRequestNumber()).contains(12);
+            assertThat(delivery.pullRequestUrl()).contains("https://github.com/trinodb/trino/pull/12");
+        });
+    }
+
     private static CherryPickExecution execution(String key, List<CherryPickItem> items)
     {
         return CherryPickExecution.create(

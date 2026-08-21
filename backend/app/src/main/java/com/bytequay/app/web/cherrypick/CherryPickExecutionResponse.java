@@ -34,6 +34,7 @@ public record CherryPickExecutionResponse(
         String repository,
         String workBranch,
         String localTargetBranch,
+        String targetBranch,
         String status,
         Optional<String> currentStep,
         Optional<String> pauseReason,
@@ -43,6 +44,7 @@ public record CherryPickExecutionResponse(
         String currentTargetSha,
         Optional<Integer> currentPosition,
         Optional<PullRequestDraftResponse> pullRequestDraft,
+        Optional<DeliveryResponse> delivery,
         List<ItemResponse> items)
 {
     public CherryPickExecutionResponse
@@ -52,6 +54,7 @@ public record CherryPickExecutionResponse(
         requireNonNull(repository, "repository is null");
         requireNonNull(workBranch, "workBranch is null");
         requireNonNull(localTargetBranch, "localTargetBranch is null");
+        requireNonNull(targetBranch, "targetBranch is null");
         requireNonNull(status, "status is null");
         requireNonNull(currentStep, "currentStep is null");
         requireNonNull(pauseReason, "pauseReason is null");
@@ -61,6 +64,7 @@ public record CherryPickExecutionResponse(
         requireNonNull(currentTargetSha, "currentTargetSha is null");
         requireNonNull(currentPosition, "currentPosition is null");
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
+        requireNonNull(delivery, "delivery is null");
         items = List.copyOf(requireNonNull(items, "items is null"));
     }
 
@@ -72,6 +76,7 @@ public record CherryPickExecutionResponse(
                 execution.workspace().repository().fullName(),
                 execution.workspace().workBranch(),
                 execution.workspace().localTargetBranch(),
+                execution.workspace().targetBranch(),
                 execution.status().name(),
                 execution.currentStep().map(Enum::name),
                 execution.pauseReason().map(Enum::name),
@@ -81,7 +86,39 @@ public record CherryPickExecutionResponse(
                 execution.currentTargetSha(),
                 execution.cursor().map(CherryPickItem::position),
                 execution.pullRequestDraft().map(PullRequestDraftResponse::of),
+                execution.delivery().map(DeliveryResponse::of),
                 execution.items().stream().map(ItemResponse::of).collect(toImmutableList()));
+    }
+
+    /** Remote delivery persisted after the two explicit user actions. */
+    public record DeliveryResponse(
+            String pushRemote,
+            String head,
+            String sha,
+            Optional<Long> pullRequestId,
+            Optional<Integer> pullRequestNumber,
+            Optional<String> pullRequestUrl)
+    {
+        public DeliveryResponse
+        {
+            requireNonNull(pushRemote, "pushRemote is null");
+            requireNonNull(head, "head is null");
+            requireNonNull(sha, "sha is null");
+            requireNonNull(pullRequestId, "pullRequestId is null");
+            requireNonNull(pullRequestNumber, "pullRequestNumber is null");
+            requireNonNull(pullRequestUrl, "pullRequestUrl is null");
+        }
+
+        private static DeliveryResponse of(CherryPickExecution.Delivery delivery)
+        {
+            return new DeliveryResponse(
+                    delivery.pushRemote(),
+                    delivery.head(),
+                    delivery.sha(),
+                    delivery.pullRequestId(),
+                    delivery.pullRequestNumber(),
+                    delivery.pullRequestUrl());
+        }
     }
 
     /** Pull-request copy saved for the later explicit push and create actions. */

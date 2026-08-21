@@ -15,6 +15,8 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -28,6 +30,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -105,6 +108,40 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    /** Creates a pull request using the same authenticated write client as existing PR actions. */
+    public CreatedPullRequest createPullRequest(
+            String pat,
+            RepoRef baseRepository,
+            String head,
+            String base,
+            String title,
+            String body)
+    {
+        requireNonNull(baseRepository, "baseRepository is null");
+        requireText(head, "head");
+        requireText(base, "base");
+        requireText(title, "title");
+        requireNonNull(body, "body is null");
+        try {
+            GitHubCreatedPullRequest created = gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("title", title, "body", body, "head", head, "base", base))
+                    .retrieve()
+                    .body(GitHubCreatedPullRequest.class);
+            if (created == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when creating pull request");
+            }
+            return new CreatedPullRequest(created.id(), created.number(), created.htmlUrl());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     private static PrTimelineEvent toTimelineEvent(GitHubIssueComment comment)
     {
         return new PrTimelineEvent(
@@ -115,4 +152,27 @@ public class GitHubPullRequestWriteClient
                 comment.body(),
                 Optional.empty());
     }
+
+    private static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        checkArgument(!value.isBlank(), name + " is blank");
+    }
+
+    /** Stable identity returned by GitHub after pull-request creation. */
+    public record CreatedPullRequest(long id, int number, String url)
+    {
+        public CreatedPullRequest
+        {
+            checkArgument(id > 0, "id is not positive");
+            checkArgument(number > 0, "number is not positive");
+            requireText(url, "url");
+        }
+    }
+
+    private record GitHubCreatedPullRequest(
+            long id,
+            int number,
+            @JsonProperty("html_url") String htmlUrl)
+    {}
 }

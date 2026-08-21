@@ -404,6 +404,7 @@ export type CherryPickExecution = {
   repository: string;
   workBranch: string;
   localTargetBranch: string;
+  targetBranch: string;
   /** RUNNING | PAUSED | FINISHED */
   status: string;
   currentStep?: string | null;
@@ -414,7 +415,40 @@ export type CherryPickExecution = {
   currentTargetSha: string;
   currentPosition?: number | null;
   pullRequestDraft?: { title: string; body: string } | null;
+  delivery?: {
+    pushRemote: string;
+    head: string;
+    sha: string;
+    pullRequestId?: number | null;
+    pullRequestNumber?: number | null;
+    pullRequestUrl?: string | null;
+  } | null;
   items: CherryPickExecutionItem[];
+};
+
+export type WorkspacePushResult = {
+  remote: string;
+  head: string;
+  sha: string;
+};
+
+export type WorkspacePullRequestResult = {
+  providerId: number;
+  number: number;
+  url: string;
+  baseRepository: RepoRefDto;
+  baseBranch: string;
+  head: string;
+};
+
+export type WorkspaceDeliveryStatus = {
+  pushWritable: boolean;
+  disabledReason?: string | null;
+  baseRepository: RepoRefDto;
+  baseBranch: string;
+  head: string;
+  push?: WorkspacePushResult | null;
+  pullRequest?: WorkspacePullRequestResult | null;
 };
 
 export type CherryPickExecutionRequest = {
@@ -536,6 +570,18 @@ export type Bridge = {
   listCherryPickExecutions: (limit: number) => Promise<CherryPickExecution[]>;
   sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
   cancelCherryPickExecution: (workspaceId: string, executionId: string) => Promise<CherryPickExecution>;
+  getWorkspaceDeliveryStatus: (
+    workspaceId: string,
+    executionId: string,
+  ) => Promise<WorkspaceDeliveryStatus>;
+  pushWorkspaceExecution: (
+    workspaceId: string,
+    executionId: string,
+  ) => Promise<WorkspacePushResult>;
+  createWorkspacePullRequest: (
+    workspaceId: string,
+    executionId: string,
+  ) => Promise<WorkspacePullRequestResult>;
 
   gitOverview: (workspaceId: string) => Promise<GitOverviewDto>;
   gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;

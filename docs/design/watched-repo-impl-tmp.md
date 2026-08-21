@@ -332,27 +332,27 @@ shipping gate.
 
 ### Explicit writes
 
-- [ ] Persist PR draft title/body/base with the workspace execution.
-- [ ] Delegate existing PR write/detail behavior instead of copying it into a workspace-only
+- [x] Persist PR draft title/body/base with the workspace execution.
+- [x] Delegate existing PR write/detail behavior instead of copying it into a workspace-only
   implementation.
-- [ ] Require an explicit user action before push.
-- [ ] Direct workspace pushes the generated branch to writable `origin`.
-- [ ] Fork workspace pushes the generated branch to writable fork `origin`.
-- [ ] Disable push with an actionable message when the configured remote is not writable.
-- [ ] Never force-push or silently choose another remote.
-- [ ] Require a second explicit action before creating the pull request.
-- [ ] Direct PR targets the selected repository and chosen base branch.
-- [ ] Fork PR head comes from the fork and targets upstream/chosen base branch.
-- [ ] Record the provider PR ID and URL on the execution/workspace task.
+- [x] Require an explicit user action before push.
+- [x] Direct workspace pushes the generated branch to writable `origin`.
+- [x] Fork workspace pushes the generated branch to writable fork `origin`.
+- [x] Disable push with an actionable message when the configured remote is not writable.
+- [x] Never force-push or silently choose another remote.
+- [x] Require a second explicit action before creating the pull request.
+- [x] Direct PR targets the selected repository and chosen base branch.
+- [x] Fork PR head comes from the fork and targets upstream/chosen base branch.
+- [x] Record the provider PR ID and URL on the execution/workspace task.
 
 ### Tests and gate
 
-- [ ] Direct push/PR routing is correct.
-- [ ] Fork push/PR routing is correct.
-- [ ] Read-only routing produces no GitHub write.
-- [ ] Duplicate confirmation is idempotent or returns the existing PR.
-- [ ] No remote write occurs during watch, clone, preview, or local execution.
-- [ ] Checkpoint 8 gate: the generated branch can be deliberately pushed and proposed to the
+- [x] Direct push/PR routing is correct.
+- [x] Fork push/PR routing is correct.
+- [x] Read-only routing produces no GitHub write.
+- [x] Duplicate confirmation is idempotent or returns the existing PR.
+- [x] No remote write occurs during watch, clone, preview, or local execution.
+- [x] Checkpoint 8 gate: the generated branch can be deliberately pushed and proposed to the
   correct repository.
 
 ## Checkpoint 9 — Verification and handoff

@@ -86,6 +86,36 @@ public final class WorkspaceException
                 "Issue refresh failed. Retry later. Reference: " + reference, true);
     }
 
+    public static WorkspaceException deliveryConfirmationRequired()
+    {
+        return new WorkspaceException(
+                "DELIVERY_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST,
+                "Confirm this remote write before continuing.", false);
+    }
+
+    public static WorkspaceException deliveryUnavailable(String message)
+    {
+        return new WorkspaceException(
+                "WORKSPACE_DELIVERY_UNAVAILABLE", HttpStatus.CONFLICT,
+                message, false);
+    }
+
+    public static WorkspaceException pushNotWritable()
+    {
+        return new WorkspaceException(
+                "WORKSPACE_PUSH_NOT_WRITABLE", HttpStatus.FORBIDDEN,
+                "The selected repository is read-only for the configured GitHub account. "
+                        + "Grant write access or watch a writable fork; ByteQuay will not choose another remote.",
+                false);
+    }
+
+    public static WorkspaceException deliveryFailed(String message)
+    {
+        return new WorkspaceException(
+                "WORKSPACE_DELIVERY_FAILED", HttpStatus.BAD_GATEWAY,
+                message, true);
+    }
+
     public String code() { return code; }
 
     public HttpStatus status() { return status; }

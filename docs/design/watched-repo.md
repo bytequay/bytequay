@@ -470,13 +470,22 @@ package com.bytequay.app.workspace;
 public interface WorkspacePullRequestService
 {
     /**
+     * Reads current write permission and any persisted delivery result without writing remotely.
+     *
+     * @param workspaceId workspace that owns the execution
+     * @param executionId completed cherry-pick execution
+     * @return permission, resolved routing, push result, and pull-request result
+     */
+    DeliveryStatus getStatus(String workspaceId, CherryPickExecutionId executionId);
+
+    /**
      * Pushes an already-created workspace branch to the configured writable remote.
      *
      * <p>Direct workspaces push to {@code origin}. Fork workspaces push to their
      * selected fork at {@code origin}. The method does not force-push and does not
      * choose a different remote when permission is missing.</p>
      *
-     * @param command workspace, execution, local branch, and explicit confirmation
+     * @param command workspace ID, execution ID, and explicit confirmation
      * @return pushed remote and head reference
      */
     WorkspacePushResult push(WorkspacePushCommand command);
@@ -488,12 +497,18 @@ public interface WorkspacePullRequestService
      * fork they target upstream; for a direct repository they target the selected
      * repository. This is an explicit GitHub write and requires user confirmation.</p>
      *
-     * @param command workspace, pushed head, base branch, title, and body
+     * @param command workspace ID, execution ID, and a second explicit confirmation
      * @return provider identity and URL of the created pull request
      */
     WorkspacePullRequestResult createPullRequest(WorkspacePullRequestCommand command);
 }
 ```
+
+The write commands do not accept a renderer-provided remote, branch, base, title, or body. The
+service loads the completed execution and workspace, rechecks the selected repository by stable
+GitHub ID, then derives every write parameter from persisted routing and the saved PR draft. The
+read-only delivery status endpoint supports an actionable disabled state without turning execution
+polling into repeated GitHub permission requests.
 
 ## Application orchestration
 

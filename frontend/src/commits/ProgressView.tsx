@@ -16,6 +16,7 @@ import type {
   CherryPickExecution,
   CherryPickExecutionItem,
   PullRequestDetailDto,
+  WorkspaceDeliveryStatus,
 } from '../types';
 import PullOverview from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
@@ -71,6 +72,8 @@ export default function ProgressView({
   const [sentNotes, setSentNotes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState<WorkspaceDeliveryStatus | null>(null);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [leftWidth, setLeftWidth] = useState(260);
   const [rightWidth, setRightWidth] = useState(380);
 
@@ -98,6 +101,17 @@ export default function ProgressView({
       window.clearInterval(timer);
     };
   }, [executionId, status]);
+
+  useEffect(() => {
+    if (execution?.status !== 'FINISHED' || execution.finishReason !== 'COMPLETED') return;
+    let active = true;
+    window.bridge.getWorkspaceDeliveryStatus(workspaceId, execution.executionId)
+      .then(value => { if (active) setDelivery(value); })
+      .catch(failure => {
+        if (active) setError(failure instanceof Error ? failure.message : String(failure));
+      });
+    return () => { active = false; };
+  }, [execution?.executionId, execution?.finishReason, execution?.status, workspaceId]);
 
   const views = useMemo(
     () => (execution ? execution.items.map(item => itemView(item, execution)) : []),
@@ -157,6 +171,51 @@ export default function ProgressView({
     } finally {
       setBusy(false);
     }
+  };
+
+  const refreshDelivery = async () => {
+    if (!execution) return;
+    setDelivery(await window.bridge.getWorkspaceDeliveryStatus(workspaceId, execution.executionId));
+  };
+
+  const push = async () => {
+    if (!execution || !delivery) return;
+    if (!window.confirm(
+      `Push ${execution.workBranch} to origin? This writes a new remote branch and never force-pushes.`,
+    )) return;
+    setDeliveryBusy(true);
+    setError(null);
+    try {
+      await window.bridge.pushWorkspaceExecution(workspaceId, execution.executionId);
+      await refreshDelivery();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setDeliveryBusy(false);
+    }
+  };
+
+  const createPullRequest = async () => {
+    if (!execution || !delivery) return;
+    const base = `${delivery.baseRepository.owner}/${delivery.baseRepository.repo}:${delivery.baseBranch}`;
+    if (!window.confirm(
+      `Create a pull request from ${delivery.head} into ${base}? This is a separate GitHub write.`,
+    )) return;
+    setDeliveryBusy(true);
+    setError(null);
+    try {
+      await window.bridge.createWorkspacePullRequest(workspaceId, execution.executionId);
+      await refreshDelivery();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setDeliveryBusy(false);
+    }
+  };
+
+  const openPullRequest = async () => {
+    const url = delivery?.pullRequest?.url;
+    if (url) await window.bridge.openExternal(url);
   };
 
   if (!execution) {
@@ -268,6 +327,50 @@ export default function ProgressView({
               </div>
             </div>
             <button type="button" onClick={onStartAnotherRange}>Start another range</button>
+          </div>
+        )}
+        {state === 'done' && delivery && (
+          <div className="cmt-delivery">
+            <div className="cmt-delivery-copy">
+              <strong>Deliver this generated branch</strong>
+              <span>
+                {delivery.pullRequest
+                  ? `Pull request #${delivery.pullRequest.number} targets ${delivery.baseRepository.owner}/${delivery.baseRepository.repo}:${delivery.baseBranch}.`
+                  : delivery.push
+                    ? `${delivery.push.head} is pushed to origin. Create the pull request when you are ready.`
+                    : delivery.disabledReason
+                      ?? `Push to origin, then propose ${delivery.head} into ${delivery.baseBranch}.`}
+              </span>
+            </div>
+            <div className="cmt-delivery-actions">
+              {!delivery.push && (
+                <button
+                  type="button"
+                  disabled={deliveryBusy || !delivery.pushWritable}
+                  title={delivery.disabledReason ?? undefined}
+                  onClick={() => { void push(); }}
+                >
+                  {deliveryBusy ? 'Pushing…' : 'Push branch'}
+                </button>
+              )}
+              {delivery.push && !delivery.pullRequest && (
+                <button
+                  type="button"
+                  disabled={deliveryBusy}
+                  onClick={() => { void createPullRequest(); }}
+                >
+                  {deliveryBusy ? 'Creating…' : 'Create pull request'}
+                </button>
+              )}
+              {delivery.pullRequest && (
+                <button
+                  type="button"
+                  onClick={() => { void openPullRequest(); }}
+                >
+                  Open pull request ↗
+                </button>
+              )}
+            </div>
           </div>
         )}
         {state === 'canceled' && (
@@ -394,7 +497,7 @@ export default function ProgressView({
       <div className="cmt-prog-pr">
         <PrPanel
           slug={upstreamSlug}
-          number={selected?.item.pullRequestNumber ?? null}
+          number={delivery?.pullRequest?.number ?? selected?.item.pullRequestNumber ?? null}
         />
       </div>
     </div>

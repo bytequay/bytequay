@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.cherrypick.CherryPickExecution;
+import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
@@ -88,6 +89,18 @@ public class CherryPickExecutionEntity
 
     @Column(columnDefinition = "TEXT")
     private String pullRequestBody;
+
+    private String pushedRemote;
+
+    private String pushedHead;
+
+    private String pushedSha;
+
+    private Long providerPullRequestId;
+
+    private Integer providerPullRequestNumber;
+
+    private String providerPullRequestUrl;
 
     @Column(nullable = false)
     private String sourceBaseSha;
@@ -179,6 +192,12 @@ public class CherryPickExecutionEntity
         laneId = workspace.laneId();
         pullRequestTitle = execution.pullRequestDraft().map(PullRequestDraft::title).orElse(null);
         pullRequestBody = execution.pullRequestDraft().map(PullRequestDraft::body).orElse(null);
+        pushedRemote = execution.delivery().map(Delivery::pushRemote).orElse(null);
+        pushedHead = execution.delivery().map(Delivery::head).orElse(null);
+        pushedSha = execution.delivery().map(Delivery::sha).orElse(null);
+        providerPullRequestId = execution.delivery().flatMap(Delivery::pullRequestId).orElse(null);
+        providerPullRequestNumber = execution.delivery().flatMap(Delivery::pullRequestNumber).orElse(null);
+        providerPullRequestUrl = execution.delivery().flatMap(Delivery::pullRequestUrl).orElse(null);
         sourceBaseSha = range.sourceBaseSha();
         sourceTipSha = range.sourceTipSha();
         initialTargetSha = range.initialTargetSha();
@@ -216,6 +235,13 @@ public class CherryPickExecutionEntity
                         laneId),
                 Optional.ofNullable(pullRequestTitle)
                         .map(title -> new PullRequestDraft(title, Optional.ofNullable(pullRequestBody).orElse(""))),
+                Optional.ofNullable(pushedRemote).map(remote -> new Delivery(
+                        remote,
+                        pushedHead,
+                        pushedSha,
+                        Optional.ofNullable(providerPullRequestId),
+                        Optional.ofNullable(providerPullRequestNumber),
+                        Optional.ofNullable(providerPullRequestUrl))),
                 new Range(sourceBaseSha, sourceTipSha, initialTargetSha),
                 currentTargetSha,
                 Optional.ofNullable(agentTaskId),

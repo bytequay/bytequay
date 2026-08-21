@@ -18,123 +18,145 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.DiffFile;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Local checkout browsing for the Commits tab. Every endpoint targets the
- * repository path the caller names, like the cherry-pick surfaces do.
+ * Local checkout browsing for the Commits tab. The backend resolves every
+ * checkout from a durable workspace ID; the renderer cannot select a path.
  */
 @RestController
-@RequestMapping("/api/git")
+@RequestMapping("/api/workspaces/{workspaceId}/git")
 public class GitBrowseController
 {
+    private final WorkspaceRepositoryService workspaces;
     private final GitBrowseService service;
 
-    public GitBrowseController(GitBrowseService service)
+    public GitBrowseController(WorkspaceRepositoryService workspaces, GitBrowseService service)
     {
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.service = requireNonNull(service, "service is null");
     }
 
     @GetMapping("/overview")
-    public RepoOverview overview(@RequestParam String repository)
+    public RepoOverview overview(@PathVariable String workspaceId)
     {
-        return service.overview(repositoryPath(repository));
+        return service.overview(context(workspaceId).repository());
     }
 
     @GetMapping("/branches")
-    public List<String> remoteBranches(@RequestParam String repository, @RequestParam String remote)
+    public List<String> remoteBranches(@PathVariable String workspaceId, @RequestParam String remote)
     {
-        return service.remoteBranches(repositoryPath(repository), remote);
+        WorkspaceRepositoryContext context = context(workspaceId);
+        return service.remoteBranches(context.repository(), allowedRemote(context, remote));
     }
 
-    @GetMapping("/log")
-    public List<Commit> log(
-            @RequestParam String repository,
+    @GetMapping("/commits")
+    public List<Commit> commits(
+            @PathVariable String workspaceId,
             @RequestParam String ref,
             @RequestParam(defaultValue = "200") int limit)
     {
-        return service.log(repositoryPath(repository), ref, limit);
+        return service.log(context(workspaceId).repository(), revision(ref), limit);
     }
 
     @GetMapping("/diff")
-    public List<DiffFile> diff(@RequestParam String repository, @RequestParam String base, @RequestParam String head)
+    public List<DiffFile> diff(
+            @PathVariable String workspaceId,
+            @RequestParam String base,
+            @RequestParam String head)
     {
-        return service.diff(repositoryPath(repository), base, head);
+        return service.diff(context(workspaceId).repository(), revision(base), revision(head));
     }
 
     @GetMapping("/status")
-    public WorktreeStatus status(@RequestParam String repository)
+    public WorktreeStatus status(@PathVariable String workspaceId)
     {
-        return service.status(repositoryPath(repository));
+        return service.status(context(workspaceId).repository());
     }
 
     @PostMapping("/fetch")
-    public Map<String, Boolean> fetch(@RequestBody GitFetchRequest request)
+    public Map<String, Boolean> fetch(@PathVariable String workspaceId, @RequestBody GitFetchRequest request)
     {
-        service.fetch(repositoryPath(request.repository()), request.remotes());
+        WorkspaceRepositoryContext context = context(workspaceId);
+        checkArgument(request.remotes() != null, "remotes is null");
+        List<String> remotes = request.remotes().stream()
+                .map(remote -> allowedRemote(context, remote))
+                .distinct()
+                .toList();
+        service.fetch(context.repository(), remotes);
         return Map.of("fetched", true);
     }
 
     @PostMapping("/commit")
-    public Map<String, String> commit(@RequestBody GitCommitRequest request)
+    public Map<String, String> commit(@PathVariable String workspaceId, @RequestBody GitCommitRequest request)
     {
         return Map.of("sha", service.commit(
-                repositoryPath(request.repository()),
+                context(workspaceId).repository(),
                 request.summary(),
                 request.description() == null ? "" : request.description()));
     }
 
     @PostMapping("/reword")
-    public Map<String, String> reword(@RequestBody GitRewordRequest request)
+    public Map<String, String> reword(@PathVariable String workspaceId, @RequestBody GitRewordRequest request)
     {
         return Map.of("sha", service.reword(
-                repositoryPath(request.repository()),
-                request.branch(),
-                request.sha(),
+                context(workspaceId).repository(),
+                revision(request.branch()),
+                revision(request.sha()),
                 request.message()));
     }
 
     @PostMapping("/squash")
-    public Map<String, String> squash(@RequestBody GitSquashRequest request)
+    public Map<String, String> squash(@PathVariable String workspaceId, @RequestBody GitSquashRequest request)
     {
         return Map.of("sha", service.squash(
-                repositoryPath(request.repository()),
-                request.branch(),
-                request.baseSha(),
-                request.tipSha(),
+                context(workspaceId).repository(),
+                revision(request.branch()),
+                revision(request.baseSha()),
+                revision(request.tipSha()),
                 request.message()));
     }
 
-    private static Path repositoryPath(String value)
+    private WorkspaceRepositoryContext context(String workspaceId)
     {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("repository is blank");
-        }
-        try {
-            return Path.of(value);
-        }
-        catch (InvalidPathException e) {
-            throw new IllegalArgumentException("repository is not a valid path");
-        }
+        return workspaces.requireReadyRepository(workspaceId);
     }
 
-    public record GitFetchRequest(String repository, List<String> remotes) {}
+    private static String allowedRemote(WorkspaceRepositoryContext context, String remote)
+    {
+        checkArgument(
+                remote != null && (remote.equals(context.sourceRemote()) || remote.equals(context.targetRemote())),
+                "remote is not configured for this workspace");
+        return remote;
+    }
 
-    public record GitCommitRequest(String repository, String summary, String description) {}
+    private static String revision(String value)
+    {
+        checkArgument(value != null && !value.isBlank(), "revision is blank");
+        checkArgument(!value.startsWith("-"), "revision must not be a Git option");
+        checkArgument(value.length() <= 512, "revision is too long");
+        return value;
+    }
 
-    public record GitRewordRequest(String repository, String branch, String sha, String message) {}
+    public record GitFetchRequest(List<String> remotes) {}
 
-    public record GitSquashRequest(String repository, String branch, String baseSha, String tipSha, String message) {}
+    public record GitCommitRequest(String summary, String description) {}
+
+    public record GitRewordRequest(String branch, String sha, String message) {}
+
+    public record GitSquashRequest(String branch, String baseSha, String tipSha, String message) {}
 }

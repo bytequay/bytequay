@@ -296,14 +296,17 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
-  // Local checkout browsing for the workspace Commits tab.
-  const gitGet = (endpoint: string, params: Record<string, string>) => {
-    const url = new URL(`${BACKEND_BASE}/api/git/${endpoint}`);
+  // Local checkout browsing for the workspace Commits tab. Only the workspace
+  // ID crosses IPC; the backend owns and resolves the managed checkout path.
+  const gitGet = (workspaceId: string, endpoint: string, params: Record<string, string>) => {
+    const url = new URL(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`,
+    );
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
   };
-  const gitPost = (endpoint: string, body: unknown, timeoutMs = 120_000) =>
-    backendJson(`${BACKEND_BASE}/api/git/${endpoint}`, {
+  const gitPost = (workspaceId: string, endpoint: string, body: unknown, timeoutMs = 120_000) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -312,30 +315,30 @@ function registerIpc(): void {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
-  ipcMain.handle('git:overview', (_event, repository: string) =>
-    gitGet('overview', { repository }));
-  ipcMain.handle('git:branches', (_event, repository: string, remote: string) =>
-    gitGet('branches', { repository, remote }));
-  ipcMain.handle('git:log', (_event, repository: string, ref: string, limit: number) =>
-    gitGet('log', { repository, ref, limit: String(limit) }));
-  ipcMain.handle('git:diff', (_event, repository: string, base: string, head: string) =>
-    gitGet('diff', { repository, base, head }));
-  ipcMain.handle('git:status', (_event, repository: string) =>
-    gitGet('status', { repository }));
-  ipcMain.handle('git:fetch', (_event, repository: string, remotes: string[]) =>
-    gitPost('fetch', { repository, remotes }, 5 * 60_000));
-  ipcMain.handle('git:commit', (_event, repository: string, summary: string, description: string) =>
-    gitPost('commit', { repository, summary, description }));
-  ipcMain.handle('git:reword', (_event, repository: string, branch: string, sha: string, message: string) =>
-    gitPost('reword', { repository, branch, sha, message }));
+  ipcMain.handle('git:overview', (_event, workspaceId: string) =>
+    gitGet(workspaceId, 'overview', {}));
+  ipcMain.handle('git:branches', (_event, workspaceId: string, remote: string) =>
+    gitGet(workspaceId, 'branches', { remote }));
+  ipcMain.handle('git:log', (_event, workspaceId: string, ref: string, limit: number) =>
+    gitGet(workspaceId, 'commits', { ref, limit: String(limit) }));
+  ipcMain.handle('git:diff', (_event, workspaceId: string, base: string, head: string) =>
+    gitGet(workspaceId, 'diff', { base, head }));
+  ipcMain.handle('git:status', (_event, workspaceId: string) =>
+    gitGet(workspaceId, 'status', {}));
+  ipcMain.handle('git:fetch', (_event, workspaceId: string, remotes: string[]) =>
+    gitPost(workspaceId, 'fetch', { remotes }, 5 * 60_000));
+  ipcMain.handle('git:commit', (_event, workspaceId: string, summary: string, description: string) =>
+    gitPost(workspaceId, 'commit', { summary, description }));
+  ipcMain.handle('git:reword', (_event, workspaceId: string, branch: string, sha: string, message: string) =>
+    gitPost(workspaceId, 'reword', { branch, sha, message }));
   ipcMain.handle('git:squash', (
     _event,
-    repository: string,
+    workspaceId: string,
     branch: string,
     baseSha: string,
     tipSha: string,
     message: string,
-  ) => gitPost('squash', { repository, branch, baseSha, tipSha, message }));
+  ) => gitPost(workspaceId, 'squash', { branch, baseSha, tipSha, message }));
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');

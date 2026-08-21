@@ -48,7 +48,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   const [changesCount, setChangesCount] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<number | null>(() => {
-    const value = localStorage.getItem(`bytequay.lastSync.${workspace.path}`);
+    const value = localStorage.getItem(`bytequay.lastSync.${workspace.id}`);
     return value ? Number(value) : null;
   });
   const [preview, setPreview] = useState<CherryPickPreview | null>(null);
@@ -67,10 +67,10 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   const checked = isUpstream ? checkedUp : checkedWs;
 
   const refreshOverview = useCallback(() => {
-    window.bridge.gitOverview(workspace.path)
+    window.bridge.gitOverview(workspace.id)
       .then(setOverview)
       .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
-  }, [workspace.path]);
+  }, [workspace.id]);
 
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
 
@@ -88,7 +88,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   useEffect(() => {
     let cancelled = false;
     setLogLoading(true);
-    window.bridge.gitLog(workspace.path, logRef, 300)
+    window.bridge.gitLog(workspace.id, logRef, 300)
       .then(value => {
         if (cancelled) return;
         setCommits(value);
@@ -103,25 +103,25 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
         if (!cancelled) setLogLoading(false);
       });
     return () => { cancelled = true; };
-  }, [workspace.path, logRef, logVersion]);
+  }, [workspace.id, logRef, logVersion]);
 
   useEffect(() => {
     if (isUpstream) return;
     let cancelled = false;
-    window.bridge.gitStatus(workspace.path)
+    window.bridge.gitStatus(workspace.id)
       .then(status => { if (!cancelled) setChangesCount(status.files.length); })
       .catch(() => { if (!cancelled) setChangesCount(null); });
     return () => { cancelled = true; };
-  }, [workspace.path, isUpstream, logVersion, commitsView]);
+  }, [workspace.id, isUpstream, logVersion, commitsView]);
 
   useEffect(() => {
     if (!upMenu || upstreamRemote === null || upBranches.length > 0) return;
     let cancelled = false;
-    window.bridge.gitRemoteBranches(workspace.path, upstreamRemote)
+    window.bridge.gitRemoteBranches(workspace.id, upstreamRemote)
       .then(value => { if (!cancelled) setUpBranches(value); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [upMenu, upstreamRemote, upBranches.length, workspace.path]);
+  }, [upMenu, upstreamRemote, upBranches.length, workspace.id]);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
 
@@ -130,10 +130,10 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
     setSyncing(true);
     try {
       const remotes = [workspace.originRemote, ...(upstreamRemote ? [upstreamRemote] : [])];
-      await window.bridge.gitFetch(workspace.path, remotes);
+      await window.bridge.gitFetch(workspace.id, remotes);
       const now = Date.now();
       setSyncedAt(now);
-      localStorage.setItem(`bytequay.lastSync.${workspace.path}`, String(now));
+      localStorage.setItem(`bytequay.lastSync.${workspace.id}`, String(now));
       setLogVersion(version => version + 1);
       refreshOverview();
     } catch (failure) {
@@ -329,13 +329,13 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
 
       {screen === 'commits' && commitsView === 'changes' && !isUpstream && (
         <ChangesView
-          repository={workspace.path}
+          workspaceId={workspace.id}
           onCommitted={() => setLogVersion(version => version + 1)}
         />
       )}
       {screen === 'commits' && (commitsView === 'history' || isUpstream) && (
         <HistoryView
-          repository={workspace.path}
+          workspaceId={workspace.id}
           branch={branch}
           logRef={logRef}
           isUpstream={isUpstream}

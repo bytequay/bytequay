@@ -1,7 +1,7 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 4 complete; workspace-scoped Git and Commits integration are next in
-Checkpoint 5. The existing commit browser and local cherry-pick execution are reusable; this
+Status: Checkpoint 5 complete; workspace-scoped cherry-pick handoff is next in Checkpoint 6. The
+existing commit browser and local cherry-pick execution are reusable; this
 checklist tracks the
 missing watch-to-workspace integration and its delivery checkpoints.
 
@@ -207,28 +207,28 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### Backend integration
 
-- [ ] Add workspace-scoped overview, branches, commits, diff, status, and fetch endpoints.
-- [ ] Resolve the trusted repository path through `requireReadyRepository`.
-- [ ] Reject Git operations until code state is `READY`.
-- [ ] Stop accepting `repositoryPath` from the workspace renderer flow.
-- [ ] Preserve the existing `GitBrowseService` implementation behind the new controller boundary.
-- [ ] Audit path validation for every Git command reached from workspace routes.
+- [x] Add workspace-scoped overview, branches, commits, diff, status, and fetch endpoints.
+- [x] Resolve the trusted repository path through `requireReadyRepository`.
+- [x] Reject Git operations until code state is `READY`.
+- [x] Stop accepting `repositoryPath` from the workspace renderer flow.
+- [x] Preserve the existing `GitBrowseService` implementation behind the new controller boundary.
+- [x] Audit path validation for every Git command reached from workspace routes.
 
 ### Frontend integration
 
-- [ ] Load Commits data using the route workspace ID.
-- [ ] Remove repository path from workspace Git request types.
-- [ ] Enable Commits only when code is ready.
-- [ ] Keep History, Changes, Flow, Tasks, and Progress navigation intact.
-- [ ] Preserve branch selection, commit pagination, range selection, and diff behavior.
+- [x] Load Commits data using the route workspace ID.
+- [x] Remove repository path from workspace Git request types.
+- [x] Enable Commits only when code is ready.
+- [x] Keep History, Changes, Flow, Tasks, and Progress navigation intact.
+- [x] Preserve branch selection, commit pagination, range selection, and diff behavior.
 
 ### Tests and gate
 
-- [ ] Workspace A cannot browse Workspace B by changing request data.
-- [ ] Pending/failed clone state returns a stable not-ready response.
-- [ ] Existing Git browse service tests still pass.
-- [ ] Existing Commits frontend tests pass with workspace-ID requests.
-- [ ] Checkpoint 5 gate: clicking Commits displays the managed repository's commit history.
+- [x] Workspace A cannot browse Workspace B by changing request data.
+- [x] Pending/failed clone state returns a stable not-ready response.
+- [x] Existing Git browse service tests still pass.
+- [x] Existing Commits frontend tests pass with workspace-ID requests.
+- [x] Checkpoint 5 gate: clicking Commits displays the managed repository's commit history.
 
 ## Checkpoint 6 — Cherry-pick handoff from Workspace Commits
 

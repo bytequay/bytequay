@@ -16,8 +16,8 @@ import type { GitWorktreeStatusDto } from '../types';
 import { DiffView, FileList } from './DiffPane';
 
 /** GitHub-Desktop-style working-tree view; workspace repo only. */
-export default function ChangesView({ repository, onCommitted }: {
-  repository: string;
+export default function ChangesView({ workspaceId, onCommitted }: {
+  workspaceId: string;
   onCommitted: () => void;
 }) {
   const [status, setStatus] = useState<GitWorktreeStatusDto | null>(null);
@@ -29,13 +29,13 @@ export default function ChangesView({ repository, onCommitted }: {
 
   const refresh = useCallback(async () => {
     try {
-      const next = await window.bridge.gitStatus(repository);
+      const next = await window.bridge.gitStatus(workspaceId);
       setStatus(next);
       setSelected(current => Math.min(current, Math.max(0, next.files.length - 1)));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     }
-  }, [repository]);
+  }, [workspaceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -44,7 +44,7 @@ export default function ChangesView({ repository, onCommitted }: {
     setBusy(true);
     setError(null);
     try {
-      await window.bridge.gitCommit(repository, summary.trim(), description.trim());
+      await window.bridge.gitCommit(workspaceId, summary.trim(), description.trim());
       setSummary('');
       setDescription('');
       await refresh();

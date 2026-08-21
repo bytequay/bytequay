@@ -504,16 +504,16 @@ export type Bridge = {
   cancelCherryPickExecution: (executionId: string, repository: string) => Promise<CherryPickExecution>;
   chooseDirectory: (title: string) => Promise<string | null>;
 
-  gitOverview: (repository: string) => Promise<GitOverviewDto>;
-  gitRemoteBranches: (repository: string, remote: string) => Promise<string[]>;
-  gitLog: (repository: string, ref: string, limit: number) => Promise<GitCommitDto[]>;
-  gitDiff: (repository: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
-  gitStatus: (repository: string) => Promise<GitWorktreeStatusDto>;
-  gitFetch: (repository: string, remotes: string[]) => Promise<{ fetched: boolean }>;
-  gitCommit: (repository: string, summary: string, description: string) => Promise<{ sha: string }>;
-  gitReword: (repository: string, branch: string, sha: string, message: string) => Promise<{ sha: string }>;
+  gitOverview: (workspaceId: string) => Promise<GitOverviewDto>;
+  gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;
+  gitLog: (workspaceId: string, ref: string, limit: number) => Promise<GitCommitDto[]>;
+  gitDiff: (workspaceId: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
+  gitStatus: (workspaceId: string) => Promise<GitWorktreeStatusDto>;
+  gitFetch: (workspaceId: string, remotes: string[]) => Promise<{ fetched: boolean }>;
+  gitCommit: (workspaceId: string, summary: string, description: string) => Promise<{ sha: string }>;
+  gitReword: (workspaceId: string, branch: string, sha: string, message: string) => Promise<{ sha: string }>;
   gitSquash: (
-    repository: string,
+    workspaceId: string,
     branch: string,
     baseSha: string,
     tipSha: string,

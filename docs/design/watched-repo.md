@@ -534,7 +534,11 @@ GET    /api/workspaces/{workspaceId}/git/overview
 GET    /api/workspaces/{workspaceId}/git/branches
 GET    /api/workspaces/{workspaceId}/git/commits
 GET    /api/workspaces/{workspaceId}/git/diff
+GET    /api/workspaces/{workspaceId}/git/status
 POST   /api/workspaces/{workspaceId}/git/fetch
+POST   /api/workspaces/{workspaceId}/git/commit
+POST   /api/workspaces/{workspaceId}/git/reword
+POST   /api/workspaces/{workspaceId}/git/squash
 
 POST   /api/workspaces/{workspaceId}/cherry-pick/preview
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions

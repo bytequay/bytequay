@@ -134,7 +134,7 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
   useEffect(() => {
     if (workspace.codeState !== 'READY') return;
     let cancelled = false;
-    window.bridge.gitOverview(workspace.path)
+    window.bridge.gitOverview(workspace.id)
       .then(overview => {
         if (cancelled) return;
         const origin = overview.remotes.find(remote => remote.name === workspace.originRemote);
@@ -143,7 +143,7 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
       .catch(() => {})
       .finally(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
-  }, [workspace.codeState, workspace.path, workspace.originRemote]);
+  }, [workspace.codeState, workspace.id, workspace.originRemote]);
 
   if (!ready) return <div className="ws-empty">Loading…</div>;
   return (
@@ -338,11 +338,11 @@ function WorkspaceSettings({ workspace, onRemoved }: {
   useEffect(() => {
     if (workspace.codeState !== 'READY') return;
     let cancelled = false;
-    window.bridge.gitOverview(workspace.path)
+    window.bridge.gitOverview(workspace.id)
       .then(overview => { if (!cancelled) setRemotes(overview.remotes); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [workspace.codeState, workspace.path]);
+  }, [workspace.codeState, workspace.id]);
 
   const upstreamUrl = remotes.find(remote => remote.name === draft.upstreamRemote)?.url;
   const upstreamLabel = draft.upstreamOwner && draft.upstreamRepo

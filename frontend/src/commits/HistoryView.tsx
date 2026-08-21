@@ -19,7 +19,7 @@ import DiffPane from './DiffPane';
 import { groupByDay, selectedSpan, shortSha, spanFromShas, squashMessage } from './model';
 
 export default function HistoryView({
-  repository,
+  workspaceId,
   branch,
   logRef,
   isUpstream,
@@ -30,7 +30,7 @@ export default function HistoryView({
   onChangeChecked,
   onHistoryRewritten,
 }: {
-  repository: string;
+  workspaceId: string;
   branch: string;
   /** The ref the commits were listed from (branch, or remote/branch). */
   logRef: string;
@@ -78,7 +78,7 @@ export default function HistoryView({
       return;
     }
     let cancelled = false;
-    window.bridge.gitDiff(repository, diffBase, diffHead)
+    window.bridge.gitDiff(workspaceId, diffBase, diffHead)
       .then(files => {
         if (cancelled) return;
         setDiffFiles(files);
@@ -88,7 +88,7 @@ export default function HistoryView({
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       });
     return () => { cancelled = true; };
-  }, [repository, diffBase, diffHead]);
+  }, [workspaceId, diffBase, diffHead]);
 
   const resetDrafts = () => {
     setEditTitle(null);
@@ -130,7 +130,7 @@ export default function HistoryView({
       const title = (editTitle ?? single.title).trim();
       const body = (editBody ?? single.body).trim();
       await window.bridge.gitReword(
-        repository,
+        workspaceId,
         branch,
         single.sha,
         body === '' ? title : `${title}\n\n${body}`,
@@ -150,7 +150,7 @@ export default function HistoryView({
     setError(null);
     try {
       await window.bridge.gitSquash(
-        repository,
+        workspaceId,
         branch,
         commits[span.hi].sha,
         commits[span.lo].sha,

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { PullRequestDto, RecentEventDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
@@ -20,6 +20,11 @@ import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
+import {
+  workspaceFromDto,
+  workspaceIsUpdating,
+  type Workspace,
+} from '../workspaces/model';
 
 // The GitHub-sourced flows (profile, recent/following events, orgs) used
 // to be cached client-side via getCached/setCached for instant-paint on
@@ -28,7 +33,6 @@ import { relativeTime } from '../relativeTime';
 // already-cached backend on every mount and the localStorage layer is gone
 // for those keys. The remaining keys back DB-sourced flows that didn't
 // move — keeping their localStorage cache preserves the instant-paint UX.
-const KEY_WATCHED = 'home:watchedRepos';
 const KEY_PRS = 'prs:list';
 
 type Props = {
@@ -111,39 +115,48 @@ function HomePage({
     openUrl(url);
   };
 
-  // Seed the still-client-cached state (watched repos and PR list) from
-  // the module cache so a return to this tab renders instantly. The
-  // GitHub-sourced flows below (profile, events, following) start empty
-  // and populate from the backend's DB cache on the load() call.
-  const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
   const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
 
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
-  const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
-  // Only show the first-load spinner when we have nothing to paint yet.
-  const [loading, setLoading] = useState(cachedWatched === undefined);
+  const [loading, setLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (!workspaces.some(workspaceIsUpdating)) return;
+    const timer = window.setTimeout(() => {
+      void window.bridge.listWorkspaces()
+        .then(rows => setWorkspaces(rows.map(workspaceFromDto)))
+        .catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [workspaces]);
+
   async function load() {
-    // Silently refresh the profile + watched-repos pair first.
+    // Workspaces are backend-owned; localStorage is never authoritative.
     const [profileResult, reposResult] = await Promise.allSettled([
       window.bridge.getUserProfile(),
-      window.bridge.getWatchedRepos(),
+      window.bridge.listWorkspaces(),
     ]);
     const loadedProfile = profileResult.status === 'fulfilled' ? profileResult.value : null;
     if (loadedProfile) {
       setProfile(loadedProfile);
     }
     if (reposResult.status === 'fulfilled') {
-      setRepos(reposResult.value);
-      setCached(KEY_WATCHED, reposResult.value);
+      setWorkspaces(reposResult.value.map(workspaceFromDto));
+    }
+    else {
+      setWorkspaceError(reposResult.reason instanceof Error
+        ? reposResult.reason.message
+        : String(reposResult.reason));
     }
     setLoading(false);
 
@@ -179,20 +192,33 @@ function HomePage({
   }, [prs]);
 
 
-  async function handleAdded() {
-    const fresh = await window.bridge.getWatchedRepos();
-    setRepos(fresh);
-    setCached(KEY_WATCHED, fresh);
+  function handleAdded(dto: WorkspaceDto) {
+    const added = workspaceFromDto(dto);
+    setWorkspaces(previous => [added, ...previous.filter(row => row.id !== added.id)]
+      .sort((left, right) => left.displayOrder - right.displayOrder));
   }
 
-  async function handleRemove(owner: string, repo: string) {
-    if (!confirm(`Stop watching ${owner}/${repo}?`)) return;
-    await window.bridge.removeWatchedRepo(owner, repo).catch(() => {});
-    setRepos(prev => {
-      const next = prev.filter(r => !(r.owner === owner && r.repo === repo));
-      setCached(KEY_WATCHED, next);
-      return next;
-    });
+  async function handleRemove(workspace: Workspace) {
+    if (!confirm(`Stop watching ${workspace.selectedOwner}/${workspace.selectedRepo}?`)) return;
+    setWorkspaceError(null);
+    try {
+      await window.bridge.removeWorkspace(workspace.id);
+      setWorkspaces(previous => previous.filter(row => row.id !== workspace.id));
+    }
+    catch (failure) {
+      setWorkspaceError(failure instanceof Error ? failure.message : String(failure));
+    }
+  }
+
+  async function handleRetry(workspaceId: string) {
+    setWorkspaceError(null);
+    try {
+      const updated = workspaceFromDto(await window.bridge.syncWorkspace(workspaceId));
+      setWorkspaces(previous => previous.map(row => row.id === updated.id ? updated : row));
+    }
+    catch (failure) {
+      setWorkspaceError(failure instanceof Error ? failure.message : String(failure));
+    }
   }
 
   return (
@@ -267,13 +293,15 @@ function HomePage({
       </section>
 
       {/* ── Repos you watch ── */}
+      {workspaceError && <div className="ws-error" role="alert">{workspaceError}</div>}
       <WatchedReposGrid
-        repos={repos}
+        workspaces={workspaces}
         loading={loading}
         events={events}
-        onSelectRepo={(owner, repo) => onSelectRepo(owner, repo)}
+        onOpenWorkspace={onOpenWorkspace}
         onWatch={() => setShowModal(true)}
-        onRemove={(owner, repo) => { void handleRemove(owner, repo); }}
+        onRetry={workspaceId => { void handleRetry(workspaceId); }}
+        onRemove={workspace => { void handleRemove(workspace); }}
       />
 
       </main>
@@ -329,7 +357,7 @@ function HomePage({
 
       {showModal && (
         <AddRepoModal
-          onAdded={() => { void handleAdded(); }}
+          onAdded={handleAdded}
           onOpenWorkspace={onOpenWorkspace}
           onClose={() => setShowModal(false)}
         />

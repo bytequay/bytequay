@@ -682,6 +682,15 @@
   font-weight: 500;
 }
 
+.home-repo-tile__retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
 /* ── Contribution card ──────────────────────────────────────────────
    Lead card: graph left, compact bio right. */
 .home-contrib {

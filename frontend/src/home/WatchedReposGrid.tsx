@@ -12,17 +12,23 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { RecentEventDto, RepoMetaDto, WatchedRepoDto } from '../types';
+import type { RecentEventDto, RepoMetaDto } from '../types';
 import Avatar from '../Avatar';
+import {
+  workspacePhase,
+  workspacePhaseLabel,
+  type Workspace,
+} from '../workspaces/model';
 
 type Props = {
-  repos: WatchedRepoDto[];
+  workspaces: Workspace[];
   loading: boolean;
   /** Recent GitHub events — powers the per-repo "active today" chip. */
   events: RecentEventDto[];
-  onSelectRepo: (owner: string, repo: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   onWatch: () => void;
-  onRemove: (owner: string, repo: string) => void;
+  onRetry: (workspaceId: string) => void;
+  onRemove: (workspace: Workspace) => void;
 };
 
 function topLanguage(meta: RepoMetaDto | undefined): string | null {
@@ -55,17 +61,25 @@ function activityChip(events: RecentEventDto[], fullName: string): string | null
 }
 
 /** "Repos you watch" as a two-column card grid. Description, stars and
- *  language come from the backend's cached repo meta, fetched per repo
+ *  language come from the backend's cached monitored-repo metadata
  *  (same pattern as the Repos page). */
-function WatchedReposGrid({ repos, loading, events, onSelectRepo, onWatch, onRemove }: Props) {
+function WatchedReposGrid({
+  workspaces,
+  loading,
+  events,
+  onOpenWorkspace,
+  onWatch,
+  onRetry,
+  onRemove,
+}: Props) {
   const [metas, setMetas] = useState<Record<string, RepoMetaDto>>({});
 
   useEffect(() => {
     let cancelled = false;
-    for (const r of repos) {
-      const key = `${r.owner}/${r.repo}`;
+    for (const workspace of workspaces) {
+      const key = workspace.id;
       if (metas[key] !== undefined) continue;
-      window.bridge.getRepoMeta(r.owner, r.repo)
+      window.bridge.getRepoMeta(workspace.monitoredOwner, workspace.monitoredRepo)
         .then(meta => {
           if (!cancelled) setMetas(prev => ({ ...prev, [key]: meta }));
         })
@@ -75,7 +89,7 @@ function WatchedReposGrid({ repos, loading, events, onSelectRepo, onWatch, onRem
     // metas deliberately omitted: re-running on every meta arrival would
     // refire the loop; the `!== undefined` guard needs only the repo list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repos]);
+  }, [workspaces]);
 
   return (
     <div className="home-section">
@@ -87,32 +101,38 @@ function WatchedReposGrid({ repos, loading, events, onSelectRepo, onWatch, onRem
       </div>
       {loading ? (
         <div className="hp-loading">Loading…</div>
-      ) : repos.length === 0 ? (
+      ) : workspaces.length === 0 ? (
         <div className="hp-empty">No repos yet.</div>
       ) : (
         <div className="home-grid-2">
-          {repos.map(r => {
-            const fullName = `${r.owner}/${r.repo}`;
-            const meta = metas[fullName];
+          {workspaces.map(workspace => {
+            const fullName = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
+            const monitored = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+            const meta = metas[workspace.id];
             const lang = topLanguage(meta);
-            const chip = activityChip(events, fullName);
+            const chip = activityChip(events, monitored);
+            const phase = workspacePhase(workspace);
+            const failed = phase === 'needs-attention';
             return (
               <div
-                key={r.id}
+                key={workspace.id}
+                data-workspace-id={workspace.id}
                 className="home-repo-tile"
                 role="button"
                 tabIndex={0}
-                onClick={() => onSelectRepo(r.owner, r.repo)}
+                onClick={() => onOpenWorkspace(workspace.id)}
                 onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    onSelectRepo(r.owner, r.repo);
+                    onOpenWorkspace(workspace.id);
                   }
                 }}
               >
                 <div className="home-repo-tile__head">
-                  <Avatar login={r.owner} size={26} className="home-repo-tile__avatar" />
-                  <span className="home-repo-tile__name">{r.owner}/{r.repo}</span>
+                  <Avatar login={workspace.selectedOwner} size={26} className="home-repo-tile__avatar" />
+                  <span className="home-repo-tile__name">{fullName}</span>
+                  <span className={`ws-state is-${phase}`}>{workspacePhaseLabel(workspace)}</span>
                   <button
                     className="home-repo-tile__unwatch"
                     type="button"
@@ -120,7 +140,7 @@ function WatchedReposGrid({ repos, loading, events, onSelectRepo, onWatch, onRem
                     title="Unwatch this repo"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onRemove(r.owner, r.repo);
+                      onRemove(workspace);
                     }}
                   >
                     ✕
@@ -130,8 +150,21 @@ function WatchedReposGrid({ repos, loading, events, onSelectRepo, onWatch, onRem
                 <div className="home-repo-tile__foot">
                   {meta && <span>★ {meta.stargazersCount}</span>}
                   {lang && <span>{lang}</span>}
-                  {meta?.defaultBranch && <span>⎇ {meta.defaultBranch}</span>}
+                  <span>⎇ {workspace.defaultBranch}</span>
+                  {workspace.topology === 'FORK' && <span>⑂ fork</span>}
                   {chip && <span className="home-repo-tile__chip">{chip}</span>}
+                  {failed && (
+                    <button
+                      className="home-repo-tile__retry"
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        onRetry(workspace.id);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
                 </div>
               </div>
             );

@@ -17,7 +17,14 @@ import TasksView from '../commits/TasksView';
 import { isOpenTask } from '../commits/model';
 import PullsScreen from '../pulls/PullsScreen';
 import type { CherryPickExecution, GitOverviewDto } from '../types';
-import { githubSlug, type Workspace } from './model';
+import { relativeTime } from '../relativeTime';
+import {
+  githubSlug,
+  workspaceFromDto,
+  workspaceIsUpdating,
+  workspaceStateLabel,
+  type Workspace,
+} from './model';
 import '../css/workspaces.css';
 
 export type WorkspaceTab =
@@ -37,6 +44,23 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   useEffect(() => {
     if (tab !== 'commits') setOpenExecutionId(null);
   }, [tab]);
+
+  useEffect(() => {
+    if (!workspaceIsUpdating(workspace)) return;
+    const timer = window.setTimeout(() => {
+      void window.bridge.getWorkspace(workspace.id)
+        .then(details => onWorkspaceChanged(workspaceFromDto(details.summary)))
+        .catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [workspace, onWorkspaceChanged]);
+
+  if ((tab === 'commits' || tab === 'tasks') && workspace.codeState !== 'READY') {
+    return <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />;
+  }
+  if ((tab === 'prs' || tab === 'issues') && workspace.metadataState !== 'READY') {
+    return <WorkspaceUnavailable message="Repository metadata must be ready before this tab can open." />;
+  }
 
   if (tab === 'commits') {
     return (
@@ -86,7 +110,17 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       </div>
     );
   }
-  return <WorkspaceHome workspace={workspace} onSelectTab={onSelectTab} />;
+  return (
+    <WorkspaceHome
+      workspace={workspace}
+      onSelectTab={onSelectTab}
+      onWorkspaceChanged={onWorkspaceChanged}
+    />
+  );
+}
+
+function WorkspaceUnavailable({ message }: { message: string }) {
+  return <div className="ws-tab-page"><div className="ws-empty">{message}</div></div>;
 }
 
 function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
@@ -98,6 +132,7 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (workspace.codeState !== 'READY') return;
     let cancelled = false;
     window.bridge.gitOverview(workspace.path)
       .then(overview => {
@@ -108,7 +143,7 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
       .catch(() => {})
       .finally(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
-  }, [workspace.path, workspace.originRemote]);
+  }, [workspace.codeState, workspace.path, workspace.originRemote]);
 
   if (!ready) return <div className="ws-empty">Loading…</div>;
   return (
@@ -120,72 +155,133 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
   );
 }
 
-function WorkspaceHome({ workspace, onSelectTab }: {
+export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
   workspace: Workspace;
   onSelectTab: (tab: WorkspaceTab) => void;
+  onWorkspaceChanged: (workspace: Workspace) => void;
 }) {
-  const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [tasks, setTasks] = useState<CherryPickExecution[]>([]);
   const [openPrs, setOpenPrs] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void window.bridge.gitOverview(workspace.path)
-      .then(value => { if (!cancelled) setOverview(value); })
-      .catch(() => {});
     void window.bridge.listCherryPickExecutions(200)
       .then(executions => { if (!cancelled) setTasks(executions); })
       .catch(() => {});
-    return () => { cancelled = true; };
-  }, [workspace.path]);
-
-  const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url;
-  const originSlug = originUrl ? githubSlug(originUrl) : null;
-  const upstreamUrl = overview?.remotes.find(remote => remote.name === workspace.upstreamRemote)?.url;
-  const upstreamSlug = upstreamUrl ? githubSlug(upstreamUrl) : null;
-
-  useEffect(() => {
-    if (!originSlug) return;
-    let cancelled = false;
-    window.bridge.fetchPrs()
+    void window.bridge.fetchPrs()
       .then(prs => {
         if (cancelled) return;
+        const monitored = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
         setOpenPrs(prs.filter(pr =>
-          pr.repo.toLowerCase() === originSlug.toLowerCase()
+          pr.repo.toLowerCase() === monitored.toLowerCase()
           && pr.state?.toLowerCase() !== 'closed').length);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [originSlug]);
+  }, [workspace.monitoredOwner, workspace.monitoredRepo]);
 
-  const workspaceTasks = originSlug === null
-    ? tasks
-    : tasks.filter(task => task.repository.toLowerCase() === originSlug.toLowerCase());
+  const identities = new Set([
+    workspace.path,
+    `${workspace.selectedOwner}/${workspace.selectedRepo}`,
+  ].map(value => value.toLowerCase()));
+  const workspaceTasks = tasks.filter(task => identities.has(task.repository.toLowerCase()));
   const activeTasks = workspaceTasks.filter(isOpenTask);
+  const codeReady = workspace.codeState === 'READY';
+  const metadataReady = workspace.metadataState === 'READY';
+  const developmentBase = `${workspace.topology === 'FORK' ? 'upstream' : 'origin'}/${workspace.defaultBranch}`;
+  const retryable = workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED';
+
+  const retry = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      onWorkspaceChanged(workspaceFromDto(await window.bridge.syncWorkspace(workspace.id)));
+    }
+    catch (failure) {
+      setRetryError(failure instanceof Error ? failure.message : String(failure));
+    }
+    finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <div className="ws-tab-page">
-      <h1>{workspace.name}</h1>
-      <div className="ws-home-sub">
-        {workspace.path} · {overview?.currentBranch ?? workspace.defaultBranch}
-        {upstreamSlug ? ` · upstream ${upstreamSlug}` : ''}
-      </div>
-      <div className="ws-stat-row">
-        {openPrs !== null && (
-          <button type="button" className="ws-stat-card" onClick={() => onSelectTab('prs')}>
-            <div className="ws-stat-value">{openPrs}</div>
-            <div className="ws-stat-label">Open pull requests</div>
+      <div className="ws-home-title">
+        <div>
+          <h1>{workspace.name}</h1>
+          <div className="ws-home-sub">{workspace.path}</div>
+        </div>
+        {retryable && (
+          <button
+            type="button"
+            className="ws-retry-btn"
+            disabled={retrying}
+            onClick={() => { void retry(); }}
+          >
+            {retrying ? 'Retrying…' : 'Retry preparation'}
           </button>
         )}
-        <button type="button" className="ws-stat-card" onClick={() => onSelectTab('tasks')}>
+      </div>
+      {retryError && <div className="ws-error" role="alert">{retryError}</div>}
+
+      <div className="ws-home-grid">
+        <section className="ws-home-card">
+          <h2>Repository routing</h2>
+          <div className="ws-routing-list">
+            <div><span>Selected repository</span><b>{workspace.selectedOwner}/{workspace.selectedRepo} · origin</b></div>
+            {workspace.upstreamOwner && workspace.upstreamRepo && (
+              <div><span>Upstream repository</span><b>{workspace.upstreamOwner}/{workspace.upstreamRepo} · upstream</b></div>
+            )}
+            <div><span>Followed for updates</span><b>{workspace.monitoredOwner}/{workspace.monitoredRepo}</b></div>
+            <div><span>Default branch</span><b>{workspace.defaultBranch}</b></div>
+            <div><span>Development base</span><b>{developmentBase}</b></div>
+          </div>
+        </section>
+        <section className="ws-home-card">
+          <h2>Readiness</h2>
+          <WorkspaceReadiness
+            label="Repository code"
+            state={workspace.codeState}
+            lastSyncAt={workspace.lastCodeSyncAt}
+            error={workspace.codeError}
+          />
+          <WorkspaceReadiness
+            label="Repository metadata"
+            state={workspace.metadataState}
+            lastSyncAt={workspace.lastMetadataSyncAt}
+            error={workspace.metadataError}
+          />
+        </section>
+      </div>
+      <div className="ws-stat-row">
+        <button
+          type="button"
+          className="ws-stat-card"
+          disabled={!metadataReady}
+          title={metadataReady ? 'Open workspace pull requests' : 'Available when repository metadata is ready.'}
+          onClick={() => onSelectTab('prs')}
+        >
+          <div className="ws-stat-value">{openPrs ?? '—'}</div>
+          <div className="ws-stat-label">Open pull requests</div>
+        </button>
+        <button type="button" className="ws-stat-card" disabled={!codeReady}
+          title={codeReady ? 'Open workspace tasks' : 'Available when repository code is ready.'}
+          onClick={() => onSelectTab('tasks')}>
           <div className="ws-stat-value">{activeTasks.length}</div>
           <div className="ws-stat-label">Active tasks</div>
         </button>
-        <button type="button" className="ws-stat-card" onClick={() => onSelectTab('tasks')}>
+        <button type="button" className="ws-stat-card" disabled={!codeReady}
+          title={codeReady ? 'Open workspace tasks' : 'Available when repository code is ready.'}
+          onClick={() => onSelectTab('tasks')}>
           <div className="ws-stat-value">{workspaceTasks.length - activeTasks.length}</div>
           <div className="ws-stat-label">Finished tasks</div>
         </button>
-        <button type="button" className="ws-stat-card" onClick={() => onSelectTab('commits')}>
+        <button type="button" className="ws-stat-card" disabled={!codeReady}
+          title={codeReady ? 'Browse commits' : 'Available when repository code is ready.'}
+          onClick={() => onSelectTab('commits')}>
           <div className="ws-stat-value">⑂</div>
           <div className="ws-stat-label">Browse commits</div>
         </button>
@@ -211,6 +307,26 @@ function WorkspaceHome({ workspace, onSelectTab }: {
   );
 }
 
+function WorkspaceReadiness({ label, state, lastSyncAt, error }: {
+  label: string;
+  state: Workspace['codeState'] | Workspace['metadataState'];
+  lastSyncAt: string | null;
+  error: string | null;
+}) {
+  return (
+    <div className="ws-readiness">
+      <div className="ws-readiness-head">
+        <b>{label}</b>
+        <span className={`ws-state is-${state.toLowerCase()}`}>{workspaceStateLabel(state)}</span>
+      </div>
+      <div className="ws-readiness-meta">
+        {lastSyncAt ? `Last synchronized ${relativeTime(lastSyncAt)}` : 'Not synchronized yet'}
+      </div>
+      {error && <div className="ws-readiness-error">{error}</div>}
+    </div>
+  );
+}
+
 function WorkspaceSettings({ workspace, onRemoved }: {
   workspace: Workspace;
   onWorkspaceChanged: (workspace: Workspace) => void;
@@ -220,14 +336,18 @@ function WorkspaceSettings({ workspace, onRemoved }: {
   const [remotes, setRemotes] = useState<GitOverviewDto['remotes']>([]);
 
   useEffect(() => {
+    if (workspace.codeState !== 'READY') return;
     let cancelled = false;
     window.bridge.gitOverview(workspace.path)
       .then(overview => { if (!cancelled) setRemotes(overview.remotes); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [workspace.path]);
+  }, [workspace.codeState, workspace.path]);
 
   const upstreamUrl = remotes.find(remote => remote.name === draft.upstreamRemote)?.url;
+  const upstreamLabel = draft.upstreamOwner && draft.upstreamRepo
+    ? `${draft.upstreamOwner}/${draft.upstreamRepo}`
+    : draft.upstreamRemote;
 
   return (
     <div className="ws-tab-page">
@@ -259,7 +379,7 @@ function WorkspaceSettings({ workspace, onRemoved }: {
             <div className="ws-upstream-main">
               <div className="ws-upstream-name">
                 {draft.upstreamRemote
-                  ? (upstreamUrl ? githubSlug(upstreamUrl) ?? draft.upstreamRemote : draft.upstreamRemote)
+                  ? (upstreamUrl ? githubSlug(upstreamUrl) ?? upstreamLabel : upstreamLabel)
                   : 'None'}
                 {draft.upstreamRemote && <span className="ws-card-upstream">read-only</span>}
               </div>

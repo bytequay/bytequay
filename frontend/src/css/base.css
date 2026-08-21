@@ -574,6 +574,11 @@ samp {
 }
 
 .app-sidebar__item:hover { background: var(--left-nav-hover-bg); }
+.app-sidebar__item:disabled {
+  cursor: help;
+  opacity: 0.5;
+}
+.app-sidebar__item:disabled:hover { background: transparent; }
 .app-sidebar__item.is-active {
   background: var(--left-nav-active-bg);
   color: var(--text-1);

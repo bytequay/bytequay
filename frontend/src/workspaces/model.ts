@@ -26,6 +26,8 @@ export type Workspace = {
   upstreamRemote: string | null;
   selectedOwner: string;
   selectedRepo: string;
+  upstreamOwner: string | null;
+  upstreamRepo: string | null;
   monitoredOwner: string;
   monitoredRepo: string;
   topology: WorkspaceDto['topology'];
@@ -33,7 +35,12 @@ export type Workspace = {
   metadataState: WorkspaceDto['metadataState'];
   codeError: string | null;
   metadataError: string | null;
+  lastCodeSyncAt: string | null;
+  lastMetadataSyncAt: string | null;
+  displayOrder: number;
 };
+
+export type WorkspacePhase = 'preparing' | 'ready' | 'syncing' | 'needs-attention';
 
 export function workspaceFromDto(dto: WorkspaceDto): Workspace {
   return {
@@ -45,6 +52,8 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
     upstreamRemote: dto.topology === 'FORK' ? 'upstream' : null,
     selectedOwner: dto.selectedOwner,
     selectedRepo: dto.selectedRepo,
+    upstreamOwner: dto.upstreamOwner,
+    upstreamRepo: dto.upstreamRepo,
     monitoredOwner: dto.monitoredOwner,
     monitoredRepo: dto.monitoredRepo,
     topology: dto.topology,
@@ -52,7 +61,59 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
     metadataState: dto.metadataState,
     codeError: dto.codeError,
     metadataError: dto.metadataError,
+    lastCodeSyncAt: dto.lastCodeSyncAt,
+    lastMetadataSyncAt: dto.lastMetadataSyncAt,
+    displayOrder: dto.displayOrder,
   };
+}
+
+export function workspacePhase(workspace: Workspace): WorkspacePhase {
+  if (workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED') {
+    return 'needs-attention';
+  }
+  if (workspace.codeState === 'SYNCING' || workspace.metadataState === 'SYNCING') {
+    return 'syncing';
+  }
+  return workspace.codeState === 'READY' ? 'ready' : 'preparing';
+}
+
+export function workspacePhaseLabel(workspace: Workspace): string {
+  return {
+    preparing: 'Preparing',
+    ready: 'Ready',
+    syncing: 'Syncing',
+    'needs-attention': 'Needs attention',
+  }[workspacePhase(workspace)];
+}
+
+export function workspaceStateLabel(state: Workspace['codeState'] | Workspace['metadataState']): string {
+  return {
+    PENDING: 'Preparing',
+    CLONING: 'Cloning',
+    READY: 'Ready',
+    SYNCING: 'Syncing',
+    FAILED: 'Needs attention',
+  }[state];
+}
+
+export function workspaceIsUpdating(workspace: Workspace): boolean {
+  return ['PENDING', 'CLONING', 'SYNCING'].includes(workspace.codeState)
+    || workspace.metadataState === 'SYNCING';
+}
+
+export function workspaceRoute(workspaceId: string): string {
+  return `#/workspaces/${encodeURIComponent(workspaceId)}`;
+}
+
+export function workspaceIdFromRoute(hash: string): string | null {
+  const match = /^#\/workspaces\/([^/]+)$/.exec(hash);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  }
+  catch {
+    return null;
+  }
 }
 
 /** "owner/repo" from a GitHub remote URL, or null for non-GitHub remotes. */

@@ -12,10 +12,16 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { workspaceFromDto, type Workspace } from './model';
+import {
+  workspaceFromDto,
+  workspaceIsUpdating,
+  workspacePhase,
+  workspacePhaseLabel,
+  type Workspace,
+} from './model';
 import '../css/workspaces.css';
 
-export default function WorkspacesPage({ onOpen }: { onOpen: (workspace: Workspace) => void }) {
+export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: string) => void }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +36,27 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspace: Workspa
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!workspaces.some(workspaceIsUpdating)) return;
+    const timer = window.setTimeout(() => {
+      void window.bridge.listWorkspaces()
+        .then(rows => setWorkspaces(rows.map(workspaceFromDto)))
+        .catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [workspaces]);
+
+  const retry = async (workspaceId: string) => {
+    setError(null);
+    try {
+      const updated = workspaceFromDto(await window.bridge.syncWorkspace(workspaceId));
+      setWorkspaces(previous => previous.map(row => row.id === updated.id ? updated : row));
+    }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+  };
 
   return (
     <div className="ws-page">
@@ -50,30 +77,70 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspace: Workspa
         </div>
       )}
 
-      <div className="ws-grid">
-        {workspaces.map(workspace => (
-          <button
-            type="button"
+      <WorkspaceCards
+        workspaces={workspaces}
+        onOpen={onOpen}
+        onRetry={workspaceId => { void retry(workspaceId); }}
+      />
+    </div>
+  );
+}
+
+export function WorkspaceCards({ workspaces, onOpen, onRetry }: {
+  workspaces: Workspace[];
+  onOpen: (workspaceId: string) => void;
+  onRetry: (workspaceId: string) => void;
+}) {
+  return (
+    <div className="ws-grid">
+      {workspaces.map(workspace => {
+        const phase = workspacePhase(workspace);
+        return (
+          <div
             key={workspace.id}
+            data-workspace-id={workspace.id}
             className="ws-card"
-            onClick={() => onOpen(workspace)}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(workspace.id)}
+            onKeyDown={event => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              onOpen(workspace.id);
+            }}
           >
             <div className="ws-card-title">
               <span className="ws-card-name">{workspace.name}</span>
-              {workspace.upstreamRemote && (
-                <span className="ws-card-upstream">↞ {workspace.upstreamRemote}</span>
-              )}
+              <span className={`ws-state is-${phase}`}>{workspacePhaseLabel(workspace)}</span>
             </div>
             <div className="ws-card-path">
               {workspace.selectedOwner}/{workspace.selectedRepo}
             </div>
+            {workspace.topology === 'FORK' && (
+              <div className="ws-card-route">
+                follows {workspace.monitoredOwner}/{workspace.monitoredRepo}
+              </div>
+            )}
             <div className="ws-card-foot">
-              <span className="ws-card-dot" />
-              {workspace.codeState.toLowerCase()} · branch {workspace.defaultBranch}
+              branch {workspace.defaultBranch}
+              <span>· code {workspace.codeState.toLowerCase()}</span>
+              {phase === 'needs-attention' && (
+                <button
+                  className="ws-card-retry"
+                  type="button"
+                  onClick={event => {
+                    event.stopPropagation();
+                    onRetry(workspace.id);
+                  }}
+                >
+                  Retry
+                </button>
+              )}
             </div>
-          </button>
-        ))}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

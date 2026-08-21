@@ -17,10 +17,11 @@ import type {
   RepoRefDto,
   RepositorySearchResultDto,
   WatchRepositoryPreviewDto,
+  WorkspaceDto,
 } from './types';
 
 type Props = {
-  onAdded: () => void;
+  onAdded: (workspace: WorkspaceDto) => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onClose: () => void;
 };
@@ -97,11 +98,11 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
     setAdding(true);
     setError(null);
     try {
-      await window.bridge.watchRepository({
+      const workspace = await window.bridge.watchRepository({
         selectedRepositoryId: selected.id,
         previewFingerprint: preview.fingerprint,
       });
-      onAdded();
+      onAdded(workspace);
       onClose();
     }
     catch (e) {
@@ -222,7 +223,10 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
                 <button
                   className="modal-repo-row__add-btn"
                   type="button"
-                  onClick={() => onOpenWorkspace(preview.existingWorkspaceId as string)}
+                  onClick={() => {
+                    onClose();
+                    onOpenWorkspace(preview.existingWorkspaceId as string);
+                  }}
                 >
                   Open workspace →
                 </button>

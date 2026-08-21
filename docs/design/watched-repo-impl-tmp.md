@@ -1,7 +1,7 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 3 complete; Home, Workspaces, and Workspace Home integration are next in
-Checkpoint 4. The existing commit browser and local cherry-pick execution are reusable; this
+Status: Checkpoint 4 complete; workspace-scoped Git and Commits integration are next in
+Checkpoint 5. The existing commit browser and local cherry-pick execution are reusable; this
 checklist tracks the
 missing watch-to-workspace integration and its delivery checkpoints.
 
@@ -169,39 +169,39 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### Home watch flow
 
-- [ ] Reuse the existing Add Repository modal with enriched search results.
-- [ ] Load and render the watch preview after repository selection.
-- [ ] Require explicit Watch confirmation.
-- [ ] Insert the saved workspace card immediately after the create response.
-- [ ] Show preparation, ready, syncing, and needs-attention states.
-- [ ] Add retry for retryable code or metadata failures.
-- [ ] Opening an already-watched search result opens/identifies the existing workspace instead of
+- [x] Reuse the existing Add Repository modal with enriched search results.
+- [x] Load and render the watch preview after repository selection.
+- [x] Require explicit Watch confirmation.
+- [x] Insert the saved workspace card immediately after the create response.
+- [x] Show preparation, ready, syncing, and needs-attention states.
+- [x] Add retry for retryable code or metadata failures.
+- [x] Opening an already-watched search result opens/identifies the existing workspace instead of
   offering a second clone.
 
 ### Workspaces page
 
-- [ ] Replace renderer localStorage workspace loading with `GET /api/workspaces`.
-- [ ] Remove the local-folder picker from the watched-repository flow.
-- [ ] Render the same workspace state shown on Home.
-- [ ] Keep every workspace row clickable, including pending and failed workspaces.
-- [ ] Route clicks to `/workspaces/:workspaceId`.
+- [x] Replace renderer localStorage workspace loading with `GET /api/workspaces`.
+- [x] Remove the local-folder picker from the watched-repository flow.
+- [x] Render the same workspace state shown on Home.
+- [x] Keep every workspace row clickable, including pending and failed workspaces.
+- [x] Route clicks to `/workspaces/:workspaceId`.
 
 ### Workspace Home
 
-- [ ] Load details by route workspace ID.
-- [ ] Show selected repo, upstream/monitor routing, default branch, and development base.
-- [ ] Show code and metadata readiness independently.
-- [ ] Show last successful sync and safe retryable failures.
-- [ ] Explain why tabs are disabled when their required state is not ready.
-- [ ] Preserve existing task counts, recent activity, open-PR count, and Commits shortcut.
+- [x] Load details by route workspace ID.
+- [x] Show selected repo, upstream/monitor routing, default branch, and development base.
+- [x] Show code and metadata readiness independently.
+- [x] Show last successful sync and safe retryable failures.
+- [x] Explain why tabs are disabled when their required state is not ready.
+- [x] Preserve existing task counts, recent activity, open-PR count, and Commits shortcut.
 
 ### Tests and gate
 
-- [ ] Home and Workspaces render the same workspace ID and state.
-- [ ] A saved pending workspace can be opened before clone completes.
-- [ ] Direct and fork routing are visible on Workspace Home.
-- [ ] Refresh/restart does not lose workspaces because localStorage is not authoritative.
-- [ ] Checkpoint 4 gate: watch → save → Workspaces → click → Workspace Home works end to end.
+- [x] Home and Workspaces render the same workspace ID and state.
+- [x] A saved pending workspace can be opened before clone completes.
+- [x] Direct and fork routing are visible on Workspace Home.
+- [x] Refresh/restart does not lose workspaces because localStorage is not authoritative.
+- [x] Checkpoint 4 gate: watch → save → Workspaces → click → Workspace Home works end to end.
 
 ## Checkpoint 5 — Workspace-scoped Git and Commits
 

@@ -63,19 +63,34 @@ export default function AppSidebar({
     </button>
   );
 
-  const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => (
-    <button
-      key={tab}
-      type="button"
-      className={`app-sidebar__item${workspaceTab === tab ? ' is-active' : ''}`}
-      aria-label={label}
-      title={label}
-      onClick={() => onWorkspaceTab(tab)}
-    >
-      <span aria-hidden="true">{icon}</span>
-      <span className="app-sidebar__label">{label}</span>
-    </button>
-  );
+  const disabledReason = (tab: WorkspaceTab): string | null => {
+    if (!workspace) return null;
+    if ((tab === 'commits' || tab === 'tasks') && workspace.codeState !== 'READY') {
+      return `Available when repository code is ready (${workspace.codeState.toLowerCase()}).`;
+    }
+    if ((tab === 'prs' || tab === 'issues') && workspace.metadataState !== 'READY') {
+      return `Available when repository metadata is ready (${workspace.metadataState.toLowerCase()}).`;
+    }
+    return null;
+  };
+
+  const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
+    const reason = disabledReason(tab);
+    return (
+      <button
+        key={tab}
+        type="button"
+        className={`app-sidebar__item${workspaceTab === tab ? ' is-active' : ''}`}
+        aria-label={label}
+        title={reason ?? label}
+        disabled={reason !== null}
+        onClick={() => onWorkspaceTab(tab)}
+      >
+        <span aria-hidden="true">{icon}</span>
+        <span className="app-sidebar__label">{label}</span>
+      </button>
+    );
+  };
 
   return (
     <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>

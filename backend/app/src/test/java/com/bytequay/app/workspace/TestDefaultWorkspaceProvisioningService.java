@@ -236,15 +236,19 @@ class TestDefaultWorkspaceProvisioningService
                 Optional.empty(),
                 NOW));
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceProvisioningRecovery recovery = new WorkspaceProvisioningRecovery(
                 store,
                 provisioning,
+                metadata,
                 Runnable::run);
 
         recovery.recover();
 
         verify(provisioning).provision(pending.id());
         verify(provisioning).synchronizeCode(syncing.id());
+        verify(metadata).synchronize(pending.id());
+        verify(metadata).synchronize(syncing.id());
     }
 
     @Test

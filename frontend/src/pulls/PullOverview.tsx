@@ -38,9 +38,10 @@ const HIDDEN_TIMELINE_EVENTS = new Set([
   'unsubscribed',
 ]);
 
-export default function PullOverview({ pr, detail, onRefresh }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
+  contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
   const title = detail.title ?? pr.title;
@@ -79,7 +80,7 @@ export default function PullOverview({ pr, detail, onRefresh }: {
       </section>
 
       <div className="pr-overview__rule" />
-      <Metadata detail={detail} />
+      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
           Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
@@ -102,7 +103,10 @@ export default function PullOverview({ pr, detail, onRefresh }: {
 type PeoplePickerKind = 'reviewers' | 'assignees';
 type PeoplePickerCandidate = RepoUserDto & { selected: boolean };
 
-function Metadata({ detail }: { detail: PullRequestDetailDto }) {
+function Metadata({ detail, contributorsWorkspaceId }: {
+  detail: PullRequestDetailDto;
+  contributorsWorkspaceId?: string;
+}) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<PeoplePickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
@@ -135,7 +139,7 @@ function Metadata({ detail }: { detail: PullRequestDetailDto }) {
     setOpen(current => current === kind ? null : kind);
     if (repoUsers.length > 0 || loading) return;
     setLoading(true);
-    void window.bridge.fetchRepoUsers(detail.repo)
+    void window.bridge.fetchRepoUsers(detail.repo, contributorsWorkspaceId)
       .then(setRepoUsers)
       .catch(() => setRepoUsers([]))
       .finally(() => setLoading(false));

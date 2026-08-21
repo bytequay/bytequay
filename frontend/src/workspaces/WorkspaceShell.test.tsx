@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import { WorkspaceCards } from './WorkspacesPage';
-import { WorkspaceHome } from './WorkspaceShell';
+import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
 import type { Workspace } from './model';
 
 describe('watched repository workspace UI', () => {
@@ -67,6 +67,23 @@ describe('watched repository workspace UI', () => {
 
     expect(html).toContain('origin/main');
     expect(html).not.toContain('upstream/project · upstream');
+  });
+
+  it('keeps repository-scoped PRs and Issues available when reference metadata failed', () => {
+    const value = { ...workspace('FORK'), metadataState: 'FAILED' as const };
+    const props = {
+      workspace: value,
+      onSelectTab: () => {},
+      onWorkspaceChanged: () => {},
+      onRemoved: () => {},
+    };
+
+    const pulls = renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />);
+    const issues = renderToStaticMarkup(<WorkspaceShell {...props} tab="issues" />);
+
+    expect(pulls).toContain('upstream/project');
+    expect(issues).toContain('Open issues');
+    expect(issues).toContain('upstream/project');
   });
 });
 

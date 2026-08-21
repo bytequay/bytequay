@@ -79,6 +79,13 @@ public final class WorkspaceException
                 message, false);
     }
 
+    public static WorkspaceException issueSyncFailed(String reference)
+    {
+        return new WorkspaceException(
+                "ISSUE_SYNC_FAILED", HttpStatus.BAD_GATEWAY,
+                "Issue refresh failed. Retry later. Reference: " + reference, true);
+    }
+
     public String code() { return code; }
 
     public HttpStatus status() { return status; }

@@ -527,7 +527,9 @@ DELETE /api/workspaces/{workspaceId}
 
 GET    /api/workspaces/{workspaceId}/metadata
 GET    /api/workspaces/{workspaceId}/issues
+POST   /api/workspaces/{workspaceId}/issues/sync
 GET    /api/workspaces/{workspaceId}/pull-requests
+POST   /api/workspaces/{workspaceId}/pull-requests/sync
 GET    /api/workspaces/{workspaceId}/contributors
 
 GET    /api/workspaces/{workspaceId}/git/overview

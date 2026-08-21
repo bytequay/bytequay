@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
+import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,26 +37,25 @@ public final class WorkspaceProvisioningRecovery
 
     private final WorkspaceStore store;
     private final WorkspaceProvisioningService provisioning;
+    private final WorkspaceMetadataService metadata;
     private final Executor executor;
 
     public WorkspaceProvisioningRecovery(
             WorkspaceStore store,
             WorkspaceProvisioningService provisioning,
+            WorkspaceMetadataService metadata,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void recover()
     {
-        store.findAll().stream()
-                .filter(workspace -> workspace.codeState() == CodeState.PENDING
-                        || workspace.codeState() == CodeState.CLONING
-                        || workspace.codeState() == CodeState.SYNCING)
-                .forEach(this::schedule);
+        store.findAll().forEach(this::schedule);
     }
 
     private void schedule(Workspace workspace)
@@ -64,8 +64,13 @@ public final class WorkspaceProvisioningRecovery
             if (workspace.codeState() == CodeState.SYNCING) {
                 executor.execute(() -> provisioning.synchronizeCode(workspace.id()));
             }
-            else {
+            else if (workspace.codeState() == CodeState.PENDING
+                    || workspace.codeState() == CodeState.CLONING) {
                 executor.execute(() -> provisioning.provision(workspace.id()));
+            }
+            if (workspace.metadataState() == MetadataState.PENDING
+                    || workspace.metadataState() == MetadataState.SYNCING) {
+                executor.execute(() -> metadata.synchronize(workspace.id()));
             }
         }
         catch (RuntimeException failure) {

@@ -54,6 +54,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -157,6 +158,47 @@ public class PullRequestService
     public List<PullRequest> listPullRequests()
     {
         return store.findAll();
+    }
+
+    /** Returns the existing local PR rows restricted to one repository. */
+    public List<PullRequest> listPullRequests(RepoRef repository)
+    {
+        return store.findByRepository(requireNonNull(repository, "repository is null").fullName());
+    }
+
+    /**
+     * Refreshes one repository without changing membership of the global account dashboard.
+     */
+    public void syncRepository(RepoRef repository)
+    {
+        requireNonNull(repository, "repository is null");
+        String pat = credentialService.resolveGitHubToken();
+        String currentLogin = resolveCurrentLogin(pat);
+        Map<Long, Instant> previous = store.findByRepository(repository.fullName()).stream()
+                .filter(pullRequest -> pullRequest.updatedAt() != null)
+                .collect(Collectors.toUnmodifiableMap(PullRequest::id, PullRequest::updatedAt));
+        String qualifier = " repo:" + repository.fullName();
+        List<PullRequest> open = searchAllPages(pat, "is:pr is:open" + qualifier);
+        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
+        List<PullRequest> closed = gitHub.searchPullRequests(
+                pat, "is:pr is:closed closed:>=" + sinceDate + qualifier);
+        LinkedHashMap<Long, PullRequest> freshById = new LinkedHashMap<>();
+        for (PullRequest pullRequest : open) {
+            freshById.put(pullRequest.id(), workspaceOrigin(pullRequest, currentLogin));
+        }
+        for (PullRequest pullRequest : closed) {
+            freshById.putIfAbsent(pullRequest.id(), workspaceOrigin(pullRequest, currentLogin));
+        }
+        List<PullRequest> fresh = List.copyOf(freshById.values());
+        store.replaceRepository(repository.fullName(), fresh);
+
+        List<CompletableFuture<Void>> details = fresh.stream()
+                .filter(pullRequest -> !previous.containsKey(pullRequest.id())
+                        || !Objects.equals(pullRequest.updatedAt(), previous.get(pullRequest.id())))
+                .map(pullRequest -> CompletableFuture.runAsync(
+                        () -> syncDetailQuietly(pat, pullRequest, currentLogin), executor))
+                .toList();
+        CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
     }
 
     public List<RepoUser> listRepositoryUsers(String repo)
@@ -723,6 +765,15 @@ public class PullRequestService
                 pr.headPushedAt(),
                 pr.reviewerVerdicts(),
                 pr.headRef());
+    }
+
+    private static PullRequest workspaceOrigin(PullRequest pullRequest, String currentLogin)
+    {
+        PullRequest.Origin origin = currentLogin != null
+                && currentLogin.equalsIgnoreCase(pullRequest.author())
+                ? AUTHORED
+                : REVIEW_REQUESTED;
+        return withOrigin(pullRequest, origin);
     }
 
     private static <T> T join(CompletableFuture<T> future)

@@ -85,9 +85,10 @@ public final class DefaultWorkspaceProvisioningService
                     managedGit.provision(previousRouting, currentRouting);
                 }
                 Instant now = clock.instant();
-                Workspace ready = store.save(currentRouting.withCodeState(
+                Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
+                Workspace ready = store.save(latest.withCodeState(
                         CodeState.READY,
-                        alreadyReady ? currentRouting.lastCodeSyncAt() : Optional.of(now),
+                        alreadyReady ? latest.lastCodeSyncAt() : Optional.of(now),
                         Optional.empty(),
                         now));
                 return WorkspaceProvisioningResult.of(ready);
@@ -122,7 +123,8 @@ public final class DefaultWorkspaceProvisioningService
                 Workspace currentRouting = refreshRouting(workspace);
                 managedGit.synchronize(previousRouting, currentRouting);
                 Instant now = clock.instant();
-                Workspace ready = store.save(currentRouting.withCodeState(
+                Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
+                Workspace ready = store.save(latest.withCodeState(
                         CodeState.READY,
                         Optional.of(now),
                         Optional.empty(),
@@ -189,6 +191,18 @@ public final class DefaultWorkspaceProvisioningService
                 latest.lastCodeSyncAt(),
                 Optional.of(safeMessage + " Reference: " + correlationId),
                 clock.instant()));
+    }
+
+    private static Workspace mergeRouting(Workspace latest, Workspace routing, Instant now)
+    {
+        return latest.withRepositoryRouting(
+                routing.selectedRepository(),
+                routing.upstreamRepository(),
+                routing.monitoredRepository(),
+                routing.defaultBranch(),
+                routing.originCloneUrl(),
+                routing.upstreamCloneUrl(),
+                now);
     }
 
     private Workspace requireWorkspace(String workspaceId)

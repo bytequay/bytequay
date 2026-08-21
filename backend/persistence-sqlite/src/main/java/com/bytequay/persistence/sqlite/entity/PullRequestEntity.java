@@ -77,6 +77,14 @@ public class PullRequestEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
 
+    // Nullable so Hibernate can add these columns to existing SQLite databases.
+    // A legacy null means the row belonged to the original global dashboard.
+    @Column(name = "dashboard_visible")
+    private Boolean dashboardVisible;
+
+    @Column(name = "workspace_visible")
+    private Boolean workspaceVisible;
+
     /** Set by the sync job from the accompanying detail fetch. NULL when not yet enriched. */
     @Enumerated(EnumType.STRING)
     @Column(name = "ci_status")
@@ -197,6 +205,12 @@ public class PullRequestEntity
 
     public Instant getSyncedAt() { return syncedAt; }
     public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
+
+    public Boolean getDashboardVisible() { return dashboardVisible; }
+    public void setDashboardVisible(Boolean dashboardVisible) { this.dashboardVisible = dashboardVisible; }
+
+    public Boolean getWorkspaceVisible() { return workspaceVisible; }
+    public void setWorkspaceVisible(Boolean workspaceVisible) { this.workspaceVisible = workspaceVisible; }
 
     public PullRequestDetail.CiStatus getCiStatus() { return ciStatus; }
     public void setCiStatus(PullRequestDetail.CiStatus ciStatus) { this.ciStatus = ciStatus; }

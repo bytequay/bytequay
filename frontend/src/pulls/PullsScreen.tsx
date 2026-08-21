@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
 import PullChanges from './PullChanges';
 import PullOverview, { isQueued } from './PullOverview';
@@ -27,8 +27,10 @@ const DETAIL_DEFAULT = 1120;
 
 export default function PullsScreen({
   initialPr,
+  repositoryScope,
 }: {
   initialPr?: { repo: string; number: number };
+  repositoryScope?: { workspaceId: string; repository: string };
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [tab, setTab] = useState<PullTab>('all');
@@ -42,9 +44,10 @@ export default function PullsScreen({
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadList = async () => {
+  const loadList = useCallback(async () => {
+    setError(null);
     try {
-      const rows = await window.bridge.fetchPrs();
+      const rows = await window.bridge.fetchPrs(repositoryScope?.workspaceId);
       setPrs(rows);
       setSelected(current => current ?? rows[0]?.id ?? null);
     }
@@ -54,12 +57,12 @@ export default function PullsScreen({
     finally {
       setLoading(false);
     }
-  };
+  }, [repositoryScope?.workspaceId]);
 
   useEffect(() => {
     void loadList();
-    void window.bridge.syncPrs().then(loadList).catch(() => {});
-  }, []);
+    void window.bridge.syncPrs(repositoryScope?.workspaceId).then(loadList).catch(() => {});
+  }, [loadList, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     if (!initialPr || loading) return;
@@ -175,6 +178,11 @@ export default function PullsScreen({
     <div className="pulls-page">
       <section className="pulls-list">
         <header className="pulls-list__toolbar">
+          {repositoryScope && (
+            <span className="pulls-scope" title={`Showing ${repositoryScope.repository}`}>
+              {repositoryScope.repository}
+            </span>
+          )}
           <nav className="pulls-tabs" aria-label="Pull request filters">
           {PULL_TABS.map(item => (
             <button
@@ -193,7 +201,7 @@ export default function PullsScreen({
             title="Sync pull requests"
             aria-label="Sync pull requests"
             disabled={loading}
-            onClick={() => { setLoading(true); void window.bridge.syncPrs().then(loadList).catch(e => {
+            onClick={() => { setLoading(true); void window.bridge.syncPrs(repositoryScope?.workspaceId).then(loadList).catch(e => {
               setError(e instanceof Error ? e.message : String(e));
               setLoading(false);
             }); }}
@@ -213,7 +221,16 @@ export default function PullsScreen({
         </header>
         <div className="pulls-list__rows">
           {loading && <div className="hp-loading">Loading…</div>}
-          {!loading && rows.length === 0 && <div className="hp-empty">No pull requests in this view.</div>}
+          {!loading && error && rows.length === 0 && (
+            <div className="hp-empty" role="alert">
+              Could not load pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {error}
+            </div>
+          )}
+          {!loading && !error && rows.length === 0 && (
+            <div className="hp-empty">
+              No pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''} in this view.
+            </div>
+          )}
           {rows.map(row => (
             <PullRowItem
               key={row.id}
@@ -248,6 +265,7 @@ export default function PullsScreen({
               pr={selectedPr}
               detail={detail}
               diffs={diffs}
+              contributorsWorkspaceId={repositoryScope?.workspaceId}
               onRefresh={refresh}
             />
           )}
@@ -583,19 +601,26 @@ function DetailBody({
   pr,
   detail,
   diffs,
+  contributorsWorkspaceId,
   onRefresh,
 }: {
   tab: DetailTab;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   diffs: DiffFileDto[] | null;
+  contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges files={diffs} /></div>;
   }
-  return <div className="pull-detail__body"><PullOverview pr={pr} detail={detail} onRefresh={onRefresh} /></div>;
+  return <div className="pull-detail__body"><PullOverview
+    pr={pr}
+    detail={detail}
+    contributorsWorkspaceId={contributorsWorkspaceId}
+    onRefresh={onRefresh}
+  /></div>;
 }
 
 function RefreshIcon() {

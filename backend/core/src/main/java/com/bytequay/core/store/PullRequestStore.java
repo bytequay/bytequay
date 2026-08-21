@@ -27,7 +27,11 @@ public interface PullRequestStore
 {
     List<PullRequest> findAll();
 
+    List<PullRequest> findByRepository(String repository);
+
     void replaceAll(List<PullRequest> pullRequests);
+
+    void replaceRepository(String repository, List<PullRequest> pullRequests);
 
     Map<Long, Instant> findUpdatedAtMap();
 

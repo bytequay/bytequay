@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -182,6 +183,8 @@ class TestDefaultWorkspaceRepositoryService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         AtomicReference<CodeState> observed = new AtomicReference<>();
         when(provisioning.provision(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
@@ -197,11 +200,16 @@ class TestDefaultWorkspaceRepositoryService
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
+                mock(WorkspaceMetadataService.class),
+                pullRequests,
+                issues,
                 Runnable::run);
 
-        watch(service, 100);
+        Workspace watched = watch(service, 100);
 
         assertThat(observed).hasValue(CodeState.PENDING);
+        verify(pullRequests).syncRepository(watched.monitoredRepository());
+        verify(issues).synchronize(watched.id());
     }
 
     private static DefaultWorkspaceRepositoryService service(
@@ -222,6 +230,9 @@ class TestDefaultWorkspaceRepositoryService
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 mock(WorkspaceProvisioningService.class),
+                mock(WorkspaceMetadataService.class),
+                mock(PullRequestService.class),
+                mock(WorkspaceIssueService.class),
                 ignored -> {});
     }
 

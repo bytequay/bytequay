@@ -30,7 +30,7 @@ import jakarta.persistence.AttributeConverter;
 public abstract class JsonColumnConverter<T>
         implements AttributeConverter<T, String>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     private final TypeReference<T> type;
     private final String label;

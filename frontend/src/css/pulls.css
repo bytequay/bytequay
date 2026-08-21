@@ -40,6 +40,19 @@
   overflow: hidden;
 }
 
+.pulls-scope {
+  max-width: 180px;
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff8c5;
+  color: #7d4e00;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pulls-tabs button,
 .pulls-toolbar-button {
   display: inline-flex;

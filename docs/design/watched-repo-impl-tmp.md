@@ -1,7 +1,7 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 6 complete; workspace pull-request reuse and metadata scoping are next in
-Checkpoint 7. The existing commit browser and cherry-pick execution now run through the durable
+Status: Checkpoint 7 complete; explicit push and pull-request delivery are next in Checkpoint 8.
+The existing commit browser and cherry-pick execution now run through the durable
 workspace boundary; this checklist tracks the remaining repository features and delivery gates.
 
 Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
@@ -32,9 +32,9 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [x] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
   monitor/development/PR base, and writable `origin` for push.
 - [x] GitHub permissions are checked; they are not inferred only from the fork flag.
-- [ ] The workspace Pull Requests tab reuses the global PR UI, service, clients, stores, and detail
+- [x] The workspace Pull Requests tab reuses the global PR UI, service, clients, stores, and detail
   behavior; only its repository list scope differs.
-- [ ] Contributors are cached locally for seven days; labels and repository topics/tags are cached
+- [x] Contributors are cached locally for seven days; labels and repository topics/tags are cached
   locally for thirty days, keyed by monitored repository ID.
 - [ ] Push and pull-request creation remain explicit user-confirmed writes.
 - [x] Existing commits/cherry-pick behavior is reused rather than reimplemented.
@@ -265,61 +265,61 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### Pull-request reuse and scope
 
-- [ ] Add a repository-filtered query to the existing `PullRequestStore` and
+- [x] Add a repository-filtered query to the existing `PullRequestStore` and
   `PullRequestService`; do not create a second PR store.
-- [ ] Resolve workspace ID to its monitored repository before querying PRs.
-- [ ] Pass an optional monitored-repository scope to the existing `PullsScreen`.
+- [x] Resolve workspace ID to its monitored repository before querying PRs.
+- [x] Pass an optional monitored-repository scope to the existing `PullsScreen`.
 - [ ] (new, optional) Add a title/author/label filter box to `PullsScreen` — a new enhancement, not
   existing behavior; droppable for the minimal slice.
-- [ ] Reuse existing PR list rows, tabs, overview, changes, details, comments, review, merge,
+- [x] Reuse existing PR list rows, tabs, overview, changes, details, comments, review, merge,
   checks, refresh, DTOs, clients, and tests.
-- [ ] Keep the global Pull Requests page account-centric and unfiltered.
-- [ ] For a direct workspace, show only the selected repository's PRs.
-- [ ] For a fork workspace, show only the one persisted upstream repository's PRs.
-- [ ] Display the monitored repository in the workspace PR header and empty/error states.
+- [x] Keep the global Pull Requests page account-centric and unfiltered.
+- [x] For a direct workspace, show only the selected repository's PRs.
+- [x] For a fork workspace, show only the one persisted upstream repository's PRs.
+- [x] Display the monitored repository in the workspace PR header and empty/error states.
 
 ### Reference metadata synchronization
 
-- [ ] Implement independent metadata state transitions and retry.
-- [ ] Synchronize contributor account summaries for search, developer selection, and reviewer
+- [x] Implement independent metadata state transitions and retry.
+- [x] Synchronize contributor account summaries for search, developer selection, and reviewer
   assignment.
-- [ ] Synchronize labels and repository topics/tags from the monitored repository.
-- [ ] Use selected repository for direct workspaces and upstream for fork workspaces.
-- [ ] Store all reference projections locally by stable monitored repository ID, not workspace ID.
-- [ ] Share one cached projection when several fork workspaces link to the same upstream.
-- [ ] Upsert projections by stable provider IDs.
-- [ ] Retain the last successful snapshot when refresh fails.
-- [ ] Refresh contributors only when absent or at least seven days old.
-- [ ] Refresh labels and repository topics/tags only when absent or at least thirty days old.
-- [ ] Serve stale local data while refresh runs or fails.
-- [ ] Add pagination/cursor handling only where the existing GitHub client requires it.
+- [x] Synchronize labels and repository topics/tags from the monitored repository.
+- [x] Use selected repository for direct workspaces and upstream for fork workspaces.
+- [x] Store all reference projections locally by stable monitored repository ID, not workspace ID.
+- [x] Share one cached projection when several fork workspaces link to the same upstream.
+- [x] Upsert projections by stable provider IDs.
+- [x] Retain the last successful snapshot when refresh fails.
+- [x] Refresh contributors only when absent or at least seven days old.
+- [x] Refresh labels and repository topics/tags only when absent or at least thirty days old.
+- [x] Serve stale local data while refresh runs or fails.
+- [x] Add pagination/cursor handling only where the existing GitHub client requires it.
 
 ### Issues
 
-- [ ] Keep issue synchronization separate from slow reference metadata.
-- [ ] Scope future issue query/sync to the workspace's monitored repository.
-- [ ] Design and implement the real Issues list/detail UI; the current tab is only a placeholder.
+- [x] Keep issue synchronization separate from slow reference metadata.
+- [x] Scope issue query/sync to the workspace's monitored repository.
+- [x] Design and implement the real Issues list/detail UI; the placeholder has been removed.
 
 ### Query/UI integration
 
-- [ ] Scope Issues, Pull Requests, and Contributors queries by workspace ID while caching by
+- [x] Scope Issues, Pull Requests, and Contributors queries by workspace ID while caching by
   monitored repository ID.
-- [ ] Show freshness and retryable metadata failure independently from code state.
-- [ ] Ensure a metadata failure does not disable Commits.
-- [ ] Ensure a code failure does not erase available metadata.
+- [x] Show freshness and retryable metadata failure independently from code state.
+- [x] Ensure a metadata failure does not disable Commits.
+- [x] Ensure a code failure does not erase available metadata.
 
 ### Tests and gate
 
-- [ ] Direct metadata calls target the selected repository.
-- [ ] Fork metadata calls target upstream and never the fork by mistake.
-- [ ] Workspace PR list contains no rows from another repository.
-- [ ] Global PR list remains unchanged after workspace scoping is added.
-- [ ] Existing PR screen/service/detail/action tests remain green.
-- [ ] Repeated sync upserts instead of duplicating issues, PRs, or users.
-- [ ] Partial/provider failure keeps the last complete snapshot readable.
-- [ ] Several fork workspaces sharing one upstream trigger one reference-metadata refresh/cache.
-- [ ] Fresh weekly/monthly cache entries do not call GitHub again.
-- [ ] Checkpoint 7 gate: workspace issues, PRs, and contributor search monitor the correct repo.
+- [x] Direct metadata calls target the selected repository.
+- [x] Fork metadata calls target upstream and never the fork by mistake.
+- [x] Workspace PR list contains no rows from another repository.
+- [x] Global PR list remains unchanged after workspace scoping is added.
+- [x] Existing PR screen/service/detail/action tests remain green.
+- [x] Repeated sync upserts instead of duplicating issues, PRs, or users.
+- [x] Partial/provider failure keeps the last complete snapshot readable.
+- [x] Several fork workspaces sharing one upstream trigger one reference-metadata refresh/cache.
+- [x] Fresh weekly/monthly cache entries do not call GitHub again.
+- [x] Checkpoint 7 gate: workspace issues, PRs, and contributor search monitor the correct repo.
 
 ## Checkpoint 8 — Push and pull-request delivery
 

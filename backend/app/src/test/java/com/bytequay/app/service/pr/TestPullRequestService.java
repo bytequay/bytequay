@@ -28,6 +28,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -52,6 +53,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -87,6 +89,25 @@ class TestPullRequestService
     {
         assertThatThrownBy(() -> service.getPullRequestDetail("repo", 1))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void workspaceSyncScopesGitHubAndDoesNotReplaceGlobalList()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        when(store.findByRepository("owner/repo")).thenReturn(List.of());
+        when(gitHub.searchPullRequestsPaged(
+                eq("pat"), eq("is:pr is:open repo:owner/repo"), anyInt(), anyInt(),
+                eq("updated"), eq("desc")))
+                .thenReturn(new PullRequestHistoryPage(List.of(), 1, 100, 0, false));
+        when(gitHub.searchPullRequests(
+                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo")))
+                .thenReturn(List.of());
+
+        service.syncRepository(repository);
+
+        verify(store).replaceRepository("owner/repo", List.of());
+        verify(store, never()).replaceAll(any());
     }
 
     @Test

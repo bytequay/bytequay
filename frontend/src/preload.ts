@@ -17,10 +17,10 @@ import type { Bridge, InAppNavState } from './types';
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
-  fetchPrs: () => ipcRenderer.invoke('prs:list'),
-  syncPrs: () => ipcRenderer.invoke('prs:sync'),
+  fetchPrs: workspaceId => ipcRenderer.invoke('prs:list', workspaceId),
+  syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
   fetchPullRequestDetail: (repo, number) => ipcRenderer.invoke('prs:detail', repo, number),
-  fetchRepoUsers: repo => ipcRenderer.invoke('prs:users', repo),
+  fetchRepoUsers: (repo, workspaceId) => ipcRenderer.invoke('prs:users', repo, workspaceId),
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
   refreshPullRequestDetail: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh', repo, number),
@@ -41,6 +41,9 @@ const bridge: Bridge = {
   watchRepository: command => ipcRenderer.invoke('workspaces:watch', command),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   getWorkspace: workspaceId => ipcRenderer.invoke('workspaces:get', workspaceId),
+  getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
+  fetchWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues', workspaceId),
+  syncWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:sync', workspaceId),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),

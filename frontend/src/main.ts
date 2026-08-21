@@ -359,12 +359,18 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('prs:list', () => backendJson(`${BACKEND_BASE}/prs`));
-  ipcMain.handle('prs:sync', () =>
-    backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
+  ipcMain.handle('prs:list', (_event, workspaceId?: string) => backendJson(workspaceId
+    ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
+    : `${BACKEND_BASE}/prs`));
+  ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
+    ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
+    : `${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
   ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
-  ipcMain.handle('prs:users', (_event, repo: string) => {
+  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {
+    if (workspaceId) {
+      return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/contributors`);
+    }
     const url = new URL('/prs/users', BACKEND_BASE);
     url.searchParams.set('repo', repo);
     return backendJson(url);
@@ -472,6 +478,14 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:list', () => backendJson(`${BACKEND_BASE}/api/workspaces`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`));
+  ipcMain.handle('workspaces:metadata', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/metadata`));
+  ipcMain.handle('workspaces:issues', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues`));
+  ipcMain.handle('workspaces:issues:sync', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/sync`, {
+      method: 'POST',
+    }));
   ipcMain.handle('workspaces:sync', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',

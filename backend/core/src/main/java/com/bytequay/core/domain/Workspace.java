@@ -120,6 +120,20 @@ public record Workspace(
                 nextCodeError, metadataError, displayOrder, createdAt, now);
     }
 
+    public Workspace withMetadataState(
+            MetadataState nextMetadataState,
+            Optional<Instant> nextLastMetadataSyncAt,
+            Optional<String> nextMetadataError,
+            Instant now)
+    {
+        return new Workspace(
+                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
+                defaultBranch, originCloneUrl, upstreamCloneUrl, localRepositoryPath,
+                codeState, nextMetadataState, lastCodeSyncAt, nextLastMetadataSyncAt,
+                codeError, nextMetadataError, displayOrder, createdAt, now);
+    }
+
     public Workspace withRepositoryRouting(
             RepoRef nextSelectedRepository,
             Optional<RepoRef> nextUpstreamRepository,

@@ -26,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,7 +59,18 @@ public class SqlitePullRequestStore
     {
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
         return jpaRepository.findAll().stream()
+                .filter(SqlitePullRequestStore::dashboardVisible)
                 .map(e -> toDomain(e, stateByPrId.get(e.getId())))
+                .toList();
+    }
+
+    @Override
+    public List<PullRequest> findByRepository(String repository)
+    {
+        requireNonNull(repository, "repository is null");
+        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
+        return jpaRepository.findAllByRepoIgnoreCase(repository).stream()
+                .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())))
                 .toList();
     }
 
@@ -70,16 +80,6 @@ public class SqlitePullRequestStore
     {
         Instant now = Instant.now();
         Set<Long> protectedIds = handledPrIdsWithinRetention(now);
-
-        if (pullRequests.isEmpty()) {
-            if (protectedIds.isEmpty()) {
-                jpaRepository.deleteAll();
-            }
-            else {
-                jpaRepository.deleteAllByIdNotIn(protectedIds);
-            }
-            return;
-        }
 
         Set<Long> freshIds = pullRequests.stream()
                 .map(PullRequest::id)
@@ -92,41 +92,77 @@ public class SqlitePullRequestStore
         // only re-runs for PRs whose updatedAt changed (or whose
         // enrichment is missing) — for unchanged PRs we want their
         // last-known verdict map to survive this replace.
-        Map<Long, PullRequestEntity> existingById = jpaRepository
-                .findAllById(freshIds)
-                .stream()
+        Map<Long, PullRequestEntity> existingById = jpaRepository.findAll().stream()
                 .collect(Collectors.toMap(PullRequestEntity::getId, e -> e));
 
         List<PullRequestEntity> entities = pullRequests.stream()
                 .map(pr -> {
                     PullRequestEntity entity = toEntity(pr, now);
                     PullRequestEntity prev = existingById.get(pr.id());
+                    entity.setDashboardVisible(true);
+                    entity.setWorkspaceVisible(prev != null && workspaceVisible(prev));
                     if (prev != null) {
-                        if (entity.getReviewerVerdicts() == null) {
-                            entity.setReviewerVerdicts(prev.getReviewerVerdicts());
-                        }
-                        if (entity.getMergeable() == null) {
-                            entity.setMergeable(prev.getMergeable());
-                        }
-                        if (entity.getMergeableState() == null) {
-                            entity.setMergeableState(prev.getMergeableState());
-                        }
-                        if (entity.getHeadPushedAt() == null) {
-                            entity.setHeadPushedAt(prev.getHeadPushedAt());
-                        }
-                        if (entity.getHeadRef() == null) {
-                            entity.setHeadRef(prev.getHeadRef());
-                        }
+                        preserveEnrichment(entity, prev);
                     }
                     return entity;
                 })
                 .toList();
 
         jpaRepository.saveAll(entities);
+        existingById.values().stream()
+                .filter(SqlitePullRequestStore::dashboardVisible)
+                .filter(entity -> !freshIds.contains(entity.getId()))
+                .filter(entity -> !protectedIds.contains(entity.getId()))
+                .forEach(entity -> {
+                    if (workspaceVisible(entity)) {
+                        entity.setDashboardVisible(false);
+                        jpaRepository.save(entity);
+                    }
+                    else {
+                        jpaRepository.delete(entity);
+                    }
+                });
+    }
 
-        Set<Long> keep = new HashSet<>(freshIds);
-        keep.addAll(protectedIds);
-        jpaRepository.deleteAllByIdNotIn(keep);
+    @Override
+    @Transactional
+    public void replaceRepository(String repository, List<PullRequest> pullRequests)
+    {
+        requireNonNull(repository, "repository is null");
+        requireNonNull(pullRequests, "pullRequests is null");
+        Instant now = Instant.now();
+        Map<Long, PullRequestEntity> existingById = jpaRepository.findAllByRepoIgnoreCase(repository).stream()
+                .collect(Collectors.toMap(PullRequestEntity::getId, entity -> entity));
+        Set<Long> freshIds = pullRequests.stream()
+                .map(PullRequest::id)
+                .collect(Collectors.toUnmodifiableSet());
+
+        List<PullRequestEntity> fresh = pullRequests.stream()
+                .map(pullRequest -> {
+                    PullRequestEntity entity = toEntity(pullRequest, now);
+                    PullRequestEntity previous = existingById.get(pullRequest.id());
+                    entity.setDashboardVisible(previous == null ? false : dashboardVisible(previous));
+                    entity.setWorkspaceVisible(true);
+                    if (previous != null) {
+                        preserveEnrichment(entity, previous);
+                    }
+                    return entity;
+                })
+                .toList();
+        jpaRepository.saveAll(fresh);
+
+        existingById.values().stream()
+                .filter(entity -> !freshIds.contains(entity.getId()))
+                .filter(SqlitePullRequestStore::workspaceVisible)
+                .forEach(entity -> {
+                    if (dashboardVisible(entity)) {
+                        entity.setWorkspaceVisible(false);
+                        jpaRepository.save(entity);
+                    }
+                    else {
+                        jpaRepository.delete(entity);
+                    }
+                });
     }
 
     /**
@@ -148,6 +184,7 @@ public class SqlitePullRequestStore
     public Map<Long, Instant> findUpdatedAtMap()
     {
         return jpaRepository.findAll().stream()
+                .filter(SqlitePullRequestStore::dashboardVisible)
                 .collect(Collectors.toUnmodifiableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
     }
 
@@ -162,6 +199,7 @@ public class SqlitePullRequestStore
         // is cheap relative to silently stale reviewer state.
         // Null head_ref also forces a re-sync for older local rows.
         return jpaRepository.findAll().stream()
+                .filter(SqlitePullRequestStore::dashboardVisible)
                 .filter(e -> {
                     Map<String, String> verdicts = e.getReviewerVerdicts();
                     if (verdicts == null || verdicts.isEmpty()) {
@@ -275,6 +313,35 @@ public class SqlitePullRequestStore
         entity.setReviewerVerdicts(pr.reviewerVerdicts());
         entity.setHeadRef(pr.headRef());
         return entity;
+    }
+
+    private static void preserveEnrichment(PullRequestEntity entity, PullRequestEntity previous)
+    {
+        if (entity.getReviewerVerdicts() == null) {
+            entity.setReviewerVerdicts(previous.getReviewerVerdicts());
+        }
+        if (entity.getMergeable() == null) {
+            entity.setMergeable(previous.getMergeable());
+        }
+        if (entity.getMergeableState() == null) {
+            entity.setMergeableState(previous.getMergeableState());
+        }
+        if (entity.getHeadPushedAt() == null) {
+            entity.setHeadPushedAt(previous.getHeadPushedAt());
+        }
+        if (entity.getHeadRef() == null) {
+            entity.setHeadRef(previous.getHeadRef());
+        }
+    }
+
+    private static boolean dashboardVisible(PullRequestEntity entity)
+    {
+        return entity.getDashboardVisible() == null || entity.getDashboardVisible();
+    }
+
+    private static boolean workspaceVisible(PullRequestEntity entity)
+    {
+        return Boolean.TRUE.equals(entity.getWorkspaceVisible());
     }
 
     private static PullRequest toDomain(PullRequestEntity entity, PrViewState state)

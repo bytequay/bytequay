@@ -65,11 +65,8 @@ export default function AppSidebar({
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;
-    if ((tab === 'commits' || tab === 'tasks') && workspace.codeState !== 'READY') {
+    if (tab === 'commits' && workspace.codeState !== 'READY') {
       return `Available when repository code is ready (${workspace.codeState.toLowerCase()}).`;
-    }
-    if ((tab === 'prs' || tab === 'issues') && workspace.metadataState !== 'READY') {
-      return `Available when repository metadata is ready (${workspace.metadataState.toLowerCase()}).`;
     }
     return null;
   };

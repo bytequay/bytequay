@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RepoRef;
@@ -64,6 +65,9 @@ public class DefaultWorkspaceRepositoryService
     private final Clock clock;
     private final WorkspacePaths paths;
     private final WorkspaceProvisioningService provisioning;
+    private final WorkspaceMetadataService metadata;
+    private final PullRequestService pullRequests;
+    private final WorkspaceIssueService issues;
     private final Executor executor;
 
     public DefaultWorkspaceRepositoryService(
@@ -75,6 +79,9 @@ public class DefaultWorkspaceRepositoryService
             Clock clock,
             WorkspacePaths paths,
             WorkspaceProvisioningService provisioning,
+            WorkspaceMetadataService metadata,
+            PullRequestService pullRequests,
+            WorkspaceIssueService issues,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -85,6 +92,9 @@ public class DefaultWorkspaceRepositoryService
         this.clock = requireNonNull(clock, "clock is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.issues = requireNonNull(issues, "issues is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -138,7 +148,7 @@ public class DefaultWorkspaceRepositoryService
         Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
         if (existing.isPresent()) {
             Workspace workspace = existing.orElseThrow();
-            scheduleIncompleteCode(workspace);
+            scheduleIncompleteWork(workspace);
             return workspace;
         }
         if (!sameFingerprint(toPreview(selected).fingerprint(), command.previewFingerprint())) {
@@ -184,22 +194,33 @@ public class DefaultWorkspaceRepositoryService
     {
         Workspace workspace = requireWorkspace(workspaceId);
         CodeState code = workspace.codeState();
-        if (code == CodeState.CLONING || code == CodeState.SYNCING) {
+        MetadataState metadataState = workspace.metadataState();
+        boolean codeBusy = code == CodeState.CLONING || code == CodeState.SYNCING;
+        boolean metadataBusy = metadataState == MetadataState.SYNCING;
+        if (codeBusy && metadataBusy) {
             return workspace;
         }
-        MetadataState metadata = workspace.metadataState();
         boolean synchronize = code == CodeState.READY;
-        code = synchronize ? CodeState.SYNCING : CodeState.PENDING;
-        if (metadata != MetadataState.SYNCING) {
-            metadata = MetadataState.PENDING;
+        if (!codeBusy) {
+            code = synchronize ? CodeState.SYNCING : CodeState.PENDING;
         }
-        Workspace accepted = store.save(workspace.withStates(code, metadata, clock.instant()));
-        if (synchronize) {
-            submit(() -> provisioning.synchronizeCode(workspaceId), workspaceId);
+        if (!metadataBusy) {
+            metadataState = MetadataState.PENDING;
         }
-        else {
-            submit(() -> provisioning.provision(workspaceId), workspaceId);
+        Workspace accepted = store.save(workspace.withStates(code, metadataState, clock.instant()));
+        if (!codeBusy) {
+            if (synchronize) {
+                submit(() -> provisioning.synchronizeCode(workspaceId), workspaceId);
+            }
+            else {
+                submit(() -> provisioning.provision(workspaceId), workspaceId);
+            }
         }
+        if (!metadataBusy) {
+            submit(() -> metadata.synchronize(workspaceId), workspaceId);
+        }
+        submit(() -> pullRequests.syncRepository(workspace.monitoredRepository()), workspaceId);
+        submit(() -> issues.synchronize(workspaceId), workspaceId);
         return accepted;
     }
 
@@ -277,7 +298,7 @@ public class DefaultWorkspaceRepositoryService
                 now,
                 now);
         Workspace saved = store.createOrGet(proposed);
-        scheduleIncompleteCode(saved);
+        scheduleIncompleteWork(saved);
         return saved;
     }
 
@@ -445,7 +466,7 @@ public class DefaultWorkspaceRepositoryService
         return value == null || value.isBlank();
     }
 
-    private void scheduleIncompleteCode(Workspace workspace)
+    private void scheduleIncompleteWork(Workspace workspace)
     {
         if (workspace.codeState() == CodeState.PENDING
                 || workspace.codeState() == CodeState.CLONING) {
@@ -454,6 +475,12 @@ public class DefaultWorkspaceRepositoryService
         else if (workspace.codeState() == CodeState.SYNCING) {
             submit(() -> provisioning.synchronizeCode(workspace.id()), workspace.id());
         }
+        if (workspace.metadataState() == MetadataState.PENDING
+                || workspace.metadataState() == MetadataState.SYNCING) {
+            submit(() -> metadata.synchronize(workspace.id()), workspace.id());
+        }
+        submit(() -> pullRequests.syncRepository(workspace.monitoredRepository()), workspace.id());
+        submit(() -> issues.synchronize(workspace.id()), workspace.id());
     }
 
     private void submit(Runnable task, String workspaceId)

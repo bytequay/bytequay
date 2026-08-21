@@ -218,6 +218,36 @@ export type WorkspaceDto = {
   displayOrder: number;
 };
 
+export type RepositoryMetadataDto = {
+  repositoryId: number;
+  repository: { owner: string; repo: string };
+  contributors: Array<{ id: number; login: string; avatarUrl: string; bot: boolean }>;
+  labels: Array<{ id: number; name: string; color: string }>;
+  topics: string[];
+  contributorsSyncedAt: string | null;
+  labelsTopicsSyncedAt: string | null;
+};
+
+export type RepositoryIssueSnapshotDto = {
+  repositoryId: number;
+  repository: { owner: string; repo: string };
+  issues: Array<{
+    id: number;
+    number: number;
+    title: string;
+    body: string;
+    author: string;
+    authorAvatarUrl: string;
+    htmlUrl: string;
+    labels: string[];
+    assignees: string[];
+    commentCount: number;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  syncedAt: string | null;
+};
+
 export type RepoMetaDto = {
   fullName: string;
   htmlUrl: string;
@@ -434,10 +464,10 @@ export type GitWorktreeStatusDto = {
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
-  fetchPrs: () => Promise<PullRequestDto[]>;
-  syncPrs: () => Promise<void>;
+  fetchPrs: (workspaceId?: string) => Promise<PullRequestDto[]>;
+  syncPrs: (workspaceId?: string) => Promise<void>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
-  fetchRepoUsers: (repo: string) => Promise<RepoUserDto[]>;
+  fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
   refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
@@ -460,6 +490,9 @@ export type Bridge = {
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
+  getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
+  fetchWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  syncWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;

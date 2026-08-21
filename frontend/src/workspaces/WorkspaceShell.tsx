@@ -16,7 +16,8 @@ import CommitsTab from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import { isOpenTask } from '../commits/model';
 import PullsScreen from '../pulls/PullsScreen';
-import type { CherryPickExecution, GitOverviewDto } from '../types';
+import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
+import type { CherryPickExecution, GitOverviewDto, RepositoryMetadataDto } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
   githubSlug,
@@ -55,13 +56,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.clearTimeout(timer);
   }, [workspace, onWorkspaceChanged]);
 
-  if ((tab === 'commits' || tab === 'tasks') && workspace.codeState !== 'READY') {
+  if (tab === 'commits' && workspace.codeState !== 'READY') {
     return <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />;
   }
-  if ((tab === 'prs' || tab === 'issues') && workspace.metadataState !== 'READY') {
-    return <WorkspaceUnavailable message="Repository metadata must be ready before this tab can open." />;
-  }
-
   if (tab === 'commits') {
     return (
       <CommitsTab
@@ -71,7 +68,18 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       />
     );
   }
-  if (tab === 'prs') return <PullsScreen />;
+  if (tab === 'prs') {
+    return <PullsScreen repositoryScope={{
+      workspaceId: workspace.id,
+      repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
+    }} />;
+  }
+  if (tab === 'issues') {
+    return <WorkspaceIssuesScreen
+      workspaceId={workspace.id}
+      repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+    />;
+  }
   if (tab === 'tasks') {
     return (
       <div className="ws-tab-page">
@@ -98,14 +106,12 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       />
     );
   }
-  if (tab === 'issues' || tab === 'memory') {
+  if (tab === 'memory') {
     return (
       <div className="ws-tab-page">
-        <h1>{tab === 'issues' ? 'Issues' : 'Memory'}</h1>
+        <h1>Memory</h1>
         <div className="ws-empty">
-          {tab === 'issues'
-            ? 'Issue tracking for this workspace is not wired up yet.'
-            : 'Nothing has been remembered about this workspace yet.'}
+          Nothing has been remembered about this workspace yet.
         </div>
       </div>
     );
@@ -144,6 +150,7 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
 }) {
   const [tasks, setTasks] = useState<CherryPickExecution[]>([]);
   const [openPrs, setOpenPrs] = useState<number | null>(null);
+  const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
@@ -152,22 +159,22 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
     void window.bridge.listCherryPickExecutions(200)
       .then(executions => { if (!cancelled) setTasks(executions); })
       .catch(() => {});
-    void window.bridge.fetchPrs()
+    void window.bridge.fetchPrs(workspace.id)
       .then(prs => {
         if (cancelled) return;
-        const monitored = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
         setOpenPrs(prs.filter(pr =>
-          pr.repo.toLowerCase() === monitored.toLowerCase()
-          && pr.state?.toLowerCase() !== 'closed').length);
+          pr.state?.toLowerCase() !== 'closed').length);
       })
       .catch(() => {});
+    void window.bridge.getWorkspaceMetadata(workspace.id)
+      .then(value => { if (!cancelled) setMetadata(value); })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [workspace.monitoredOwner, workspace.monitoredRepo]);
+  }, [workspace.id]);
 
   const workspaceTasks = tasks.filter(task => task.workspaceId === workspace.id);
   const activeTasks = workspaceTasks.filter(isOpenTask);
   const codeReady = workspace.codeState === 'READY';
-  const metadataReady = workspace.metadataState === 'READY';
   const developmentBase = `${workspace.topology === 'FORK' ? 'upstream' : 'origin'}/${workspace.defaultBranch}`;
   const retryable = workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED';
 
@@ -231,6 +238,13 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
             state={workspace.metadataState}
             lastSyncAt={workspace.lastMetadataSyncAt}
             error={workspace.metadataError}
+            detail={metadata && (
+              `${metadata.contributors.length} contributors (${metadata.contributorsSyncedAt
+                ? relativeTime(metadata.contributorsSyncedAt)
+                : 'not synced'}) · ${metadata.labels.length} labels and ${metadata.topics.length} topics (${metadata.labelsTopicsSyncedAt
+                ? relativeTime(metadata.labelsTopicsSyncedAt)
+                : 'not synced'})`
+            )}
           />
         </section>
       </div>
@@ -238,21 +252,18 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
         <button
           type="button"
           className="ws-stat-card"
-          disabled={!metadataReady}
-          title={metadataReady ? 'Open workspace pull requests' : 'Available when repository metadata is ready.'}
+          title={`Open pull requests for ${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
           onClick={() => onSelectTab('prs')}
         >
           <div className="ws-stat-value">{openPrs ?? '—'}</div>
           <div className="ws-stat-label">Open pull requests</div>
         </button>
-        <button type="button" className="ws-stat-card" disabled={!codeReady}
-          title={codeReady ? 'Open workspace tasks' : 'Available when repository code is ready.'}
+        <button type="button" className="ws-stat-card" title="Open workspace tasks"
           onClick={() => onSelectTab('tasks')}>
           <div className="ws-stat-value">{activeTasks.length}</div>
           <div className="ws-stat-label">Active tasks</div>
         </button>
-        <button type="button" className="ws-stat-card" disabled={!codeReady}
-          title={codeReady ? 'Open workspace tasks' : 'Available when repository code is ready.'}
+        <button type="button" className="ws-stat-card" title="Open workspace tasks"
           onClick={() => onSelectTab('tasks')}>
           <div className="ws-stat-value">{workspaceTasks.length - activeTasks.length}</div>
           <div className="ws-stat-label">Finished tasks</div>
@@ -285,11 +296,12 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
   );
 }
 
-function WorkspaceReadiness({ label, state, lastSyncAt, error }: {
+function WorkspaceReadiness({ label, state, lastSyncAt, error, detail }: {
   label: string;
   state: Workspace['codeState'] | Workspace['metadataState'];
   lastSyncAt: string | null;
   error: string | null;
+  detail?: string | null;
 }) {
   return (
     <div className="ws-readiness">
@@ -300,6 +312,7 @@ function WorkspaceReadiness({ label, state, lastSyncAt, error }: {
       <div className="ws-readiness-meta">
         {lastSyncAt ? `Last synchronized ${relativeTime(lastSyncAt)}` : 'Not synchronized yet'}
       </div>
+      {detail && <div className="ws-readiness-meta">{detail}</div>}
       {error && <div className="ws-readiness-error">{error}</div>}
     </div>
   );

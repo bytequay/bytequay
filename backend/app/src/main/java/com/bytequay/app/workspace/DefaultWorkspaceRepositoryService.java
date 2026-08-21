@@ -26,20 +26,26 @@ import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WatchedRepoStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -78,9 +84,60 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
+    public List<RepositorySearchResult> searchRepositories(String query, int limit)
+    {
+        checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
+        String pat = credentials.resolveGitHubToken();
+        String trimmed = Optional.ofNullable(query).map(String::trim).orElse("");
+        List<UserRepo> repositories;
+        int slash = trimmed.indexOf('/');
+        if (trimmed.isEmpty()) {
+            repositories = gitHub.fetchUserRepos(pat);
+        }
+        else if (slash > 0 && slash == trimmed.lastIndexOf('/') && slash < trimmed.length() - 1) {
+            String owner = trimmed.substring(0, slash).trim();
+            String name = trimmed.substring(slash + 1).trim();
+            Optional<UserRepo> exact = gitHub.fetchRepository(pat, owner, name);
+            repositories = exact.isPresent()
+                    ? ImmutableList.of(exact.orElseThrow())
+                    : gitHub.searchRepositories(pat, name + " in:name user:" + owner);
+        }
+        else {
+            repositories = gitHub.searchRepositories(pat, trimmed + " in:name");
+        }
+        return repositories.stream()
+                .filter(DefaultWorkspaceRepositoryService::validSearchResult)
+                .limit(limit)
+                .map(this::toSearchResult)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public WatchRepositoryPreview previewWatch(long selectedRepositoryId)
+    {
+        checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
+        UserRepo selected = gitHub.fetchRepository(credentials.resolveGitHubToken(), selectedRepositoryId)
+                .orElseThrow(() -> WorkspaceException.repositoryNotFound(selectedRepositoryId));
+        validate(selected);
+        return toPreview(selected);
+    }
+
+    @Override
     public Workspace watch(WatchRepositoryCommand command)
     {
-        return watch(command, OptionalInt.empty());
+        requireNonNull(command, "command is null");
+        UserRepo selected = gitHub.fetchRepository(
+                        credentials.resolveGitHubToken(), command.selectedRepositoryId())
+                .orElseThrow(() -> WorkspaceException.repositoryNotFound(command.selectedRepositoryId()));
+        validate(selected);
+        Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+        if (!sameFingerprint(toPreview(selected).fingerprint(), command.previewFingerprint())) {
+            throw WorkspaceException.previewChanged();
+        }
+        return createWorkspace(selected, command.name(), OptionalInt.empty());
     }
 
     @Override
@@ -150,12 +207,11 @@ public class DefaultWorkspaceRepositoryService
         store.delete(workspace.id());
     }
 
-    private Workspace watch(WatchRepositoryCommand command, OptionalInt retainedDisplayOrder)
+    private Workspace createWorkspace(
+            UserRepo selected,
+            Optional<String> name,
+            OptionalInt retainedDisplayOrder)
     {
-        requireNonNull(command, "command is null");
-        UserRepo selected = gitHub.fetchRepository(
-                        credentials.resolveGitHubToken(), command.owner(), command.repo())
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(command.owner(), command.repo()));
         validate(selected);
 
         Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
@@ -181,7 +237,7 @@ public class DefaultWorkspaceRepositoryService
                 .orElse(selected.defaultBranch());
         Workspace proposed = new Workspace(
                 id,
-                command.name().orElse(selected.fullName()),
+                name.orElse(selected.fullName()),
                 selected.id(),
                 selectedRef,
                 upstreamId,
@@ -218,9 +274,12 @@ public class DefaultWorkspaceRepositoryService
     {
         for (WatchedRepo legacy : legacyStore.findAll()) {
             try {
-                watch(
-                        new WatchRepositoryCommand(
-                                legacy.owner(), legacy.repo(), Optional.of(legacy.fullName())),
+                UserRepo selected = gitHub.fetchRepository(
+                                credentials.resolveGitHubToken(), legacy.owner(), legacy.repo())
+                        .orElseThrow(() -> WorkspaceException.repositoryNotFound(legacy.owner(), legacy.repo()));
+                createWorkspace(
+                        selected,
+                        Optional.of(legacy.fullName()),
                         OptionalInt.of(legacy.displayOrder()));
                 legacyStore.remove(legacy.owner(), legacy.repo());
             }
@@ -229,6 +288,93 @@ public class DefaultWorkspaceRepositoryService
                         legacy.owner(), legacy.repo(), failure.getMessage());
             }
         }
+    }
+
+    private RepositorySearchResult toSearchResult(UserRepo repository)
+    {
+        Optional<RepoRef> upstream = repository.upstream()
+                .map(value -> RepoRef.of(value.owner(), value.name()));
+        Optional<String> existingWorkspaceId = store.findBySelectedRepositoryId(repository.id())
+                .map(Workspace::id);
+        return new RepositorySearchResult(
+                repository.id(),
+                RepoRef.of(repository.owner(), repository.name()),
+                repository.fullName(),
+                repository.description(),
+                repository.visibility(),
+                repository.fork(),
+                repository.defaultBranch(),
+                repository.cloneUrl(),
+                upstream,
+                repository.viewerCanPush(),
+                existingWorkspaceId);
+    }
+
+    private WatchRepositoryPreview toPreview(UserRepo selected)
+    {
+        RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
+        Optional<UserRepo.Upstream> upstream = selected.upstream();
+        Optional<Long> upstreamId = upstream.map(UserRepo.Upstream::id);
+        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
+        Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
+        long monitoredId = upstreamId.orElse(selected.id());
+        RepoRef monitored = upstreamRef.orElse(selectedRef);
+        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch).orElse(selected.defaultBranch());
+        String developmentRemote = topology == Topology.FORK ? "upstream" : "origin";
+        return new WatchRepositoryPreview(
+                selected.id(),
+                selectedRef,
+                selected.visibility(),
+                topology,
+                upstreamId,
+                upstreamRef,
+                monitoredId,
+                monitored,
+                defaultBranch,
+                developmentRemote + "/" + defaultBranch,
+                "origin",
+                selected.viewerCanPush(),
+                monitored,
+                fingerprint(selected),
+                store.findBySelectedRepositoryId(selected.id()).map(Workspace::id));
+    }
+
+    private static boolean validSearchResult(UserRepo repository)
+    {
+        return repository.id() > 0
+                && !isBlank(repository.owner())
+                && !isBlank(repository.name())
+                && !isBlank(repository.fullName())
+                && !isBlank(repository.defaultBranch())
+                && safeCloneUrl(repository.cloneUrl());
+    }
+
+    private static String fingerprint(UserRepo repository)
+    {
+        String upstream = repository.upstream()
+                .map(value -> String.join("\0",
+                        Long.toString(value.id()), value.owner(), value.name(),
+                        value.defaultBranch(), value.cloneUrl()))
+                .orElse("-");
+        String material = String.join("\0",
+                Long.toString(repository.id()), repository.owner(), repository.name(),
+                Boolean.toString(repository.fork()), repository.visibility(),
+                Boolean.toString(repository.viewerCanPush()), repository.defaultBranch(),
+                repository.cloneUrl(), upstream);
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static boolean sameFingerprint(String current, String confirmed)
+    {
+        return MessageDigest.isEqual(
+                current.getBytes(StandardCharsets.UTF_8),
+                confirmed.getBytes(StandardCharsets.UTF_8));
     }
 
     private static void validate(UserRepo repository)

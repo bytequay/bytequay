@@ -444,17 +444,32 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('repos:list', () => backendJson(`${BACKEND_BASE}/api/repos`));
-  ipcMain.handle('repos:add', (_event, owner: string, repo: string) =>
-    backendJson(`${BACKEND_BASE}/api/repos`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner, repo }),
-    }));
   ipcMain.handle('repos:remove', (_event, owner: string, repo: string) =>
     backendVoid(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
       { method: 'DELETE' },
     ));
+  ipcMain.handle('workspaces:search', (_event, query: string, limit: number) => {
+    const url = new URL(`${BACKEND_BASE}/api/repository-search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', String(limit));
+    return backendJson(url);
+  });
+  ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/watch-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selectedRepositoryId }),
+    }));
+  ipcMain.handle('workspaces:watch', (_event, command: {
+    selectedRepositoryId: number;
+    previewFingerprint: string;
+    name?: string;
+  }) => backendJson(`${BACKEND_BASE}/api/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  }));
   ipcMain.handle('workspaces:list', () => backendJson(`${BACKEND_BASE}/api/workspaces`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`));
@@ -486,12 +501,6 @@ function registerIpc(): void {
     backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
     ));
-  ipcMain.handle('repos:user', () => backendJson(`${BACKEND_BASE}/api/user/repos`));
-  ipcMain.handle('repos:search', (_event, query: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/search/repos`);
-    url.searchParams.set('q', query);
-    return backendJson(url);
-  });
   ipcMain.handle('repos:activity', (_event, login: string) => {
     const url = new URL(`${BACKEND_BASE}/api/activity/recent`);
     url.searchParams.set('login', login);

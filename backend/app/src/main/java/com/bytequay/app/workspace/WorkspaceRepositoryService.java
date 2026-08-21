@@ -21,13 +21,33 @@ import java.util.List;
 public interface WorkspaceRepositoryService
 {
     /**
-     * Creates a durable workspace after re-reading the selected repository from GitHub.
+     * Searches repositories visible to the connected GitHub account without changing state.
+     *
+     * @param query repository name or owner/name; blank returns recently pushed repositories
+     * @param limit maximum number of results, from 1 through 30
+     * @return repositories with stable identity, topology hints, clone routing, and permissions
+     */
+    List<RepositorySearchResult> searchRepositories(String query, int limit);
+
+    /**
+     * Resolves the exact direct/fork routing that the user must confirm before watching.
+     *
+     * @param selectedRepositoryId stable GitHub repository identifier
+     * @return current routing, permission state, and confirmation fingerprint
+     * @throws WorkspaceException when the repository is unavailable or has unsafe routing
+     */
+    WatchRepositoryPreview previewWatch(long selectedRepositoryId);
+
+    /**
+     * Creates a durable workspace after re-reading the selected repository by stable GitHub ID.
      *
      * <p>The selected repository's stable GitHub ID is idempotent: a repeated or concurrent watch
-     * returns the existing workspace.</p>
+     * returns the existing workspace. A changed routing fingerprint is rejected so stale preview
+     * data cannot be persisted.</p>
      *
-     * @param command selected repository coordinates and optional display name
+     * @param command confirmed repository ID, preview fingerprint, and optional display name
      * @return the persisted workspace in its current code and metadata states
+     * @throws WorkspaceException when the repository changed after preview
      */
     Workspace watch(WatchRepositoryCommand command);
 

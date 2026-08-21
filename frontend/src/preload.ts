@@ -35,8 +35,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
 
   getWatchedRepos: () => ipcRenderer.invoke('repos:list'),
-  addWatchedRepo: (owner, repo) => ipcRenderer.invoke('repos:add', owner, repo),
   removeWatchedRepo: (owner, repo) => ipcRenderer.invoke('repos:remove', owner, repo),
+  searchRepositories: (query, limit) => ipcRenderer.invoke('workspaces:search', query, limit),
+  previewWatch: selectedRepositoryId => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId),
+  watchRepository: command => ipcRenderer.invoke('workspaces:watch', command),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   getWorkspace: workspaceId => ipcRenderer.invoke('workspaces:get', workspaceId),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
@@ -46,8 +48,6 @@ const bridge: Bridge = {
   getUserCommitsOnDate: (login, date) => ipcRenderer.invoke('repos:contribution-day', login, date),
   getRepoPull: (owner, repo, number) => ipcRenderer.invoke('repos:pull', owner, repo, number),
   getRepoMeta: (owner, repo) => ipcRenderer.invoke('repos:meta', owner, repo),
-  getUserRepos: () => ipcRenderer.invoke('repos:user'),
-  searchRepos: query => ipcRenderer.invoke('repos:search', query),
   getRecentActivity: login => ipcRenderer.invoke('repos:activity', login),
   getFollowingActivity: login => ipcRenderer.invoke('repos:following', login),
 

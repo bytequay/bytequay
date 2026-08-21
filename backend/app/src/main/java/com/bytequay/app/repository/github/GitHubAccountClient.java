@@ -21,6 +21,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -42,6 +43,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -341,7 +343,7 @@ public class GitHubAccountClient
                 throw toReadableException(e);
             }
         }
-        return List.copyOf(all);
+        return ImmutableList.copyOf(all);
     }
 
     private static UserRepo toUserRepo(GitHubUserRepoItem item) {
@@ -365,9 +367,11 @@ public class GitHubAccountClient
                             .header("Authorization", authorization(pat))
                             .retrieve()
                             .body(GitHubRepoPermissionsResponse.class);
-            return response != null
-                    && response.permissions() != null
-                    && Boolean.TRUE.equals(response.permissions().push());
+            return Optional.ofNullable(response)
+                    .map(GitHubRepoPermissionsResponse::permissions)
+                    .map(GitHubRepoPermissions::push)
+                    .map(Boolean.TRUE::equals)
+                    .orElse(false);
         }
         catch (Exception e) {
             return false;
@@ -399,7 +403,7 @@ public class GitHubAccountClient
             }
             return response.items().stream()
                     .map(GitHubAccountClient::toUserRepoFromSearch)
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -425,6 +429,25 @@ public class GitHubAccountClient
         }
     }
 
+    public Optional<UserRepo> fetchRepository(String pat, long repositoryId) {
+        try {
+            GitHubUserRepoItem item =
+                    gitHubRestClient
+                            .get()
+                            .uri("/repositories/{repositoryId}", repositoryId)
+                            .header("Authorization", authorization(pat))
+                            .retrieve()
+                            .body(GitHubUserRepoItem.class);
+            return Optional.ofNullable(item).map(GitHubAccountClient::toUserRepoFromSearch);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw toReadableException(e);
+        }
+    }
+
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item) {
         String owner =
                 Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
@@ -435,18 +458,23 @@ public class GitHubAccountClient
                         Optional.ofNullable(repository.owner())
                                 .map(GitHubUserRepoItem.Owner::login)
                                 .orElse(""),
-                        repository.name(),
-                        repository.defaultBranch(),
-                        repository.cloneUrl()));
+                        Optional.ofNullable(repository.name()).orElse(""),
+                        Optional.ofNullable(repository.defaultBranch()).orElse(""),
+                        Optional.ofNullable(repository.cloneUrl()).orElse("")));
         return new UserRepo(
                 item.id(),
                 owner,
-                item.name(),
-                item.fullName(),
+                Optional.ofNullable(item.name()).orElse(""),
+                Optional.ofNullable(item.fullName()).orElse(""),
                 Optional.ofNullable(item.description()),
                 item.fork(),
-                item.defaultBranch(),
-                item.cloneUrl(),
+                Optional.ofNullable(item.visibility()).orElse("unknown"),
+                Optional.ofNullable(item.permissions())
+                        .map(GitHubUserRepoItem.Permissions::push)
+                        .map(Boolean.TRUE::equals)
+                        .orElse(false),
+                Optional.ofNullable(item.defaultBranch()).orElse(""),
+                Optional.ofNullable(item.cloneUrl()).orElse(""),
                 upstream);
     }
 

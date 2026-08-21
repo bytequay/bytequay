@@ -34,6 +34,7 @@ const KEY_PRS = 'prs:list';
 type Props = {
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
   onGoToMyPrs: () => void;
+  onOpenWorkspace: (workspaceId: string) => void;
 };
 
 function openUrl(url: string) {
@@ -95,6 +96,7 @@ export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<
 function HomePage({
   onSelectRepo,
   onGoToMyPrs,
+  onOpenWorkspace,
 }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
@@ -327,8 +329,8 @@ function HomePage({
 
       {showModal && (
         <AddRepoModal
-          watchedRepos={repos}
           onAdded={() => { void handleAdded(); }}
+          onOpenWorkspace={onOpenWorkspace}
           onClose={() => setShowModal(false)}
         />
       )}

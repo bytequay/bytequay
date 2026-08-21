@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.workspace.WatchRepositoryCommand;
+import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
@@ -47,7 +48,16 @@ public class WorkspaceController
     {
         requireNonNull(request, "body is required");
         return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
-                request.owner(), request.repo(), Optional.ofNullable(request.name()))));
+                request.selectedRepositoryId(),
+                request.previewFingerprint(),
+                Optional.ofNullable(request.name()))));
+    }
+
+    @PostMapping("/watch-preview")
+    public WatchRepositoryPreview previewWatch(@RequestBody WatchPreviewRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return workspaces.previewWatch(request.selectedRepositoryId());
     }
 
     @GetMapping
@@ -75,5 +85,7 @@ public class WorkspaceController
         return Map.of("result", "removed");
     }
 
-    public record WatchRequest(String owner, String repo, String name) {}
+    public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}
+
+    public record WatchPreviewRequest(long selectedRepositoryId) {}
 }

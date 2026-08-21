@@ -27,7 +27,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredRepoMeta;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
 import org.slf4j.Logger;
@@ -154,31 +153,6 @@ public class RepoService
         catch (RuntimeException e) {
             log.warn("Background repo-meta refresh for {}/{} failed: {}", owner, repo, e.getMessage());
         }
-    }
-
-    public List<UserRepo> getUserRepos()
-    {
-        return accounts.fetchUserRepos(credentialService.resolveGitHubToken());
-    }
-
-    public List<UserRepo> searchRepos(String query)
-    {
-        String trimmed = query == null ? "" : query.trim();
-        if (trimmed.isEmpty()) {
-            return List.of();
-        }
-        String pat = credentialService.resolveGitHubToken();
-        int slash = trimmed.indexOf('/');
-        if (slash > 0 && slash == trimmed.lastIndexOf('/') && slash < trimmed.length() - 1) {
-            String owner = trimmed.substring(0, slash).trim();
-            String name = trimmed.substring(slash + 1).trim();
-            Optional<UserRepo> exact = accounts.fetchRepository(pat, owner, name);
-            if (exact.isPresent()) {
-                return List.of(exact.orElseThrow());
-            }
-            return accounts.searchRepositories(pat, name + " in:name user:" + owner);
-        }
-        return accounts.searchRepositories(pat, trimmed + " in:name");
     }
 
     public List<RecentEvent> getRecentEvents(String login)

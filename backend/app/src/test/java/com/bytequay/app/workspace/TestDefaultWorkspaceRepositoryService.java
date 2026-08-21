@@ -55,15 +55,24 @@ class TestDefaultWorkspaceRepositoryService
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", "owner", "project"))
+        when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        when(gitHub.fetchRepository("token", "contributor", "project"))
+        when(gitHub.fetchRepository("token", 200L))
                 .thenReturn(Optional.of(fork(200, 300)));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
 
-        Workspace direct = service.watch(command("owner"));
-        Workspace fork = service.watch(command("contributor"));
+        WatchRepositoryPreview directPreview = service.previewWatch(100);
+        Workspace direct = service.watch(new WatchRepositoryCommand(
+                100, directPreview.fingerprint(), Optional.empty()));
+        Workspace fork = watch(service, 200);
 
+        assertThat(directPreview.topology()).isEqualTo(Topology.DIRECT);
+        assertThat(directPreview.upstreamRepository()).isEmpty();
+        assertThat(directPreview.monitoredRepository()).isEqualTo(RepoRef.of("owner", "project"));
+        assertThat(directPreview.developmentBase()).isEqualTo("origin/main");
+        assertThat(directPreview.pushRemote()).isEqualTo("origin");
+        assertThat(directPreview.pushWritable()).isTrue();
+        assertThat(directPreview.pullRequestBase()).isEqualTo(RepoRef.of("owner", "project"));
         assertThat(direct.topology()).isEqualTo(Topology.DIRECT);
         assertThat(direct.monitoredRepositoryId()).isEqualTo(100);
         assertThat(direct.upstreamRepositoryId()).isEmpty();
@@ -79,12 +88,14 @@ class TestDefaultWorkspaceRepositoryService
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", "owner", "project"))
+        when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        WatchRepositoryPreview preview = service.previewWatch(100);
+        WatchRepositoryCommand command = new WatchRepositoryCommand(100, preview.fingerprint(), Optional.empty());
         List<Callable<Workspace>> watches = new ArrayList<>();
         for (int index = 0; index < 8; index++) {
-            watches.add(() -> service.watch(command("owner")));
+            watches.add(() -> service.watch(command));
         }
 
         try (var executor = Executors.newFixedThreadPool(8)) {
@@ -128,10 +139,10 @@ class TestDefaultWorkspaceRepositoryService
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", "owner", "project"))
+        when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
-        Workspace pending = service.watch(command("owner"));
+        Workspace pending = watch(service, 100);
 
         assertThatThrownBy(() -> service.getWorkspace("missing"))
                 .isInstanceOfSatisfying(WorkspaceException.class,
@@ -146,10 +157,10 @@ class TestDefaultWorkspaceRepositoryService
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", "owner", "project"))
+        when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
-        Workspace ready = store.save(service.watch(command("owner"))
+        Workspace ready = store.save(watch(service, 100)
                 .withStates(CodeState.READY, MetadataState.READY, NOW));
 
         Workspace requested = service.requestSync(ready.id());
@@ -177,9 +188,83 @@ class TestDefaultWorkspaceRepositoryService
                 "/tmp/bytequay-workspaces");
     }
 
-    private static WatchRepositoryCommand command(String owner)
+    @Test
+    void previewShowsExactRoutingAndRejectsPermissionChanges()
     {
-        return new WatchRepositoryCommand(owner, "project", Optional.empty());
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 200L))
+                .thenReturn(Optional.of(fork(200, 300, true)))
+                .thenReturn(Optional.of(fork(200, 300, false)));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+
+        WatchRepositoryPreview preview = service.previewWatch(200);
+
+        assertThat(preview.topology()).isEqualTo(Topology.FORK);
+        assertThat(preview.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
+        assertThat(preview.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThat(preview.developmentBase()).isEqualTo("upstream/main");
+        assertThat(preview.pushRemote()).isEqualTo("origin");
+        assertThat(preview.pushWritable()).isTrue();
+        assertThat(preview.pullRequestBase()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThatThrownBy(() -> service.watch(new WatchRepositoryCommand(
+                200, preview.fingerprint(), Optional.empty())))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WATCH_PREVIEW_CHANGED"));
+        assertThat(store.findAll()).isEmpty();
+    }
+
+    @Test
+    void searchIncludesStableIdentityAndExistingWorkspace()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        UserRepo repository = direct(100, "owner");
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(repository));
+        when(gitHub.fetchUserRepos("token")).thenReturn(List.of(repository));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        Workspace watched = watch(service, 100);
+
+        List<RepositorySearchResult> results = service.searchRepositories("", 30);
+
+        assertThat(results).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo(100);
+            assertThat(result.visibility()).isEqualTo("public");
+            assertThat(result.viewerCanPush()).isTrue();
+            assertThat(result.existingWorkspaceId()).contains(watched.id());
+        });
+    }
+
+    @Test
+    void rejectsCredentialBearingCloneUrlsBeforePreviewOrPersistence()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        UserRepo unsafe = new UserRepo(
+                100,
+                "owner",
+                "project",
+                "owner/project",
+                Optional.empty(),
+                false,
+                "private",
+                true,
+                "main",
+                "https://secret@github.com/owner/project.git",
+                Optional.empty());
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(unsafe));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+
+        assertThatThrownBy(() -> service.previewWatch(100))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("REPOSITORY_ROUTING_INVALID"));
+        assertThat(store.findAll()).isEmpty();
+    }
+
+    private static Workspace watch(DefaultWorkspaceRepositoryService service, long repositoryId)
+    {
+        WatchRepositoryPreview preview = service.previewWatch(repositoryId);
+        return service.watch(new WatchRepositoryCommand(repositoryId, preview.fingerprint(), Optional.empty()));
     }
 
     private static UserRepo direct(long id, String owner)
@@ -191,12 +276,19 @@ class TestDefaultWorkspaceRepositoryService
                 owner + "/project",
                 Optional.of("project"),
                 false,
+                "public",
+                true,
                 "main",
                 "https://github.com/" + owner + "/project.git",
                 Optional.empty());
     }
 
     private static UserRepo fork(long id, long upstreamId)
+    {
+        return fork(id, upstreamId, true);
+    }
+
+    private static UserRepo fork(long id, long upstreamId, boolean viewerCanPush)
     {
         return new UserRepo(
                 id,
@@ -205,6 +297,8 @@ class TestDefaultWorkspaceRepositoryService
                 "contributor/project",
                 Optional.of("fork"),
                 true,
+                "public",
+                viewerCanPush,
                 "feature-default",
                 "https://github.com/contributor/project.git",
                 Optional.of(new UserRepo.Upstream(

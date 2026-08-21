@@ -1,8 +1,8 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 1 complete; managed-clone concurrency remains in Checkpoint 3. The existing
-commit browser and local cherry-pick execution are reusable; this checklist tracks the missing
-watch-to-workspace integration and its delivery checkpoints.
+Status: Checkpoint 2 complete; managed clone and synchronization are next in Checkpoint 3. The
+existing commit browser and local cherry-pick execution are reusable; this checklist tracks the
+missing watch-to-workspace integration and its delivery checkpoints.
 
 Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
@@ -31,7 +31,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [ ] Direct repositories use `origin` for monitor, base, push, and PR base.
 - [ ] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
   monitor/development/PR base, and writable `origin` for push.
-- [ ] GitHub permissions are checked; they are not inferred only from the fork flag.
+- [x] GitHub permissions are checked; they are not inferred only from the fork flag.
 - [ ] The workspace Pull Requests tab reuses the global PR UI, service, clients, stores, and detail
   behavior; only its repository list scope differs.
 - [ ] Contributors are cached locally for seven days; labels and repository topics/tags are cached
@@ -109,29 +109,29 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### GitHub repository data
 
-- [ ] Enrich repository search results with stable repository ID.
-- [ ] Include default branch, visibility, fork flag, clone URL, and permission summary.
-- [ ] Resolve canonical source/parent identity for a selected fork.
-- [ ] Re-read repository data on confirm so stale search results cannot persist wrong routing.
-- [ ] Never persist clone URLs containing credentials.
+- [x] Enrich repository search results with stable repository ID.
+- [x] Include default branch, visibility, fork flag, clone URL, and permission summary.
+- [x] Resolve canonical source/parent identity for a selected fork.
+- [x] Re-read repository data on confirm so stale search results cannot persist wrong routing.
+- [x] Never persist clone URLs containing credentials.
 
 ### Watch preview
 
-- [ ] Implement `previewWatch` without mutating local or GitHub state.
-- [ ] Show selected repository, topology, monitored repository, development base, push remote,
+- [x] Implement `previewWatch` without mutating local or GitHub state.
+- [x] Show selected repository, topology, monitored repository, development base, push remote,
   write permission, and PR base.
-- [ ] Carry a preview version or topology fingerprint into the watch command.
-- [ ] Reject confirmation when material routing changed after preview.
-- [ ] Explain read-only behavior when no push destination is writable.
+- [x] Carry a preview version or topology fingerprint into the watch command.
+- [x] Reject confirmation when material routing changed after preview.
+- [x] Explain read-only behavior when no push destination is writable.
 
 ### Tests and gate
 
-- [ ] Direct preview routes all purposes to the selected repository.
-- [ ] Fork preview routes monitor/base/PR to upstream and push to the selected fork.
-- [ ] Nested fork/source selection follows the documented canonical rule.
-- [ ] Nested fork preview resolves and displays one canonical upstream, never a list of upstreams.
-- [ ] Permission changes are reflected or rejected at confirm time.
-- [ ] Checkpoint 2 gate: the user sees the exact direct/fork behavior before saving.
+- [x] Direct preview routes all purposes to the selected repository.
+- [x] Fork preview routes monitor/base/PR to upstream and push to the selected fork.
+- [x] Nested fork/source selection follows the documented canonical rule.
+- [x] Nested fork preview resolves and displays one canonical upstream, never a list of upstreams.
+- [x] Permission changes are reflected or rejected at confirm time.
+- [x] Checkpoint 2 gate: the user sees the exact direct/fork behavior before saving.
 
 ## Checkpoint 3 — Managed clone, sync, and recovery
 

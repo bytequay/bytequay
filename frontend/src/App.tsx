@@ -21,7 +21,7 @@ import PullsScreen from './pulls/PullsScreen';
 import SettingsShell from './settings/SettingsShell';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell, { type WorkspaceTab } from './workspaces/WorkspaceShell';
-import type { Workspace } from './workspaces/model';
+import { workspaceFromDto, type Workspace } from './workspaces/model';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
 
@@ -78,6 +78,13 @@ export default function App() {
             onGoToMyPrs={() => {
               setInitialPr(undefined);
               setPage('pulls');
+            }}
+            onOpenWorkspace={workspaceId => {
+              void window.bridge.getWorkspace(workspaceId).then(details => {
+                setWorkspace(workspaceFromDto(details.summary));
+                setWorkspaceTab('home');
+                setPage('workspaces');
+              });
             }}
           />
         )}

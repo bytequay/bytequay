@@ -44,6 +44,20 @@ public final class WorkspaceException
                 "Repository is no longer visible: " + owner + "/" + repo, false);
     }
 
+    public static WorkspaceException repositoryNotFound(long repositoryId)
+    {
+        return new WorkspaceException(
+                "REPOSITORY_NOT_FOUND", HttpStatus.NOT_FOUND,
+                "Repository is no longer visible: " + repositoryId, false);
+    }
+
+    public static WorkspaceException previewChanged()
+    {
+        return new WorkspaceException(
+                "WATCH_PREVIEW_CHANGED", HttpStatus.CONFLICT,
+                "Repository routing or permissions changed. Review the updated preview.", true);
+    }
+
     public static WorkspaceException repositoryNotReady()
     {
         return new WorkspaceException(

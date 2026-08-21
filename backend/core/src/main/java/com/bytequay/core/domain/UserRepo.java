@@ -24,13 +24,21 @@ public record UserRepo(
         String fullName,
         Optional<String> description,
         boolean fork,
+        String visibility,
+        boolean viewerCanPush,
         String defaultBranch,
         String cloneUrl,
         Optional<Upstream> upstream)
 {
     public UserRepo
     {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(name, "name is null");
+        requireNonNull(fullName, "fullName is null");
         requireNonNull(description, "description is null");
+        requireNonNull(visibility, "visibility is null");
+        requireNonNull(defaultBranch, "defaultBranch is null");
+        requireNonNull(cloneUrl, "cloneUrl is null");
         requireNonNull(upstream, "upstream is null");
     }
 
@@ -40,5 +48,13 @@ public record UserRepo(
             String name,
             String defaultBranch,
             String cloneUrl)
-    {}
+    {
+        public Upstream
+        {
+            requireNonNull(owner, "owner is null");
+            requireNonNull(name, "name is null");
+            requireNonNull(defaultBranch, "defaultBranch is null");
+            requireNonNull(cloneUrl, "cloneUrl is null");
+        }
+    }
 }

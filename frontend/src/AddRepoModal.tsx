@@ -11,63 +11,116 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Avatar from './Avatar';
-import type { UserRepoDto, WatchedRepoDto } from './types';
+import type {
+  RepoRefDto,
+  RepositorySearchResultDto,
+  WatchRepositoryPreviewDto,
+} from './types';
 
 type Props = {
-  watchedRepos: WatchedRepoDto[];
-  onAdded: (repo: WatchedRepoDto) => void;
+  onAdded: () => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   onClose: () => void;
 };
 
-export default function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
-  const [repos, setRepos] = useState<UserRepoDto[]>([]);
+function fullName(repo: RepoRefDto): string {
+  return `${repo.owner}/${repo.repo}`;
+}
+
+export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Props) {
+  const [repos, setRepos] = useState<RepositorySearchResultDto[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState<string | null>(null);
+  const [selected, setSelected] = useState<RepositorySearchResultDto | null>(null);
+  const [preview, setPreview] = useState<WatchRepositoryPreviewDto | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
-    window.bridge.getUserRepos()
-      .then(setRepos)
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
-      window.bridge.searchRepos(trimmed)
-        .then(setRepos)
-        .catch(e => setError(e instanceof Error ? e.message : String(e)))
-        .finally(() => setLoading(false));
-    }, 300);
-    return () => window.clearTimeout(timer);
+      setError(null);
+      window.bridge.searchRepositories(trimmed, 30)
+        .then(results => { if (!cancelled) setRepos(results); })
+        .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [query]);
 
-  const watched = useMemo(
-    () => new Set(watchedRepos.map(repo => `${repo.owner}/${repo.repo}`.toLowerCase())),
-    [watchedRepos],
-  );
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (selected) {
+        setSelected(null);
+        setPreview(null);
+        setError(null);
+      } else {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose, selected]);
 
-  const add = async (repo: UserRepoDto) => {
-    setAdding(repo.fullName);
+  const choose = async (repo: RepositorySearchResultDto) => {
+    setSelected(repo);
+    setPreview(null);
+    setPreviewLoading(true);
     setError(null);
     try {
-      onAdded(await window.bridge.addWatchedRepo(repo.owner, repo.name));
-      onClose();
+      setPreview(await window.bridge.previewWatch(repo.id));
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
     finally {
-      setAdding(null);
+      setPreviewLoading(false);
     }
+  };
+
+  const add = async () => {
+    if (!selected || !preview) return;
+    setAdding(true);
+    setError(null);
+    try {
+      await window.bridge.watchRepository({
+        selectedRepositoryId: selected.id,
+        previewFingerprint: preview.fingerprint,
+      });
+      onAdded();
+      onClose();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      try {
+        setPreview(await window.bridge.previewWatch(selected.id));
+      }
+      catch { /* Keep the original confirmation error visible. */ }
+    }
+    finally {
+      setAdding(false);
+    }
+  };
+
+  const back = () => {
+    setSelected(null);
+    setPreview(null);
+    setError(null);
+    window.setTimeout(() => inputRef.current?.focus());
   };
 
   return (
@@ -77,40 +130,119 @@ export default function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) 
           <h2 className="modal__title">Watch a repository</h2>
           <button className="modal__close" onClick={onClose} type="button">✕</button>
         </div>
-        <div className="modal__search-row">
-          <input
-            ref={inputRef}
-            className="modal__search"
-            value={query}
-            placeholder="Search GitHub repositories"
-            onChange={event => setQuery(event.target.value)}
-          />
-        </div>
+        {!selected && (
+          <div className="modal__search-row">
+            <input
+              ref={inputRef}
+              className="modal__search"
+              value={query}
+              placeholder="Search your GitHub repositories…"
+              onChange={event => setQuery(event.target.value)}
+            />
+          </div>
+        )}
         {error && <div className="modal__empty">{error}</div>}
-        <div className="modal__list">
-          {loading ? <div className="modal__loading">Loading…</div> : repos.map(repo => {
-            const isWatched = watched.has(repo.fullName.toLowerCase());
-            return (
-              <div className="modal-repo-row" key={repo.fullName}>
+        {!selected && (
+          <div className="modal__list">
+            {loading ? <div className="modal__loading">Searching…</div> : repos.map(repo => (
+              <div className="modal-repo-row" key={repo.id}>
                 <div className="modal-repo-row__info">
-                  <Avatar login={repo.owner} size={20} />
+                  <Avatar login={repo.repository.owner} size={20} />
                   <div className="modal-repo-row__text">
                     <div className="modal-repo-row__name">{repo.fullName}</div>
-                    {repo.description && <div className="modal-repo-row__desc">{repo.description}</div>}
+                    <div className="modal-repo-row__meta">
+                      <span>{repo.visibility}</span>
+                      <span>branch {repo.defaultBranch}</span>
+                      {repo.fork && (
+                        <span>⑂ fork{repo.upstream ? ` of ${fullName(repo.upstream)}` : ''}</span>
+                      )}
+                      {repo.existingWorkspaceId && <span>already watched</span>}
+                    </div>
+                    {repo.description && (
+                      <div className="modal-repo-row__desc">{repo.description}</div>
+                    )}
                   </div>
                 </div>
                 <button
                   className="modal-repo-row__add-btn"
                   type="button"
-                  disabled={isWatched || adding === repo.fullName}
-                  onClick={() => { void add(repo); }}
+                  onClick={() => { void choose(repo); }}
                 >
-                  {isWatched ? 'Watching' : adding === repo.fullName ? 'Adding…' : 'Watch'}
+                  {repo.existingWorkspaceId ? 'Open' : 'Review'}
                 </button>
               </div>
-            );
-          })}
-        </div>
+            ))}
+            {!loading && repos.length === 0 && (
+              <div className="modal__empty">No matching repositories.</div>
+            )}
+          </div>
+        )}
+        {selected && previewLoading && <div className="modal__loading">Checking repository routing…</div>}
+        {selected && preview && (
+          <div className="modal-preview">
+            <div className="modal-preview__title-row">
+              <Avatar login={preview.selectedRepository.owner} size={24} />
+              <strong>{fullName(preview.selectedRepository)}</strong>
+              <span className="modal-preview__chip">
+                {preview.topology === 'FORK' ? '⑂ fork' : 'direct'}
+              </span>
+              <span className="modal-preview__chip">{preview.visibility}</span>
+            </div>
+
+            {preview.existingWorkspaceId ? (
+              <div className="modal-preview__notice">
+                You’re already watching this repository. A repository can be watched once.
+              </div>
+            ) : (
+              <>
+                {!preview.pushWritable && (
+                  <div className="modal-preview__warning" role="status">
+                    You can’t push to {fullName(preview.selectedRepository)}. You can still browse
+                    commits, cherry-pick, and work locally; ByteQuay won’t push somewhere else.
+                  </div>
+                )}
+                <div className="modal-preview__routing">
+                  <div><span>Selected repository</span><b>{fullName(preview.selectedRepository)} · origin</b></div>
+                  <div><span>Followed for updates</span><b>{fullName(preview.monitoredRepository)}</b></div>
+                  <div><span>New branches start from</span><b>{preview.developmentBase}</b></div>
+                  <div><span>Push destination</span><b>{preview.pushWritable ? preview.pushRemote : 'Read-only for you'}</b></div>
+                  <div><span>Pull requests open against</span><b>{fullName(preview.pullRequestBase)}</b></div>
+                </div>
+                <p className="modal-preview__summary">
+                  {preview.topology === 'FORK'
+                    ? `ByteQuay clones the selected fork and follows ${fullName(preview.monitoredRepository)} for commits, issues, and pull requests.`
+                    : `Everything uses ${fullName(preview.selectedRepository)} — code, issues, pull requests, and pushes.`}
+                </p>
+              </>
+            )}
+
+            <div className="modal-preview__actions">
+              <button type="button" onClick={back}>Back</button>
+              {preview.existingWorkspaceId ? (
+                <button
+                  className="modal-repo-row__add-btn"
+                  type="button"
+                  onClick={() => onOpenWorkspace(preview.existingWorkspaceId as string)}
+                >
+                  Open workspace →
+                </button>
+              ) : (
+                <button
+                  className="modal-repo-row__add-btn"
+                  type="button"
+                  disabled={adding}
+                  onClick={() => { void add(); }}
+                >
+                  {adding
+                    ? 'Watching…'
+                    : !preview.pushWritable
+                      ? 'Watch anyway'
+                      : preview.topology === 'FORK' ? 'Watch fork' : 'Watch repository'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

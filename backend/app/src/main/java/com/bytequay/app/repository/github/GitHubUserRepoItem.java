@@ -24,6 +24,8 @@ record GitHubUserRepoItem(
         Owner owner,
         String description,
         boolean fork,
+        String visibility,
+        Permissions permissions,
         @JsonProperty("default_branch") String defaultBranch,
         @JsonProperty("clone_url") String cloneUrl,
         Repository parent,
@@ -31,6 +33,9 @@ record GitHubUserRepoItem(
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Owner(String login) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Permissions(Boolean push) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Repository(

@@ -15,20 +15,21 @@ package com.bytequay.app.workspace;
 
 import java.util.Optional;
 
-/** Repository coordinates confirmed by the user plus an optional workspace display name. */
-public record WatchRepositoryCommand(String owner, String repo, Optional<String> name)
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+
+/** Stable repository identity and routing fingerprint explicitly confirmed by the user. */
+public record WatchRepositoryCommand(
+        long selectedRepositoryId,
+        String previewFingerprint,
+        Optional<String> name)
 {
     public WatchRepositoryCommand
     {
-        if (owner == null || owner.isBlank()) {
-            throw new IllegalArgumentException("owner is required");
-        }
-        if (repo == null || repo.isBlank()) {
-            throw new IllegalArgumentException("repo is required");
-        }
-        if (name == null) {
-            throw new IllegalArgumentException("name is null");
-        }
+        checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
+        requireNonNull(previewFingerprint, "previewFingerprint is null");
+        checkArgument(!previewFingerprint.isBlank(), "previewFingerprint is blank");
+        requireNonNull(name, "name is null");
         name = name.filter(value -> !value.isBlank());
     }
 }

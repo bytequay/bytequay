@@ -151,6 +151,49 @@ export type WatchedRepoDto = {
   displayOrder: number;
 };
 
+export type RepoRefDto = {
+  owner: string;
+  repo: string;
+};
+
+export type RepositorySearchResultDto = {
+  id: number;
+  repository: RepoRefDto;
+  fullName: string;
+  description: string | null;
+  visibility: string;
+  fork: boolean;
+  defaultBranch: string;
+  cloneUrl: string;
+  upstream: RepoRefDto | null;
+  viewerCanPush: boolean;
+  existingWorkspaceId: string | null;
+};
+
+export type WatchRepositoryPreviewDto = {
+  selectedRepositoryId: number;
+  selectedRepository: RepoRefDto;
+  visibility: string;
+  topology: 'DIRECT' | 'FORK';
+  upstreamRepositoryId: number | null;
+  upstreamRepository: RepoRefDto | null;
+  monitoredRepositoryId: number;
+  monitoredRepository: RepoRefDto;
+  defaultBranch: string;
+  developmentBase: string;
+  pushRemote: string;
+  pushWritable: boolean;
+  pullRequestBase: RepoRefDto;
+  fingerprint: string;
+  existingWorkspaceId: string | null;
+};
+
+export type WatchRepositoryCommand = {
+  selectedRepositoryId: number;
+  previewFingerprint: string;
+  name?: string;
+};
+
 export type WorkspaceDto = {
   id: string;
   name: string;
@@ -221,17 +264,6 @@ export type UserCommitDto = {
   shortMessage: string;
   htmlUrl: string;
   authoredAt: string | null;
-};
-
-export type UserRepoDto = {
-  id: number;
-  owner: string;
-  name: string;
-  fullName: string;
-  description: string | null;
-  fork: boolean;
-  defaultBranch: string | null;
-  cloneUrl: string | null;
 };
 
 export type RecentEventDto = {
@@ -421,8 +453,10 @@ export type Bridge = {
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;
-  addWatchedRepo: (owner: string, repo: string) => Promise<WatchedRepoDto>;
   removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
+  searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
+  previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
+  watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
@@ -432,8 +466,6 @@ export type Bridge = {
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
-  getUserRepos: () => Promise<UserRepoDto[]>;
-  searchRepos: (query: string) => Promise<UserRepoDto[]>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
 

@@ -83,11 +83,25 @@ const bridge: Bridge = {
   getAgentProviderStatuses: () => ipcRenderer.invoke('cherrypick:providers'),
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
+  listCherryPickExecutions: limit => ipcRenderer.invoke('cherrypick:execution:list', limit),
   sendCherryPickMessage: (executionId, message) =>
     ipcRenderer.invoke('cherrypick:execution:message', executionId, message),
   cancelCherryPickExecution: (executionId, repository) =>
     ipcRenderer.invoke('cherrypick:execution:cancel', executionId, repository),
   chooseDirectory: title => ipcRenderer.invoke('cherrypick:choose-directory', title),
+
+  gitOverview: repository => ipcRenderer.invoke('git:overview', repository),
+  gitRemoteBranches: (repository, remote) => ipcRenderer.invoke('git:branches', repository, remote),
+  gitLog: (repository, ref, limit) => ipcRenderer.invoke('git:log', repository, ref, limit),
+  gitDiff: (repository, base, head) => ipcRenderer.invoke('git:diff', repository, base, head),
+  gitStatus: repository => ipcRenderer.invoke('git:status', repository),
+  gitFetch: (repository, remotes) => ipcRenderer.invoke('git:fetch', repository, remotes),
+  gitCommit: (repository, summary, description) =>
+    ipcRenderer.invoke('git:commit', repository, summary, description),
+  gitReword: (repository, branch, sha, message) =>
+    ipcRenderer.invoke('git:reword', repository, branch, sha, message),
+  gitSquash: (repository, branch, baseSha, tipSha, message) =>
+    ipcRenderer.invoke('git:squash', repository, branch, baseSha, tipSha, message),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

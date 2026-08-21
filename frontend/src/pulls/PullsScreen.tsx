@@ -254,7 +254,7 @@ export default function PullsScreen({
   );
 }
 
-function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto {
+export function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto {
   const key = `${detail.repo.toLowerCase()}#${detail.number}`;
   let hash = 0;
   for (const character of key) hash = ((hash * 31) + character.charCodeAt(0)) | 0;

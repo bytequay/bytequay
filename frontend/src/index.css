@@ -4,5 +4,6 @@
 @import './css/modals.css';
 @import './css/inapp-browser.css';
 @import './css/pulls.css';
-@import './css/cherry-pick.css';
+@import './css/workspaces.css';
+@import './css/commits.css';
 @import './css/settings.css';

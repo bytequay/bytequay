@@ -283,6 +283,11 @@ function registerIpc(): void {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     });
   });
+  ipcMain.handle('cherrypick:execution:list', (_event, limit: number) => {
+    const url = new URL(`${BACKEND_BASE}/api/cherry-pick-ranges/executions`);
+    url.searchParams.set('limit', String(limit));
+    return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
+  });
   ipcMain.handle('cherrypick:choose-directory', async (_event, title: string) => {
     const result = await dialog.showOpenDialog({
       title,
@@ -290,6 +295,47 @@ function registerIpc(): void {
     });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
+
+  // Local checkout browsing for the workspace Commits tab.
+  const gitGet = (endpoint: string, params: Record<string, string>) => {
+    const url = new URL(`${BACKEND_BASE}/api/git/${endpoint}`);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
+  };
+  const gitPost = (endpoint: string, body: unknown, timeoutMs = 120_000) =>
+    backendJson(`${BACKEND_BASE}/api/git/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ByteQuay-Session': sessionToken(),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  ipcMain.handle('git:overview', (_event, repository: string) =>
+    gitGet('overview', { repository }));
+  ipcMain.handle('git:branches', (_event, repository: string, remote: string) =>
+    gitGet('branches', { repository, remote }));
+  ipcMain.handle('git:log', (_event, repository: string, ref: string, limit: number) =>
+    gitGet('log', { repository, ref, limit: String(limit) }));
+  ipcMain.handle('git:diff', (_event, repository: string, base: string, head: string) =>
+    gitGet('diff', { repository, base, head }));
+  ipcMain.handle('git:status', (_event, repository: string) =>
+    gitGet('status', { repository }));
+  ipcMain.handle('git:fetch', (_event, repository: string, remotes: string[]) =>
+    gitPost('fetch', { repository, remotes }, 5 * 60_000));
+  ipcMain.handle('git:commit', (_event, repository: string, summary: string, description: string) =>
+    gitPost('commit', { repository, summary, description }));
+  ipcMain.handle('git:reword', (_event, repository: string, branch: string, sha: string, message: string) =>
+    gitPost('reword', { repository, branch, sha, message }));
+  ipcMain.handle('git:squash', (
+    _event,
+    repository: string,
+    branch: string,
+    baseSha: string,
+    tipSha: string,
+    message: string,
+  ) => gitPost('squash', { repository, branch, baseSha, tipSha, message }));
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');

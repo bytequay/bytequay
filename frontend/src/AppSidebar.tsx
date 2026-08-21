@@ -12,18 +12,40 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
+import type { WorkspaceTab } from './workspaces/WorkspaceShell';
+import type { Workspace } from './workspaces/model';
 
-export type AppPage = 'home' | 'pulls' | 'cherry-pick' | 'settings';
+export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
 
 const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
-  { page: 'cherry-pick', label: 'Cherry-pick', icon: <CherryPickIcon /> },
+  { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
 ];
 
-export default function AppSidebar({ page, onNavigate }: {
+const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
+  { tab: 'home', label: 'Home', icon: <HomeIcon /> },
+  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
+  { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
+  { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
+  { tab: 'commits', label: 'Commits', icon: <CommitsIcon /> },
+  { tab: 'memory', label: 'Memory', icon: <MemoryIcon /> },
+];
+
+export default function AppSidebar({
+  page,
+  onNavigate,
+  workspace,
+  workspaceTab,
+  onWorkspaceTab,
+  onExitWorkspace,
+}: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
+  workspace: Workspace | null;
+  workspaceTab: WorkspaceTab;
+  onWorkspaceTab: (tab: WorkspaceTab) => void;
+  onExitWorkspace: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -35,6 +57,20 @@ export default function AppSidebar({ page, onNavigate }: {
       aria-label={label}
       title={label}
       onClick={() => onNavigate(destination)}
+    >
+      <span aria-hidden="true">{icon}</span>
+      <span className="app-sidebar__label">{label}</span>
+    </button>
+  );
+
+  const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => (
+    <button
+      key={tab}
+      type="button"
+      className={`app-sidebar__item${workspaceTab === tab ? ' is-active' : ''}`}
+      aria-label={label}
+      title={label}
+      onClick={() => onWorkspaceTab(tab)}
     >
       <span aria-hidden="true">{icon}</span>
       <span className="app-sidebar__label">{label}</span>
@@ -59,13 +95,37 @@ export default function AppSidebar({ page, onNavigate }: {
           <PanelIcon />
         </button>
       </div>
-      <nav className="app-sidebar__nav" aria-label="Main navigation">
-        {NAV_ITEMS.map(navItem)}
-      </nav>
-      <div className="app-sidebar__spacer" />
-      <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application navigation">
-        {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
-      </nav>
+      {workspace === null ? (
+        <>
+          <nav className="app-sidebar__nav" aria-label="Main navigation">
+            {NAV_ITEMS.map(navItem)}
+          </nav>
+          <div className="app-sidebar__spacer" />
+          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application navigation">
+            {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
+          </nav>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="app-sidebar__back"
+            onClick={onExitWorkspace}
+          >
+            ‹ <span className="app-sidebar__label">Workspaces</span>
+          </button>
+          <div className="app-sidebar__ws-name app-sidebar__label" title={workspace.path}>
+            {workspace.name}
+          </div>
+          <nav className="app-sidebar__nav" aria-label="Workspace navigation">
+            {WORKSPACE_TABS.map(workspaceItem)}
+          </nav>
+          <div className="app-sidebar__spacer" />
+          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Workspace settings">
+            {workspaceItem({ tab: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
+          </nav>
+        </>
+      )}
     </aside>
   );
 }
@@ -92,13 +152,50 @@ function PullsIcon() {
   );
 }
 
-function CherryPickIcon() {
+function WorkspacesIcon() {
+  return (
+    <Icon>
+      <rect x="3" y="3" width="8" height="8" rx="1.4" />
+      <rect x="13" y="3" width="8" height="8" rx="1.4" />
+      <rect x="3" y="13" width="8" height="8" rx="1.4" />
+      <rect x="13" y="13" width="8" height="8" rx="1.4" />
+    </Icon>
+  );
+}
+
+function TasksIcon() {
+  return (
+    <Icon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7.5 12 3 3 6-6" />
+    </Icon>
+  );
+}
+
+function IssuesIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3" />
+    </Icon>
+  );
+}
+
+function CommitsIcon() {
   return (
     <Icon>
       <path d="M6 4v6.5a3.5 3.5 0 0 0 3.5 3.5H18M6 20v-3" />
       <circle cx="6" cy="19.5" r="2" />
       <circle cx="6" cy="4.5" r="2" />
       <circle cx="18" cy="14" r="2" />
+    </Icon>
+  );
+}
+
+function MemoryIcon() {
+  return (
+    <Icon>
+      <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
     </Icon>
   );
 }

@@ -337,6 +337,37 @@ export type CherryPickExecutionRequest = {
   idempotencyKey: string;
 };
 
+export type GitRemoteDto = { name: string; url: string };
+
+export type GitOverviewDto = {
+  currentBranch: string;
+  branches: string[];
+  remotes: GitRemoteDto[];
+};
+
+export type GitCommitDto = {
+  sha: string;
+  title: string;
+  body: string;
+  author: string;
+  authoredAt: string;
+  pullRequestNumber?: number | null;
+};
+
+export type GitDiffFileDto = {
+  path: string;
+  /** M | A | D | R */
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string | null;
+};
+
+export type GitWorktreeStatusDto = {
+  branch: string;
+  files: GitDiffFileDto[];
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -395,7 +426,24 @@ export type Bridge = {
   getAgentProviderStatuses: () => Promise<AgentProviderStatus[]>;
   startCherryPickExecution: (request: CherryPickExecutionRequest) => Promise<CherryPickExecution>;
   getCherryPickExecution: (executionId: string) => Promise<CherryPickExecution>;
+  listCherryPickExecutions: (limit: number) => Promise<CherryPickExecution[]>;
   sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
   cancelCherryPickExecution: (executionId: string, repository: string) => Promise<CherryPickExecution>;
   chooseDirectory: (title: string) => Promise<string | null>;
+
+  gitOverview: (repository: string) => Promise<GitOverviewDto>;
+  gitRemoteBranches: (repository: string, remote: string) => Promise<string[]>;
+  gitLog: (repository: string, ref: string, limit: number) => Promise<GitCommitDto[]>;
+  gitDiff: (repository: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
+  gitStatus: (repository: string) => Promise<GitWorktreeStatusDto>;
+  gitFetch: (repository: string, remotes: string[]) => Promise<{ fetched: boolean }>;
+  gitCommit: (repository: string, summary: string, description: string) => Promise<{ sha: string }>;
+  gitReword: (repository: string, branch: string, sha: string, message: string) => Promise<{ sha: string }>;
+  gitSquash: (
+    repository: string,
+    branch: string,
+    baseSha: string,
+    tipSha: string,
+    message: string,
+  ) => Promise<{ sha: string }>;
 };

@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { CherryPickExecutionRequest, CherryPickPreviewRequest } from './types';
 import {
   BACKEND_BASE,
   killBackend,
@@ -232,18 +233,20 @@ function registerIpc(): void {
   // Cherry-pick endpoints sit behind the desktop session filter, and the token
   // stays here: the renderer never sees it, so a page in the embedded GitHub
   // view cannot reach them.
-  ipcMain.handle('cherrypick:preview', (_event, request: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews`, {
+  ipcMain.handle('cherrypick:preview', (_event, request: CherryPickPreviewRequest) => {
+    const { workspaceId, ...body } = request;
+    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/preview`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-ByteQuay-Session': sessionToken(),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(body),
       // A preview fetches the source remote in full; on a repository the size
       // of Trino that outlasts the default request timeout.
       signal: AbortSignal.timeout(15 * 60_000),
-    }));
+    });
+  });
   ipcMain.handle('cherrypick:preview:get', (_event, previewId: string) =>
     backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
@@ -252,16 +255,18 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
-  ipcMain.handle('cherrypick:execution:start', (_event, request: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions`, {
+  ipcMain.handle('cherrypick:execution:start', (_event, request: CherryPickExecutionRequest) => {
+    const { workspaceId, ...body } = request;
+    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-ByteQuay-Session': sessionToken(),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(15 * 60_000),
-    }));
+    });
+  });
   ipcMain.handle('cherrypick:execution:get', (_event, executionId: string) =>
     backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
@@ -275,9 +280,8 @@ function registerIpc(): void {
       },
       body: JSON.stringify({ message }),
     }));
-  ipcMain.handle('cherrypick:execution:cancel', (_event, executionId: string, repository: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/cancel`);
-    url.searchParams.set('repository', repository);
+  ipcMain.handle('cherrypick:execution:cancel', (_event, workspaceId: string, executionId: string) => {
+    const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions/${encodeURIComponent(executionId)}/cancel`;
     return backendJson(url, {
       method: 'POST',
       headers: { 'X-ByteQuay-Session': sessionToken() },
@@ -288,14 +292,6 @@ function registerIpc(): void {
     url.searchParams.set('limit', String(limit));
     return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
   });
-  ipcMain.handle('cherrypick:choose-directory', async (_event, title: string) => {
-    const result = await dialog.showOpenDialog({
-      title,
-      properties: ['openDirectory'],
-    });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
-
   // Local checkout browsing for the workspace Commits tab. Only the workspace
   // ID crosses IPC; the backend owns and resolves the managed checkout path.
   const gitGet = (workspaceId: string, endpoint: string, params: Record<string, string>) => {

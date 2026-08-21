@@ -15,14 +15,20 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
+import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentController;
 import com.bytequay.app.web.agent.AgentRequestFilter;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace.Topology;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -30,10 +36,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -46,16 +54,20 @@ class TestCherryPickPreviewHttpApi
 {
     private static final String SESSION = "desktop-session";
     private static final String BODY = """
-            {"repository":"/tmp/clone","sourceRemote":"origin","sourceBaseRef":"477",
-            "sourceTipRef":"478","targetRemote":"fork","targetBranch":"master"}
+            {"repository":"/tmp/injected","sourceRemote":"injected","worktreeParent":"/tmp/injected",
+            "sourceBaseRef":"477","sourceTipRef":"478","targetRemote":"injected","targetBranch":"master"}
             """;
 
+    private WorkspaceRepositoryService workspaces;
     private CherryPickPreviewService previewService;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp()
     {
+        workspaces = mock(WorkspaceRepositoryService.class);
+        when(workspaces.requireReadyRepository("workspace-id")).thenReturn(context(
+                "workspace-id", Path.of("/managed/workspace-id/repository"), Topology.FORK, "upstream"));
         previewService = mock(CherryPickPreviewService.class);
         AgentProperties properties = new AgentProperties(
                 Path.of("/tmp/agent-runtime"),
@@ -65,7 +77,7 @@ class TestCherryPickPreviewHttpApi
                 false,
                 "claude",
                 false);
-        mvc = standaloneSetup(new CherryPickPreviewController(previewService))
+        mvc = standaloneSetup(new CherryPickPreviewController(workspaces, previewService))
                 .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules()))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -77,7 +89,7 @@ class TestCherryPickPreviewHttpApi
     {
         mvc.perform(get("/api/cherry-pick-ranges/previews/any"))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(post("/api/cherry-pick-ranges/previews")
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isUnauthorized());
@@ -107,7 +119,7 @@ class TestCherryPickPreviewHttpApi
     {
         doThrow(new CherryPickInvalidRequestException("Source range contains no commits"))
                 .when(previewService).preview(any());
-        mvc.perform(post("/api/cherry-pick-ranges/previews")
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
@@ -116,7 +128,7 @@ class TestCherryPickPreviewHttpApi
 
         doThrow(new CherryPickConflictException("Local target branch fork-master has diverged"))
                 .when(previewService).preview(any());
-        mvc.perform(post("/api/cherry-pick-ranges/previews")
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
@@ -125,17 +137,51 @@ class TestCherryPickPreviewHttpApi
     }
 
     @Test
-    void rejectsARelativeRepositoryPathBeforeTouchingGit()
+    void derivesDirectAndForkRoutingWithoutAcceptingRendererPaths()
             throws Exception
     {
-        mvc.perform(post("/api/cherry-pick-ranges/previews")
+        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
+                "direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin"));
+        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+                .when(previewService).preview(any());
+
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"repository":"relative/clone","sourceRemote":"origin","sourceBaseRef":"477",
-                                "sourceTipRef":"478","targetRemote":"fork","targetBranch":"master"}
-                                """))
+                        .content(BODY))
                 .andExpect(status().isBadRequest());
-        verify(previewService, never()).preview(any());
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
+                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        verify(previewService, times(2)).preview(commands.capture());
+        assertThat(commands.getAllValues().get(0)).satisfies(command -> {
+            assertThat(command.repository()).isEqualTo(Path.of("/managed/workspace-id/repository"));
+            assertThat(command.workspaceId()).contains("workspace-id");
+            assertThat(command.sourceRemote()).isEqualTo("upstream");
+            assertThat(command.targetRemote()).isEqualTo("upstream");
+        });
+        assertThat(commands.getAllValues().get(1)).satisfies(command -> {
+            assertThat(command.repository()).isEqualTo(Path.of("/managed/direct-id/repository"));
+            assertThat(command.workspaceId()).contains("direct-id");
+            assertThat(command.sourceRemote()).isEqualTo("origin");
+            assertThat(command.targetRemote()).isEqualTo("origin");
+        });
+    }
+
+    private static WorkspaceRepositoryContext context(
+            String workspaceId,
+            Path repository,
+            Topology topology,
+            String sourceRemote)
+    {
+        RepoRef selected = RepoRef.of("contributor", "project");
+        RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;
+        return new WorkspaceRepositoryContext(
+                workspaceId, repository, selected, monitored, topology, sourceRemote, "origin", "main");
     }
 }

@@ -21,6 +21,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.Locale;
@@ -68,6 +70,12 @@ class CherryPickWorkspace
         requireNonNull(repository, "repository is null");
         requireNonNull(worktreeParent, "worktreeParent is null");
         requireNonNull(frozenTargetSha, "frozenTargetSha is null");
+        try {
+            Files.createDirectories(worktreeParent);
+        }
+        catch (IOException failure) {
+            throw new CherryPickConflictException("Cannot prepare the managed worktree directory", failure);
+        }
         for (int attempt = 0; attempt < NAME_ATTEMPTS; attempt++) {
             String branch = branchName(from, to);
             Path worktree = worktreeParent.resolve(branch);

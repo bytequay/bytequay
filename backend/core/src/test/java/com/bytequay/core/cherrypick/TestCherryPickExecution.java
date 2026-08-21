@@ -242,7 +242,7 @@ class TestCherryPickExecution
     void rejectsAWorkBranchThatIsTheLocalTargetBranch()
     {
         assertThatThrownBy(() -> new Workspace(
-                RepoRef.of("trinodb", "trino"), "origin", "fork", "master",
+                Optional.of("workspace-id"), RepoRef.of("trinodb", "trino"), "origin", "fork", "master",
                 "fork-master", "fork-master", Path.of("/tmp/wt"), "claude"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("work branch equals the local target branch");
@@ -254,6 +254,7 @@ class TestCherryPickExecution
                 CherryPickExecutionId.random(),
                 "idempotency-key",
                 workspace(),
+                Optional.empty(),
                 new Range(BASE, TIP, TARGET),
                 List.of(items),
                 NOW);
@@ -262,6 +263,7 @@ class TestCherryPickExecution
     private static Workspace workspace()
     {
         return new Workspace(
+                Optional.of("workspace-id"),
                 RepoRef.of("trinodb", "trino"),
                 "origin",
                 "fork",

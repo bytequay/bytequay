@@ -51,14 +51,13 @@ function itemView(
 
 export default function ProgressView({
   executionId,
-  repositoryPath,
+  workspaceId,
   upstreamSlug,
   onBackToTasks,
   onStartAnotherRange,
 }: {
   executionId: string;
-  /** Local checkout path; cancel needs it. Null when unknown. */
-  repositoryPath: string | null;
+  workspaceId: string;
   /** "owner/repo" of the linked upstream, for the PR panel. */
   upstreamSlug: string | null;
   onBackToTasks: () => void;
@@ -148,11 +147,11 @@ export default function ProgressView({
   };
 
   const cancel = async () => {
-    if (!execution || repositoryPath === null) return;
+    if (!execution) return;
     if (!window.confirm('Cancel this cherry-pick and remove its generated work branch?')) return;
     setBusy(true);
     try {
-      setExecution(await window.bridge.cancelCherryPickExecution(execution.executionId, repositoryPath));
+      setExecution(await window.bridge.cancelCherryPickExecution(workspaceId, execution.executionId));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -238,7 +237,7 @@ export default function ProgressView({
           <span className="cmt-prog-step">{stepLabel}</span>
           <span className="cmt-prog-branch">{execution.workBranch}</span>
           <div className="cmt-tasks-spacer" />
-          {active && repositoryPath !== null && (
+          {active && (
             <button
               type="button"
               className="cmt-btn-danger"

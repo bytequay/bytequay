@@ -172,6 +172,7 @@ public class CherryPickPreviewService
         Instant now = clock.instant();
         CherryPickPreview preview = new CherryPickPreview(
                 UUID.randomUUID().toString(),
+                command.workspaceId(),
                 readRepository(repository, command.targetRemote()),
                 command.sourceRemote(),
                 command.targetRemote(),

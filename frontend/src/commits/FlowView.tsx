@@ -39,17 +39,14 @@ function alreadyReason(commit: CherryPickPreviewCommit): string | null {
 
 export default function FlowView({
   preview,
-  repositoryPath,
+  workspaceId,
   upstreamLabel,
-  targetLabel,
   onStarted,
 }: {
   preview: CherryPickPreview;
-  repositoryPath: string;
+  workspaceId: string;
   /** e.g. "trinodb/trino" */
   upstreamLabel: string;
-  /** e.g. "bytequay/trino-fork" */
-  targetLabel: string;
   onStarted: (execution: CherryPickExecution) => void;
 }) {
   const [filter, setFilter] = useState('');
@@ -60,10 +57,6 @@ export default function FlowView({
   const [dryRun, setDryRun] = useState(false);
   const [prTitle, setPrTitle] = useState<string | null>(null);
   const [prBody, setPrBody] = useState<string | null>(null);
-  const [worktreeParent, setWorktreeParent] = useState(
-    () => localStorage.getItem('bytequay.worktreeParent')
-      ?? repositoryPath.replace(/\/[^/]+\/?$/, '') ?? '',
-  );
   const [providers, setProviders] = useState<AgentProviderStatus[]>([]);
   const [laneId, setLaneId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -175,10 +168,8 @@ export default function FlowView({
     setError(null);
     try {
       idempotencyKey.current ??= crypto.randomUUID();
-      localStorage.setItem('bytequay.worktreeParent', worktreeParent.trim());
       const execution = await window.bridge.startCherryPickExecution({
-        repository: repositoryPath,
-        worktreeParent: worktreeParent.trim(),
+        workspaceId,
         previewId: preview.previewId,
         expectedSourceBaseSha: preview.sourceBaseSha,
         expectedSourceTipSha: preview.sourceTipSha,
@@ -187,13 +178,9 @@ export default function FlowView({
         userSkippedSourceShas: skipItems.map(item => item.commit.sourceSha),
         laneId,
         idempotencyKey: idempotencyKey.current,
+        pullRequestTitle: titleValue,
+        pullRequestBody: bodyValue,
       });
-      // ponytail: the PR draft is used at push time; localStorage until the
-      // backend stores it with the execution.
-      localStorage.setItem(
-        `bytequay.cherryPickPr.${execution.executionId}`,
-        JSON.stringify({ title: titleValue, body: bodyValue }),
-      );
       onStarted(execution);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -204,7 +191,6 @@ export default function FlowView({
 
   const selectedProvider = providers.find(provider => provider.laneId === laneId);
   const canStart = applyItems.length > 0
-    && worktreeParent.trim() !== ''
     && selectedProvider !== undefined
     && selectedProvider.health !== 'UNAVAILABLE'
     && !busy;
@@ -224,7 +210,8 @@ export default function FlowView({
     <div className="cmt-flow">
       <div className="cmt-flow-body">
         <div className="cmt-flow-route">
-          {upstreamLabel} <span className="is-upstream">(upstream · read-only)</span> → {targetLabel}
+          {upstreamLabel} <span className="is-upstream">({preview.sourceRemote} · read-only)</span>
+          {' → '}{preview.repository} · {preview.targetRemote}/{preview.targetBranch}
         </div>
         <h1 className="cmt-flow-title">
           Cherry-pick {items.length} commits → <span className="cmt-flow-branch">{preview.targetBranch}</span>
@@ -306,23 +293,6 @@ export default function FlowView({
         </div>
 
         <div className="cmt-flow-settings">
-          <label>
-            Work branch folder
-            <input
-              value={worktreeParent}
-              onChange={event => setWorktreeParent(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="cmt-btn-plain"
-            onClick={() => {
-              void window.bridge.chooseDirectory('Choose where ByteQuay creates the work branch')
-                .then(chosen => { if (chosen) setWorktreeParent(chosen); });
-            }}
-          >
-            Choose…
-          </button>
           <label>
             Conflict resolver
             <select value={laneId} onChange={event => setLaneId(event.target.value)}>

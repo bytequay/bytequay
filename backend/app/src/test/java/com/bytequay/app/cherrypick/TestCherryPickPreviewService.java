@@ -297,24 +297,25 @@ class TestCherryPickPreviewService
     void rejectsControlCharactersAndOptionLikeRefs()
     {
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, "origin", "main\nrm -rf /", "main", "fork", "main"))
+                clone, Optional.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("control character");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, "origin", "--upload-pack=evil", "main", "fork", "main"))
+                clone, Optional.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("command-line option");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                Path.of("relative"), "origin", "main", "main", "fork", "main"))
+                Path.of("relative"), Optional.empty(), "origin", "main", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("not absolute");
     }
 
     private PreviewCherryPickRangeCommand command(String baseRef, String targetBranch)
     {
-        return new PreviewCherryPickRangeCommand(clone, "origin", baseRef, "origin/main", "fork", targetBranch);
+        return new PreviewCherryPickRangeCommand(
+                clone, Optional.empty(), "origin", baseRef, "origin/main", "fork", targetBranch);
     }
 
     private static Optional<TargetMatch> match(CherryPickPreview preview, String sourceSha)

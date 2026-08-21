@@ -36,6 +36,7 @@ class TestAgentRequestFilter
             "/agent/tasks",
             "/api/ci-autofix/runs",
             "/api/cherry-pick-ranges/previews",
+            "/api/workspaces/workspace-a/cherry-pick/preview",
             "/api/workspaces/workspace-a/git/status"})
     void protectsEveryLocalAgentSurface(String path)
             throws Exception

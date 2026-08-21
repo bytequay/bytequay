@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.google.common.collect.ImmutableList;
 
@@ -35,7 +36,8 @@ public record StartCherryPickExecutionCommand(
         String expectedTargetSha,
         List<String> userSkippedSourceShas,
         String laneId,
-        String idempotencyKey)
+        String idempotencyKey,
+        PullRequestDraft pullRequestDraft)
 {
     private static final int MAX_SKIPPED = 5000;
 
@@ -52,6 +54,7 @@ public record StartCherryPickExecutionCommand(
         }
         requireNonNull(laneId, "laneId is null");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
+        requireNonNull(pullRequestDraft, "pullRequestDraft is null");
         if (idempotencyKey.isBlank() || idempotencyKey.length() > 200) {
             throw new CherryPickInvalidRequestException("idempotencyKey must contain between 1 and 200 characters");
         }

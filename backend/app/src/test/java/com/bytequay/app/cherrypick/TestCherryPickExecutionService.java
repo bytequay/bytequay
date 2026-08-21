@@ -22,6 +22,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.ActionJournal;
 import com.bytequay.core.cherrypick.CherryPickExecution.ActionType;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
+import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
@@ -49,6 +50,7 @@ class TestCherryPickExecutionService
 {
     private static final GitCommandRunner GIT = new GitCommandRunner();
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC);
+    private static final String WORKSPACE_ID = "workspace-id";
 
     @TempDir
     private Path temporaryDirectory;
@@ -222,11 +224,40 @@ class TestCherryPickExecutionService
 
         CherryPickPreview preview = preview(base);
         StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "same-key");
-        CherryPickExecution first = service.start(command, clone, worktreeParent);
-        CherryPickExecution second = service.start(command, clone, worktreeParent);
+        CherryPickExecution first = service.start(command, WORKSPACE_ID, clone, worktreeParent);
+        CherryPickExecution second = service.start(command, WORKSPACE_ID, clone, worktreeParent);
 
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(store.listRecent(10)).hasSize(1);
+    }
+
+    @Test
+    void rejectsPreviewExecutionAndCancelFromAnotherWorkspace()
+            throws IOException
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+        CherryPickPreview preview = preview(base);
+
+        assertThatThrownBy(() -> service.start(
+                command(preview, ImmutableList.of(), "wrong-workspace"),
+                "another-workspace",
+                clone,
+                worktreeParent))
+                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .hasMessageContaining("does not belong");
+        assertThat(Files.list(worktreeParent)).isEmpty();
+
+        CherryPickExecution started = service.start(
+                command(preview, ImmutableList.of(), "right-workspace"),
+                WORKSPACE_ID,
+                clone,
+                worktreeParent);
+        assertThatThrownBy(() -> service.cancel(started.id(), "another-workspace", clone))
+                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .hasMessageContaining("does not belong");
+        assertThat(Files.exists(started.workspace().worktree())).isTrue();
     }
 
     @Test
@@ -245,14 +276,16 @@ class TestCherryPickExecutionService
                         preview.targetSha(),
                         ImmutableList.of(),
                         "claude",
-                        "stale-key"),
+                        "stale-key",
+                        new PullRequestDraft("Cherry-pick changes", "")),
+                WORKSPACE_ID,
                 clone,
                 worktreeParent))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("stale");
 
         assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of("0".repeat(40)), "ineligible-key"), clone, worktreeParent))
+                command(preview, ImmutableList.of("0".repeat(40)), "ineligible-key"), WORKSPACE_ID, clone, worktreeParent))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("not an eligible commit");
     }
@@ -270,7 +303,7 @@ class TestCherryPickExecutionService
         commit(fork, "Target moved");
 
         assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of(), "moved-target"), clone, worktreeParent))
+                command(preview, ImmutableList.of(), "moved-target"), WORKSPACE_ID, clone, worktreeParent))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("stale");
         assertThat(store.listRecent(10)).isEmpty();
@@ -284,10 +317,10 @@ class TestCherryPickExecutionService
         write(upstream, "file.txt", "content\n");
         commit(upstream, "Upstream change");
 
-        service.start(command(preview(base), ImmutableList.of(), "first-key"), clone, worktreeParent);
+        service.start(command(preview(base), ImmutableList.of(), "first-key"), WORKSPACE_ID, clone, worktreeParent);
 
         assertThatThrownBy(() -> service.start(
-                command(preview(base), ImmutableList.of(), "second-key"), clone, worktreeParent))
+                command(preview(base), ImmutableList.of(), "second-key"), WORKSPACE_ID, clone, worktreeParent))
                 .isInstanceOf(CherryPickConflictException.class)
                 .hasMessageContaining("already running");
     }
@@ -302,7 +335,7 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         String localTarget = git(clone, "rev-parse", started.workspace().localTargetBranch());
 
-        CherryPickExecution cancelled = service.cancel(started.id(), clone);
+        CherryPickExecution cancelled = service.cancel(started.id(), WORKSPACE_ID, clone);
 
         assertThat(cancelled.status()).isEqualTo(Status.FINISHED);
         assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
@@ -311,7 +344,7 @@ class TestCherryPickExecutionService
         assertThat(git(clone, "rev-parse", started.workspace().localTargetBranch()))
                 .as("the local target branch is untouched")
                 .isEqualTo(localTarget);
-        assertThat(service.cancel(started.id(), clone).status()).isEqualTo(Status.FINISHED);
+        assertThat(service.cancel(started.id(), WORKSPACE_ID, clone).status()).isEqualTo(Status.FINISHED);
     }
 
     @Test
@@ -836,14 +869,14 @@ class TestCherryPickExecutionService
         Path worktree = started.workspace().worktree();
         git(worktree, "checkout", "--quiet", "--detach");
 
-        CherryPickExecution refused = service.cancel(started.id(), clone);
+        CherryPickExecution refused = service.cancel(started.id(), WORKSPACE_ID, clone);
         assertThat(refused.status())
                 .as("a worktree that is no longer on our branch is left alone")
                 .isEqualTo(Status.PAUSED);
         assertThat(Files.exists(worktree)).isTrue();
 
         git(worktree, "checkout", "--quiet", started.workspace().workBranch());
-        assertThat(service.cancel(started.id(), clone).status()).isEqualTo(Status.FINISHED);
+        assertThat(service.cancel(started.id(), WORKSPACE_ID, clone).status()).isEqualTo(Status.FINISHED);
         assertThat(Files.exists(worktree)).isFalse();
     }
 
@@ -893,13 +926,13 @@ class TestCherryPickExecutionService
     private CherryPickExecution start(String baseRef, List<String> skipped)
     {
         return service.start(command(preview(baseRef), skipped, "key-" + skipped.size() + "-" + baseRef),
-                clone, worktreeParent);
+                WORKSPACE_ID, clone, worktreeParent);
     }
 
     private CherryPickPreview preview(String baseRef)
     {
         return previews.preview(new PreviewCherryPickRangeCommand(
-                clone, "origin", baseRef, "origin/main", "cork", "main"));
+                clone, Optional.of(WORKSPACE_ID), "origin", baseRef, "origin/main", "cork", "main"));
     }
 
     private static StartCherryPickExecutionCommand command(
@@ -914,7 +947,8 @@ class TestCherryPickExecutionService
                 preview.targetSha(),
                 skipped,
                 "claude",
-                key);
+                key,
+                new PullRequestDraft("Cherry-pick changes", "Generated by test"));
     }
 
     private static CherryPickItem item(CherryPickExecution execution, String sourceSha)

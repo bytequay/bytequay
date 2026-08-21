@@ -92,9 +92,8 @@ const bridge: Bridge = {
   listCherryPickExecutions: limit => ipcRenderer.invoke('cherrypick:execution:list', limit),
   sendCherryPickMessage: (executionId, message) =>
     ipcRenderer.invoke('cherrypick:execution:message', executionId, message),
-  cancelCherryPickExecution: (executionId, repository) =>
-    ipcRenderer.invoke('cherrypick:execution:cancel', executionId, repository),
-  chooseDirectory: title => ipcRenderer.invoke('cherrypick:choose-directory', title),
+  cancelCherryPickExecution: (workspaceId, executionId) =>
+    ipcRenderer.invoke('cherrypick:execution:cancel', workspaceId, executionId),
 
   gitOverview: workspaceId => ipcRenderer.invoke('git:overview', workspaceId),
   gitRemoteBranches: (workspaceId, remote) => ipcRenderer.invoke('git:branches', workspaceId, remote),

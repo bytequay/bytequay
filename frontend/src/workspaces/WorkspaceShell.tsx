@@ -128,27 +128,9 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
-  const [slug, setSlug] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (workspace.codeState !== 'READY') return;
-    let cancelled = false;
-    window.bridge.gitOverview(workspace.id)
-      .then(overview => {
-        if (cancelled) return;
-        const origin = overview.remotes.find(remote => remote.name === workspace.originRemote);
-        setSlug(origin ? githubSlug(origin.url) : null);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setReady(true); });
-    return () => { cancelled = true; };
-  }, [workspace.codeState, workspace.id, workspace.originRemote]);
-
-  if (!ready) return <div className="ws-empty">Loading…</div>;
   return (
     <TasksView
-      repositorySlug={slug}
+      workspaceId={workspace.id}
       onOpenTask={onOpenTask}
       onNewCherryPick={onNewCherryPick}
     />
@@ -182,11 +164,7 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
     return () => { cancelled = true; };
   }, [workspace.monitoredOwner, workspace.monitoredRepo]);
 
-  const identities = new Set([
-    workspace.path,
-    `${workspace.selectedOwner}/${workspace.selectedRepo}`,
-  ].map(value => value.toLowerCase()));
-  const workspaceTasks = tasks.filter(task => identities.has(task.repository.toLowerCase()));
+  const workspaceTasks = tasks.filter(task => task.workspaceId === workspace.id);
   const activeTasks = workspaceTasks.filter(isOpenTask);
   const codeReady = workspace.codeState === 'READY';
   const metadataReady = workspace.metadataState === 'READY';

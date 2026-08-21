@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
+import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Range;
 import com.bytequay.core.cherrypick.CherryPickExecution.RangeReview;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
@@ -54,6 +55,8 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, unique = true)
     private String startIdempotencyKey;
 
+    private String workspaceId;
+
     @Column(nullable = false)
     private String repositoryOwner;
 
@@ -80,6 +83,11 @@ public class CherryPickExecutionEntity
 
     @Column(nullable = false)
     private String laneId;
+
+    private String pullRequestTitle;
+
+    @Column(columnDefinition = "TEXT")
+    private String pullRequestBody;
 
     @Column(nullable = false)
     private String sourceBaseSha;
@@ -159,6 +167,7 @@ public class CherryPickExecutionEntity
         Workspace workspace = execution.workspace();
         Range range = execution.range();
         startIdempotencyKey = execution.startIdempotencyKey();
+        workspaceId = workspace.workspaceId().orElse(null);
         repositoryOwner = workspace.repository().owner();
         repositoryName = workspace.repository().repo();
         sourceRemote = workspace.sourceRemote();
@@ -168,6 +177,8 @@ public class CherryPickExecutionEntity
         workBranch = workspace.workBranch();
         worktree = workspace.worktree().toString();
         laneId = workspace.laneId();
+        pullRequestTitle = execution.pullRequestDraft().map(PullRequestDraft::title).orElse(null);
+        pullRequestBody = execution.pullRequestDraft().map(PullRequestDraft::body).orElse(null);
         sourceBaseSha = range.sourceBaseSha();
         sourceTipSha = range.sourceTipSha();
         initialTargetSha = range.initialTargetSha();
@@ -194,6 +205,7 @@ public class CherryPickExecutionEntity
                 CherryPickExecutionId.valueOf(id),
                 startIdempotencyKey,
                 new Workspace(
+                        Optional.ofNullable(workspaceId),
                         RepoRef.of(repositoryOwner, repositoryName),
                         sourceRemote,
                         targetRemote,
@@ -202,6 +214,8 @@ public class CherryPickExecutionEntity
                         workBranch,
                         Path.of(worktree),
                         laneId),
+                Optional.ofNullable(pullRequestTitle)
+                        .map(title -> new PullRequestDraft(title, Optional.ofNullable(pullRequestBody).orElse(""))),
                 new Range(sourceBaseSha, sourceTipSha, initialTargetSha),
                 currentTargetSha,
                 Optional.ofNullable(agentTaskId),

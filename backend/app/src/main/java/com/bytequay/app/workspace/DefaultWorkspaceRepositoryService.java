@@ -215,9 +215,10 @@ public class DefaultWorkspaceRepositoryService
         boolean active = executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
                 .filter(execution -> execution.terminalAt().isEmpty())
                 .map(CherryPickExecution::workspace)
-                .map(CherryPickExecution.Workspace::repository)
-                .anyMatch(repository -> repository.equals(workspace.selectedRepository())
-                        || repository.equals(workspace.monitoredRepository()));
+                .anyMatch(executionWorkspace -> executionWorkspace.workspaceId()
+                        .map(workspace.id()::equals)
+                        .orElseGet(() -> executionWorkspace.repository().equals(workspace.selectedRepository())
+                                || executionWorkspace.repository().equals(workspace.monitoredRepository())));
         if (active) {
             throw WorkspaceException.busy();
         }

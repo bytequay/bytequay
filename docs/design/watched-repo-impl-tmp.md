@@ -1,9 +1,8 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 5 complete; workspace-scoped cherry-pick handoff is next in Checkpoint 6. The
-existing commit browser and local cherry-pick execution are reusable; this
-checklist tracks the
-missing watch-to-workspace integration and its delivery checkpoints.
+Status: Checkpoint 6 complete; workspace pull-request reuse and metadata scoping are next in
+Checkpoint 7. The existing commit browser and cherry-pick execution now run through the durable
+workspace boundary; this checklist tracks the remaining repository features and delivery gates.
 
 Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
@@ -17,7 +16,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
   exist.
 - [x] Home watch records and Workspaces use one durable backend workspace model.
 - [x] Watched repositories are cloned and opened without the user selecting a local directory.
-- [ ] Git browse and cherry-pick requests resolve by workspace ID instead of renderer paths.
+- [x] Git browse and cherry-pick requests resolve by workspace ID instead of renderer paths.
 
 ## Fixed implementation rules
 
@@ -28,7 +27,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [x] Home and Workspaces list the same backend workspace rows.
 - [x] Save and commit the workspace before starting clone or metadata synchronization.
 - [x] Code readiness and metadata readiness are independent states.
-- [ ] The renderer never submits managed repository or worktree paths.
+- [x] The renderer never submits managed repository or worktree paths.
 - [x] Direct repositories use `origin` for monitor, base, push, and PR base.
 - [x] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
   monitor/development/PR base, and writable `origin` for push.
@@ -38,7 +37,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [ ] Contributors are cached locally for seven days; labels and repository topics/tags are cached
   locally for thirty days, keyed by monitored repository ID.
 - [ ] Push and pull-request creation remain explicit user-confirmed writes.
-- [ ] Existing commits/cherry-pick behavior is reused rather than reimplemented.
+- [x] Existing commits/cherry-pick behavior is reused rather than reimplemented.
 - [x] No watch/sync path restores the deleted task-agent or legacy development-flow systems.
 
 ## UI design checkpoint — Before frontend implementation
@@ -234,32 +233,32 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### API and execution routing
 
-- [ ] Change preview/start requests to carry workspace ID rather than repository path.
-- [ ] Remove renderer-provided `worktreeParent` from the workspace flow.
-- [ ] Resolve repository path and managed worktree root on the backend.
-- [ ] Default a direct target base to `origin/<target-branch>`.
-- [ ] Default a fork target base to `upstream/<target-branch>`.
-- [ ] Persist workspace ID and resolved routing on the execution for audit/recovery.
-- [ ] Preserve commit order, mainline choices, validation profile, and execution semantics.
-- [ ] Preserve durable task/progress and conflict-agent continuation behavior.
+- [x] Change preview/start requests to carry workspace ID rather than repository path.
+- [x] Remove renderer-provided `worktreeParent` from the workspace flow.
+- [x] Resolve repository path and managed worktree root on the backend.
+- [x] Default a direct target base to `origin/<target-branch>`.
+- [x] Default a fork target base to `upstream/<target-branch>`.
+- [x] Persist workspace ID and resolved routing on the execution for audit/recovery.
+- [x] Preserve commit order, mainline choices, validation profile, and execution semantics.
+- [x] Preserve durable task/progress and conflict-agent continuation behavior.
 
 ### UI handoff
 
-- [ ] Start Flow from the selected History range.
-- [ ] Show the resolved direct/fork target base in preview.
-- [ ] Do not ask the user to choose a worktree parent directory.
-- [ ] Return to Tasks/Progress using the existing execution routes.
-- [ ] Persist PR draft data with the execution when delivery work begins; do not rely only on
+- [x] Start Flow from the selected History range.
+- [x] Show the resolved direct/fork target base in preview.
+- [x] Do not ask the user to choose a worktree parent directory.
+- [x] Return to Tasks/Progress using the existing execution routes.
+- [x] Persist PR draft data with the execution when delivery work begins; do not rely only on
   localStorage.
 
 ### Tests and first shipping gate
 
-- [ ] Direct preview/execution uses the managed checkout and `origin` base.
-- [ ] Fork preview/execution uses the managed checkout and `upstream` base.
-- [ ] Renderer path injection cannot redirect execution outside the workspace root.
-- [ ] Existing cherry-pick preview/execution/worktree tests remain green.
-- [ ] Existing conflict-agent flow remains green.
-- [ ] **First shipping gate:** watch → save → Workspaces → Workspace Home → Commits → select range
+- [x] Direct preview/execution uses the managed checkout and `origin` base.
+- [x] Fork preview/execution uses the managed checkout and `upstream` base.
+- [x] Renderer path injection cannot redirect execution outside the workspace root.
+- [x] Existing cherry-pick preview/execution/worktree tests remain green.
+- [x] Existing conflict-agent flow remains green.
+- [x] **First shipping gate:** watch → save → Workspaces → Workspace Home → Commits → select range
   → preview → execute → Progress works for direct and fork repositories.
 
 ## Checkpoint 7 — Workspace PR scope and repository metadata

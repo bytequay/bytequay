@@ -16,19 +16,18 @@ package com.bytequay.app.web.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickPreview;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,32 +38,39 @@ import static java.util.Objects.requireNonNull;
  * surface.
  */
 @RestController
-@RequestMapping("/api/cherry-pick-ranges/previews")
 public class CherryPickPreviewController
 {
+    private final WorkspaceRepositoryService workspaces;
     private final CherryPickPreviewService previewService;
 
-    public CherryPickPreviewController(CherryPickPreviewService previewService)
+    public CherryPickPreviewController(
+            WorkspaceRepositoryService workspaces,
+            CherryPickPreviewService previewService)
     {
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.previewService = requireNonNull(previewService, "previewService is null");
     }
 
-    @PostMapping
+    @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/preview")
     @ResponseStatus(HttpStatus.CREATED)
-    public CherryPickPreviewResponse create(@RequestBody CherryPickPreviewRequest request)
+    public CherryPickPreviewResponse create(
+            @PathVariable String workspaceId,
+            @RequestBody CherryPickPreviewRequest request)
     {
         requireNonNull(request, "request is null");
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
-                repositoryPath(request.repository()),
-                request.sourceRemote(),
+                context.repository(),
+                Optional.of(workspaceId),
+                context.sourceRemote(),
                 request.sourceBaseRef(),
                 request.sourceTipRef(),
-                request.targetRemote(),
+                context.sourceRemote(),
                 request.targetBranch()));
         return CherryPickPreviewResponse.of(preview);
     }
 
-    @GetMapping("/{previewId}")
+    @GetMapping("/api/cherry-pick-ranges/previews/{previewId}")
     public CherryPickPreviewResponse get(@PathVariable String previewId)
     {
         return previewService.find(previewId)
@@ -72,18 +78,5 @@ public class CherryPickPreviewController
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Preview is unknown or expired; preview the range again"));
-    }
-
-    private static Path repositoryPath(String value)
-    {
-        if (value == null || value.isBlank()) {
-            throw new CherryPickInvalidRequestException("repository is blank");
-        }
-        try {
-            return Path.of(value);
-        }
-        catch (InvalidPathException e) {
-            throw new CherryPickInvalidRequestException("repository is not a valid path");
-        }
     }
 }

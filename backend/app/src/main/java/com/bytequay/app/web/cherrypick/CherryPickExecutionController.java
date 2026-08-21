@@ -15,6 +15,10 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickExecutionService;
 import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
+import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.google.common.collect.ImmutableList;
@@ -23,13 +27,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.List;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -37,21 +38,30 @@ import static java.util.Objects.requireNonNull;
 
 /** Execution endpoints, behind the desktop session filter like every other. */
 @RestController
-@RequestMapping("/api/cherry-pick-ranges/executions")
 public class CherryPickExecutionController
 {
+    private final WorkspaceRepositoryService workspaces;
+    private final WorkspacePaths paths;
     private final CherryPickExecutionService executions;
 
-    public CherryPickExecutionController(CherryPickExecutionService executions)
+    public CherryPickExecutionController(
+            WorkspaceRepositoryService workspaces,
+            WorkspacePaths paths,
+            CherryPickExecutionService executions)
     {
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.paths = requireNonNull(paths, "paths is null");
         this.executions = requireNonNull(executions, "executions is null");
     }
 
-    @PostMapping
+    @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions")
     @ResponseStatus(HttpStatus.CREATED)
-    public CherryPickExecutionResponse start(@RequestBody CherryPickExecutionRequest request)
+    public CherryPickExecutionResponse start(
+            @PathVariable String workspaceId,
+            @RequestBody CherryPickExecutionRequest request)
     {
         requireNonNull(request, "request is null");
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         return CherryPickExecutionResponse.of(executions.start(
                 new StartCherryPickExecutionCommand(
                         text(request.previewId(), "previewId"),
@@ -62,12 +72,16 @@ public class CherryPickExecutionController
                                 ? ImmutableList.of()
                                 : ImmutableList.copyOf(request.userSkippedSourceShas()),
                         text(request.laneId(), "laneId"),
-                        text(request.idempotencyKey(), "idempotencyKey")),
-                absolutePath(request.repository(), "repository"),
-                absolutePath(request.worktreeParent(), "worktreeParent")));
+                        text(request.idempotencyKey(), "idempotencyKey"),
+                        new PullRequestDraft(
+                                text(request.pullRequestTitle(), "pullRequestTitle"),
+                                request.pullRequestBody() == null ? "" : request.pullRequestBody())),
+                workspaceId,
+                context.repository(),
+                paths.worktrees(workspaceId)));
     }
 
-    @GetMapping
+    @GetMapping("/api/cherry-pick-ranges/executions")
     public List<CherryPickExecutionResponse> list(@RequestParam(defaultValue = "20") int limit)
     {
         return executions.list(limit).stream()
@@ -75,13 +89,13 @@ public class CherryPickExecutionController
                 .collect(toImmutableList());
     }
 
-    @GetMapping("/{executionId}")
+    @GetMapping("/api/cherry-pick-ranges/executions/{executionId}")
     public CherryPickExecutionResponse get(@PathVariable String executionId)
     {
         return CherryPickExecutionResponse.of(executions.get(executionId(executionId)));
     }
 
-    @PostMapping("/{executionId}/messages")
+    @PostMapping("/api/cherry-pick-ranges/executions/{executionId}/messages")
     public CherryPickExecutionResponse sendMessage(
             @PathVariable String executionId,
             @RequestBody CherryPickMessageRequest request)
@@ -91,13 +105,13 @@ public class CherryPickExecutionController
                 executionId(executionId), text(request.message(), "message")));
     }
 
-    @PostMapping("/{executionId}/cancel")
+    @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/cancel")
     public CherryPickExecutionResponse cancel(
-            @PathVariable String executionId,
-            @RequestParam String repository)
+            @PathVariable String workspaceId,
+            @PathVariable String executionId)
     {
         return CherryPickExecutionResponse.of(executions.cancel(
-                executionId(executionId), absolutePath(repository, "repository")));
+                executionId(executionId), workspaceId, paths.repository(workspaceId)));
     }
 
     private static CherryPickExecutionId executionId(String value)
@@ -116,19 +130,5 @@ public class CherryPickExecutionController
             throw new CherryPickInvalidRequestException(name + " is blank");
         }
         return value;
-    }
-
-    private static Path absolutePath(String value, String name)
-    {
-        try {
-            Path path = Path.of(text(value, name));
-            if (!path.isAbsolute()) {
-                throw new CherryPickInvalidRequestException(name + " is not absolute");
-            }
-            return path.normalize();
-        }
-        catch (InvalidPathException e) {
-            throw new CherryPickInvalidRequestException(name + " is not a valid path");
-        }
     }
 }

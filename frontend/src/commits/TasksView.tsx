@@ -33,13 +33,7 @@ const STATE_LABEL: Record<TaskState, string> = {
 };
 
 export function taskTitle(execution: CherryPickExecution): string {
-  const stored = localStorage.getItem(`bytequay.cherryPickPr.${execution.executionId}`);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as { title?: string };
-      if (parsed.title) return parsed.title;
-    } catch { /* fall through to the derived title */ }
-  }
+  if (execution.pullRequestDraft?.title) return execution.pullRequestDraft.title;
   return `Cherry-pick ${execution.items.length} commits into ${execution.localTargetBranch}`;
 }
 
@@ -67,9 +61,8 @@ function taskMeta(execution: CherryPickExecution): string {
   return `${route} · ${parts.join(' · ')}`;
 }
 
-export default function TasksView({ repositorySlug, onOpenTask, onNewCherryPick }: {
-  /** "owner/repo" of the workspace's push remote; null shows every task. */
-  repositorySlug: string | null;
+export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: {
+  workspaceId: string;
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
@@ -84,9 +77,7 @@ export default function TasksView({ repositorySlug, onOpenTask, onNewCherryPick 
     window.bridge.listCherryPickExecutions(200)
       .then(executions => {
         if (!active) return;
-        setTasks(repositorySlug === null
-          ? executions
-          : executions.filter(task => task.repository.toLowerCase() === repositorySlug.toLowerCase()));
+        setTasks(executions.filter(task => task.workspaceId === workspaceId));
       })
       .catch(failure => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
@@ -95,7 +86,7 @@ export default function TasksView({ repositorySlug, onOpenTask, onNewCherryPick 
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [repositorySlug]);
+  }, [workspaceId]);
 
   const sorted = useMemo(() => orderTasks(filterTasks(tasks, filter)), [tasks, filter]);
   const rows = sorted.slice(0, shown);

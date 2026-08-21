@@ -344,11 +344,9 @@ export type CherryPickPreview = {
 };
 
 export type CherryPickPreviewRequest = {
-  repository: string;
-  sourceRemote: string;
+  workspaceId: string;
   sourceBaseRef: string;
   sourceTipRef: string;
-  targetRemote: string;
   targetBranch: string;
 };
 
@@ -372,6 +370,7 @@ export type CherryPickExecutionItem = {
 
 export type CherryPickExecution = {
   executionId: string;
+  workspaceId?: string | null;
   repository: string;
   workBranch: string;
   localTargetBranch: string;
@@ -384,12 +383,12 @@ export type CherryPickExecution = {
   initialTargetSha: string;
   currentTargetSha: string;
   currentPosition?: number | null;
+  pullRequestDraft?: { title: string; body: string } | null;
   items: CherryPickExecutionItem[];
 };
 
 export type CherryPickExecutionRequest = {
-  repository: string;
-  worktreeParent: string;
+  workspaceId: string;
   previewId: string;
   expectedSourceBaseSha: string;
   expectedSourceTipSha: string;
@@ -397,6 +396,8 @@ export type CherryPickExecutionRequest = {
   userSkippedSourceShas: string[];
   laneId: string;
   idempotencyKey: string;
+  pullRequestTitle: string;
+  pullRequestBody: string;
 };
 
 export type GitRemoteDto = { name: string; url: string };
@@ -501,8 +502,7 @@ export type Bridge = {
   getCherryPickExecution: (executionId: string) => Promise<CherryPickExecution>;
   listCherryPickExecutions: (limit: number) => Promise<CherryPickExecution[]>;
   sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
-  cancelCherryPickExecution: (executionId: string, repository: string) => Promise<CherryPickExecution>;
-  chooseDirectory: (title: string) => Promise<string | null>;
+  cancelCherryPickExecution: (workspaceId: string, executionId: string) => Promise<CherryPickExecution>;
 
   gitOverview: (workspaceId: string) => Promise<GitOverviewDto>;
   gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;

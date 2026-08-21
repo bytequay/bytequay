@@ -59,11 +59,12 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
 
   const isUpstream = repo === 'upstream';
   const upstreamRemote = workspace.upstreamRemote;
-  const upstreamUrl = overview?.remotes.find(remote => remote.name === upstreamRemote)?.url ?? null;
+  const sourceRemote = upstreamRemote ?? workspace.originRemote;
+  const upstreamUrl = overview?.remotes.find(remote => remote.name === sourceRemote)?.url ?? null;
   const upstreamSlug = upstreamUrl ? githubSlug(upstreamUrl) : null;
   const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url ?? null;
   const originSlug = originUrl ? githubSlug(originUrl) : null;
-  const logRef = isUpstream ? `${upstreamRemote}/${upBranch}` : branch;
+  const logRef = isUpstream ? `${sourceRemote}/${upBranch}` : branch;
   const checked = isUpstream ? checkedUp : checkedWs;
 
   const refreshOverview = useCallback(() => {
@@ -115,13 +116,13 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   }, [workspace.id, isUpstream, logVersion, commitsView]);
 
   useEffect(() => {
-    if (!upMenu || upstreamRemote === null || upBranches.length > 0) return;
+    if (!upMenu || upBranches.length > 0) return;
     let cancelled = false;
-    window.bridge.gitRemoteBranches(workspace.id, upstreamRemote)
+    window.bridge.gitRemoteBranches(workspace.id, sourceRemote)
       .then(value => { if (!cancelled) setUpBranches(value); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [upMenu, upstreamRemote, upBranches.length, workspace.id]);
+  }, [upMenu, sourceRemote, upBranches.length, workspace.id]);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
 
@@ -144,18 +145,16 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   };
 
   const openFlow = async () => {
-    if (!span || upstreamRemote === null) return;
+    if (!span) return;
     setPreviewBusy(true);
     setError(null);
     try {
       const oldest = commits[span.hi].sha;
       const newest = commits[span.lo].sha;
       const next = await window.bridge.previewCherryPickRange({
-        repository: workspace.path,
-        sourceRemote: upstreamRemote,
+        workspaceId: workspace.id,
         sourceBaseRef: `${oldest}^`,
         sourceTipRef: newest,
-        targetRemote: workspace.originRemote,
         targetBranch: branch,
       });
       setPreview(next);
@@ -232,15 +231,14 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
             )}
           </div>
 
-          {upstreamRemote !== null && (
-            <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
+          <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
               <button
                 type="button"
                 className={`cmt-repo-chip${isUpstream ? ' is-active' : ''}`}
-                title="Linked upstream — read-only, cherry-pick source — click again to switch branch"
+                title="Remote source — read-only, cherry-pick source — click again to switch branch"
                 onClick={upChipClick}
               >
-                <span className="cmt-mono">↞</span> {upstreamSlug ?? upstreamRemote} · {upBranch}
+                <span className="cmt-mono">↞</span> {upstreamSlug ?? sourceRemote} · {upBranch}
                 <span className="cmt-readonly">read-only</span>
                 <span className="cmt-caret">▾</span>
               </button>
@@ -271,8 +269,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
                   {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
                 </div>
               )}
-            </div>
-          )}
+          </div>
 
           <div className="cmt-sync">
             <button
@@ -349,7 +346,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
       )}
       {screen === 'tasks' && (
         <TasksView
-          repositorySlug={originSlug}
+          workspaceId={workspace.id}
           onOpenTask={execution => {
             setExecutionId(execution.executionId);
             setScreen('progress');
@@ -364,9 +361,8 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
       {screen === 'flow' && preview && (
         <FlowView
           preview={preview}
-          repositoryPath={workspace.path}
-          upstreamLabel={upstreamSlug ?? upstreamRemote ?? 'upstream'}
-          targetLabel={originSlug ?? workspace.name}
+          workspaceId={workspace.id}
+          upstreamLabel={upstreamSlug ?? sourceRemote}
           onStarted={execution => {
             setExecutionId(execution.executionId);
             setPreview(null);
@@ -378,7 +374,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
       {screen === 'progress' && executionId !== null && (
         <ProgressView
           executionId={executionId}
-          repositoryPath={workspace.path}
+          workspaceId={workspace.id}
           upstreamSlug={upstreamSlug}
           onBackToTasks={() => setScreen('tasks')}
           onStartAnotherRange={() => {

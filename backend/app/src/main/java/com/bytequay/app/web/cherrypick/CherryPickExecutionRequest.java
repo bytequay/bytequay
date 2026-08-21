@@ -22,12 +22,12 @@ import java.util.List;
  * were chosen against. It cannot supply a different order or an extra commit.
  */
 public record CherryPickExecutionRequest(
-        String repository,
-        String worktreeParent,
         String previewId,
         String expectedSourceBaseSha,
         String expectedSourceTipSha,
         String expectedTargetSha,
         List<String> userSkippedSourceShas,
         String laneId,
-        String idempotencyKey) {}
+        String idempotencyKey,
+        String pullRequestTitle,
+        String pullRequestBody) {}

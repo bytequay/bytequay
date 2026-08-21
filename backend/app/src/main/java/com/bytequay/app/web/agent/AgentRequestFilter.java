@@ -52,7 +52,8 @@ public final class AgentRequestFilter
         return !path.startsWith("/agent")
                 && !path.startsWith("/api/ci-autofix")
                 && !path.startsWith("/api/cherry-pick-ranges")
-                && !(path.startsWith("/api/workspaces/") && path.contains("/git/"));
+                && !(path.startsWith("/api/workspaces/")
+                        && (path.contains("/git/") || path.contains("/cherry-pick/")));
     }
 
     @Override

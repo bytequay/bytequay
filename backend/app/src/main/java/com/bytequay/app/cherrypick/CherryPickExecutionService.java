@@ -120,16 +120,19 @@ public class CherryPickExecutionService
      * Freezes a confirmed plan and prepares the workspace it will run in.
      *
      * @param command confirmed skips and the object IDs they were chosen against
+     * @param workspaceId durable workspace that owns the managed clone
      * @param repository clone that owns the objects
      * @param worktreeParent directory that will hold the generated worktree
      * @return the durable execution
      */
     public CherryPickExecution start(
             StartCherryPickExecutionCommand command,
+            String workspaceId,
             Path repository,
             Path worktreeParent)
     {
         requireNonNull(command, "command is null");
+        requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(repository, "repository is null");
         requireNonNull(worktreeParent, "worktreeParent is null");
 
@@ -137,16 +140,19 @@ public class CherryPickExecutionService
         // check below would otherwise reject the caller's own execution.
         Optional<CherryPickExecution> existing = store.findByIdempotencyKey(command.idempotencyKey());
         if (existing.isPresent()) {
-            return existing.orElseThrow();
+            CherryPickExecution execution = existing.orElseThrow();
+            requireWorkspace(execution.workspace().workspaceId(), workspaceId);
+            return execution;
         }
 
         CherryPickPreview preview = previews.find(command.previewId())
                 .orElseThrow(() -> new CherryPickInvalidRequestException(
                         "Preview is unknown or expired; preview the range again"));
+        requireWorkspace(preview.workspaceId(), workspaceId);
         requireUnmoved(preview, command);
         previews.requireCurrentTarget(repository, preview);
         List<CherryPickItem> items = plan(preview, command.userSkippedSourceShas());
-        requireNoLiveExecution(preview);
+        requireNoLiveExecution(preview, workspaceId);
 
         CherryPickWorkspace.Created created = workspaces.create(
                 repository,
@@ -160,6 +166,7 @@ public class CherryPickExecutionService
                     CherryPickExecutionId.random(),
                     command.idempotencyKey(),
                     new Workspace(
+                            Optional.of(workspaceId),
                             preview.repository(),
                             preview.sourceRemote(),
                             preview.targetRemote(),
@@ -168,9 +175,11 @@ public class CherryPickExecutionService
                             created.branch(),
                             created.worktree(),
                             command.laneId()),
+                    Optional.of(command.pullRequestDraft()),
                     new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
                     items,
                     clock.instant()));
+            requireWorkspace(created0.workspace().workspaceId(), workspaceId);
             // Created while the worktree is still clean, even though a clean
             // range never uses a turn.
             CherryPickExecution execution = created0.agentTaskId().isPresent()
@@ -206,15 +215,17 @@ public class CherryPickExecutionService
      * never received a cherry-pick, so nothing outside them needs repair.
      *
      * @param executionId execution identifier
+     * @param workspaceId durable workspace that owns the execution
      * @param repository clone that owns the worktree
      * @return the finished execution
      */
-    public CherryPickExecution cancel(CherryPickExecutionId executionId, Path repository)
+    public CherryPickExecution cancel(CherryPickExecutionId executionId, String workspaceId, Path repository)
     {
         Lock lock = advanceLocks.get(executionId.toString());
         lock.lock();
         try {
             CherryPickExecution execution = get(executionId);
+            requireWorkspace(execution.workspace().workspaceId(), workspaceId);
             if (execution.status() == Status.FINISHED) {
                 return execution;
             }
@@ -548,14 +559,23 @@ public class CherryPickExecutionService
         }
     }
 
-    private void requireNoLiveExecution(CherryPickPreview preview)
+    private void requireNoLiveExecution(CherryPickPreview preview, String workspaceId)
     {
         boolean live = store.listRunning(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
-                .anyMatch(execution -> execution.workspace().repository().equals(preview.repository())
+                .anyMatch(execution -> execution.workspace().workspaceId()
+                        .map(workspaceId::equals)
+                        .orElseGet(() -> execution.workspace().repository().equals(preview.repository()))
                         && execution.workspace().localTargetBranch().equals(preview.localTargetBranch()));
         if (live) {
             throw new CherryPickConflictException(
                     "Another cherry-pick execution is already running for " + preview.localTargetBranch());
+        }
+    }
+
+    private static void requireWorkspace(Optional<String> actualWorkspaceId, String expectedWorkspaceId)
+    {
+        if (actualWorkspaceId.filter(expectedWorkspaceId::equals).isEmpty()) {
+            throw new CherryPickInvalidRequestException("Cherry-pick data does not belong to this workspace");
         }
     }
 

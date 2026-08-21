@@ -60,12 +60,18 @@ public final class WorkspacePaths
     public Path repository(Workspace workspace)
     {
         requireNonNull(workspace, "workspace is null");
-        Path expected = workspace(workspace.id()).resolve("repository").normalize();
+        Path expected = repository(workspace.id());
         Path persisted = Path.of(workspace.localRepositoryPath()).toAbsolutePath().normalize();
         if (!persisted.equals(expected)) {
             throw WorkspaceException.invalidRepository("Managed repository path is invalid.");
         }
         return expected;
+    }
+
+    /** Returns the backend-owned checkout path for cleanup of a workspace execution. */
+    public Path repository(String workspaceId)
+    {
+        return workspace(workspaceId).resolve("repository").normalize();
     }
 
     /** Returns the backend-owned parent for cherry-pick worktrees. */

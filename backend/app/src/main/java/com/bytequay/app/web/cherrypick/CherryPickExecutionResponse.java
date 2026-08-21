@@ -29,6 +29,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
  */
 public record CherryPickExecutionResponse(
         String executionId,
+        Optional<String> workspaceId,
         String repository,
         String workBranch,
         String localTargetBranch,
@@ -40,12 +41,14 @@ public record CherryPickExecutionResponse(
         String initialTargetSha,
         String currentTargetSha,
         Optional<Integer> currentPosition,
+        Optional<PullRequestDraftResponse> pullRequestDraft,
         List<ItemResponse> items)
 {
     public static CherryPickExecutionResponse of(CherryPickExecution execution)
     {
         return new CherryPickExecutionResponse(
                 execution.id().toString(),
+                execution.workspace().workspaceId(),
                 execution.workspace().repository().fullName(),
                 execution.workspace().workBranch(),
                 execution.workspace().localTargetBranch(),
@@ -57,7 +60,17 @@ public record CherryPickExecutionResponse(
                 execution.range().initialTargetSha(),
                 execution.currentTargetSha(),
                 execution.cursor().map(CherryPickItem::position),
+                execution.pullRequestDraft().map(PullRequestDraftResponse::of),
                 execution.items().stream().map(ItemResponse::of).collect(toImmutableList()));
+    }
+
+    /** Pull-request copy saved for the later explicit push and create actions. */
+    public record PullRequestDraftResponse(String title, String body)
+    {
+        private static PullRequestDraftResponse of(CherryPickExecution.PullRequestDraft draft)
+        {
+            return new PullRequestDraftResponse(draft.title(), draft.body());
+        }
     }
 
     /** One plan item and its one final result. */

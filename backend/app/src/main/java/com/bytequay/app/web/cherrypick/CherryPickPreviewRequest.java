@@ -16,13 +16,10 @@ package com.bytequay.app.web.cherrypick;
 /**
  * Preview request body.
  *
- * <p>The local target branch and work branch are derived by the backend, so
- * the renderer cannot name either.
+ * <p>The repository path, remotes, local target branch, and work branch are
+ * derived by the backend, so the renderer cannot name them.
  */
 public record CherryPickPreviewRequest(
-        String repository,
-        String sourceRemote,
         String sourceBaseRef,
         String sourceTipRef,
-        String targetRemote,
         String targetBranch) {}

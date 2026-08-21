@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#f6f8fa;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,textarea,button,select{font-family:inherit}
+::placeholder{color:#8c959f}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqpulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="min-height:100vh;overflow-x:auto;display:flex;align-items:stretch">
+  <div style="flex:1;min-width:0">
+  <sc-if value="{{ chromeShown }}" hint-placeholder-val="{{ true }}">
+  <div style="position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:16px;padding:0 20px;height:48px;background:#ffffff;border-bottom:1px solid #d0d7de">
+    <div style="font-size:13px;font-weight:700;color:#1f2328">ByteQuay <span style="font-weight:400;color:#656d76">· cherry-pick flow mockups</span></div>
+    <div style="display:flex;gap:4px">
+      <button onClick="{{ goCommits }}" style="border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:12.5px;font-weight:600;background:{{ navCbg }};color:{{ navCfg }}">1 · Commits</button>
+      <span style="color:#8c959f;font-size:12px;align-self:center">→</span>
+      <button onClick="{{ goFlow }}" style="border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:12.5px;font-weight:600;background:{{ navFbg }};color:{{ navFfg }}">2 · Cherry-pick flow</button>
+      <span style="color:#8c959f;font-size:12px;align-self:center">→</span>
+      <button onClick="{{ goProgress }}" style="border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:12.5px;font-weight:600;background:{{ navPbg }};color:{{ navPfg }}">3 · Progress</button>
+    </div>
+    <div style="flex:1"></div>
+    <div style="font-size:11px;color:#8c959f">mockup — no real Git</div>
+  </div>
+  </sc-if>
+  <sc-if value="{{ notesShown }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 20px;background:#fff8c5;border-bottom:1px solid rgba(212,167,44,.4);font-size:12px;color:#4d3800;line-height:1.5">
+      <div style="flex:1"><strong>Assumptions:</strong> selections always form one contiguous range (checkboxes or typed from/to SHAs) · the upstream repo is read-only — its only action is cherry-pick into a workspace branch · the title filter changes the view, never the plan · Start mutates local Git only; the PR title/description are stored for the later manual push.</div>
+      <button onClick="{{ hideNotes }}" style="border:none;background:none;cursor:pointer;color:#4d3800;font-size:14px;line-height:1;padding:2px">×</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isCommits }}" hint-placeholder-val="{{ true }}">
+  <div data-screen-label="Commits" style="height:{{ gridH }};display:flex;flex-direction:column;min-width:1060px;background:#ffffff">
+    <div style="display:flex;align-items:flex-end;gap:6px;padding:8px 14px 0;border-bottom:1px solid #d0d7de;background:#ffffff;flex:none">
+      <div style="position:relative;padding-bottom:8px">
+        <button onClick="{{ tabWsClick }}" title="This workspace's branch — click again to switch branch" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ wsTabBg }};color:{{ wsTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">⑂</span> {{ branch }} <span style="font-size:10px;opacity:.7">▾</span></button>
+        <sc-if value="{{ branchMenu }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:34px;left:0;z-index:40;width:240px;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;box-shadow:0 8px 24px rgba(140,149,159,.25);overflow:hidden">
+            <div style="padding:8px 12px;font-size:11px;font-weight:600;color:#656d76;border-bottom:1px solid #d8dee4">{{ branchMenuLabel }}</div>
+            <sc-for list="{{ branches }}" as="b" hint-placeholder-count="3">
+              <button onClick="{{ b.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;text-align:left;border:none;background:{{ b.bg }};cursor:pointer;padding:8px 12px;font-size:13px;color:#1f2328;font-family:ui-monospace,Menlo,monospace">{{ b.check }} {{ b.name }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+      <div style="position:relative;padding-bottom:8px">
+        <button onClick="{{ tabUpClick }}" title="Linked upstream — read-only, cherry-pick source — click again to switch branch" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ upTabBg }};color:{{ upTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">↞</span> trinodb/trino · {{ upBranch }} <span style="font-size:9.5px;font-weight:700;color:#9a6700;background:#fff8c5;border-radius:8px;padding:0 6px">read-only</span> <span style="font-size:10px;opacity:.7">▾</span></button>
+        <sc-if value="{{ upMenu }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:34px;left:0;z-index:40;width:270px;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;box-shadow:0 8px 24px rgba(140,149,159,.25);overflow:hidden">
+            <div style="padding:8px;border-bottom:1px solid #d8dee4">
+              <input value="{{ upBranchQ }}" onChange="{{ onUpBranchQ }}" placeholder="⌕ Find an upstream branch…" style="width:100%;box-sizing:border-box;padding:5px 9px;border:1px solid #d0d7de;border-radius:6px;font-size:12.5px;color:#1f2328">
+            </div>
+            <sc-for list="{{ upBranches }}" as="b" hint-placeholder-count="3">
+              <button onClick="{{ b.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;text-align:left;border:none;background:{{ b.bg }};cursor:pointer;padding:8px 12px;font-size:13px;color:#1f2328;font-family:ui-monospace,Menlo,monospace">{{ b.check }} {{ b.name }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding-bottom:8px;margin-left:2px">
+        <button onClick="{{ syncClick }}" title="Fetch latest for this branch and the read-only upstream branch" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;cursor:pointer;color:#57606a;font-size:14px"><span style="display:inline-block;animation:{{ syncAnim }}">⟳</span></button>
+        <span style="font-size:11px;color:#8c959f;white-space:nowrap">{{ syncLabel }}</span>
+      </div>
+      <div style="width:1px;height:20px;background:#d0d7de;margin:0 10px 10px"></div>
+      <button onClick="{{ pickChanges }}" style="border:none;background:none;cursor:{{ changesCursor }};padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tChangesFg }};border-bottom:2px solid {{ tChangesBar }};opacity:{{ changesOp }}">Changes <span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:0 7px">2</span></button>
+      <button onClick="{{ pickHistory }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tHistoryFg }};border-bottom:2px solid {{ tHistoryBar }}">History</button>
+      <button onClick="{{ pickCherry }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tCherryFg }};border-bottom:2px solid {{ tCherryBar }}">Cherry pick</button>
+      <div style="flex:1"></div>
+    </div>
+    <sc-if value="{{ viewChanges }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,340px) minmax(560px,1fr)">
+        <div style="display:flex;flex-direction:column;border-right:1px solid #d0d7de;background:#f6f8fa;min-height:0">
+          <div style="padding:8px 12px;border-bottom:1px solid #d0d7de;font-size:12px;color:#656d76;background:#ffffff">{{ filesSummary }} · uncommitted</div>
+          <div style="flex:1;overflow:auto">
+            <sc-for list="{{ panelFiles }}" as="f" hint-placeholder-count="3">
+              <button onClick="{{ f.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;border:none;border-bottom:1px solid #eceff2;background:{{ f.bg }};cursor:pointer;padding:8px 10px;text-align:left">
+                <span style="width:14px;height:14px;flex:none;border-radius:3px;background:{{ f.sBg }};color:#ffffff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ f.s }}</span>
+                <span style="flex:1;min-width:0;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">{{ f.p }}</span>
+                <span style="flex:none;font-size:10.5px;font-family:ui-monospace,Menlo,monospace"><span style="color:#1a7f37">+{{ f.a }}</span> <span style="color:#cf222e">−{{ f.d }}</span></span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="padding:10px 12px;border-top:1px solid #d0d7de;background:#ffffff">
+            <input placeholder="Summary (required)" style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid #d0d7de;border-radius:6px;font-size:12.5px;color:#1f2328">
+            <textarea rows="3" placeholder="Description" style="width:100%;box-sizing:border-box;margin-top:6px;padding:6px 9px;border:1px solid #d0d7de;border-radius:6px;font-size:12px;color:#1f2328;resize:vertical"></textarea>
+            <button style="width:100%;margin-top:8px;padding:6px 0;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Commit to {{ branch }}</button>
+          </div>
+        </div>
+        <div style="min-width:0;overflow:auto">
+          <div style="position:sticky;top:0;display:flex;align-items:center;gap:10px;padding:7px 12px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#1f2328">{{ diffPath }}<span style="color:#1a7f37">{{ diffAdds }}</span><span style="color:#cf222e">{{ diffDels }}</span></div>
+          <sc-for list="{{ diffLines }}" as="l" hint-placeholder-count="8">
+            <div style="display:flex;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:20px;background:{{ l.bg }}">
+              <div style="width:40px;flex:none;text-align:right;padding:0 6px;color:#57606a;background:{{ l.nbg }}">{{ l.o }}</div>
+              <div style="width:40px;flex:none;text-align:right;padding:0 6px;color:#57606a;background:{{ l.nbg }}">{{ l.n }}</div>
+              <div style="flex:1;padding:0 10px;white-space:pre;color:{{ l.fg }}">{{ l.x }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ viewHistory }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(400px,460px) minmax(560px,1fr)">
+    <div style="display:flex;flex-direction:column;border-right:1px solid #d0d7de;background:#f6f8fa;min-height:0">
+      <div style="padding:10px 12px;border-bottom:1px solid #d0d7de;background:#ffffff">
+        <div style="display:flex;align-items:center;gap:6px;margin-top:10px">
+          <span style="font-size:10.5px;font-weight:700;color:#656d76;letter-spacing:.4px">RANGE</span>
+          <input value="{{ rangeFrom }}" onChange="{{ onRangeFrom }}" placeholder="from SHA" style="width:84px;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#1f2328;background:#ffffff">
+          <span style="color:#8c959f;font-size:11px">…</span>
+          <input value="{{ rangeTo }}" onChange="{{ onRangeTo }}" placeholder="to SHA" style="width:84px;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#1f2328;background:#ffffff">
+          <button onClick="{{ applyRange }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer">Select range</button>
+          <sc-if value="{{ rangeErr }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#cf222e">SHA not on this branch</span></sc-if>
+        </div>
+        <sc-if value="{{ isUp }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:11px;color:#9a6700;margin-top:8px;line-height:1.4"><strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs), then cherry-pick the range into bytequay/trino-fork · {{ branch }}.</div>
+        </sc-if>
+        <sc-if value="{{ wsHint }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size:11px;color:#8c959f;margin-top:8px;line-height:1.4">Click a commit to see its diff on the right · check one to edit its message · check two to squash a range.</div>
+        </sc-if>
+      </div>
+      <div style="flex:1;overflow:auto">
+        <sc-for list="{{ dayGroups }}" as="g" hint-placeholder-count="2">
+          <div>
+            <div style="padding:6px 12px;font-size:11px;font-weight:700;color:#656d76;background:#eceff2;border-bottom:1px solid #d8dee4;letter-spacing:.3px">{{ g.label }}</div>
+            <sc-for list="{{ g.commits }}" as="c" hint-placeholder-count="4">
+              <div style="background:#ffffff">
+                <div onClick="{{ c.view }}" style="display:flex;align-items:flex-start;gap:9px;padding:8px 12px 8px 9px;border-bottom:1px solid #eceff2;cursor:pointer;background:{{ c.rowBg }};border-left:3px solid {{ c.viewBar }}">
+                  <input type="checkbox" checked="{{ c.eff }}" onChange="{{ c.toggle }}" style="margin-top:3px;width:14px;height:14px;accent-color:#0969da;cursor:pointer">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span style="font-size:13px;font-weight:600;color:#1f2328">{{ c.title }}</span>
+                      <sc-if value="{{ c.prChip }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 7px;white-space:nowrap">{{ c.prChip }}</span></sc-if>
+                      <sc-if value="{{ c.alreadyChip }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 7px;white-space:nowrap">already on target</span></sc-if>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:5px;margin-top:3px;font-size:11.5px;color:#656d76">
+                      <span style="width:14px;height:14px;border-radius:50%;background:{{ c.avColor }};color:#ffffff;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ c.initial }}</span>
+                      <span><strong style="color:#24292f;font-weight:600">{{ c.author }}</strong> {{ c.ago }}</span>
+                      <sc-if value="{{ c.checks }}" hint-placeholder-val="{{ false }}"><span style="color:#1a7f37">· ✓ {{ c.checks }}</span></sc-if>
+                    </div>
+                  </div>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#0969da;padding-top:2px">{{ c.sha }}</span>
+                </div>
+
+                <sc-if value="{{ c.isEditorHost }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:10px 12px;background:#f6f8fa;border-bottom:1px solid #d8dee4">
+                    <div style="font-size:10.5px;font-weight:700;color:#656d76;letter-spacing:.4px;margin-bottom:6px">COMMIT MESSAGE</div>
+                    <input value="{{ editTitleVal }}" onChange="{{ onEditTitle }}" style="width:100%;box-sizing:border-box;font-size:13px;font-weight:600;color:#1f2328;padding:6px 9px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff">
+                    <textarea rows="4" value="{{ editBodyVal }}" onChange="{{ onEditBody }}" style="width:100%;box-sizing:border-box;margin-top:6px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.6;color:#1f2328;padding:7px 9px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;resize:vertical"></textarea>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+                      <button onClick="{{ onUpdateMsg }}" style="padding:4px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12px;font-weight:600;cursor:pointer">Update message</button>
+                      <button onClick="{{ onDiscard }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;color:#24292f;font-size:12px;font-weight:600;cursor:pointer">Discard</button>
+                      <sc-if value="{{ msgSaved }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#1a7f37">✓ Updated locally — amends this workspace commit only</span></sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ c.isSquashHost }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:10px 12px;background:#f6f8fa;border-bottom:1px solid #d8dee4">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                      <span style="font-size:12.5px;font-weight:700;color:#1f2328">Squash {{ squashCount }} commits</span>
+                      <span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#656d76;background:#ffffff;border:1px solid #d0d7de;border-radius:4px;padding:1px 7px">{{ squashRange }}</span>
+                    </div>
+                    <div style="font-size:10.5px;font-weight:700;color:#656d76;letter-spacing:.4px;margin-bottom:6px">COMBINED MESSAGE</div>
+                    <textarea rows="6" value="{{ squashMsgVal }}" onChange="{{ onSquashMsg }}" style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.6;color:#1f2328;padding:7px 9px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;resize:vertical"></textarea>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+                      <button onClick="{{ onSquash }}" style="padding:4px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12px;font-weight:600;cursor:pointer">Squash {{ squashCount }} commits</button>
+                      <button onClick="{{ clearSel }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;color:#24292f;font-size:12px;font-weight:600;cursor:pointer">Clear selection</button>
+                      <sc-if value="{{ squashDone }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#1a7f37">✓ Squashed locally — original SHAs kept in the body</span></sc-if>
+                    </div>
+                    <div style="font-size:10.5px;color:#8c959f;margin-top:6px">The combined range diff is shown on the right.</div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;min-width:0;min-height:0">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #d0d7de">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ viewTitle }}</div>
+          <div style="font-size:11.5px;color:#656d76;margin-top:2px;font-family:ui-monospace,Menlo,monospace">{{ viewMeta }}</div>
+        </div>
+        <span style="flex:none;font-size:12px;color:#656d76">{{ filesSummary }}</span>
+      </div>
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="width:300px;flex:none;border-right:1px solid #d0d7de;overflow:auto;background:#f6f8fa">
+          <sc-for list="{{ panelFiles }}" as="f" hint-placeholder-count="3">
+            <button onClick="{{ f.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;border:none;border-bottom:1px solid #eceff2;background:{{ f.bg }};cursor:pointer;padding:8px 10px;text-align:left">
+              <span style="width:14px;height:14px;flex:none;border-radius:3px;background:{{ f.sBg }};color:#ffffff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ f.s }}</span>
+              <span style="flex:1;min-width:0;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left">{{ f.p }}</span>
+              <span style="flex:none;font-size:10.5px;font-family:ui-monospace,Menlo,monospace"><span style="color:#1a7f37">+{{ f.a }}</span> <span style="color:#cf222e">−{{ f.d }}</span></span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="flex:1;min-width:0;overflow:auto">
+          <div style="position:sticky;top:0;display:flex;align-items:center;gap:10px;padding:7px 12px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#1f2328">{{ diffPath }}<span style="color:#1a7f37">{{ diffAdds }}</span><span style="color:#cf222e">{{ diffDels }}</span></div>
+          <sc-for list="{{ diffLines }}" as="l" hint-placeholder-count="8">
+            <div style="display:flex;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:20px;background:{{ l.bg }}">
+              <div style="width:40px;flex:none;text-align:right;padding:0 6px;color:#57606a;background:{{ l.nbg }}">{{ l.o }}</div>
+              <div style="width:40px;flex:none;text-align:right;padding:0 6px;color:#57606a;background:{{ l.nbg }}">{{ l.n }}</div>
+              <div style="flex:1;padding:0 10px;white-space:pre;color:{{ l.fg }}">{{ l.x }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ upBar }}" hint-placeholder-val="{{ false }}">
+      <div style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:16px;background:#24292f;color:#ffffff;border-radius:10px;padding:10px 12px 10px 20px;box-shadow:0 8px 24px rgba(27,31,36,.35)">
+        <span style="font-size:13px;font-weight:600">{{ upCount }} commits selected</span>
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f">{{ upRange }}</span>
+        <span style="font-size:12px;color:#8c959f">→ bytequay/trino-fork · {{ branch }}</span>
+        <button onClick="{{ goFlow }}" style="padding:6px 16px;border:1px solid rgba(255,255,255,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:13px;font-weight:600;cursor:pointer">Cherry-pick to workspace →</button>
+      </div>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isFlow }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Cherry-pick flow" style="height:{{ gridH }};display:flex;flex-direction:column;min-width:1060px;background:#ffffff">
+    <div style="display:flex;align-items:flex-end;gap:6px;padding:8px 14px 0;border-bottom:1px solid #d0d7de;background:#ffffff;flex:none">
+      <div style="padding-bottom:8px">
+        <button onClick="{{ tabWsClick }}" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ wsTabBg }};color:{{ wsTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">⑂</span> {{ branch }} <span style="font-size:10px;opacity:.7">▾</span></button>
+      </div>
+      <div style="padding-bottom:8px">
+        <button onClick="{{ tabUpClick }}" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ upTabBg }};color:{{ upTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">↞</span> trinodb/trino · {{ upBranch }} <span style="font-size:9.5px;font-weight:700;color:#9a6700;background:#fff8c5;border-radius:8px;padding:0 6px">read-only</span> <span style="font-size:10px;opacity:.7">▾</span></button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding-bottom:8px;margin-left:2px">
+        <button onClick="{{ syncClick }}" title="Fetch latest for this branch and the read-only upstream branch" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;cursor:pointer;color:#57606a;font-size:14px"><span style="display:inline-block;animation:{{ syncAnim }}">⟳</span></button>
+        <span style="font-size:11px;color:#8c959f;white-space:nowrap">{{ syncLabel }}</span>
+      </div>
+      <div style="width:1px;height:20px;background:#d0d7de;margin:0 10px 10px"></div>
+      <button onClick="{{ pickChanges }}" style="border:none;background:none;cursor:{{ changesCursor }};padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tChangesFg }};border-bottom:2px solid {{ tChangesBar }};opacity:{{ changesOp }}">Changes</button>
+      <button onClick="{{ pickHistory }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tHistoryFg }};border-bottom:2px solid {{ tHistoryBar }}">History</button>
+      <button onClick="{{ pickCherry }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tCherryFg }};border-bottom:2px solid {{ tCherryBar }}">Cherry pick</button>
+      <div style="flex:1"></div>
+    </div>
+    <div style="flex:1;overflow:auto">
+    <div style="max-width:1140px;margin:0 auto;padding:20px 24px 100px">
+    <div style="font-size:12px;color:#656d76;margin-bottom:4px">trinodb/trino <span style="color:#9a6700">(upstream · read-only)</span> → bytequay/trino-fork</div>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Cherry-pick {{ flowTotal }} commits → <span style="font-family:ui-monospace,Menlo,monospace;font-size:17px;background:#ddf4ff;color:#0a3069;border-radius:6px;padding:2px 8px">master</span></h1>
+    </div>
+    <div style="font-size:12px;color:#656d76;margin-top:6px">Frozen preview <span style="font-family:ui-monospace,Menlo,monospace">cp-prev-88f2</span> · source <span style="font-family:ui-monospace,Menlo,monospace">c81aa02…b07b547</span> · target <span style="font-family:ui-monospace,Menlo,monospace">41ab9e2</span> — if master moves before start, this preview goes stale and must be reviewed again.</div>
+
+    <div style="display:flex;gap:8px;margin:16px 0 4px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:12px;padding:3px 10px">{{ applyCount }} will apply</span>
+      <span style="font-size:12px;font-weight:600;color:#57606a;background:#eceff2;border-radius:12px;padding:3px 10px">{{ skipCount }} skipped by you</span>
+      <span style="font-size:12px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:12px;padding:3px 10px">{{ alreadyCount }} already on target</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin:12px 0 14px">
+      <input value="{{ flowFilter }}" onChange="{{ onFlowFilter }}" placeholder="⌕ Filter commits by title…" style="width:280px;padding:6px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13px;color:#1f2328">
+      <div style="position:relative">
+        <button onClick="{{ togglePrPanel }}" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer">Skip by pull request <span style="font-size:11px;background:#eceff2;border-radius:10px;padding:0 7px;color:#57606a">{{ skippedPrCount }}</span> <span style="color:#656d76;font-size:10px">▾</span></button>
+        <sc-if value="{{ prPanel }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:38px;left:0;z-index:40;width:400px;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;box-shadow:0 8px 24px rgba(140,149,159,.25)">
+            <div style="padding:10px 12px;border-bottom:1px solid #d8dee4">
+              <input value="{{ prSearch }}" onChange="{{ onPrSearch }}" placeholder="⌕ Search pull requests in this range…" style="width:100%;box-sizing:border-box;padding:5px 9px;border:1px solid #d0d7de;border-radius:6px;font-size:12.5px;color:#1f2328">
+            </div>
+            <sc-for list="{{ prsInRange }}" as="p" hint-placeholder-count="4">
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid #eceff2;cursor:pointer;background:{{ p.bg }}">
+                <input type="checkbox" checked="{{ p.skipped }}" onChange="{{ p.toggle }}" style="margin-top:3px;width:14px;height:14px;accent-color:#cf222e;cursor:pointer">
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:13px;font-weight:600;color:#1f2328">#{{ p.n }} {{ p.t }}</span>
+                  <span style="display:block;font-size:11.5px;color:#656d76;margin-top:1px">{{ p.count }} commits in range · merged {{ p.merged }}</span>
+                </span>
+                <sc-if value="{{ p.skipped }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:700;color:#cf222e">SKIP</span></sc-if>
+              </label>
+            </sc-for>
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 12px">
+              <span style="flex:1;font-size:11px;color:#656d76;line-height:1.4">Skipping a PR unchecks every commit in it. Skips travel to the backend as commit SHAs, never as PR numbers.</span>
+              <button onClick="{{ togglePrPanel }}" style="padding:4px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Done</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="flex:1"></div>
+      <button onClick="{{ openDryRun }}" style="padding:6px 16px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13px;font-weight:600;color:#24292f;cursor:pointer">Dry run</button>
+      <button onClick="{{ startExec }}" style="padding:6px 16px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:13px;font-weight:600;cursor:pointer">Start cherry-pick ({{ applyCount }})</button>
+    </div>
+
+    <sc-if value="{{ filterNote }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:12px;color:#9a6700;background:#fff8c5;border:1px solid rgba(212,167,44,.4);border-radius:6px;padding:6px 12px;margin-bottom:12px">Showing {{ shownCount }} of {{ flowTotal }} commits — the filter changes the view only; the plan and skips are unchanged.</div>
+    </sc-if>
+
+    <div style="border:1px solid #d0d7de;border-radius:6px;background:#ffffff;margin-bottom:14px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#f6f8fa;border-bottom:1px solid #d0d7de">
+        <span style="font-size:12px;font-weight:700;color:#1f2328">Pull request</span>
+        <span style="font-size:11.5px;color:#656d76">title and description for the PR opened when you later push <span style="font-family:ui-monospace,Menlo,monospace">bytequay/cp-xk29</span> — nothing is sent to GitHub now</span>
+      </div>
+      <div style="padding:12px 14px">
+        <input value="{{ prTitleVal }}" onChange="{{ onPrTitle }}" style="width:100%;box-sizing:border-box;font-size:14px;font-weight:600;color:#1f2328;padding:7px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff">
+        <textarea rows="5" value="{{ prBodyVal }}" onChange="{{ onPrBody }}" style="width:100%;box-sizing:border-box;margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;color:#1f2328;padding:8px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;resize:vertical"></textarea>
+      </div>
+    </div>
+
+    <div style="border:1px solid #d0d7de;border-radius:6px;background:#ffffff;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;font-size:12px;font-weight:600;color:#57606a">Application order · oldest first <span style="font-weight:400">— checked commits will be cherry-picked</span></div>
+      <sc-for list="{{ flowVisible }}" as="fi" hint-placeholder-count="8">
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 16px;border-top:1px solid #eceff2;opacity:{{ fi.op }};background:{{ fi.bg }}">
+          <input type="checkbox" checked="{{ fi.eff }}" onChange="{{ fi.toggle }}" disabled="{{ fi.already }}" style="margin-top:4px;width:15px;height:15px;accent-color:#1f883d;cursor:pointer">
+          <span style="width:22px;flex:none;text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;padding-top:3px">{{ fi.pos }}</span>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:13.5px;font-weight:600;color:#1f2328">{{ fi.title }}</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#656d76">{{ fi.sha }}</span>
+              <sc-if value="{{ fi.prChip }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px;white-space:nowrap">{{ fi.prChip }}</span></sc-if>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap">
+              <sc-if value="{{ fi.alreadyWhy }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px">already on target · {{ fi.alreadyWhy }}</span></sc-if>
+              <sc-if value="{{ fi.skipChip }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px">{{ fi.skipChip }}</span></sc-if>
+              <sc-if value="{{ fi.cp }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#bc4c00;background:#fff1e5;border-radius:10px;padding:1px 8px">⚠ {{ fi.cp }}</span></sc-if>
+            </div>
+          </div>
+          <span style="flex:none;font-size:12px;color:#656d76;padding-top:3px">{{ fi.author }} · {{ fi.ago }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ dryRun }}" hint-placeholder-val="{{ false }}">
+      <div style="position:fixed;inset:0;z-index:70;background:rgba(27,31,36,.45);display:flex;align-items:center;justify-content:center;padding:24px">
+        <div style="width:760px;max-width:100%;max-height:84vh;display:flex;flex-direction:column;background:#ffffff;border-radius:12px;box-shadow:0 16px 48px rgba(27,31,36,.35);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid #d0d7de">
+            <span style="font-size:15px;font-weight:700;color:#1f2328">Dry run — execution plan</span>
+            <span style="font-size:12px;color:#656d76">nothing runs; this is exactly what Start submits</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ closeDryRun }}" style="border:none;background:none;cursor:pointer;color:#656d76;font-size:16px;line-height:1">×</button>
+          </div>
+          <div style="flex:1;overflow:auto;padding:16px 20px">
+            <div style="font-size:12px;font-weight:700;color:#1a7f37;margin-bottom:6px">WILL CHERRY-PICK ({{ applyCount }}) — in this order</div>
+            <div style="border:1px solid #d0d7de;border-radius:6px;overflow:hidden;margin-bottom:16px">
+              <sc-for list="{{ dryApply }}" as="d" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid #eceff2;font-size:12.5px;background:#ffffff">
+                  <span style="width:20px;text-align:right;font-family:ui-monospace,Menlo,monospace;color:#8c959f;font-size:11.5px">{{ d.pos }}</span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#656d76">{{ d.sha }}</span>
+                  <span style="flex:1;color:#1f2328;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}</span>
+                  <sc-if value="{{ d.cp }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:600;color:#bc4c00">⚠ conflict likely</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#57606a;margin-bottom:6px">SKIPPED BY YOU ({{ skipCount }})</div>
+            <div style="border:1px solid #d0d7de;border-radius:6px;overflow:hidden;margin-bottom:16px">
+              <sc-for list="{{ drySkip }}" as="d" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid #eceff2;font-size:12.5px;background:#f6f8fa">
+                  <span style="width:20px;text-align:right;font-family:ui-monospace,Menlo,monospace;color:#8c959f;font-size:11.5px">{{ d.pos }}</span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#656d76">{{ d.sha }}</span>
+                  <span style="flex:1;color:#57606a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}</span>
+                  <span style="font-size:11px;color:#57606a">{{ d.reason }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#9a6700;margin-bottom:6px">ALREADY ON TARGET ({{ alreadyCount }}) — detected automatically, never executed</div>
+            <div style="border:1px solid #d0d7de;border-radius:6px;overflow:hidden">
+              <sc-for list="{{ dryAlready }}" as="d" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid #eceff2;font-size:12.5px;background:#fffdf2">
+                  <span style="width:20px;text-align:right;font-family:ui-monospace,Menlo,monospace;color:#8c959f;font-size:11.5px">{{ d.pos }}</span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#656d76">{{ d.sha }}</span>
+                  <span style="flex:1;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}</span>
+                  <span style="font-size:11px;color:#9a6700">{{ d.reason }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:12px 20px;border-top:1px solid #d0d7de;background:#f6f8fa">
+            <span style="font-size:11.5px;color:#656d76;flex:1">Start creates work branch <span style="font-family:ui-monospace,Menlo,monospace">bytequay/cp-xk29</span> at frozen master <span style="font-family:ui-monospace,Menlo,monospace">41ab9e2</span> — local Git only, no push.</span>
+            <button onClick="{{ closeDryRun }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13px;font-weight:600;color:#24292f;cursor:pointer">Back</button>
+            <button onClick="{{ startExec }}" style="padding:6px 16px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:13px;font-weight:600;cursor:pointer">Start cherry-pick ({{ applyCount }} commits)</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+    </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isTasks }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Cherry-pick tasks" style="height:{{ gridH }};display:flex;flex-direction:column;min-width:1060px;background:#ffffff">
+    <div style="display:flex;align-items:flex-end;gap:6px;padding:8px 14px 0;border-bottom:1px solid #d0d7de;background:#ffffff;flex:none">
+      <div style="padding-bottom:8px">
+        <button onClick="{{ tabWsClick }}" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ wsTabBg }};color:{{ wsTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">⑂</span> {{ branch }} <span style="font-size:10px;opacity:.7">▾</span></button>
+      </div>
+      <div style="padding-bottom:8px">
+        <button onClick="{{ tabUpClick }}" style="display:flex;align-items:center;gap:6px;border:1px solid #d0d7de;border-radius:6px;cursor:pointer;padding:5px 12px;font-size:12.5px;font-weight:600;white-space:nowrap;background:{{ upTabBg }};color:{{ upTabFg }}"><span style="font-family:ui-monospace,Menlo,monospace">↞</span> trinodb/trino · {{ upBranch }} <span style="font-size:9.5px;font-weight:700;color:#9a6700;background:#fff8c5;border-radius:8px;padding:0 6px">read-only</span> <span style="font-size:10px;opacity:.7">▾</span></button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding-bottom:8px;margin-left:2px">
+        <button onClick="{{ syncClick }}" title="Fetch latest for this branch and the read-only upstream branch" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;cursor:pointer;color:#57606a;font-size:14px"><span style="display:inline-block;animation:{{ syncAnim }}">⟳</span></button>
+        <span style="font-size:11px;color:#8c959f;white-space:nowrap">{{ syncLabel }}</span>
+      </div>
+      <div style="width:1px;height:20px;background:#d0d7de;margin:0 10px 10px"></div>
+      <button onClick="{{ pickChanges }}" style="border:none;background:none;cursor:{{ changesCursor }};padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tChangesFg }};border-bottom:2px solid {{ tChangesBar }};opacity:{{ changesOp }}">Changes</button>
+      <button onClick="{{ pickHistory }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tHistoryFg }};border-bottom:2px solid {{ tHistoryBar }}">History</button>
+      <button onClick="{{ pickCherry }}" style="border:none;background:none;cursor:pointer;padding:6px 12px 11px;font-size:13px;font-weight:600;color:{{ tCherryFg }};border-bottom:2px solid {{ tCherryBar }}">Cherry pick</button>
+      <div style="flex:1"></div>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <div style="max-width:900px;margin:0 auto;padding:20px 24px 60px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <h1 style="margin:0;font-size:18px;font-weight:700;color:#1f2328">Cherry-pick tasks</h1>
+          <span style="font-size:12px;color:#8c959f">{{ tasksSub }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ newCherryPick }}" style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap">+ New cherry-pick</button>
+          <div style="display:flex;border:1px solid #d0d7de;border-radius:6px;overflow:hidden">
+            <sc-for list="{{ taskChips }}" as="c" hint-placeholder-count="3">
+              <button onClick="{{ c.pick }}" style="border:none;cursor:pointer;padding:5px 13px;font-size:12px;font-weight:600;white-space:nowrap;border-left:{{ c.bl }};background:{{ c.bg }};color:{{ c.fg }}">{{ c.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="border:1px solid #d0d7de;border-radius:8px;overflow:hidden;margin-top:14px">
+          <sc-for list="{{ taskRows }}" as="t" hint-placeholder-count="6">
+            <button onClick="{{ t.open }}" style="display:flex;width:100%;align-items:center;gap:12px;border:none;border-top:1px solid #eceff2;background:#ffffff;cursor:pointer;text-align:left;padding:11px 16px" style-hover="background:#f6f8fa">
+              <span style="width:9px;height:9px;flex:none;border-radius:50%;background:{{ t.dot }};animation:{{ t.anim }}"></span>
+              <span style="flex:none;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#0969da;width:66px">{{ t.id }}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font-size:13.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</span>
+                <span style="display:block;font-size:12px;color:#8c959f;margin-top:1px">{{ t.meta }}</span>
+              </span>
+              <span style="flex:none;font-size:12px;color:#8c959f">{{ t.when }}</span>
+              <span style="flex:none;font-size:10.5px;font-weight:700;color:{{ t.stFg }};background:{{ t.stBg }};border-radius:10px;padding:2px 9px">{{ t.st }}</span>
+              <span style="flex:none;color:#8c959f;font-size:12px">›</span>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ loadMoreShown }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ loadMore }}" style="display:block;margin:12px auto 0;padding:6px 18px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Load more ({{ moreCount }} older)</button>
+        </sc-if>
+        <div style="font-size:11.5px;color:#8c959f;margin-top:14px">To start a new cherry-pick, open <strong>History</strong> on the upstream tab, select a range of commits, and confirm.</div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isProgress }}" hint-placeholder-val="{{ false }}">
+  <div data-screen-label="Progress" style="height:{{ gridH }};display:grid;grid-template-columns:{{ progCols }};min-width:1080px;background:#ffffff">
+    <div style="display:flex;flex-direction:column;background:#f6f8fa;min-height:0;min-width:0">
+      <div style="padding:14px 16px 10px;border-bottom:1px solid #d0d7de">
+        <div style="font-size:13px;font-weight:700;color:#1f2328">Range items</div>
+        <div style="font-size:12px;color:#656d76;margin-top:2px">{{ settledLabel }}</div>
+        <div style="height:6px;border-radius:3px;background:#eceff2;margin-top:8px;overflow:hidden"><div style="height:100%;background:#1f883d;width:{{ progressPct }}"></div></div>
+      </div>
+      <div style="flex:1;overflow:auto;padding:6px">
+        <sc-for list="{{ navRows }}" as="it" hint-placeholder-count="8">
+          <div>
+            <sc-if value="{{ it.isFold }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ it.action }}" style="display:flex;width:100%;align-items:center;gap:8px;border:none;background:none;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:11.5px;color:#656d76;font-weight:600"><span style="color:#8c959f;font-size:10px">{{ it.chev }}</span>{{ it.text }}</button>
+            </sc-if>
+            <sc-if value="{{ it.isItem }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ it.pick }}" style="display:flex;width:100%;align-items:flex-start;gap:9px;border:none;text-align:left;cursor:pointer;padding:8px 10px;border-radius:6px;background:{{ it.bg }}">
+                <span style="width:9px;height:9px;flex:none;border-radius:50%;margin-top:4px;background:{{ it.dot }};animation:{{ it.anim }}"></span>
+                <span style="flex:1;min-width:0">
+                  <span style="display:block;font-size:12.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.pos }} · {{ it.title }}</span>
+                  <span style="display:block;font-size:11px;color:{{ it.subColor }};margin-top:1px">{{ it.sub }}</span>
+                </span>
+              </button>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div onMouseDown="{{ dragLeft }}" title="Drag to resize" style="cursor:col-resize;background:#eceff2;border-left:1px solid #d0d7de;border-right:1px solid #d0d7de" style-hover="background:#54aeff"></div>
+
+    <div style="display:flex;flex-direction:column;min-width:0;min-height:0">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #d0d7de">
+        <button onClick="{{ goTasks }}" style="border:none;background:none;cursor:pointer;padding:2px 4px;font-size:12.5px;font-weight:600;color:#0969da;white-space:nowrap">‹ Tasks</button>
+        <span style="font-size:11px;font-weight:700;letter-spacing:.5px;padding:3px 10px;border-radius:12px;background:{{ pillBg }};color:{{ pillFg }}">{{ pillText }}</span>
+        <span style="font-size:12px;color:#656d76">{{ stepLabel }}</span>
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#57606a;background:#f6f8fa;border:1px solid #d0d7de;border-radius:4px;padding:1px 8px">bytequay/cp-xk29</span>
+        <div style="flex:1"></div>
+        <button style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Cancel execution</button>
+      </div>
+      <sc-if value="{{ pausedBanner }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:12px 16px;background:#fff8c5;border-bottom:1px solid rgba(212,167,44,.4)">
+          <div style="font-size:13px;font-weight:700;color:#7d4e00">Paused — needs your input</div>
+          <div style="font-size:12.5px;color:#4d3800;margin-top:3px;line-height:1.5">Fixup verification failed twice on item 5: conflict markers remain in <span style="font-family:ui-monospace,Menlo,monospace">pom.xml</span>. The worktree is preserved. Add a note for the agent and retry, or cancel.</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ finishedBanner }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:#dafbe1;border-bottom:1px solid rgba(74,194,107,.4)">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:#116329">Finished — final accounting passed</div>
+            <div style="font-size:12.5px;color:#116329;margin-top:2px">6 applied · 3 skipped by you · 2 already on target · 1 empty — every applied commit carries its -x line.</div>
+          </div>
+          <button style="padding:5px 12px;border:1px solid rgba(74,194,107,.6);border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#116329;cursor:pointer">View range-diff</button>
+          <button style="padding:5px 12px;border:1px solid rgba(74,194,107,.6);border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#116329;cursor:pointer">Start another range</button>
+        </div>
+      </sc-if>
+      <div style="flex:1;overflow:auto;padding:14px 16px;background:#fbfcfd">
+        <sc-for list="{{ blocks }}" as="b" hint-placeholder-count="6">
+          <div>
+            <sc-if value="{{ b.isLine }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;padding:4px 6px 10px">{{ b.text }}</div>
+            </sc-if>
+            <sc-if value="{{ b.isUser }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;justify-content:flex-end;margin:8px 0"><div style="max-width:70%;background:#eceff2;border-radius:12px;padding:8px 14px;font-size:13px;color:#1f2328;line-height:1.5">{{ b.text }}</div></div>
+            </sc-if>
+            <sc-if value="{{ b.isCard }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px solid #d0d7de;border-radius:8px;background:#ffffff;margin-bottom:8px;overflow:hidden">
+                <button onClick="{{ b.toggle }}" style="display:flex;width:100%;align-items:center;gap:10px;border:none;background:none;cursor:pointer;padding:9px 14px;text-align:left">
+                  <span style="font-size:10px;color:#8c959f;width:10px">{{ b.chev }}</span>
+                  <span style="width:8px;height:8px;flex:none;border-radius:50%;background:{{ b.dot }};animation:{{ b.anim }}"></span>
+                  <span style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.head }}</span>
+                  <span style="flex:none;font-size:11.5px;color:{{ b.rightColor }}">{{ b.right }}</span>
+                </button>
+                <sc-if value="{{ b.open }}" hint-placeholder-val="{{ false }}">
+                  <div style="border-top:1px solid #eceff2;padding:10px 14px 12px">
+                    <sc-for list="{{ b.lines }}" as="l" hint-placeholder-count="3">
+                      <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;color:{{ l.c }};white-space:pre-wrap">{{ l.x }}</div>
+                    </sc-for>
+                    <sc-if value="{{ b.agent }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top:10px;border-left:2px solid #d0d7de;padding:2px 0 2px 14px">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="font-size:12.5px;font-weight:700;color:#1f2328">✦ {{ b.agent.title }}</span>
+                          <span style="font-size:11.5px;color:#656d76;animation:{{ b.agent.anim }}">{{ b.agent.dur }}</span>
+                        </div>
+                        <p style="margin:8px 0;font-size:13px;line-height:1.55;color:#24292f">{{ b.agent.prose1 }}</p>
+                        <sc-for list="{{ b.agent.steps }}" as="s" hint-placeholder-count="4">
+                          <div style="display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:#57606a;line-height:1.9"><span style="width:14px;text-align:center;color:#8c959f">{{ s.ic }}</span><span>{{ s.tx }}</span></div>
+                        </sc-for>
+                        <p style="margin:8px 0 4px;font-size:13px;line-height:1.55;color:#24292f">{{ b.agent.prose2 }}</p>
+                        <sc-if value="{{ b.agent.tail }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#656d76">
+                            <span style="width:12px;height:12px;border:2px solid #d0d7de;border-top-color:#0969da;border-radius:50%;animation:bqspin 1s linear infinite"></span>{{ b.agent.tail }}
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding:10px 14px 8px;border-top:1px solid #d0d7de;background:#ffffff">
+        <div style="display:flex;align-items:center;gap:8px;border:1px solid #d0d7de;border-radius:12px;padding:6px 6px 6px 14px;box-shadow:0 1px 3px rgba(27,31,36,.06)">
+          <input value="{{ agentDraft }}" onChange="{{ onAgentDraft }}" placeholder="Message the agent — e.g. keep our resolver retry property in pom.xml…" style="flex:1;border:none;outline:none;font-size:13px;color:#1f2328;background:none">
+          <button onClick="{{ sendAgentMsg }}" style="width:28px;height:28px;border:none;border-radius:50%;background:#24292f;color:#ffffff;font-size:13px;cursor:pointer">↑</button>
+        </div>
+        <div style="font-size:10.5px;color:#8c959f;margin-top:5px">Delivered to the current item's agent turn as an untrusted note — the service still verifies every commit.</div>
+      </div>
+    </div>
+
+    <div onMouseDown="{{ dragRight }}" title="Drag to resize" style="cursor:col-resize;background:#eceff2;border-left:1px solid #d0d7de;border-right:1px solid #d0d7de" style-hover="background:#54aeff"></div>
+
+    <div style="overflow:auto;min-height:0;min-width:0;background:#ffffff">
+      <sc-if value="{{ rpHas }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:16px 18px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="flex:1;font-size:13px;font-weight:700;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ rpTitle }}</span>
+            <button style="padding:3px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap">Open on GitHub ↗</button>
+          </div>
+          <div style="display:flex;gap:16px;margin-top:12px;border-bottom:1px solid #d0d7de">
+            <span style="font-size:12.5px;font-weight:600;color:#1f2328;padding-bottom:7px;border-bottom:2px solid #fd8c73">Overview <span style="background:#eceff2;border-radius:10px;padding:0 6px;font-size:11px;color:#57606a">{{ rpComments }}</span></span>
+            <span style="font-size:12.5px;color:#656d76;padding-bottom:7px">Changes <span style="color:#1a7f37;font-weight:600">{{ rpAdds }}</span> <span style="color:#cf222e;font-weight:600">{{ rpDels }}</span></span>
+          </div>
+          <h2 style="margin:14px 0 0;font-size:18px;font-weight:700;color:#1f2328;line-height:1.3">{{ rpTitle }} <span style="color:#656d76;font-weight:400">#{{ rpNum }}</span></h2>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <span style="display:inline-flex;align-items:center;gap:5px;background:{{ rpStateBg }};color:#ffffff;font-size:12px;font-weight:600;border-radius:14px;padding:4px 12px">⑃ {{ rpState }}</span>
+            <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#0969da;background:#ddf4ff;border-radius:5px;padding:2px 7px">master</span>
+            <span style="color:#656d76;font-size:12px">←</span>
+            <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#0969da;background:#ddf4ff;border-radius:5px;padding:2px 7px">{{ rpHead }}</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <span style="font-size:11.5px;color:#57606a;border:1px solid #d0d7de;border-radius:14px;padding:3px 10px">Reviewers · {{ rpRev }}</span>
+            <span style="font-size:11.5px;color:#57606a;border:1px solid #d0d7de;border-radius:14px;padding:3px 10px">{{ rpLabels }} labels</span>
+          </div>
+          <div style="border:1px solid #d0d7de;border-radius:8px;margin-top:14px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f6f8fa;border-bottom:1px solid #d0d7de">
+              <span style="width:18px;height:18px;border-radius:50%;background:{{ rpAvColor }};color:#ffffff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ rpAvInitial }}</span>
+              <span style="font-size:12.5px;font-weight:600;color:#1f2328">{{ rpAuthor }}</span>
+              <span style="font-size:12px;color:#656d76">· {{ rpAgo }}</span>
+            </div>
+            <div style="padding:6px 14px 12px">
+              <h3 style="font-size:14px;color:#1f2328;border-bottom:1px solid #eceff2;padding-bottom:6px;margin:10px 0 8px">Description</h3>
+              <sc-for list="{{ rpBody }}" as="p" hint-placeholder-count="3">
+                <p style="margin:0 0 10px;font-size:13px;line-height:1.6;color:#24292f">{{ p.x }}</p>
+              </sc-for>
+            </div>
+          </div>
+          <div style="font-size:11px;color:#8c959f;margin-top:10px">Showing the pull request for the selected commit — pick another commit on the left to switch.</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ rpNone }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;height:100%;align-items:center;justify-content:center;padding:24px">
+          <div style="text-align:center;color:#656d76;font-size:13px;line-height:1.6;max-width:260px">⑂<br>No pull request is associated with this commit.<br><span style="font-size:12px;color:#8c959f">It was pushed directly to the upstream branch.</span></div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;initialScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;commits&quot;,&quot;flow&quot;,&quot;progress&quot;],&quot;default&quot;:&quot;commits&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;progressState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;running&quot;,&quot;paused&quot;,&quot;finished&quot;],&quot;default&quot;:&quot;running&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;embedded&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+class Component extends DCLogic {
+  state = { screen:null, repo:'workspace', branch:'master', repoMenu:false, branchMenu:false,
+    wsChecked:[], upChecked:['c81aa02','b07b547'], viewSha:null, rangeFrom:'', rangeTo:'', rangeErr:false,
+    editTitle:null, editBody:null, squashMsg:null, diffFile:0, msgSaved:false, squashDone:false,
+    flowFilter:'', flowUnchecked:[], skippedPrs:[27897], prPanel:false, prSearch:'', dryRun:false,
+    prTitle:null, prBody:null,
+    progressSel:'acdfbb7', openBlocks:{}, notes:true, pausedNote:'', navExpanded:false,
+    agentDraft:'', agentMsgs:[], leftW:260, rightW:380 };
+
+  D(){
+    if(this._d) return this._d;
+    const ws=[
+      {sha:'8c21f4a',title:'Support AWS default credentials chain for SigV4 REST catalog',author:'ravi-moreau',ago:'committed 3 hours ago',checks:'39 / 43',pr:{n:412,t:'SigV4 REST catalog support'},day:0,body:'The SigV4 REST catalog falls back to the AWS default credentials chain when no static keys are configured.\n\n(cherry picked from commit b07b547)'},
+      {sha:'a94aa3b',title:'Disable Snowflake cloud tests',author:'finn-ep',ago:'committed 4 hours ago',checks:'83 / 87',pr:null,day:0,body:'Cloud credentials rotate on Friday; keep the suite green until the shared secret is replaced.'},
+      {sha:'3a9e8f3',title:'Preload Maven core extensions under a retry loop in CI setup',author:'finn-ep',ago:'committed 4 hours ago',checks:null,pr:{n:408,t:'CI resolver hardening'},day:0,body:'Preload the extensions before the main resolve so a cold runner cannot fail the first module build.'},
+      {sha:'acdfbb7',title:'Retry more HTTP errors when resolving Maven artifacts',author:'finn-ep',ago:'committed 4 hours ago',checks:null,pr:{n:408,t:'CI resolver hardening'},day:0,body:'Treat 408/429/5xx responses as retryable during dependency:go-offline.'},
+      {sha:'0c2a696',title:'Revert "Extract config to build test matrix"',author:'finn-ep',ago:'committed 5 hours ago',checks:null,pr:null,day:0,body:'This reverts commit e51d8cb; the matrix extraction broke the nightly cache key.'},
+      {sha:'e51d8cb',title:'Extract config to build test matrix',author:'ezra-b',ago:'committed yesterday',checks:'86 / 90',pr:{n:405,t:'Test matrix extraction'},day:1,body:'Move the matrix definition into ci/matrix.yml so forks can override it.'},
+      {sha:'57bbc91',title:'Return metrics from Iceberg migrate procedure',author:'ezra-b',ago:'committed yesterday',checks:'84 / 88',pr:{n:401,t:'Iceberg migrate metrics'},day:1,body:'The migrate procedure now returns row and file counts.'},
+      {sha:'1642dc3',title:'Support returning metrics in CALL syntax',author:'ezra-b',ago:'committed yesterday',checks:null,pr:{n:401,t:'Iceberg migrate metrics'},day:1,body:'CALL statements may now declare a result set.'}];
+    const up=[
+      {sha:'b07b547',title:'Support AWS default credentials chain for SigV4 REST catalog',author:'ravi-moreau',ago:'committed 3 hours ago',checks:'39 / 43',prN:27901,day:0},
+      {sha:'4d1e0c2',title:'Document SigV4 credential resolution order',author:'ravi-moreau',ago:'committed 3 hours ago',checks:null,prN:27901,day:0},
+      {sha:'f31c2aa',title:'Add per-catalog rate limits to HTTP event listener',author:'mona-s',ago:'committed 5 hours ago',checks:'41 / 41',prN:27897,day:0},
+      {sha:'77ac91d',title:'Emit retry-after headers from event listener',author:'mona-s',ago:'committed 5 hours ago',checks:null,prN:27897,day:0},
+      {sha:'5b8f3e1',title:'Test rate limiting under concurrent load',author:'mona-s',ago:'committed 5 hours ago',checks:null,prN:27897,day:0},
+      {sha:'a94aa3b',title:'Disable Snowflake cloud tests',author:'finn-ep',ago:'committed 6 hours ago',checks:'83 / 87',prN:null,day:0,already:'ancestor of master'},
+      {sha:'257c157',title:'Activate Google Maven Central mirror earlier',author:'finn-ep',ago:'committed yesterday',checks:null,prN:27912,day:1,already:'-x line in master history'},
+      {sha:'acdfbb7',title:'Retry more HTTP errors when resolving Maven artifacts',author:'finn-ep',ago:'committed yesterday',checks:null,prN:27912,day:1,cp:'conflict likely — ci/maven-resolve.sh · pom.xml'},
+      {sha:'3a9e8f3',title:'Preload Maven core extensions under a retry loop in CI setup',author:'finn-ep',ago:'committed yesterday',checks:null,prN:27912,day:1},
+      {sha:'0c2a696',title:'Revert "Extract config to build test matrix"',author:'finn-ep',ago:'committed yesterday',checks:null,prN:null,day:1},
+      {sha:'e51d8cb',title:'Extract config to build test matrix',author:'ezra-b',ago:'committed 2 days ago',checks:'86 / 90',prN:null,day:1},
+      {sha:'c81aa02',title:'Add read-only SQLite connector',author:'pryce-v',ago:'committed 2 days ago',checks:'52 / 52',prN:27768,day:1}];
+    const prMap={
+      27901:{t:'SigV4 REST catalog improvements',head:'sigv4-default-chain',adds:'+186',dels:'\u221214',author:'ravi-moreau',ago:'2 days ago',rev:'finn-ep',labels:3,comments:2,merged:'2 days ago',body:['Support the AWS default credentials chain for the SigV4-signed REST catalog and document the resolution order.','When credentials-source=DEFAULT_CHAIN the connector resolves credentials in the standard SDK order: environment, system properties, profile, then instance metadata.']},
+      27897:{t:'HTTP event listener rate limits',head:'event-listener-limits',adds:'+240',dels:'\u221231',author:'mona-s',ago:'4 days ago',rev:'chenjian2664',labels:2,comments:5,merged:'3 days ago',body:['Add per-catalog rate limits to the HTTP event listener so a single busy catalog cannot starve the shared dispatch queue.','Limits are enforced with a token bucket; rejected events emit a retry-after header and a counter metric.']},
+      27912:{t:'CI hardening for Maven resolution',head:'ci-maven-hardening',adds:'+412',dels:'\u221258',author:'finn-ep',ago:'3 days ago',rev:'chenjian2664',labels:1,comments:3,merged:'yesterday',body:['Hardens CI Maven artifact resolution against transient registry failures.','Retries are bounded and classified by HTTP status. The Google Maven Central mirror is activated earlier in setup so cold runners hit a warm cache.','No user-visible changes; CI only.']},
+      27768:{t:'New Sqlite connector',head:'new-sqlite',adds:'+4359',dels:'\u221276',author:'pryce-v',ago:'7 months ago',rev:'finn-ep · chenjian2664',labels:13,comments:0,merged:'2 days ago',body:['Add new SQLite connector.','This connector opens an SQLite database file directly; the file must be accessible to the connector. The connection factories now pass properties during connection establishment.','Currently read-only with a minimal set of SQL types — easy access to scattered microdata.']}};
+    const avC={finn-ep:'#8250df',ezra-b:'#0969da',ravi-moreau:'#bf3989',chenjian2664:'#1a7f37',mona-s:'#9a6700',pryce-v:'#e16f24'};
+    const L=(t,o,n,x)=>({t,o:o||'',n:n||'',x,bg:t==='a'?'#dafbe1':t==='d'?'#ffebe9':t==='h'?'#ddf4ff':'#ffffff',nbg:t==='a'?'#aceebb':t==='d'?'#ffcecb':t==='h'?'#ddf4ff':'#ffffff',fg:t==='h'?'#57606a':'#1f2328'});
+    const diffs=[
+      [L('h','','','@@ -41,6 +41,14 @@ public class IcebergRestCatalogConfig'),
+       L('c','41','41','     private Optional<String> signerRegion = Optional.empty();'),
+       L('c','42','42',''),
+       L('d','43','','-    private boolean sigv4Enabled;'),
+       L('a','','43','+    private boolean sigv4Enabled = true;'),
+       L('a','','44','+    private AwsCredentialsSource credentialsSource = AwsCredentialsSource.DEFAULT_CHAIN;'),
+       L('a','','45','+'),
+       L('a','','46','+    @Config("iceberg.rest-catalog.credentials-source")'),
+       L('a','','47','+    public IcebergRestCatalogConfig setCredentialsSource(AwsCredentialsSource source)'),
+       L('a','','48','+    {'),
+       L('a','','49','+        this.credentialsSource = requireNonNull(source, "source is null");'),
+       L('a','','50','+        return this;'),
+       L('a','','51','+    }'),
+       L('c','44','52','')],
+      [L('h','','','@@ -12,9 +12,15 @@ resolve_maven_artifacts() {'),
+       L('c','12','12','   local attempt=0'),
+       L('d','13','','-  until mvn -q dependency:go-offline; do'),
+       L('a','','13','+  local http_retryable="408 429 500 502 503 504"'),
+       L('a','','14','+  until mvn -q dependency:go-offline; do'),
+       L('c','14','15','     attempt=$((attempt + 1))'),
+       L('d','15','','-    [ "$attempt" -ge 3 ] && return 1'),
+       L('a','','16','+    [ "$attempt" -ge "$RESOLVE_RETRIES" ] && return 1'),
+       L('a','','17','+    classify_http_error "$?" || return 1'),
+       L('c','16','18','     sleep $((attempt * 5))'),
+       L('c','17','19','   done')],
+      [L('h','','','@@ -204,6 +204,12 @@ The connector supports these catalog types:'),
+       L('c','204','204','## REST catalog'),
+       L('a','','205','+### Credential resolution'),
+       L('a','','206','+'),
+       L('a','','207','+When `credentials-source=DEFAULT_CHAIN`, the connector resolves AWS'),
+       L('a','','208','+credentials in the standard SDK order: environment, system properties,'),
+       L('a','','209','+profile, then instance metadata.'),
+       L('c','205','210','')]];
+    const filesets=[
+      [{p:'plugin/trino-iceberg/src/main/java/io/trino/rest/IcebergRestCatalogConfig.java',s:'M',a:42,d:6},{p:'plugin/trino-iceberg/src/test/java/io/trino/rest/TestSigV4RestCatalog.java',s:'A',a:118,d:0},{p:'docs/src/main/sphinx/connector/iceberg.md',s:'M',a:12,d:2}],
+      [{p:'ci/maven-resolve.sh',s:'M',a:24,d:9},{p:'.github/workflows/ci.yml',s:'M',a:6,d:1},{p:'pom.xml',s:'M',a:3,d:3}],
+      [{p:'docs/src/main/sphinx/release/release-notes.md',s:'M',a:8,d:0},{p:'core/trino-main/pom.xml',s:'M',a:2,d:2}]];
+    const squashFiles=[{p:'ci/maven-resolve.sh',s:'M',a:31,d:12},{p:'.github/workflows/ci.yml',s:'M',a:9,d:2},{p:'pom.xml',s:'M',a:5,d:4},{p:'ci/matrix.yml',s:'A',a:44,d:0},{p:'docs/src/main/sphinx/develop/ci.md',s:'M',a:10,d:1}];
+    const posOrder=['c81aa02','e51d8cb','0c2a696','3a9e8f3','acdfbb7','257c157','a94aa3b','5b8f3e1','77ac91d','f31c2aa','4d1e0c2','b07b547'];
+    const tasks=[
+      {id:'cp-0142',state:'running',pr:'Cherry-pick 7 upstream commits into master',title:'12 commits · trinodb/trino → master',meta:'item 5 of 12 · resolving conflict on acdfbb7',when:'started 12:04'},
+      {id:'cp-0141',state:'paused',pr:'Port event listener rate limits to agent lane',title:'6 commits · trinodb/trino → feat/agent-lane',meta:'paused on item 3 — needs your input',when:'started 09:40'},
+      {id:'cp-0139',state:'done',pr:'Backport SQLite connector fixes to 1.4',title:'3 commits · trinodb/trino → release-1.4',meta:'3 applied · 0 skipped',when:'yesterday'},
+      {id:'cp-0138',state:'done',pr:'Pull upstream Iceberg migrate metrics',title:'9 commits · trinodb/trino → master',meta:'7 applied · 2 already on target',when:'2 days ago'},
+      {id:'cp-0136',state:'canceled',pr:'Sync upstream doc fixes',title:'2 commits · trinodb/trino → master',meta:'canceled by you at item 1',when:'3 days ago'},
+      {id:'cp-0135',state:'done',pr:'Adopt upstream SigV4 credential chain',title:'5 commits · trinodb/trino → master',meta:'5 applied',when:'3 days ago'},
+      {id:'cp-0134',state:'done',pr:'Backport resolver retry fix to 1.4',title:'1 commit · trinodb/trino → release-1.4',meta:'1 applied · agent fixup',when:'4 days ago'},
+      {id:'cp-0133',state:'done',pr:'Pull upstream CI hardening for Maven resolution',title:'8 commits · trinodb/trino → master',meta:'6 applied · 1 empty · 1 skipped',when:'5 days ago'},
+      {id:'cp-0131',state:'done',pr:'Sync upstream connector test fixes',title:'4 commits · trinodb/trino → master',meta:'4 applied',when:'last week'},
+      {id:'cp-0130',state:'canceled',pr:'Pull upstream event listener batch',title:'11 commits · trinodb/trino → master',meta:'canceled — target branch moved',when:'last week'},
+      {id:'cp-0129',state:'done',pr:'Port rate limit tests to agent lane',title:'2 commits · trinodb/trino → feat/agent-lane',meta:'2 applied',when:'2 weeks ago'},
+      {id:'cp-0128',state:'done',pr:'Sync upstream master — weekly batch',title:'7 commits · trinodb/trino → master',meta:'7 applied',when:'2 weeks ago'},
+      {id:'cp-0127',state:'done',pr:'Pull upstream release-note automation',title:'3 commits · trinodb/trino → master',meta:'2 applied · 1 already on target',when:'3 weeks ago'},
+      {id:'cp-0126',state:'done',pr:'Backport CALL syntax metrics to 1.4',title:'5 commits · trinodb/trino → release-1.4',meta:'5 applied',when:'last month'}];
+    this._t=tasks;
+    this._d={ws,up,prMap,avC,diffs,filesets,squashFiles,posOrder,days:['Commits on Aug 20, 2026','Commits on Aug 19, 2026']};
+    return this._d;
+  }
+
+  drag(prop,dir,min,max){
+    return e=>{ e.preventDefault();
+      const sx=e.clientX, sw=this.state[prop];
+      const mv=ev=>this.setState({[prop]:Math.max(min,Math.min(max,sw+(ev.clientX-sx)*dir))});
+      const up=()=>{window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);};
+      window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up); };
+  }
+
+  renderVals(){
+    const st=this.state, d=this.D();
+    const screen = st.screen ?? (this.props.initialScreen ?? 'commits');
+    const taskSel = st.taskSel ?? 'cp-0142';
+    const cv = st.commitsView ?? 'history';
+    const selTask = this._t.find(t=>t.id===taskSel);
+    const pState = selTask && (selTask.state==='done'||selTask.state==='canceled') ? 'finished'
+      : selTask && selTask.state==='paused' ? 'paused'
+      : (this.props.progressState ?? 'running');
+    const set=p=>()=>this.setState(p);
+    const isUp = st.repo==='upstream';
+    const list = isUp ? d.up : d.ws;
+    const key = isUp ? 'upChecked' : 'wsChecked';
+    const order = list.map(c=>c.sha);
+    const idxs = st[key].map(s=>order.indexOf(s)).filter(i=>i>=0);
+    const lo = idxs.length?Math.min(...idxs):-1, hi = idxs.length?Math.max(...idxs):-1;
+    const spanLen = idxs.length? hi-lo+1 : 0;
+    const single = !isUp && spanLen===1, multi = !isUp && spanLen>1;
+    const viewIdx = Math.max(0, order.indexOf(st.viewSha));
+    const viewC = list[viewIdx];
+    const toggle = sha=>()=>{ const s=new Set(this.state[key]); s.has(sha)?s.delete(sha):s.add(sha); this.setState({[key]:[...s],editTitle:null,editBody:null,squashMsg:null,diffFile:0,msgSaved:false,squashDone:false}); };
+    const dayGroups=[0,1].map(dy=>({label:d.days[dy],commits:list.filter(c=>c.day===dy).map(c=>{
+      const i=order.indexOf(c.sha), eff=idxs.length>0&&i>=lo&&i<=hi, viewed=i===viewIdx;
+      return {sha:c.sha,title:c.title,author:c.author,ago:c.ago,checks:c.checks,
+        eff,toggle:toggle(c.sha),view:()=>this.setState({viewSha:c.sha,diffFile:0}),
+        rowBg:eff?'#f1f8ff':(viewed?'#ffffff':'transparent'),
+        viewBar:(viewed&&!multi)?'#0969da':'transparent',
+        prChip: isUp? (c.prN?('#'+c.prN+' '+d.prMap[c.prN].t):null) : (c.pr?('#'+c.pr.n+' '+c.pr.t):null),
+        alreadyChip: !!c.already,
+        initial:c.author[0].toUpperCase(), avColor:d.avC[c.author]||'#57606a',
+        isEditorHost: single && order[lo]===c.sha,
+        isSquashHost: multi && order[hi]===c.sha};
+    })}));
+    const host = single? list[lo] : null;
+    const spanCommits = spanLen? list.slice(lo,hi+1) : [];
+    const rawFiles = multi? d.squashFiles : d.filesets[viewIdx % d.filesets.length];
+    const fIdx = Math.min(st.diffFile, rawFiles.length-1);
+    const panelFiles = rawFiles.map((f,i)=>({p:f.p,s:f.s,a:f.a,d:f.d,sBg:f.s==='A'?'#1a7f37':f.s==='D'?'#cf222e':'#9a6700',bg:i===fIdx?'#ddf4ff':'transparent',pick:set({diffFile:i})}));
+    const selFile = rawFiles[fIdx];
+    const totA = rawFiles.reduce((a,f)=>a+f.a,0), totD = rawFiles.reduce((a,f)=>a+f.d,0);
+    const squashDefault = spanCommits.length? spanCommits[spanCommits.length-1].title+'\n\n'+spanCommits.slice(0,-1).map(c=>'* '+c.title).join('\n')+'\n\nSquashed: '+spanCommits.map(c=>c.sha).join(', ') : '';
+    const applyRange=()=>{ const f=this.state.rangeFrom.trim().toLowerCase(), t=this.state.rangeTo.trim().toLowerCase();
+      const fi=order.findIndex(s=>s.startsWith(f)), ti=order.findIndex(s=>s.startsWith(t));
+      if(f&&t&&fi>=0&&ti>=0) this.setState({[key]:[order[fi],order[ti]],rangeErr:false,editTitle:null,editBody:null,squashMsg:null,diffFile:0});
+      else this.setState({rangeErr:true}); };
+    // upstream span for flow (always from upChecked)
+    const upOrder = d.up.map(c=>c.sha);
+    const uIdx = st.upChecked.map(s=>upOrder.indexOf(s)).filter(i=>i>=0);
+    const ulo = uIdx.length?Math.min(...uIdx):0, uhi = uIdx.length?Math.max(...uIdx):upOrder.length-1;
+    const rangeShas = upOrder.slice(ulo,uhi+1);
+    const flowSrc = [...rangeShas].reverse().map(sha=>d.up.find(c=>c.sha===sha));
+    const prCounts={};
+    flowSrc.forEach(c=>{ if(c.prN&&!c.already) prCounts[c.prN]=(prCounts[c.prN]||0)+1; });
+    const prSkipped = n=>st.skippedPrs.includes(n);
+    const flowItems = flowSrc.map((c,i)=>{
+      const already=!!c.already, viaPr=!already&&c.prN&&prSkipped(c.prN), unchecked=!already&&st.flowUnchecked.includes(c.sha);
+      const eff=!already&&!viaPr&&!unchecked;
+      return {pos:i+1,sha:c.sha,title:c.title,author:c.author,ago:c.ago.replace('committed ',''),
+        prChip:c.prN?('#'+c.prN+' '+d.prMap[c.prN].t):null,prN:c.prN,
+        already, alreadyWhy:c.already||null, cp:c.cp||null,
+        skipChip: viaPr?('skipped via PR #'+c.prN):(unchecked?'skipped by you':null),
+        eff, op: (already||!eff)?'.55':'1', bg: eff?'#ffffff':'#f6f8fa',
+        toggle:()=>{ const s=new Set(this.state.flowUnchecked); s.has(c.sha)?s.delete(c.sha):s.add(c.sha); this.setState({flowUnchecked:[...s]}); }};
+    });
+    const q=st.flowFilter.trim().toLowerCase();
+    const flowVisible = q? flowItems.filter(f=>f.title.toLowerCase().includes(q)) : flowItems;
+    const applyItems=flowItems.filter(f=>f.eff), skipItems=flowItems.filter(f=>!f.eff&&!f.already), alreadyItems=flowItems.filter(f=>f.already);
+    const pq=st.prSearch.trim().toLowerCase();
+    const prsInRange=Object.keys(prCounts).map(n=>{const num=+n,pr=d.prMap[num];return {n:num,t:pr.t,count:prCounts[num],merged:pr.merged,skipped:prSkipped(num),bg:prSkipped(num)?'#fff5f5':'transparent',toggle:()=>{const s=new Set(this.state.skippedPrs); s.has(num)?s.delete(num):s.add(num); this.setState({skippedPrs:[...s]});}};}).filter(p=>!pq||p.t.toLowerCase().includes(pq)||(''+p.n).includes(pq));
+    const prTitleVal = st.prTitle ?? ('Cherry-pick '+applyItems.length+' upstream commits into master');
+    const prBodyVal = st.prBody ?? ('Cherry-picks trinodb/trino c81aa02\u2026b07b547 into master via ByteQuay.\n\n* '+applyItems.length+' commits applied, each carrying its (cherry picked from commit \u2026) line\n* skipped by you: '+(skipItems.length? skipItems.map(f=>f.sha).join(', '):'none')+'\n* already on target: '+(alreadyItems.map(f=>f.sha).join(', ')||'none'));
+    // progress results
+    const resFin={c81aa02:['APPLIED','9f31d02'],e51d8cb:['APPLIED','b02c113'],'0c2a696':['EMPTY'],'3a9e8f3':['APPLIED','77d20af'],acdfbb7:['APPLIED','c9d4e21'],'257c157':['ALREADY'],a94aa3b:['ALREADY'],'5b8f3e1':['USER'],'77ac91d':['USER'],f31c2aa:['USER'],'4d1e0c2':['APPLIED','e77a3b0'],b07b547:['APPLIED','f0221cd']};
+    const resRun={...resFin,acdfbb7:['RESOLVING'],'4d1e0c2':['PENDING'],b07b547:['PENDING']};
+    const resPause={...resRun,acdfbb7:['PAUSED']};
+    const res = pState==='finished'?resFin:pState==='paused'?resPause:resRun;
+    const stMeta={APPLIED:{dot:'#1a7f37',sub:'#1a7f37'},EMPTY:{dot:'#8c959f',sub:'#656d76'},ALREADY:{dot:'#d4a72c',sub:'#9a6700'},USER:{dot:'#8c959f',sub:'#656d76'},RESOLVING:{dot:'#bf8700',sub:'#9a6700'},PAUSED:{dot:'#cf222e',sub:'#cf222e'},PENDING:{dot:'#d0d7de',sub:'#8c959f'}};
+    const subTx=r=>r[0]==='APPLIED'?('Applied → '+r[1]):r[0]==='EMPTY'?'Empty — skipped':r[0]==='ALREADY'?'Already on target':r[0]==='USER'?'Skipped by you':r[0]==='RESOLVING'?'Resolving conflict — agent turn 1/3':r[0]==='PAUSED'?'Paused — needs your input':'Pending';
+    const navItems=d.posOrder.map((sha,i)=>{ const c=d.up.find(x=>x.sha===sha), r=res[sha], m=stMeta[r[0]];
+      return {isItem:true,pos:i+1,sha,title:c.title,dot:m.dot,subColor:m.sub,sub:subTx(r),
+        anim:(r[0]==='RESOLVING')?'bqpulse 1.2s ease-in-out infinite':'',
+        bg: st.progressSel===sha?'#ddf4ff':'transparent', pick:set({progressSel:sha})};});
+    // fold the nav: previous + current + next 7; earlier/later collapse
+    const len=d.posOrder.length;
+    let ci = d.posOrder.findIndex(s=>['RESOLVING','PAUSED','PENDING'].includes(res[s][0]));
+    if(ci<0) ci=len-1;
+    const winStart=Math.max(0,ci-1), winEnd=Math.min(len-1,ci+7);
+    let navRows;
+    if(st.navExpanded || (winStart===0 && winEnd===len-1)){
+      navRows = (winStart>0||winEnd<len-1) ? [{isFold:true,chev:'▾',text:'Collapse to the active window',action:set({navExpanded:false})},...navItems] : [...navItems];
+    } else {
+      navRows=[];
+      if(winStart>0) navRows.push({isFold:true,chev:'▸',text:winStart+' earlier items — settled',action:set({navExpanded:true})});
+      navRows.push(...navItems.slice(winStart,winEnd+1));
+      if(winEnd<len-1) navRows.push({isFold:true,chev:'▸',text:(len-1-winEnd)+' more pending',action:set({navExpanded:true})});
+    }
+    const settled=d.posOrder.filter(s=>!['PENDING','RESOLVING','PAUSED'].includes(res[s][0])).length;
+    // log blocks
+    const li=(x,c)=>({x,c:c||'#57606a'});
+    const openOf=(sha,def)=> st.openBlocks[sha]!==undefined? st.openBlocks[sha] : def;
+    const mkCard=(sha,pos,title,rt,rc,dot,lines,agent,defOpen,anim)=>{ const open=openOf(sha,defOpen);
+      return {isCard:true,sha,chev:open?'▾':'▸',dot,anim:anim||'',head:pos+' · '+sha+' — '+title,right:rt,rightColor:rc,open,lines,agent:agent||null,
+        toggle:()=>this.setState({openBlocks:{...this.state.openBlocks,[sha]:!open}})}; };
+    const blocks=[{isLine:true,text:'execution '+taskSel+' · work branch bytequay/cp-xk29 created at 41ab9e2 (frozen master) · lane: claude · '+(pState==='finished'?'finished 12:11:48':'started 12:04:02')},
+      {isLine:true,text:'6 · 257c157 already on target (-x evidence) — Git never invoked      7 · a94aa3b already on target (ancestor) — Git never invoked'},
+      {isLine:true,text:'8–10 · 5b8f3e1 77ac91d f31c2aa skipped by you at confirmation (PR #27897) — transmitted as source SHAs'}];
+    blocks.push(mkCard('c81aa02','1','Add read-only SQLite connector','Applied → 9f31d02 · 4s','#1a7f37','#1a7f37',[li('$ git cherry-pick -x c81aa02','#24292f'),li('clean apply · one child of H0 · standard -x line present · no conflict markers','#1a7f37'),li('recorded APPLIED · targetSha 9f31d02','#1a7f37')],null,false));
+    blocks.push(mkCard('e51d8cb','2','Extract config to build test matrix','Applied → b02c113 · 3s','#1a7f37','#1a7f37',[li('$ git cherry-pick -x e51d8cb','#24292f'),li('clean apply verified · recorded APPLIED · targetSha b02c113','#1a7f37')],null,false));
+    blocks.push(mkCard('0c2a696','3','Revert "Extract config to build test matrix"','Empty — skipped · 2s','#656d76','#8c959f',[li('$ git cherry-pick -x 0c2a696','#24292f'),li('stopped empty · HEAD unchanged · CHERRY_PICK_HEAD = 0c2a696 · no unmerged paths'),li('$ git cherry-pick --skip','#24292f'),li('proven empty (change already on target) · recorded EMPTY_SKIPPED · no commit created','#1a7f37')],null,false));
+    blocks.push(mkCard('3a9e8f3','4','Preload Maven core extensions under a retry loop in CI setup','Applied → 77d20af · 5s','#1a7f37','#1a7f37',[li('$ git cherry-pick -x 3a9e8f3','#24292f'),li('clean apply verified · recorded APPLIED · targetSha 77d20af','#1a7f37')],null,false));
+    const agentSteps=[{ic:'⌕',tx:'Searched for RESOLVE_RETRIES | classify_http_error across ci/'},{ic:'▤',tx:'Read ci/maven-resolve.sh, pom.xml, ci/README.md'},{ic:'✎',tx:'Edited ci/maven-resolve.sh — kept the fork\u2019s loop structure, ported the retry classification'},{ic:'⚙',tx:'Ran ./mvnw -q -pl core compile — exit 0'},{ic:'✎',tx:'Staged 2 files · git commit --fixup=5fe0a91'}];
+    const agentBase={title:'Claude · resolving ci/maven-resolve.sh + pom.xml',steps:agentSteps,
+      prose1:'The upstream commit teaches the Maven resolve loop to classify retryable HTTP errors, and our master carries a local patch on the same lines. I\u2019m keeping the fork\u2019s structure and porting only the classification.',
+      prose2:'Both files compile locally. Staging the complete result and committing the fixup — the service verifies history; my output never decides the outcome.'};
+    const conflictLines=[li('$ git cherry-pick -x acdfbb7','#24292f'),li('CONFLICT (content): ci/maven-resolve.sh · pom.xml','#bc4c00'),li('index stages 1/2/3 persisted · conflict snapshot C = 5fe0a91 committed (-x preserved)'),li('agent turn started · goal: resolve tree, stage, git commit --fixup=5fe0a91')];
+    if(pState==='running'){
+      blocks.push(mkCard('acdfbb7','5','Retry more HTTP errors when resolving Maven artifacts','Resolving conflict · attempt 1/3','#9a6700','#bf8700',conflictLines,
+        {...agentBase,dur:'Working for 1m 32s',anim:'bqpulse 1.4s ease-in-out infinite',tail:'waiting for fixup commit F — the service verifies parent, subject, and markers'},true,'bqpulse 1.2s ease-in-out infinite'));
+    } else if(pState==='paused'){
+      blocks.push(mkCard('acdfbb7','5','Retry more HTTP errors when resolving Maven artifacts','Paused · attempt 2/3 failed','#cf222e','#cf222e',[...conflictLines,li('fixup F rejected twice — conflict markers remain in pom.xml · execution PAUSED · worktree preserved','#cf222e')],
+        {...agentBase,dur:'Stopped after 2 attempts',anim:'',tail:null},true));
+    } else {
+      blocks.push(mkCard('acdfbb7','5','Retry more HTTP errors when resolving Maven artifacts','Applied → c9d4e21 · agent fixup · 2m 14s','#1a7f37','#1a7f37',[...conflictLines,li('F accepted · subject "fixup! Retry more HTTP errors…" · parent C · no markers','#1a7f37'),li('normalized C+F → C\u2032 c9d4e21 · tree(C\u2032)==tree(F) · original message and -x line preserved','#1a7f37')],
+        {...agentBase,dur:'Worked for 2m 14s',anim:'',tail:null},false));
+      blocks.push(mkCard('4d1e0c2','11','Document SigV4 credential resolution order','Applied → e77a3b0 · 3s','#1a7f37','#1a7f37',[li('$ git cherry-pick -x 4d1e0c2','#24292f'),li('clean apply verified · recorded APPLIED · targetSha e77a3b0','#1a7f37')],null,false));
+      blocks.push(mkCard('b07b547','12','Support AWS default credentials chain for SigV4 REST catalog','Applied → f0221cd · 4s','#1a7f37','#1a7f37',[li('$ git cherry-pick -x b07b547','#24292f'),li('clean apply verified · recorded APPLIED · targetSha f0221cd','#1a7f37')],null,false));
+      blocks.push(mkCard('final','✓','Final accounting','passed','#1a7f37','#1a7f37',[li('6 applied commits from 41ab9e2 → f0221cd match item order · each carries its exact -x line','#1a7f37'),li('no operation open · worktree clean · no conflict marker in the generated range','#1a7f37'),li('$ git range-diff c81aa02~1..b07b547 41ab9e2..f0221cd   # stored for human review','#24292f')],null,true));
+    }
+    st.agentMsgs.forEach(t=>{ blocks.push({isUser:true,text:t}); blocks.push({isLine:true,text:'note queued for the current agent turn — delivered as untrusted user context'}); });
+    // right panel
+    const selUp = d.up.find(c=>c.sha===st.progressSel) || d.up[7];
+    const rp = selUp.prN? d.prMap[selUp.prN] : null;
+    const pill = pState==='finished'?{t:'FINISHED',bg:'#dafbe1',fg:'#1a7f37'}:pState==='paused'?{t:'PAUSED',bg:'#fff8c5',fg:'#9a6700'}:{t:'RUNNING',bg:'#ddf4ff',fg:'#0969da'};
+    const nav=on=>on?{bg:'#24292f',fg:'#ffffff'}:{bg:'#f6f8fa',fg:'#57606a'};
+    const nc=nav(screen==='commits'),nf=nav(screen==='flow'),np=nav(screen==='progress');
+    const embedded = this.props.embedded ?? false;
+    return {
+      chromeShown:!embedded, notesShown:st.notes && !embedded, hideNotes:set({notes:false}),
+      railShown:embedded,
+      isTasks:screen==='tasks', goTasks:set({screen:'tasks'}),
+      newCherryPick:set({screen:'commits',repo:'upstream',commitsView:'history',branchMenu:false,diffFile:0}),
+      tasksSub:(()=>{const open=this._t.filter(t=>t.state==='running'||t.state==='paused').length;return open+' running or paused · '+(this._t.length-open)+' finished';})(),
+      taskChips:[{k:'all',label:'All'},{k:'open',label:'Not done'},{k:'done',label:'Done'}].map((c,i)=>{const on=(st.taskFilter??'all')===c.k;return {label:c.label,bl:i?'1px solid #d0d7de':'none',bg:on?'#0969da':'#ffffff',fg:on?'#ffffff':'#57606a',pick:set({taskFilter:c.k,tasksShown:10})};}),
+      ...(()=>{const f=st.taskFilter??'all', shown=st.tasksShown??10;
+        const open=t=>t.state==='running'||t.state==='paused';
+        const filtered=this._t.filter(t=>f==='all'||(f==='open'?open(t):!open(t)));
+        const sorted=[...filtered.filter(open),...filtered.filter(t=>!open(t))];
+        const rows=sorted.slice(0,shown);
+        const stM={running:{st:'RUNNING',fg:'#0969da',bg:'#ddf4ff',dot:'#bf8700',anim:'bqpulse 1.2s ease-in-out infinite'},paused:{st:'PAUSED',fg:'#9a6700',bg:'#fff8c5',dot:'#cf222e',anim:''},done:{st:'DONE',fg:'#1a7f37',bg:'#dafbe1',dot:'#1a7f37',anim:''},canceled:{st:'CANCELED',fg:'#57606a',bg:'#eceff2',dot:'#8c959f',anim:''}};
+        return {taskRows:rows.map(t=>({id:t.id,title:t.pr,meta:t.title+' · '+t.meta,when:t.when,...stM[t.state],open:set({screen:'progress',taskSel:t.id})})),
+          loadMoreShown:sorted.length>rows.length, moreCount:sorted.length-rows.length,
+          loadMore:set({tasksShown:shown+10})};})(),
+      gridH: embedded?'100vh':'calc(100vh - 49px)',
+      isCommits:screen==='commits', isFlow:screen==='flow', isProgress:screen==='progress',
+      goCommits:set({screen:'commits'}), goFlow:set({screen:'flow',repoMenu:false,branchMenu:false}), goProgress:set({screen:'progress'}),
+      navCbg:nc.bg,navCfg:nc.fg,navFbg:nf.bg,navFfg:nf.fg,navPbg:np.bg,navPfg:np.fg,
+      repoLabel: isUp?'trinodb/trino':'bytequay/trino-fork', isUp, branch:st.branch,
+      repoMenu:st.repoMenu, branchMenu:st.branchMenu,
+      toggleRepoMenu:set({repoMenu:!st.repoMenu,branchMenu:false}), toggleBranchMenu:set({branchMenu:!st.branchMenu,repoMenu:false}),
+      pickWs:set({repo:'workspace',repoMenu:false,diffFile:0}),
+      pickUp:set({repo:'upstream',repoMenu:false,diffFile:0,screen:'commits',commitsView:'history',branchMenu:false}),
+      tabWsClick:()=>{ if(screen!=='commits'||isUp) this.setState({screen:'commits',repo:'workspace',diffFile:0,branchMenu:false,upMenu:false}); else this.setState({branchMenu:!this.state.branchMenu,upMenu:false}); },
+      tabUpClick:()=>{ if(screen!=='commits'||!isUp) this.setState({screen:'commits',repo:'upstream',commitsView:'history',diffFile:0,branchMenu:false,upMenu:false}); else this.setState({upMenu:!this.state.upMenu,branchMenu:false}); },
+      upMenu:st.upMenu??false, upBranch:st.upBranch??'master',
+      upBranchQ:st.upBranchQ??'', onUpBranchQ:e=>this.setState({upBranchQ:e.target.value}),
+      upBranches:['master','release-476','release-475','release-474','release-473'].filter(b=>b.includes((st.upBranchQ??'').trim().toLowerCase())).map(b=>({name:b,check:b===(st.upBranch??'master')?'✓':'\u00a0',bg:b===(st.upBranch??'master')?'#f1f8ff':'transparent',pick:set({upBranch:b,upMenu:false,upBranchQ:''})})),
+      syncClick:()=>{ this.setState({syncing:true}); setTimeout(()=>this.setState({syncing:false,syncedAgo:'just now'}),900); },
+      syncLabel: st.syncing?'syncing…':('synced '+(st.syncedAgo??'2 min ago')),
+      syncAnim: st.syncing?'bqspin 1s linear infinite':'none',
+      pickChanges: isUp? ()=>{} : set({screen:'commits',commitsView:'changes',branchMenu:false}),
+      pickHistory:set({screen:'commits',commitsView:'history',branchMenu:false}),
+      pickCherry:set({screen:'tasks',branchMenu:false}),
+      viewChanges: screen==='commits'&&cv==='changes', viewHistory: screen==='commits'&&cv==='history',
+      tChangesFg:(screen==='commits'&&cv==='changes')?'#1f2328':'#656d76', tChangesBar:(screen==='commits'&&cv==='changes')?'#fd8c73':'transparent',
+      tHistoryFg:(screen==='commits'&&cv==='history')?'#1f2328':'#656d76', tHistoryBar:(screen==='commits'&&cv==='history')?'#fd8c73':'transparent',
+      tCherryFg:(screen==='tasks'||screen==='flow')?'#1f2328':'#656d76', tCherryBar:(screen==='tasks'||screen==='flow')?'#fd8c73':'transparent',
+      changesOp: isUp?'.45':'1', changesCursor: isUp?'default':'pointer',
+      wsTabBg: isUp?'#f6f8fa':'#0969da', wsTabFg: isUp?'#57606a':'#ffffff',
+      upTabBg: isUp?'#0969da':'#f6f8fa', upTabFg: isUp?'#ffffff':'#57606a',
+      branchLabel: isUp? ('target · '+st.branch) : st.branch,
+      branchMenuLabel: isUp? 'TARGET BRANCH — bytequay/trino-fork':'SWITCH BRANCH',
+      branches:['master','release-1.4','feat/agent-lane'].map(b=>({name:b,check:b===st.branch?'✓':'\u00a0',bg:b===st.branch?'#f1f8ff':'transparent',pick:set({branch:b,branchMenu:false})})),
+      wsHint: !isUp && spanLen===0,
+      rangeFrom:st.rangeFrom, rangeTo:st.rangeTo, rangeErr:st.rangeErr, applyRange,
+      onRangeFrom:e=>this.setState({rangeFrom:e.target.value,rangeErr:false}),
+      onRangeTo:e=>this.setState({rangeTo:e.target.value,rangeErr:false}),
+      dayGroups,
+      viewTitle: multi? ('Range changes — '+spanLen+' commits') : viewC.title,
+      viewMeta: multi? (order[hi]+'…'+order[lo]+' · squash preview') : (viewC.sha+' · '+viewC.author+' '+viewC.ago),
+      editTitleVal: st.editTitle ?? (host?host.title:''), editBodyVal: st.editBody ?? (host?(host.body||''):''),
+      onEditTitle:e=>this.setState({editTitle:e.target.value,msgSaved:false}), onEditBody:e=>this.setState({editBody:e.target.value,msgSaved:false}),
+      onUpdateMsg:set({msgSaved:true}), onDiscard:set({editTitle:null,editBody:null,msgSaved:false}), msgSaved:st.msgSaved,
+      squashCount:spanLen, squashRange: spanLen?spanCommits[0].sha+'…'+spanCommits[spanCommits.length-1].sha:'',
+      squashMsgVal: st.squashMsg ?? squashDefault, onSquashMsg:e=>this.setState({squashMsg:e.target.value,squashDone:false}),
+      onSquash:set({squashDone:true}), squashDone:st.squashDone, clearSel:set({[key]:[],squashMsg:null,squashDone:false}),
+      panelFiles, filesSummary: rawFiles.length+' changed files · +'+totA+' \u2212'+totD,
+      diffPath: selFile.p.split('/').pop(), diffAdds:'+'+selFile.a, diffDels:'\u2212'+selFile.d,
+      diffLines: d.diffs[fIdx % d.diffs.length],
+      upBar: isUp && screen==='commits' && idxs.length>0, upCount:spanLen||0,
+      upRange: idxs.length? order[hi]+'…'+order[lo] : '',
+      // flow
+      flowTotal:flowItems.length, applyCount:applyItems.length, skipCount:skipItems.length, alreadyCount:alreadyItems.length,
+      flowFilter:st.flowFilter, onFlowFilter:e=>this.setState({flowFilter:e.target.value}),
+      filterNote:!!q, shownCount:flowVisible.length, flowVisible,
+      prPanel:st.prPanel, togglePrPanel:set({prPanel:!st.prPanel}),
+      prSearch:st.prSearch, onPrSearch:e=>this.setState({prSearch:e.target.value}),
+      prsInRange, skippedPrCount:st.skippedPrs.length,
+      prTitleVal, prBodyVal,
+      onPrTitle:e=>this.setState({prTitle:e.target.value}), onPrBody:e=>this.setState({prBody:e.target.value}),
+      dryRun:st.dryRun, openDryRun:set({dryRun:true,prPanel:false}), closeDryRun:set({dryRun:false}),
+      dryApply:applyItems, drySkip:skipItems.map(f=>({...f,reason:f.skipChip})), dryAlready:alreadyItems.map(f=>({...f,reason:f.alreadyWhy})),
+      startExec:set({screen:'progress',dryRun:false,taskSel:'cp-0142'}),
+      // progress
+      navRows, settledLabel: settled+' of 12 settled · execution '+taskSel, progressPct: Math.round(settled/12*100)+'%',
+      pillText:pill.t, pillBg:pill.bg, pillFg:pill.fg,
+      stepLabel: pState==='finished'?'all items settled':pState==='paused'?'step · RESOLVING (paused on item 5)':'step · RESOLVING — item 5 of 12',
+      pausedBanner:pState==='paused', finishedBanner:pState==='finished',
+      blocks,
+      agentDraft:st.agentDraft, onAgentDraft:e=>this.setState({agentDraft:e.target.value}),
+      sendAgentMsg:()=>{ const t=this.state.agentDraft.trim(); if(t) this.setState({agentMsgs:[...this.state.agentMsgs,t],agentDraft:''}); },
+      progCols: st.leftW+'px 5px minmax(480px,1fr) 5px '+st.rightW+'px',
+      dragLeft:this.drag('leftW',1,180,420), dragRight:this.drag('rightW',-1,280,560),
+      rpHas:!!rp, rpNone:!rp,
+      rpTitle: rp?rp.t:'', rpNum: selUp.prN||'', rpState:'Merged', rpStateBg:'#8250df',
+      rpHead: rp?rp.head:'', rpAdds: rp?rp.adds:'', rpDels: rp?rp.dels:'',
+      rpRev: rp?rp.rev:'', rpLabels: rp?rp.labels:'', rpComments: rp?rp.comments:'',
+      rpAuthor: rp?rp.author:'', rpAgo: rp?rp.ago:'', rpAvColor: rp?(d.avC[rp.author]||'#57606a'):'#57606a', rpAvInitial: rp?rp.author[0].toUpperCase():'',
+      rpBody: rp? rp.body.map(x=>({x})) : []
+    };
+  }
+}
+</script>
+</body>
+</html>

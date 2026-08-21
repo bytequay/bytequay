@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#f7f7f8;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,textarea,button,select{font-family:inherit}
+::placeholder{color:#8c959f}
+</style>
+</helmet>
+<div style="display:flex;height:100vh;overflow:hidden;background:#ffffff">
+  <div style="width:230px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+    <div style="display:flex;align-items:center;gap:8px;padding:16px 16px 10px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+      <span style="margin-left:8px;width:16px;height:13px;border:1.5px solid #b6b6bc;border-radius:3px;display:inline-block;position:relative"><span style="position:absolute;left:4px;top:0;bottom:0;width:1.5px;background:#b6b6bc"></span></span>
+    </div>
+    <sc-if value="{{ inWs }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ goList }}" style="display:flex;align-items:center;gap:7px;border:none;background:none;cursor:pointer;padding:8px 16px 2px;font-size:12px;color:#8c959f;text-align:left">‹ Workspaces</button>
+      <div style="padding:2px 16px 10px;font-size:14px;font-weight:700;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ wsName }}</div>
+    </sc-if>
+    <sc-if value="{{ inList }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:10px 16px 6px;font-size:11px;font-weight:700;color:#8c959f;letter-spacing:.5px">BYTEQUAY</div>
+    </sc-if>
+    <div style="flex:1;overflow:auto;padding:2px 8px">
+      <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="6">
+        <button onClick="{{ n.pick }}" style="display:flex;width:100%;align-items:center;gap:11px;border:none;cursor:pointer;text-align:left;padding:8px 10px;border-radius:8px;margin-bottom:1px;background:{{ n.bg }}">
+          <span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">{{ n.ic }}</span>
+          <span style="font-size:14px;color:#1f2328;font-weight:{{ n.fw }}">{{ n.label }}</span>
+          <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:1px 7px">{{ n.badge }}</span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="padding:8px;border-top:1px solid #ececef">
+      <button onClick="{{ pickSettings }}" style="display:flex;width:100%;align-items:center;gap:11px;border:none;cursor:pointer;text-align:left;padding:8px 10px;border-radius:8px;background:{{ settingsBg }}">
+        <span style="width:18px;text-align:center;font-size:14px;color:#6e6e76">⚙</span>
+        <span style="font-size:14px;color:#1f2328">Settings</span>
+      </button>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;background:#ffffff">
+    <sc-if value="{{ inList }}" hint-placeholder-val="{{ true }}">
+      <div data-screen-label="Workspaces" style="flex:1;overflow:auto;padding:30px 36px">
+        <div style="display:flex;align-items:baseline;gap:12px">
+          <h1 style="margin:0;font-size:22px;font-weight:700;color:#1f2328">Workspaces</h1>
+          <span style="font-size:13px;color:#8c959f">{{ wsCount }} local checkouts</span>
+          <div style="flex:1"></div>
+          <button style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer">+ Add workspace</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;margin-top:22px">
+          <sc-for list="{{ wsCards }}" as="w" hint-placeholder-count="3">
+            <button onClick="{{ w.open }}" style="display:block;text-align:left;border:1px solid #e3e3e6;border-radius:12px;background:#ffffff;cursor:pointer;padding:18px 18px 14px" style-hover="border:1px solid #b6b6bc;box-shadow:0 4px 14px rgba(27,31,36,.08)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:15px;font-weight:700;color:#1f2328">{{ w.name }}</span>
+                <sc-if value="{{ w.upstream }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">↞ {{ w.upstream }}</span></sc-if>
+              </div>
+              <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;margin-top:4px">{{ w.path }}</div>
+              <div style="display:flex;gap:14px;margin-top:14px;font-size:12.5px;color:#57606a">
+                <span><strong style="color:#1f2328">{{ w.prs }}</strong> open PRs</span>
+                <span><strong style="color:#1f2328">{{ w.tasks }}</strong> tasks</span>
+                <span><strong style="color:#1f2328">{{ w.issues }}</strong> issues</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f2;font-size:11.5px;color:#8c959f">
+                <span style="width:7px;height:7px;border-radius:50%;background:{{ w.dot }}"></span>{{ w.activity }}
+              </div>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ inWs }}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{ tabCommits }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Workspace · Commits" style="flex:1;min-height:0;overflow:auto">
+          <dc-import name="Cherry Pick Flow" embedded="{{ true }}" hint-size="100%,100%" style="width:100%;height:100%"></dc-import>
+        </div>
+      </sc-if>
+      <sc-if value="{{ tabPlain }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Workspace" style="flex:1;overflow:auto;padding:26px 32px">
+
+          <sc-if value="{{ tabHome }}" hint-placeholder-val="{{ false }}">
+            <h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">{{ wsName }}</h1>
+            <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;margin-top:4px">~/work/trino-fork · master · upstream trinodb/trino</div>
+            <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
+              <sc-for list="{{ homeStats }}" as="s" hint-placeholder-count="4">
+                <button onClick="{{ s.go }}" style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:14px 18px;text-align:left;min-width:130px">
+                  <div style="font-size:22px;font-weight:700;color:#1f2328">{{ s.n }}</div>
+                  <div style="font-size:12px;color:#57606a;margin-top:2px">{{ s.label }}</div>
+                </button>
+              </sc-for>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#656d76;letter-spacing:.4px;margin:26px 0 8px">RECENT ACTIVITY</div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <sc-for list="{{ activity }}" as="a" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #f0f0f2;font-size:13px;color:#24292f">
+                  <span style="width:18px;text-align:center;color:#8c959f">{{ a.ic }}</span>
+                  <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tx }}</span>
+                  <span style="flex:none;font-size:12px;color:#8c959f">{{ a.ago }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabTasks }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:baseline;gap:10px"><h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Tasks</h1><span style="font-size:12.5px;color:#8c959f">agent executions in this workspace</span></div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden;margin-top:16px">
+              <sc-for list="{{ tasks }}" as="t" hint-placeholder-count="4">
+                <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-top:1px solid #f0f0f2">
+                  <span style="width:9px;height:9px;flex:none;border-radius:50%;margin-top:5px;background:{{ t.dot }}"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13.5px;font-weight:600;color:#1f2328">{{ t.title }}</div>
+                    <div style="font-size:12px;color:#8c959f;margin-top:2px">{{ t.meta }}</div>
+                  </div>
+                  <span style="flex:none;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border-radius:10px;padding:2px 9px">{{ t.state }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabPrs }}" hint-placeholder-val="{{ false }}">
+            <h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Pull requests</h1>
+            <div style="font-size:12px;font-weight:700;color:#656d76;letter-spacing:.4px;margin:18px 0 8px">CREATED BY YOU</div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <sc-for list="{{ prsMine }}" as="p" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2">
+                  <span style="color:{{ p.stColor }};font-size:14px">⑃</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }} <span style="color:#8c959f;font-weight:400">#{{ p.n }}</span></div>
+                    <div style="font-size:12px;color:#8c959f;margin-top:1px">{{ p.meta }}</div>
+                  </div>
+                  <span style="flex:none;font-size:12px;color:{{ p.ckColor }}">{{ p.checks }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#656d76;letter-spacing:.4px;margin:20px 0 8px">REVIEW REQUESTED</div>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden">
+              <sc-for list="{{ prsReview }}" as="p" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2">
+                  <span style="color:{{ p.stColor }};font-size:14px">⑃</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }} <span style="color:#8c959f;font-weight:400">#{{ p.n }}</span></div>
+                    <div style="font-size:12px;color:#8c959f;margin-top:1px">{{ p.meta }}</div>
+                  </div>
+                  <span style="flex:none;font-size:12px;color:{{ p.ckColor }}">{{ p.checks }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabIssues }}" hint-placeholder-val="{{ false }}">
+            <h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Issues</h1>
+            <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden;margin-top:16px">
+              <sc-for list="{{ issues }}" as="i" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2">
+                  <span style="width:12px;height:12px;flex:none;border:2px solid #1a7f37;border-radius:50%"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.title }} <span style="color:#8c959f;font-weight:400">#{{ i.n }}</span></div>
+                    <div style="font-size:12px;color:#8c959f;margin-top:1px">{{ i.meta }}</div>
+                  </div>
+                  <sc-if value="{{ i.label }}" hint-placeholder-val="{{ false }}"><span style="flex:none;font-size:11px;font-weight:600;color:{{ i.lFg }};background:{{ i.lBg }};border-radius:10px;padding:1px 8px">{{ i.label }}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabMemory }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:baseline;gap:10px"><h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Memory</h1><span style="font-size:12.5px;color:#8c959f">what the agent remembers about this workspace</span></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:16px">
+              <sc-for list="{{ memories }}" as="m" hint-placeholder-count="3">
+                <div style="border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;padding:14px 16px">
+                  <div style="font-size:13px;color:#24292f;line-height:1.55">{{ m.tx }}</div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:#8c959f">
+                    <span>{{ m.src }}</span><div style="flex:1"></div><span>{{ m.ago }}</span>
+                    <button style="border:none;background:none;cursor:pointer;color:#8c959f;font-size:12px" title="Forget">✕</button>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabSettings }}" hint-placeholder-val="{{ false }}">
+            <h1 style="margin:0;font-size:20px;font-weight:700;color:#1f2328">Workspace settings</h1>
+            <div style="max-width:560px;margin-top:18px">
+              <div style="font-size:12px;font-weight:600;color:#57606a;margin-bottom:5px">Workspace name</div>
+              <input value="bytequay/trino-fork" style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #d0d7de;border-radius:6px;font-size:13px;color:#1f2328">
+              <div style="font-size:12px;font-weight:600;color:#57606a;margin:16px 0 5px">Local path</div>
+              <input value="~/work/trino-fork" style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#1f2328">
+              <div style="font-size:12px;font-weight:600;color:#57606a;margin:16px 0 5px">Default branch</div>
+              <input value="master" style="width:200px;box-sizing:border-box;padding:7px 10px;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#1f2328">
+              <div style="border:1px solid #e3e3e6;border-radius:10px;margin-top:24px;overflow:hidden">
+                <div style="padding:10px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6;font-size:12.5px;font-weight:700;color:#1f2328">Linked upstream repository</div>
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 14px">
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;font-weight:600;color:#1f2328">trinodb/trino</span><span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px">read-only</span></div>
+                    <div style="font-size:12px;color:#8c959f;margin-top:2px">Browse its commits from the Commits tab and cherry-pick ranges into this workspace.</div>
+                  </div>
+                  <button style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Change…</button>
+                  <button style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Unlink</button>
+                </div>
+              </div>
+              <div style="border:1px solid rgba(207,34,46,.35);border-radius:10px;margin-top:16px;display:flex;align-items:center;gap:10px;padding:12px 14px">
+                <div style="flex:1">
+                  <div style="font-size:13px;font-weight:600;color:#1f2328">Remove workspace</div>
+                  <div style="font-size:12px;color:#8c959f;margin-top:2px">Removes it from ByteQuay only — the local checkout stays on disk.</div>
+                </div>
+                <button style="padding:5px 12px;border:1px solid rgba(207,34,46,.4);border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Remove…</button>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </sc-if>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;initialView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;workspaces&quot;,&quot;workspace&quot;],&quot;default&quot;:&quot;workspaces&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;initialTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;tasks&quot;,&quot;prs&quot;,&quot;issues&quot;,&quot;commits&quot;,&quot;memory&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;home&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+class Component extends DCLogic {
+  state = { view:null, tab:null };
+
+  renderVals(){
+    const st=this.state;
+    const view = st.view ?? (this.props.initialView ?? 'workspaces');
+    const tab = st.tab ?? (this.props.initialTab ?? 'home');
+    const inWs = view==='workspace', inList = !inWs;
+    const set=p=>()=>this.setState(p);
+    const wsCards=[
+      {name:'bytequay/trino-fork',upstream:'trinodb/trino',path:'~/work/trino-fork',prs:4,tasks:2,issues:7,dot:'#1a7f37',activity:'cherry-pick cp-0142 running · 5 min ago',open:set({view:'workspace',tab:'home'})},
+      {name:'bytequay/airlift',upstream:'airlift/airlift',path:'~/work/airlift',prs:1,tasks:0,issues:2,dot:'#8c959f',activity:'PR #88 merged · yesterday',open:set({view:'workspace',tab:'home'})},
+      {name:'bytequay/internal-tools',upstream:null,path:'~/work/internal-tools',prs:2,tasks:1,issues:12,dot:'#bf8700',activity:'CI autofix waiting for review · 2 hours ago',open:set({view:'workspace',tab:'home'})}];
+    const tabs=[
+      {id:'home',label:'Home',ic:'⌂'},
+      {id:'tasks',label:'Tasks',ic:'☑',badge:'2'},
+      {id:'prs',label:'Pull requests',ic:'⑃',badge:'4'},
+      {id:'issues',label:'Issues',ic:'◉',badge:'7'},
+      {id:'commits',label:'Commits',ic:'⑂'},
+      {id:'memory',label:'Memory',ic:'✦'}];
+    const navItems = inWs
+      ? tabs.map(t=>({label:t.label,ic:t.ic,badge:t.badge||null,bg:tab===t.id?'#e4e4e8':'transparent',fw:tab===t.id?'600':'400',pick:set({tab:t.id})}))
+      : [{label:'Workspaces',ic:'▦',badge:null,bg:'#e4e4e8',fw:'600',pick:set({view:'workspaces'})}];
+    return {
+      inWs, inList, wsName:'bytequay/trino-fork', wsCount:wsCards.length, wsCards,
+      goList:set({view:'workspaces'}), navItems,
+      settingsBg:(inWs&&tab==='settings')?'#e4e4e8':'transparent',
+      pickSettings: inWs? set({tab:'settings'}) : set({}),
+      tabCommits: inWs&&tab==='commits', tabPlain: inWs&&tab!=='commits',
+      tabHome:tab==='home', tabTasks:tab==='tasks', tabPrs:tab==='prs',
+      tabIssues:tab==='issues', tabMemory:tab==='memory', tabSettings:tab==='settings',
+      homeStats:[
+        {n:'4',label:'Open pull requests',go:set({tab:'prs'})},
+        {n:'2',label:'Active tasks',go:set({tab:'tasks'})},
+        {n:'7',label:'Open issues',go:set({tab:'issues'})},
+        {n:'12',label:'Commits ahead of upstream',go:set({tab:'commits'})}],
+      activity:[
+        {ic:'⑂',tx:'Cherry-pick cp-0142 — resolving conflict on acdfbb7 (item 5 of 12)',ago:'5 min ago'},
+        {ic:'⑃',tx:'PR #412 SigV4 REST catalog support — checks passed 39/43',ago:'1 hour ago'},
+        {ic:'✦',tx:'Memory updated: keep <maven.resolver.retries> during upstream merges',ago:'3 hours ago'},
+        {ic:'☑',tx:'CI autofix task finished — 2 commits pushed to fix/flaky-ci',ago:'yesterday'}],
+      tasks:[
+        {title:'Cherry-pick 12 commits from trinodb/trino → master',meta:'cp-0142 · started 12:04 · item 5 of 12 · conflict on acdfbb7',dot:'#bf8700',state:'RUNNING',fg:'#0969da',bg:'#ddf4ff'},
+        {title:'CI autofix — flaky TestIcebergMigrate',meta:'af-0077 · waiting for your review of the proposed fix',dot:'#8250df',state:'NEEDS REVIEW',fg:'#8250df',bg:'#fbefff'},
+        {title:'Nightly upstream sync report',meta:'sync-0912 · finished 06:00 · 14 new upstream commits',dot:'#1a7f37',state:'DONE',fg:'#1a7f37',bg:'#dafbe1'},
+        {title:'Cherry-pick 3 commits from trinodb/trino → release-1.4',meta:'cp-0139 · finished yesterday · 3 applied',dot:'#1a7f37',state:'DONE',fg:'#1a7f37',bg:'#dafbe1'}],
+      prsMine:[
+        {n:412,title:'SigV4 REST catalog support',meta:'master ← sigv4-default-chain · updated 1 hour ago',stColor:'#1a7f37',checks:'✓ 39/43',ckColor:'#1a7f37'},
+        {n:409,title:'Cherry-pick upstream CI hardening',meta:'master ← cp-xk29 · draft · updated 5 min ago',stColor:'#8c959f',checks:'● running',ckColor:'#bf8700'}],
+      prsReview:[
+        {n:411,title:'Return metrics from Iceberg migrate procedure',meta:'ezra-b wants your review · updated 3 hours ago',stColor:'#1a7f37',checks:'✓ 84/88',ckColor:'#1a7f37'},
+        {n:407,title:'Extract config to build test matrix',meta:'ezra-b wants your review · updated yesterday',stColor:'#1a7f37',checks:'✗ 2 failing',ckColor:'#cf222e'}],
+      issues:[
+        {n:231,title:'Cherry-pick pauses when fixup verification fails on binary files',meta:'opened 2 days ago by you',label:'bug',lFg:'#cf222e',lBg:'#ffebe9'},
+        {n:228,title:'Allow skipping commits by author in the cherry-pick flow',meta:'opened 4 days ago by chenjian2664',label:'enhancement',lFg:'#0969da',lBg:'#ddf4ff'},
+        {n:224,title:'Nightly sync should open a draft PR automatically',meta:'opened last week by you',label:'enhancement',lFg:'#0969da',lBg:'#ddf4ff'},
+        {n:219,title:'Memory entries should expire after 90 days',meta:'opened 2 weeks ago by finn-ep',label:null,lFg:'',lBg:''}],
+      memories:[
+        {tx:'Keep the fork\u2019s <maven.resolver.retries> property in pom.xml when resolving upstream conflicts — it exists only in this fork.',src:'learned from cp-0142',ago:'3 hours ago'},
+        {tx:'ci/maven-resolve.sh diverges intentionally from upstream: the retry loop structure is ours; port logic, not structure.',src:'learned from cp-0139',ago:'yesterday'},
+        {tx:'Squash upstream doc-only commits with their parent feature commit when cherry-picking into release branches.',src:'noted by you',ago:'last week'}],
+    };
+  }
+}
+</script>
+</body>
+</html>

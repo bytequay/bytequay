@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
@@ -46,17 +47,20 @@ public class WorkspaceController
 {
     private final WorkspaceRepositoryService workspaces;
     private final PullRequestService pullRequests;
+    private final PullRequestSyncJob pullRequestSync;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
             PullRequestService pullRequests,
+            PullRequestSyncJob pullRequestSync,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
     }
@@ -103,7 +107,7 @@ public class WorkspaceController
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequests.syncRepository(repository);
+        pullRequestSync.synchronizeRepository(repository);
         return pullRequests.listPullRequests(repository);
     }
 

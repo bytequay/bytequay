@@ -37,6 +37,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +71,7 @@ import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -167,7 +169,11 @@ public class PullRequestService
     }
 
     /**
-     * Refreshes one repository without changing membership of the global account dashboard.
+     * Refreshes the local workspace projection for one monitored repository.
+     *
+     * <p>The refresh loads all open and recently closed pull requests, preserves the repository's
+     * global-dashboard membership, and refreshes detail only for new or changed rows. The caller
+     * resolves whether a workspace monitors its selected repository or an upstream repository.</p>
      */
     public void syncRepository(RepoRef repository)
     {
@@ -189,16 +195,14 @@ public class PullRequestService
         for (PullRequest pullRequest : closed) {
             freshById.putIfAbsent(pullRequest.id(), workspaceOrigin(pullRequest, currentLogin));
         }
-        List<PullRequest> fresh = List.copyOf(freshById.values());
+        List<PullRequest> fresh = ImmutableList.copyOf(freshById.values());
         store.replaceRepository(repository.fullName(), fresh);
 
-        List<CompletableFuture<Void>> details = fresh.stream()
+        List<PullRequest> changed = fresh.stream()
                 .filter(pullRequest -> !previous.containsKey(pullRequest.id())
                         || !Objects.equals(pullRequest.updatedAt(), previous.get(pullRequest.id())))
-                .map(pullRequest -> CompletableFuture.runAsync(
-                        () -> syncDetailQuietly(pat, pullRequest, currentLogin), executor))
-                .toList();
-        CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
+                .collect(toImmutableList());
+        syncDetails(pat, currentLogin, changed);
     }
 
     public List<RepoUser> listRepositoryUsers(String repo)
@@ -266,11 +270,16 @@ public class PullRequestService
                 toSync.add(pr);
             }
         }
-        List<CompletableFuture<Void>> detailFutures = toSync.stream()
-                .map(pr -> CompletableFuture.runAsync(() -> syncDetailQuietly(pat, pr, currentLogin), executor))
-                .toList();
+        syncDetails(pat, currentLogin, toSync);
+    }
 
-        CompletableFuture.allOf(detailFutures.toArray(CompletableFuture[]::new)).join();
+    private void syncDetails(String pat, String currentLogin, List<PullRequest> pullRequests)
+    {
+        List<CompletableFuture<Void>> details = pullRequests.stream()
+                .map(pullRequest -> CompletableFuture.runAsync(
+                        () -> syncDetailQuietly(pat, pullRequest, currentLogin), executor))
+                .collect(toImmutableList());
+        CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
     }
 
     /** True when an under-enriched PR is due for a forced backfill sync:

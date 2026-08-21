@@ -61,8 +61,7 @@ export default function PullsScreen({
 
   useEffect(() => {
     void loadList();
-    void window.bridge.syncPrs(repositoryScope?.workspaceId).then(loadList).catch(() => {});
-  }, [loadList, repositoryScope?.workspaceId]);
+  }, [loadList]);
 
   useEffect(() => {
     if (!initialPr || loading) return;

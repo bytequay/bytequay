@@ -14,8 +14,8 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -183,7 +183,7 @@ class TestDefaultWorkspaceRepositoryService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestSyncJob pullRequestSync = mock(PullRequestSyncJob.class);
         WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         AtomicReference<CodeState> observed = new AtomicReference<>();
         when(provisioning.provision(anyString())).thenAnswer(invocation -> {
@@ -201,14 +201,14 @@ class TestDefaultWorkspaceRepositoryService
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
                 mock(WorkspaceMetadataService.class),
-                pullRequests,
+                pullRequestSync,
                 issues,
                 Runnable::run);
 
         Workspace watched = watch(service, 100);
 
         assertThat(observed).hasValue(CodeState.PENDING);
-        verify(pullRequests).syncRepository(watched.monitoredRepository());
+        verify(pullRequestSync).requestImmediateSync();
         verify(issues).synchronize(watched.id());
     }
 
@@ -231,7 +231,7 @@ class TestDefaultWorkspaceRepositoryService
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 mock(WorkspaceProvisioningService.class),
                 mock(WorkspaceMetadataService.class),
-                mock(PullRequestService.class),
+                mock(PullRequestSyncJob.class),
                 mock(WorkspaceIssueService.class),
                 ignored -> {});
     }

@@ -15,6 +15,10 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -28,12 +32,12 @@ import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Background job that periodically fetches pull requests from GitHub and writes
- * them to the local database.
+ * Background job that periodically refreshes the global pull-request dashboard and each
+ * monitored workspace repository.
  *
  * <p>{@link #requestImmediateSync()} submits the sync to the shared application executor
- * right away rather than waiting for the next tick, which is used at startup so the PR list
- * is populated as soon as the PAT is registered.
+ * right away rather than waiting for the next tick. Startup, watch, and manual workspace sync
+ * use this path so every refresh shares one overlap guard.</p>
  */
 @Component
 public class PullRequestSyncJob
@@ -42,6 +46,7 @@ public class PullRequestSyncJob
 
     private final PullRequestService pullRequestService;
     private final CredentialService credentialService;
+    private final WorkspaceStore workspaceStore;
     private final Executor executor;
 
     /** Guards against overlapping syncs whether triggered by tick or immediate request. */
@@ -50,10 +55,12 @@ public class PullRequestSyncJob
     public PullRequestSyncJob(
             PullRequestService pullRequestService,
             CredentialService credentialService,
+            WorkspaceStore workspaceStore,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -66,6 +73,13 @@ public class PullRequestSyncJob
         executor.execute(this::doSync);
     }
 
+    /** Synchronizes one monitored repository under the same overlap guard as the periodic job. */
+    public void synchronizeRepository(RepoRef repository)
+    {
+        requireNonNull(repository, "repository is null");
+        runSync("repository " + repository.fullName(), () -> pullRequestService.syncRepository(repository));
+    }
+
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
@@ -73,6 +87,33 @@ public class PullRequestSyncJob
     }
 
     private void doSync()
+    {
+        runSync("global and workspace pull requests", this::syncAll);
+    }
+
+    private void syncAll()
+    {
+        synchronizeScope("global dashboard", pullRequestService::syncFromGitHub);
+        ImmutableList<RepoRef> repositories = workspaceStore.findAll().stream()
+                .map(Workspace::monitoredRepository)
+                .distinct()
+                .collect(ImmutableList.toImmutableList());
+        for (RepoRef repository : repositories) {
+            synchronizeScope(repository.fullName(), () -> pullRequestService.syncRepository(repository));
+        }
+    }
+
+    private void synchronizeScope(String scope, Runnable synchronization)
+    {
+        try {
+            synchronization.run();
+        }
+        catch (RuntimeException failure) {
+            log.warn("Pull request sync failed for {}: {}", scope, failure.getMessage());
+        }
+    }
+
+    private void runSync(String scope, Runnable synchronization)
     {
         // Sync uses the account-level GitHub credential.
         if (!credentialService.isGitHubAccountConfigured()) {
@@ -86,12 +127,12 @@ public class PullRequestSyncJob
         }
 
         try {
-            log.info("Syncing pull requests from GitHub");
-            pullRequestService.syncFromGitHub();
-            log.info("Sync complete");
+            log.info("Syncing {} from GitHub", scope);
+            synchronization.run();
+            log.info("Sync complete for {}", scope);
         }
         catch (Exception e) {
-            log.warn("Pull request sync failed: {}", e.getMessage());
+            log.warn("Pull request sync failed for {}: {}", scope, e.getMessage());
         }
         finally {
             syncing.set(false);

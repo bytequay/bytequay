@@ -22,6 +22,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -125,13 +126,13 @@ public final class DefaultWorkspaceMetadataService
         String pat = credentials.resolveGitHubToken();
         List<RepositoryContributor> contributors = contributorsExpired
                 ? gitHub.fetchContributors(pat, workspace.monitoredRepository())
-                : List.of();
+                : ImmutableList.of();
         List<RepositoryLabel> labels = labelsExpired
                 ? gitHub.fetchLabels(pat, workspace.monitoredRepository())
-                : List.of();
+                : ImmutableList.of();
         List<String> topics = labelsExpired
                 ? gitHub.fetchTopics(pat, workspace.monitoredRepository())
-                : List.of();
+                : ImmutableList.of();
 
         if (contributorsExpired) {
             metadata.upsertContributors(

@@ -453,6 +453,12 @@ one persisted upstream. The workspace tab must never show PRs from another repos
 global Pull Requests page remains unchanged and continues to show its complete account-centric
 list.
 
+The existing pull-request scheduled job is the single synchronization coordinator. Its periodic
+cycle refreshes the account-centric dashboard and then each distinct monitored workspace
+repository under one overlap guard. Watch, application startup, and manual refresh request that
+same coordinator. Opening `PullsScreen` reads the local projection without triggering another
+GitHub refresh.
+
 `WorkspacePullRequestService` below owns only the missing delivery routing for a cherry-pick work
 branch. Its implementation should delegate to existing pull-request/GitHub write code wherever
 the operation already exists. Push and pull-request creation remain explicit user actions and can

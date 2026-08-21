@@ -273,6 +273,10 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
   existing behavior; droppable for the minimal slice.
 - [x] Reuse existing PR list rows, tabs, overview, changes, details, comments, review, merge,
   checks, refresh, DTOs, clients, and tests.
+- [x] Reuse the existing scheduled job to refresh the global dashboard and each distinct
+  monitored workspace repository under one overlap guard.
+- [x] Load the local PR projection when opening the PR tab; reserve GitHub refresh for the
+  scheduler, watch-time request, or explicit refresh.
 - [x] Keep the global Pull Requests page account-centric and unfiltered.
 - [x] For a direct workspace, show only the selected repository's PRs.
 - [x] For a fork workspace, show only the one persisted upstream repository's PRs.

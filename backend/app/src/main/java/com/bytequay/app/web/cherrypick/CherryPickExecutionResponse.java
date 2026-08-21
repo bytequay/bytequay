@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Execution response.
@@ -44,6 +45,25 @@ public record CherryPickExecutionResponse(
         Optional<PullRequestDraftResponse> pullRequestDraft,
         List<ItemResponse> items)
 {
+    public CherryPickExecutionResponse
+    {
+        requireNonNull(executionId, "executionId is null");
+        requireNonNull(workspaceId, "workspaceId is null");
+        requireNonNull(repository, "repository is null");
+        requireNonNull(workBranch, "workBranch is null");
+        requireNonNull(localTargetBranch, "localTargetBranch is null");
+        requireNonNull(status, "status is null");
+        requireNonNull(currentStep, "currentStep is null");
+        requireNonNull(pauseReason, "pauseReason is null");
+        requireNonNull(finishReason, "finishReason is null");
+        requireNonNull(summary, "summary is null");
+        requireNonNull(initialTargetSha, "initialTargetSha is null");
+        requireNonNull(currentTargetSha, "currentTargetSha is null");
+        requireNonNull(currentPosition, "currentPosition is null");
+        requireNonNull(pullRequestDraft, "pullRequestDraft is null");
+        items = List.copyOf(requireNonNull(items, "items is null"));
+    }
+
     public static CherryPickExecutionResponse of(CherryPickExecution execution)
     {
         return new CherryPickExecutionResponse(
@@ -67,6 +87,12 @@ public record CherryPickExecutionResponse(
     /** Pull-request copy saved for the later explicit push and create actions. */
     public record PullRequestDraftResponse(String title, String body)
     {
+        public PullRequestDraftResponse
+        {
+            requireNonNull(title, "title is null");
+            requireNonNull(body, "body is null");
+        }
+
         private static PullRequestDraftResponse of(CherryPickExecution.PullRequestDraft draft)
         {
             return new PullRequestDraftResponse(draft.title(), draft.body());
@@ -82,6 +108,15 @@ public record CherryPickExecutionResponse(
             Optional<String> targetSha,
             Optional<Integer> pullRequestNumber)
     {
+        public ItemResponse
+        {
+            requireNonNull(sourceSha, "sourceSha is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(result, "result is null");
+            requireNonNull(targetSha, "targetSha is null");
+            requireNonNull(pullRequestNumber, "pullRequestNumber is null");
+        }
+
         public static ItemResponse of(CherryPickItem item)
         {
             return new ItemResponse(

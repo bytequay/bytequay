@@ -15,6 +15,8 @@ package com.bytequay.app.web.cherrypick;
 
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Execution start body.
  *
@@ -30,4 +32,19 @@ public record CherryPickExecutionRequest(
         String laneId,
         String idempotencyKey,
         String pullRequestTitle,
-        String pullRequestBody) {}
+        String pullRequestBody)
+{
+    public CherryPickExecutionRequest
+    {
+        requireNonNull(previewId, "previewId is null");
+        requireNonNull(expectedSourceBaseSha, "expectedSourceBaseSha is null");
+        requireNonNull(expectedSourceTipSha, "expectedSourceTipSha is null");
+        requireNonNull(expectedTargetSha, "expectedTargetSha is null");
+        userSkippedSourceShas = List.copyOf(requireNonNull(
+                userSkippedSourceShas, "userSkippedSourceShas is null"));
+        requireNonNull(laneId, "laneId is null");
+        requireNonNull(idempotencyKey, "idempotencyKey is null");
+        requireNonNull(pullRequestTitle, "pullRequestTitle is null");
+        requireNonNull(pullRequestBody, "pullRequestBody is null");
+    }
+}

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web.cherrypick;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Preview request body.
  *
@@ -22,4 +24,12 @@ package com.bytequay.app.web.cherrypick;
 public record CherryPickPreviewRequest(
         String sourceBaseRef,
         String sourceTipRef,
-        String targetBranch) {}
+        String targetBranch)
+{
+    public CherryPickPreviewRequest
+    {
+        requireNonNull(sourceBaseRef, "sourceBaseRef is null");
+        requireNonNull(sourceTipRef, "sourceTipRef is null");
+        requireNonNull(targetBranch, "targetBranch is null");
+    }
+}

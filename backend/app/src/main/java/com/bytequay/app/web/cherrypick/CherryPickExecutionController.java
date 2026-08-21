@@ -68,14 +68,12 @@ public class CherryPickExecutionController
                         text(request.expectedSourceBaseSha(), "expectedSourceBaseSha"),
                         text(request.expectedSourceTipSha(), "expectedSourceTipSha"),
                         text(request.expectedTargetSha(), "expectedTargetSha"),
-                        request.userSkippedSourceShas() == null
-                                ? ImmutableList.of()
-                                : ImmutableList.copyOf(request.userSkippedSourceShas()),
+                        ImmutableList.copyOf(request.userSkippedSourceShas()),
                         text(request.laneId(), "laneId"),
                         text(request.idempotencyKey(), "idempotencyKey"),
                         new PullRequestDraft(
                                 text(request.pullRequestTitle(), "pullRequestTitle"),
-                                request.pullRequestBody() == null ? "" : request.pullRequestBody())),
+                                request.pullRequestBody())),
                 workspaceId,
                 context.repository(),
                 paths.worktrees(workspaceId)));

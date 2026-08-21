@@ -106,6 +106,37 @@ public record Workspace(
                 Optional.empty(), Optional.empty(), displayOrder, createdAt, now);
     }
 
+    public Workspace withCodeState(
+            CodeState nextCodeState,
+            Optional<Instant> nextLastCodeSyncAt,
+            Optional<String> nextCodeError,
+            Instant now)
+    {
+        return new Workspace(
+                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
+                defaultBranch, originCloneUrl, upstreamCloneUrl, localRepositoryPath,
+                nextCodeState, metadataState, nextLastCodeSyncAt, lastMetadataSyncAt,
+                nextCodeError, metadataError, displayOrder, createdAt, now);
+    }
+
+    public Workspace withRepositoryRouting(
+            RepoRef nextSelectedRepository,
+            Optional<RepoRef> nextUpstreamRepository,
+            RepoRef nextMonitoredRepository,
+            String nextDefaultBranch,
+            String nextOriginCloneUrl,
+            Optional<String> nextUpstreamCloneUrl,
+            Instant now)
+    {
+        return new Workspace(
+                id, name, selectedRepositoryId, nextSelectedRepository, upstreamRepositoryId,
+                nextUpstreamRepository, monitoredRepositoryId, nextMonitoredRepository, topology,
+                nextDefaultBranch, nextOriginCloneUrl, nextUpstreamCloneUrl, localRepositoryPath,
+                codeState, metadataState, lastCodeSyncAt, lastMetadataSyncAt,
+                codeError, metadataError, displayOrder, createdAt, now);
+    }
+
     public enum Topology
     {
         DIRECT,

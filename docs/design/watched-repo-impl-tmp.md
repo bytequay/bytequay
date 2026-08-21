@@ -1,7 +1,8 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 2 complete; managed clone and synchronization are next in Checkpoint 3. The
-existing commit browser and local cherry-pick execution are reusable; this checklist tracks the
+Status: Checkpoint 3 complete; Home, Workspaces, and Workspace Home integration are next in
+Checkpoint 4. The existing commit browser and local cherry-pick execution are reusable; this
+checklist tracks the
 missing watch-to-workspace integration and its delivery checkpoints.
 
 Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
@@ -15,7 +16,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [x] Cherry-pick preview, durable execution, worktree creation, progress, and conflict-agent flow
   exist.
 - [x] Home watch records and Workspaces use one durable backend workspace model.
-- [ ] Watched repositories are cloned and opened without the user selecting a local directory.
+- [x] Watched repositories are cloned and opened without the user selecting a local directory.
 - [ ] Git browse and cherry-pick requests resolve by workspace ID instead of renderer paths.
 
 ## Fixed implementation rules
@@ -25,11 +26,11 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
   constraint and idempotent watch behavior.
 - [x] A repository has zero or one upstream; one upstream may be referenced by many watched repos.
 - [x] Home and Workspaces list the same backend workspace rows.
-- [ ] Save and commit the workspace before starting clone or metadata synchronization.
+- [x] Save and commit the workspace before starting clone or metadata synchronization.
 - [x] Code readiness and metadata readiness are independent states.
 - [ ] The renderer never submits managed repository or worktree paths.
-- [ ] Direct repositories use `origin` for monitor, base, push, and PR base.
-- [ ] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
+- [x] Direct repositories use `origin` for monitor, base, push, and PR base.
+- [x] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
   monitor/development/PR base, and writable `origin` for push.
 - [x] GitHub permissions are checked; they are not inferred only from the fork flag.
 - [ ] The workspace Pull Requests tab reuses the global PR UI, service, clients, stores, and detail
@@ -98,7 +99,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 - [x] Persistence round-trip covers direct and fork routing.
 - [x] Repeating watch for the same stable repository returns the existing workspace.
-- [ ] Concurrent duplicate-watch attempts still create only one workspace and managed clone.
+- [x] Concurrent duplicate-watch attempts still create only one workspace and managed clone.
 - [x] One fork cannot persist multiple upstream repositories.
 - [x] Multiple fork workspaces can persist the same upstream repository.
 - [x] Missing and not-ready workspace errors are mapped consistently.
@@ -137,32 +138,32 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
 ### Provisioning
 
-- [ ] Define the ByteQuay-owned repository and worktree roots.
-- [ ] Validate every resolved path remains below the managed workspace root.
-- [ ] Save `PENDING`, commit, then schedule provisioning after commit.
-- [ ] Clone the selected repository as `origin`.
-- [ ] For a fork, add and fetch the persisted canonical source as `upstream`.
-- [ ] Record `CLONING`, `READY`, `SYNCING`, and `FAILED` transitions.
-- [ ] Store sanitized errors and an internal correlation ID where appropriate.
-- [ ] Never delete or overwrite an unknown/mismatched existing directory.
+- [x] Define the ByteQuay-owned repository and worktree roots.
+- [x] Validate every resolved path remains below the managed workspace root.
+- [x] Save `PENDING`, commit, then schedule provisioning after commit.
+- [x] Clone the selected repository as `origin`.
+- [x] For a fork, add and fetch the persisted canonical source as `upstream`.
+- [x] Record `CLONING`, `READY`, `SYNCING`, and `FAILED` transitions.
+- [x] Store sanitized errors and an internal correlation ID where appropriate.
+- [x] Never delete or overwrite an unknown/mismatched existing directory.
 
 ### Synchronization and restart
 
-- [ ] Implement fetch/prune without reset, clean, rebase, or checkout side effects.
-- [ ] Serialize provisioning/code sync per workspace.
-- [ ] Recover `PENDING`, `CLONING`, and `SYNCING` workspaces on application startup.
-- [ ] Validate repository identity and remote URLs before reusing an existing managed checkout.
-- [ ] Reconcile a provider-side repository rename by stable ID through validated sync.
-- [ ] Keep inaccessible/deleted repositories visible with actionable state.
+- [x] Implement fetch/prune without reset, clean, rebase, or checkout side effects.
+- [x] Serialize provisioning/code sync per workspace.
+- [x] Recover `PENDING`, `CLONING`, and `SYNCING` workspaces on application startup.
+- [x] Validate repository identity and remote URLs before reusing an existing managed checkout.
+- [x] Reconcile a provider-side repository rename by stable ID through validated sync.
+- [x] Keep inaccessible/deleted repositories visible with actionable state.
 
 ### Tests and gate
 
-- [ ] Direct provisioning produces the expected `origin` and no `upstream`.
-- [ ] Fork provisioning produces the expected `origin` and `upstream`.
-- [ ] Retry resumes an interrupted clone without creating a second workspace.
-- [ ] Unknown directory and remote mismatch tests fail safely without deletion.
-- [ ] Fetch leaves local branches, changes, and worktrees intact.
-- [ ] Checkpoint 3 gate: a watched repository reaches a trustworthy managed `READY` checkout.
+- [x] Direct provisioning produces the expected `origin` and no `upstream`.
+- [x] Fork provisioning produces the expected `origin` and `upstream`.
+- [x] Retry resumes an interrupted clone without creating a second workspace.
+- [x] Unknown directory and remote mismatch tests fail safely without deletion.
+- [x] Fetch leaves local branches, changes, and worktrees intact.
+- [x] Checkpoint 3 gate: a watched repository reaches a trustworthy managed `READY` checkout.
 
 ## Checkpoint 4 — Home, Workspaces, and Workspace Home
 

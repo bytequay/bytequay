@@ -1,0 +1,206 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.workspace;
+
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserRepo;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.domain.Workspace.CodeState;
+import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.util.concurrent.Striped;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.locks.Lock;
+
+import static java.util.Objects.requireNonNull;
+
+@Service
+public final class DefaultWorkspaceProvisioningService
+        implements WorkspaceProvisioningService
+{
+    private static final Logger log = LoggerFactory.getLogger(DefaultWorkspaceProvisioningService.class);
+    private final WorkspaceStore store;
+    private final ManagedWorkspaceGit managedGit;
+    private final GitHubAccountClient gitHub;
+    private final CredentialService credentials;
+    private final Clock clock;
+    private final Striped<Lock> locks = Striped.lock(64);
+
+    public DefaultWorkspaceProvisioningService(
+            WorkspaceStore store,
+            ManagedWorkspaceGit managedGit,
+            GitHubAccountClient gitHub,
+            CredentialService credentials,
+            Clock clock)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.managedGit = requireNonNull(managedGit, "managedGit is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.clock = requireNonNull(clock, "clock is null");
+    }
+
+    @Override
+    public WorkspaceProvisioningResult provision(String workspaceId)
+    {
+        Lock lock = locks.get(requireNonNull(workspaceId, "workspaceId is null"));
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            try {
+                boolean alreadyReady = workspace.codeState() == CodeState.READY;
+                Workspace previousRouting = workspace;
+                if (!alreadyReady) {
+                    workspace = store.save(workspace.withCodeState(
+                            CodeState.CLONING,
+                            workspace.lastCodeSyncAt(),
+                            Optional.empty(),
+                            clock.instant()));
+                }
+                Workspace currentRouting = refreshRouting(workspace);
+                if (alreadyReady) {
+                    managedGit.validate(previousRouting, currentRouting);
+                }
+                else {
+                    managedGit.provision(previousRouting, currentRouting);
+                }
+                Instant now = clock.instant();
+                Workspace ready = store.save(currentRouting.withCodeState(
+                        CodeState.READY,
+                        alreadyReady ? currentRouting.lastCodeSyncAt() : Optional.of(now),
+                        Optional.empty(),
+                        now));
+                return WorkspaceProvisioningResult.of(ready);
+            }
+            catch (RuntimeException failure) {
+                return WorkspaceProvisioningResult.of(fail(workspace, failure));
+            }
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
+    {
+        Lock lock = locks.get(requireNonNull(workspaceId, "workspaceId is null"));
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            if (workspace.codeState() != CodeState.READY
+                    && workspace.codeState() != CodeState.SYNCING) {
+                return WorkspaceCodeSyncResult.of(requireWorkspace(provision(workspaceId).workspaceId()));
+            }
+            try {
+                Workspace previousRouting = workspace;
+                workspace = store.save(workspace.withCodeState(
+                        CodeState.SYNCING,
+                        workspace.lastCodeSyncAt(),
+                        Optional.empty(),
+                        clock.instant()));
+                Workspace currentRouting = refreshRouting(workspace);
+                managedGit.synchronize(previousRouting, currentRouting);
+                Instant now = clock.instant();
+                Workspace ready = store.save(currentRouting.withCodeState(
+                        CodeState.READY,
+                        Optional.of(now),
+                        Optional.empty(),
+                        now));
+                return WorkspaceCodeSyncResult.of(ready);
+            }
+            catch (RuntimeException failure) {
+                return WorkspaceCodeSyncResult.of(fail(workspace, failure));
+            }
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private Workspace refreshRouting(Workspace workspace)
+    {
+        UserRepo selected = gitHub.fetchRepository(
+                        credentials.resolveGitHubToken(), workspace.selectedRepositoryId())
+                .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
+                        "GitHub repository is no longer accessible. Restore access and retry.",
+                        "Repository ID is unavailable: " + workspace.selectedRepositoryId()));
+        if (selected.id() != workspace.selectedRepositoryId()
+                || selected.fork() != (workspace.topology() == Topology.FORK)) {
+            throw topologyChanged("Selected repository topology changed");
+        }
+
+        RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
+        Optional<UserRepo.Upstream> upstream = selected.upstream();
+        if (workspace.topology() == Topology.DIRECT && upstream.isPresent()) {
+            throw topologyChanged("Direct repository now has an upstream");
+        }
+        if (workspace.topology() == Topology.FORK
+                && upstream.map(UserRepo.Upstream::id)
+                        .filter(workspace.upstreamRepositoryId().orElseThrow()::equals)
+                        .isEmpty()) {
+            throw topologyChanged("Fork upstream identity changed");
+        }
+
+        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
+        RepoRef monitored = upstreamRef.orElse(selectedRef);
+        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch).orElse(selected.defaultBranch());
+        return workspace.withRepositoryRouting(
+                selectedRef,
+                upstreamRef,
+                monitored,
+                defaultBranch,
+                selected.cloneUrl(),
+                upstream.map(UserRepo.Upstream::cloneUrl),
+                clock.instant());
+    }
+
+    private Workspace fail(Workspace workspace, RuntimeException failure)
+    {
+        String correlationId = UUID.randomUUID().toString();
+        String safeMessage = failure instanceof ManagedWorkspaceGit.Failure expected
+                ? expected.safeMessage()
+                : "Repository synchronization failed. Check access and retry.";
+        log.warn("Workspace {} code synchronization failed [{}]: {}",
+                workspace.id(), correlationId, failure.getMessage());
+        Workspace latest = store.findById(workspace.id()).orElse(workspace);
+        return store.save(latest.withCodeState(
+                CodeState.FAILED,
+                latest.lastCodeSyncAt(),
+                Optional.of(safeMessage + " Reference: " + correlationId),
+                clock.instant()));
+    }
+
+    private Workspace requireWorkspace(String workspaceId)
+    {
+        return store.findById(workspaceId)
+                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
+    }
+
+    private static ManagedWorkspaceGit.Failure topologyChanged(String internalMessage)
+    {
+        return new ManagedWorkspaceGit.Failure(
+                "Repository topology changed. Remove and watch the repository again.",
+                internalMessage);
+    }
+}

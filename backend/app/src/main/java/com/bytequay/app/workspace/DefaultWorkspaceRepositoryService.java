@@ -29,12 +29,11 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -44,7 +43,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
+import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -61,7 +62,9 @@ public class DefaultWorkspaceRepositoryService
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
     private final Clock clock;
-    private final Path managedRoot;
+    private final WorkspacePaths paths;
+    private final WorkspaceProvisioningService provisioning;
+    private final Executor executor;
 
     public DefaultWorkspaceRepositoryService(
             WorkspaceStore store,
@@ -70,7 +73,9 @@ public class DefaultWorkspaceRepositoryService
             GitHubAccountClient gitHub,
             CredentialService credentials,
             Clock clock,
-            @Value("${bytequay.workspace.root:${java.io.tmpdir}/bytequay-workspaces}") String managedRoot)
+            WorkspacePaths paths,
+            WorkspaceProvisioningService provisioning,
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.legacyStore = requireNonNull(legacyStore, "legacyStore is null");
@@ -78,9 +83,9 @@ public class DefaultWorkspaceRepositoryService
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.managedRoot = Path.of(requireNonNull(managedRoot, "managedRoot is null"))
-                .toAbsolutePath()
-                .normalize();
+        this.paths = requireNonNull(paths, "paths is null");
+        this.provisioning = requireNonNull(provisioning, "provisioning is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @Override
@@ -132,7 +137,9 @@ public class DefaultWorkspaceRepositoryService
         validate(selected);
         Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
         if (existing.isPresent()) {
-            return existing.orElseThrow();
+            Workspace workspace = existing.orElseThrow();
+            scheduleIncompleteCode(workspace);
+            return workspace;
         }
         if (!sameFingerprint(toPreview(selected).fingerprint(), command.previewFingerprint())) {
             throw WorkspaceException.previewChanged();
@@ -160,10 +167,7 @@ public class DefaultWorkspaceRepositoryService
         if (workspace.codeState() != CodeState.READY) {
             throw WorkspaceException.repositoryNotReady();
         }
-        Path repository = Path.of(workspace.localRepositoryPath()).toAbsolutePath().normalize();
-        if (!repository.startsWith(managedRoot)) {
-            throw WorkspaceException.invalidRepository("Managed repository path is invalid.");
-        }
+        var repository = paths.repository(workspace);
         return new WorkspaceRepositoryContext(
                 workspace.id(),
                 repository,
@@ -180,21 +184,34 @@ public class DefaultWorkspaceRepositoryService
     {
         Workspace workspace = requireWorkspace(workspaceId);
         CodeState code = workspace.codeState();
-        MetadataState metadata = workspace.metadataState();
-        if (code != CodeState.CLONING
-                && code != CodeState.SYNCING) {
-            code = CodeState.PENDING;
+        if (code == CodeState.CLONING || code == CodeState.SYNCING) {
+            return workspace;
         }
+        MetadataState metadata = workspace.metadataState();
+        boolean synchronize = code == CodeState.READY;
+        code = synchronize ? CodeState.SYNCING : CodeState.PENDING;
         if (metadata != MetadataState.SYNCING) {
             metadata = MetadataState.PENDING;
         }
-        return store.save(workspace.withStates(code, metadata, clock.instant()));
+        Workspace accepted = store.save(workspace.withStates(code, metadata, clock.instant()));
+        if (synchronize) {
+            submit(() -> provisioning.synchronizeCode(workspaceId), workspaceId);
+        }
+        else {
+            submit(() -> provisioning.provision(workspaceId), workspaceId);
+        }
+        return accepted;
     }
 
     @Override
     public void unwatch(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.codeState() == CodeState.PENDING
+                || workspace.codeState() == CodeState.CLONING
+                || workspace.codeState() == CodeState.SYNCING) {
+            throw WorkspaceException.busy();
+        }
         boolean active = executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
                 .filter(execution -> execution.terminalAt().isEmpty())
                 .map(CherryPickExecution::workspace)
@@ -248,7 +265,7 @@ public class DefaultWorkspaceRepositoryService
                 defaultBranch,
                 selected.cloneUrl(),
                 upstream.map(UserRepo.Upstream::cloneUrl),
-                managedRoot.resolve(id).resolve("repository").toString(),
+                paths.workspace(id).resolve("repository").toString(),
                 CodeState.PENDING,
                 MetadataState.PENDING,
                 Optional.empty(),
@@ -258,7 +275,9 @@ public class DefaultWorkspaceRepositoryService
                 displayOrder,
                 now,
                 now);
-        return store.createOrGet(proposed);
+        Workspace saved = store.createOrGet(proposed);
+        scheduleIncompleteCode(saved);
+        return saved;
     }
 
     private Workspace requireWorkspace(String workspaceId)
@@ -411,7 +430,9 @@ public class DefaultWorkspaceRepositoryService
             URI uri = URI.create(value);
             return "https".equalsIgnoreCase(uri.getScheme())
                     && !isBlank(uri.getHost())
-                    && uri.getUserInfo() == null;
+                    && uri.getUserInfo() == null
+                    && uri.getQuery() == null
+                    && uri.getFragment() == null;
         }
         catch (IllegalArgumentException ignored) {
             return false;
@@ -421,5 +442,35 @@ public class DefaultWorkspaceRepositoryService
     private static boolean isBlank(String value)
     {
         return value == null || value.isBlank();
+    }
+
+    private void scheduleIncompleteCode(Workspace workspace)
+    {
+        if (workspace.codeState() == CodeState.PENDING
+                || workspace.codeState() == CodeState.CLONING) {
+            submit(() -> provisioning.provision(workspace.id()), workspace.id());
+        }
+        else if (workspace.codeState() == CodeState.SYNCING) {
+            submit(() -> provisioning.synchronizeCode(workspace.id()), workspace.id());
+        }
+    }
+
+    private void submit(Runnable task, String workspaceId)
+    {
+        try {
+            executor.execute(() -> {
+                try {
+                    task.run();
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Workspace {} background synchronization stopped: {}",
+                            workspaceId, failure.getMessage());
+                }
+            });
+        }
+        catch (RuntimeException rejected) {
+            log.warn("Workspace {} background synchronization could not be scheduled: {}",
+                    workspaceId, rejected.getMessage());
+        }
     }
 }

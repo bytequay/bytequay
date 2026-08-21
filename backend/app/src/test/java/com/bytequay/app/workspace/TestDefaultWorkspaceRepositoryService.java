@@ -38,10 +38,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -165,8 +167,41 @@ class TestDefaultWorkspaceRepositoryService
 
         Workspace requested = service.requestSync(ready.id());
 
-        assertThat(requested.codeState()).isEqualTo(CodeState.PENDING);
+        assertThat(requested.codeState()).isEqualTo(CodeState.SYNCING);
         assertThat(requested.metadataState()).isEqualTo(MetadataState.PENDING);
+    }
+
+    @Test
+    void persistsPendingWorkspaceBeforeSchedulingProvisioning()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L))
+                .thenReturn(Optional.of(direct(100, "owner")));
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubToken()).thenReturn("token");
+        CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        AtomicReference<CodeState> observed = new AtomicReference<>();
+        when(provisioning.provision(anyString())).thenAnswer(invocation -> {
+            Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
+            observed.set(saved.codeState());
+            return WorkspaceProvisioningResult.of(saved);
+        });
+        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+                store,
+                mock(WatchedRepoStore.class),
+                executions,
+                gitHub,
+                credentials,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new WorkspacePaths("/tmp/bytequay-workspaces"),
+                provisioning,
+                Runnable::run);
+
+        watch(service, 100);
+
+        assertThat(observed).hasValue(CodeState.PENDING);
     }
 
     private static DefaultWorkspaceRepositoryService service(
@@ -185,7 +220,9 @@ class TestDefaultWorkspaceRepositoryService
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                "/tmp/bytequay-workspaces");
+                new WorkspacePaths("/tmp/bytequay-workspaces"),
+                mock(WorkspaceProvisioningService.class),
+                ignored -> {});
     }
 
     @Test

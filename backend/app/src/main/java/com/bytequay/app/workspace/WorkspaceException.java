@@ -69,7 +69,7 @@ public final class WorkspaceException
     {
         return new WorkspaceException(
                 "WORKSPACE_BUSY", HttpStatus.CONFLICT,
-                "Workspace has an active cherry-pick execution.", true);
+                "Workspace has active synchronization or cherry-pick work.", true);
     }
 
     public static WorkspaceException invalidRepository(String message)

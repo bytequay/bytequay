@@ -46,6 +46,8 @@ final class PullRequestDetailMapper
                 raw.htmlUrl(),
                 raw.state(),
                 raw.draft(),
+                raw.mergeable(),
+                raw.mergeableState(),
                 raw.author(),
                 raw.authorAvatarUrl(),
                 raw.createdAt(),

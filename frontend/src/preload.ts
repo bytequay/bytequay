@@ -29,6 +29,8 @@ const bridge: Bridge = {
   replyToReviewComment: (repo, number, commentId, body) =>
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),
   approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
+  submitReview: (prId, repo, number, event, body) =>
+    ipcRenderer.invoke('prs:review', prId, repo, number, event, body),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
 

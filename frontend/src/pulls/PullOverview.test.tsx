@@ -15,8 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, mentionCandidates, peoplePickerCandidates, relativeTime, replaceMention } from './PullOverview';
-import { mergeActionLabel, unresolvedReviewCount } from './PullsScreen';
+import PullOverview, { activeMention, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, replaceMention } from './PullOverview';
+import { canSubmitReview, hasMergeConflicts, mergeActionLabel, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -47,6 +47,17 @@ const emptyPayload: PullTimelinePayloadDto = {
 };
 
 describe('PullOverview', () => {
+  it('renders review submission as an overlay without replacing the pull request', () => {
+    const html = renderToStaticMarkup(<ReviewDialog
+      pr={pullRequest()}
+      detail={detail()}
+      onClose={() => {}}
+      onRefresh={async () => {}} />);
+
+    expect(html).toContain('class="pr-sheet-overlay"');
+    expect(html).toContain('class="pr-review-sheet" role="dialog"');
+  });
+
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={detail()} onRefresh={async () => {}} />);
 
@@ -64,6 +75,35 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="Add thumbs up reaction"');
     expect(html).toContain('M10.5 7.75a2.75 2.75');
+  });
+
+  it('groups adjacent label events from the same actor into one GitHub timeline row', () => {
+    const value = detail();
+    value.recentActivity = [
+      {
+        actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:10:00Z', body: null, githubId: 1,
+        payload: { ...emptyPayload, actorBot: true, label: 'snowflake', labelColor: 'd4c5f9' },
+      },
+      {
+        actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:11:00Z', body: null, githubId: 2,
+        payload: { ...emptyPayload, actorBot: true, label: 'clickhouse', labelColor: 'd4c5f9' },
+      },
+      {
+        actor: 'alice', eventType: 'renamed', timestamp: '2026-08-20T09:12:00Z', body: null, githubId: 3,
+        payload: { ...emptyPayload, renameFrom: 'Old title', renameTo: 'Example pull request' },
+      },
+    ];
+
+    const groups = groupTimelineActivities(value.recentActivity);
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].map(activity => activity.payload.label)).toEqual(['snowflake', 'clickhouse']);
+    expect(html.match(/class="pr-event pr-label-event"/g)).toHaveLength(1);
+    expect(html).toContain('class="pr-label-event__marker"');
+    expect(html).toContain('snowflake');
+    expect(html).toContain('clickhouse');
+    expect(html).toContain('<span>labels</span>');
   });
 
   it('renders a regular reply action and reaction menu for an unresolved review thread', () => {
@@ -145,6 +185,63 @@ describe('PullOverview', () => {
     expect(html).toContain('ezra-b');
     expect(html).toContain('Approved');
     expect(html).toContain('pr-review-event');
+  });
+
+  it('attaches review threads to their matching standalone review event', () => {
+    const value = detail();
+    value.recentActivity = [
+      {
+        actor: 'chenjian2664', eventType: 'review_thread', timestamp: '2026-08-13T08:36:16Z', body: null, githubId: 3773729721,
+        payload: {
+          ...emptyPayload,
+          path: 'plugin/trino-oracle/src/main/java/io/trino/plugin/oracle/RewriteCast.java',
+          line: 67,
+          resolved: true,
+          outdated: true,
+          comments: [
+            {
+              githubId: 3773729721,
+              actor: 'chenjian2664',
+              actorAvatarUrl: 'https://example.com/chenjian2664.png',
+              actorBot: false,
+              timestamp: '2026-08-13T08:36:16Z',
+              body: 'The legacy behavior needs another condition.',
+              htmlUrl: null,
+              reviewId: 4925022844,
+              inReplyToId: null,
+              reactions: [],
+            },
+            {
+              githubId: 3773740000,
+              actor: 'finn-ep',
+              actorAvatarUrl: 'https://example.com/finn-ep.png',
+              actorBot: false,
+              timestamp: '2026-08-13T09:00:00Z',
+              body: 'Can you add a test?',
+              htmlUrl: null,
+              reviewId: 4925100000,
+              inReplyToId: 3773729721,
+              reactions: [],
+            },
+          ],
+        },
+      },
+      {
+        actor: 'chenjian2664', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body: '', githubId: 4925022844,
+        payload: { ...emptyPayload, actorAvatarUrl: 'https://example.com/chenjian2664.png', state: 'commented' },
+      },
+    ];
+
+    const groups = groupTimelineActivities(value.recentActivity);
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].map(activity => activity.eventType)).toEqual(['reviewed', 'review_thread']);
+    expect(html).toContain('class="pr-review-group"');
+    expect(html).toContain('chenjian2664</strong><span>reviewed</span>');
+    expect(html).toContain('src="https://example.com/chenjian2664.png"');
+    expect(html).toContain('RewriteCast.java:L67');
+    expect(html).toContain('Can you add a test?');
   });
 
   it('shows the code-fence language header used by the reference', () => {
@@ -245,7 +342,22 @@ describe('PullOverview', () => {
 
     expect(mergeActionLabel(true)).toBe('Merge when ready');
     expect(mergeActionLabel(false)).toBe('Rebase and merge');
+    expect(mergeActionLabel(undefined)).toBe('Loading merge status');
+    expect(mergeActionLabel(null)).toBe('Merge status unavailable');
+    expect(mergeActionLabel(true, true)).toBe('Conflicts');
     expect(unresolvedReviewCount(value)).toBe(1);
+  });
+
+  it('offers review actions only for another author\'s open pull request', () => {
+    const pr = pullRequest();
+    const value = detail();
+
+    expect(canSubmitReview(pr, value)).toBe(false);
+    expect(canSubmitReview({ ...pr, origin: 'REVIEW_REQUESTED' }, value)).toBe(true);
+    expect(canSubmitReview({ ...pr, origin: 'REVIEW_REQUESTED' }, { ...value, state: 'merged' })).toBe(false);
+    expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'dirty' })).toBe(true);
+    expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'blocked' })).toBe(false);
+    expect(remotePullRequest(value, 'bob').origin).toBe('REVIEW_REQUESTED');
   });
 });
 
@@ -284,6 +396,8 @@ function detail(): PullRequestDetailDto {
     htmlUrl: 'https://github.com/owner/repo/pull/42',
     state: 'open',
     draft: false,
+    mergeable: true,
+    mergeableState: 'clean',
     author: 'alice',
     authorAvatarUrl: null,
     createdAt: '2026-08-20T09:00:00Z',

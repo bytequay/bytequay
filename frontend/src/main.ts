@@ -414,6 +414,22 @@ function registerIpc(): void {
     url.searchParams.set('id', String(prId));
     return backendVoid(url, { method: 'POST' });
   });
+  ipcMain.handle('prs:review', (
+    _event,
+    prId: number,
+    repo: string,
+    number: number,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+    body: string,
+  ) => {
+    const url = prUrl('/prs/review', repo, number);
+    url.searchParams.set('id', String(prId));
+    return backendVoid(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, body }),
+    });
+  });
   ipcMain.handle('prs:merge', (
     _event,
     prId: number,

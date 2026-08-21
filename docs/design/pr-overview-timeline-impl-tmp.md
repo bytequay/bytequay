@@ -584,3 +584,72 @@ Runtime verification: `dev.sh` was restarted in its persistent PTY, `/hello` ret
 
 Verification: the existing ring arc now rotates continuously with a native CSS animation and falls back to the original static angle when reduced motion is requested. `npm test -- --run` (35 tests), `npm run lint`, `npx tsc --noEmit`, `npm run package`, and `git diff --check` all pass.
 Runtime verification: `dev.sh` was restarted in its persistent PTY, `/hello` returned `ByteQuay-backend ok`, and the Electron renderer remains alive.
+
+## Checkpoint 28 — Review submission and complete merge header states
+
+- [x] Expose canonical mergeability fields in pull-request detail data.
+- [x] Add a generic backend review endpoint for comment, approval, and change requests.
+- [x] Show `Submit review` for open pull requests authored by someone else.
+- [x] Add the review sheet and submit its selected review outcome to GitHub.
+- [x] Render loading, conflict, merge-queue, and rebase merge-action states.
+- [x] Add focused backend and frontend regression coverage.
+- [x] Run backend/frontend verification and package the Electron app.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: backend `mvn -q verify`; frontend 32 tests, lint, TypeScript, and Electron package; live `dev.sh` detail check for `trinodb/trino#30335` returned an external open PR with write access and `mergeableState: dirty`, while merge-mode detection returned `mergeQueue: true`.
+
+## Checkpoint 29 — Review and merge overlay drawers
+
+- [x] Keep the original pull-request page mounted beneath review and merge sheets.
+- [x] Present sheets as right-side modal drawers with a dim, dismissible backdrop.
+- [x] Add focused regression coverage and restart through `dev.sh`.
+
+Verification: review drawer visually checked in the running Electron app; the PR remains mounted beneath the backdrop and is restored unchanged after `Escape` dismissal. Focused tests (15/15), lint, and TypeScript checks pass.
+
+## Checkpoint 30 — Narrower action drawers
+
+- [x] Reduce the review and merge drawer width while preserving small-window responsiveness.
+- [x] Verify the narrower drawer in the running app.
+
+Verification: review and merge drawers now use `min(56vw, 1120px)` with a responsive `680px` minimum, and the review drawer was visually checked in the running Electron app.
+
+## Checkpoint 31 — 40% action drawers
+
+- [x] Set review and merge drawers to 40% of the window width.
+- [x] Preserve full-width behavior on windows narrower than the responsive minimum.
+
+Verification: both drawers now use `40vw` with a responsive `480px` minimum.
+
+## Checkpoint 32 — Regular-weight action drawers
+
+- [x] Remove bold text from the review drawer.
+- [x] Remove bold text from the merge drawer.
+
+Verification: drawer headings, labels, status text, and buttons now use regular font weight.
+
+## Checkpoint 33 — Grouped GitHub label events
+
+- [x] Coalesce adjacent label additions or removals by the same actor into one timeline row.
+- [x] Render one timeline tag marker, one actor/avatar, all label pills, and one timestamp.
+- [x] Preserve separate rows across different actors, actions, or non-label events.
+- [x] Add focused frontend regression coverage.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: focused and full Vitest suites pass (34 tests total), with ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 34 — Review submission/thread association
+
+- [x] Inspect the live `trinodb/trino#30683` detail payload for review and thread identifiers.
+- [x] Confirm the backend supplies a standalone review event and the thread-to-review relationship.
+- [x] Group review threads under their matching standalone review event in the timeline.
+- [x] Render the reviewer avatar and `reviewed` summary before the grouped thread.
+- [x] Preserve suppression of unmatched empty comment-only review wrappers.
+- [x] Add focused regression coverage and run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the live payload relates review `4925022844` to thread root `3773729721`; the frontend now performs that association instead of treating the thread as an unrelated row. Focused tests pass (17/17), the full Vitest suite passes (35/35), and ESLint, TypeScript, and `git diff --check` are clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.

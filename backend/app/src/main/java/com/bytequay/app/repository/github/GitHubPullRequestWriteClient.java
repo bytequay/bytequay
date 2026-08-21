@@ -22,6 +22,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -63,12 +64,22 @@ public class GitHubPullRequestWriteClient
 
     public void approve(String pat, PullRequestRef pr)
     {
+        submitReview(pat, pr, "APPROVE", "");
+    }
+
+    public void submitReview(String pat, PullRequestRef pr, String event, String body)
+    {
         try {
+            Map<String, String> request = new LinkedHashMap<>();
+            request.put("event", event);
+            if (body != null && !body.isBlank()) {
+                request.put("body", body);
+            }
             gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("event", "APPROVE"))
+                    .body(request)
                     .retrieve()
                     .toBodilessEntity();
         }

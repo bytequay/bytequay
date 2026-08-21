@@ -70,9 +70,12 @@ export default function PullsScreen({
       return;
     }
     let cancelled = false;
-    window.bridge.fetchPullRequestDetail(initialPr.repo, initialPr.number).then(value => {
+    Promise.all([
+      window.bridge.fetchPullRequestDetail(initialPr.repo, initialPr.number),
+      window.bridge.getUserProfile().catch((): null => null),
+    ]).then(([value, profile]) => {
       if (cancelled) return;
-      const remote = remotePullRequest(value);
+      const remote = remotePullRequest(value, profile?.login);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       setDetail(value);
       setSelected(remote.id);
@@ -254,7 +257,7 @@ export default function PullsScreen({
   );
 }
 
-export function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto {
+export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: string): PullRequestDto {
   const key = `${detail.repo.toLowerCase()}#${detail.number}`;
   let hash = 0;
   for (const character of key) hash = ((hash * 31) + character.charCodeAt(0)) | 0;
@@ -267,7 +270,9 @@ export function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto 
     htmlUrl: detail.htmlUrl ?? `https://github.com/${detail.repo}/pull/${detail.number}`,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date(0).toISOString(),
-    origin: 'AUTHORED',
+    origin: viewerLogin && detail.author?.toLowerCase() !== viewerLogin.toLowerCase()
+      ? 'REVIEW_REQUESTED'
+      : 'AUTHORED',
     labels: detail.labels.map(label => label.name),
     labelColors: Object.fromEntries(detail.labels.map(label => [label.name, label.color ?? 'd0d7de'])),
     draft: detail.draft,
@@ -279,8 +284,8 @@ export function remotePullRequest(detail: PullRequestDetailDto): PullRequestDto 
       item.eventType === 'commented' || item.eventType === 'reviewed').length,
     attentionReason: null,
     state: detail.state,
-    mergeable: null,
-    mergeableState: null,
+    mergeable: detail.mergeable,
+    mergeableState: detail.mergeableState,
     headRef: detail.headRef,
   };
 }
@@ -292,24 +297,30 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const [mergeQueue, setMergeQueue] = useState<boolean | null>(null);
+  const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const canMerge = detail !== null
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const canReview = canSubmitReview(pr, detail);
+  const canMerge = canReview
+    && detail !== null
     && detail.state?.toLowerCase() === 'open'
     && !detail.draft
     && detail.viewerCanWrite
     && !isQueued(detail.recentActivity);
+  const conflicts = hasMergeConflicts(detail);
+  const mergeReady = typeof mergeQueue === 'boolean' && !conflicts;
 
   useEffect(() => {
     setMergeOpen(false);
-    setMergeQueue(null);
-    if (!canMerge || !detail?.baseRef) return;
+    setReviewOpen(false);
+    setMergeQueue(undefined);
+    if (!canMerge || conflicts || !detail?.baseRef) return;
     let cancelled = false;
     void window.bridge.fetchMergeMode(detail.repo, detail.baseRef)
       .then(mode => { if (!cancelled) setMergeQueue(mode.mergeQueue); })
       .catch(() => { if (!cancelled) setMergeQueue(null); });
     return () => { cancelled = true; };
-  }, [canMerge, detail?.repo, detail?.number, detail?.baseRef]);
+  }, [canMerge, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
 
   return (
     <header className="pull-detail__header">
@@ -322,9 +333,18 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
           <button className="pull-detail__open-github" type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
             Open on GitHub <span aria-hidden="true">↗</span>
           </button>
-          {canMerge && mergeQueue !== null && (
-            <button className="pull-detail__merge-action" type="button" onClick={() => setMergeOpen(true)}>
-              <MergeReadyIcon /> {mergeActionLabel(mergeQueue)}
+          {canReview && (
+            <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
+              Submit review
+            </button>
+          )}
+          {canMerge && (
+            <button
+              className={`pull-detail__merge-action${conflicts ? ' is-conflicts' : mergeReady ? '' : ' is-loading'}`}
+              type="button"
+              disabled={!mergeReady}
+              onClick={() => setMergeOpen(true)}>
+              {conflicts ? <ConflictIcon /> : <MergeReadyIcon />} {mergeActionLabel(mergeQueue, conflicts)}
             </button>
           )}
         </div>
@@ -340,7 +360,11 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
           <span className="is-deletion">−{detail?.deletions ?? pr.deletions}</span>
         </button>
       </nav>
-      {mergeOpen && detail && mergeQueue !== null && (
+      {reviewOpen && detail && (
+        <ReviewDialog pr={pr} detail={detail}
+          onClose={() => setReviewOpen(false)} onRefresh={onRefresh} />
+      )}
+      {mergeOpen && detail && typeof mergeQueue === 'boolean' && (
         <MergeDialog pr={pr} detail={detail} mergeQueue={mergeQueue}
           onClose={() => setMergeOpen(false)} onRefresh={onRefresh} />
       )}
@@ -348,13 +372,119 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
   );
 }
 
-export function mergeActionLabel(mergeQueue: boolean) {
+export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
+  return pr.origin === 'REVIEW_REQUESTED' && detail?.state?.toLowerCase() === 'open';
+}
+
+export function hasMergeConflicts(detail: PullRequestDetailDto | null) {
+  return ['dirty', 'conflicting', 'conflicts'].includes(detail?.mergeableState?.toLowerCase() ?? '');
+}
+
+export function mergeActionLabel(mergeQueue: boolean | null | undefined, conflicts = false) {
+  if (conflicts) return 'Conflicts';
+  if (mergeQueue === undefined) return 'Loading merge status';
+  if (mergeQueue === null) return 'Merge status unavailable';
   return mergeQueue ? 'Merge when ready' : 'Rebase and merge';
 }
 
 export function unresolvedReviewCount(detail: PullRequestDetailDto) {
   return detail.recentActivity.filter(activity =>
     activity.eventType === 'review_thread' && !activity.payload.resolved).length;
+}
+
+type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+
+export function ReviewDialog({ pr, detail, onClose, onRefresh }: {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  onClose: () => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [body, setBody] = useState('');
+  const [event, setEvent] = useState<ReviewEvent>('APPROVE');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bodyRequired = event !== 'APPROVE';
+
+  useEffect(() => {
+    const close = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.key === 'Escape' && !submitting) onClose();
+    };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [onClose, submitting]);
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await window.bridge.submitReview(pr.id, detail.repo, detail.number, event, body.trim());
+      await onRefresh();
+      onClose();
+    }
+    catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="pr-sheet-overlay" onMouseDown={mouseEvent => {
+      if (mouseEvent.target === mouseEvent.currentTarget && !submitting) onClose();
+    }}>
+    <section className="pr-review-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-review-title">
+      <div className="pr-review-sheet__header">
+        <h2 id="pr-review-title">Submit review</h2>
+        <button type="button" aria-label="Close review dialog" disabled={submitting} onClick={onClose}>×</button>
+      </div>
+      <div className="pr-review-sheet__content">
+        <textarea
+          value={body}
+          placeholder="Leave a comment on this pull request…"
+          aria-label="Review comment"
+          onChange={change => setBody(change.target.value)} />
+        <ReviewChoice
+          checked={event === 'COMMENT'}
+          title="Comment"
+          description="Submit general feedback without explicit approval."
+          onChange={() => setEvent('COMMENT')} />
+        <ReviewChoice
+          checked={event === 'APPROVE'}
+          title="Approve"
+          description="Submit feedback and approve merging these changes."
+          onChange={() => setEvent('APPROVE')} />
+        <ReviewChoice
+          checked={event === 'REQUEST_CHANGES'}
+          title="Request Changes"
+          description="Submit feedback that must be addressed before merging."
+          onChange={() => setEvent('REQUEST_CHANGES')} />
+        {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
+      </div>
+      <footer className="pr-review-sheet__footer">
+        <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
+        <button className="is-primary" type="button"
+          disabled={submitting || (bodyRequired && !body.trim())}
+          onClick={() => { void submit(); }}>
+          {submitting ? 'Submitting…' : 'Submit review'}
+        </button>
+      </footer>
+    </section>
+    </div>
+  );
+}
+
+function ReviewChoice({ checked, title, description, onChange }: {
+  checked: boolean;
+  title: string;
+  description: string;
+  onChange: () => void;
+}) {
+  return (
+    <label className="pr-review-choice">
+      <input type="radio" name="review-event" checked={checked} onChange={onChange} />
+      <span><strong>{title}</strong><small>{description}</small></span>
+    </label>
+  );
 }
 
 function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
@@ -396,6 +526,9 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
   };
 
   return (
+    <div className="pr-sheet-overlay" onMouseDown={mouseEvent => {
+      if (mouseEvent.target === mouseEvent.currentTarget && !submitting) onClose();
+    }}>
     <section className="pr-merge-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-merge-title">
       <div className="pr-merge-sheet__header">
         <h2 id="pr-merge-title">Merge pull request</h2>
@@ -433,11 +566,16 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
         </button>
       </footer>
     </section>
+    </div>
   );
 }
 
 function MergeReadyIcon() {
   return <span className="pr-merge-ready-icon" aria-hidden="true"><i /></span>;
+}
+
+function ConflictIcon() {
+  return <span className="pr-merge-conflict-icon" aria-hidden="true">×</span>;
 }
 
 function DetailBody({

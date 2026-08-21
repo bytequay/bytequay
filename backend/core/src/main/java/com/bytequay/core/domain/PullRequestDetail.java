@@ -23,6 +23,8 @@ public record PullRequestDetail(
         String htmlUrl,
         String state,
         boolean draft,
+        Boolean mergeable,
+        String mergeableState,
         String author,
         String authorAvatarUrl,
         Instant createdAt,

@@ -63,6 +63,8 @@ class TestPullRequestDetailMapper
 
         assertThat(detail.repo()).isEqualTo("owner/repo");
         assertThat(detail.body()).isEqualTo("body");
+        assertThat(detail.mergeable()).isTrue();
+        assertThat(detail.mergeableState()).isEqualTo("clean");
         assertThat(detail.approvalCount()).isEqualTo(1);
         assertThat(detail.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         assertThat(detail.recentActivity()).singleElement().satisfies(item -> {

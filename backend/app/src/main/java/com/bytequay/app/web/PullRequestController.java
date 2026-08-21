@@ -97,6 +97,8 @@ public class PullRequestController
 
     public record CommentRequest(String body) {}
 
+    public record ReviewRequest(String event, String body) {}
+
     @PostMapping("/prs/comment")
     public Map<String, String> comment(
             @RequestParam("repo") String repo,
@@ -126,6 +128,17 @@ public class PullRequestController
     {
         pullRequests.approvePullRequest(repo, number, prId);
         return Map.of("result", "approved");
+    }
+
+    @PostMapping("/prs/review")
+    public Map<String, String> review(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("id") long prId,
+            @RequestBody ReviewRequest request)
+    {
+        pullRequests.submitReview(repo, number, prId, request.event(), request.body());
+        return Map.of("result", "reviewed");
     }
 
     @PostMapping("/prs/merge")

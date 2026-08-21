@@ -24,6 +24,8 @@ import MarkdownBody from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
+const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
+const LABEL_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const HIDDEN_TIMELINE_EVENTS = new Set([
   'convert_to_draft',
   'description_reactions',
@@ -86,8 +88,8 @@ export default function PullOverview({ pr, detail, onRefresh }: {
 
       <section className="pr-timeline" aria-label="Pull request activity">
         <DescriptionCard detail={detail} fallbackAuthor={pr.author} />
-        {detail.recentActivity.filter(isVisibleTimelineActivity).map((activity, index) => (
-          <TimelineItem activity={activity} key={activity.githubId ?? `${activity.eventType}-${index}`}
+        {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
+          <TimelineItem activities={activities} key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
             pr={pr} onRefresh={onRefresh} />
         ))}
         <ChecksCard detail={detail} />
@@ -254,11 +256,15 @@ function DescriptionCard({ detail, fallbackAuthor }: {
   );
 }
 
-function TimelineItem({ activity, pr, onRefresh }: {
-  activity: Activity;
+function TimelineItem({ activities, pr, onRefresh }: {
+  activities: Activity[];
   pr: PullRequestDto;
   onRefresh: () => Promise<void>;
 }) {
+  const activity = activities[0];
+  if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
+    return <ReviewGroup activities={activities} pr={pr} onRefresh={onRefresh} />;
+  }
   if (activity.eventType === 'review_thread') {
     return <ReviewThread activity={activity} pr={pr} onRefresh={onRefresh} />;
   }
@@ -266,14 +272,68 @@ function TimelineItem({ activity, pr, onRefresh }: {
     return <CommentCard activity={activity} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
-  return <CompactEvent activity={activity} />;
+  return <CompactEvent activities={activities} />;
 }
 
-function isVisibleTimelineActivity(activity: Activity) {
-  if (HIDDEN_TIMELINE_EVENTS.has(activity.eventType)) return false;
+export function groupTimelineActivities(activities: Activity[]) {
+  const candidates = activities.filter(activity => !HIDDEN_TIMELINE_EVENTS.has(activity.eventType));
+  const reviewIds = new Set(candidates
+    .filter(activity => activity.eventType === 'reviewed' && activity.githubId !== null)
+    .map(activity => activity.githubId));
+  const threadsByReview = new Map<number, Activity[]>();
+  candidates.forEach((activity) => {
+    const reviewId = reviewIdForThread(activity);
+    if (reviewId === null || !reviewIds.has(reviewId)) return;
+    const threads = threadsByReview.get(reviewId) ?? [];
+    threads.push(activity);
+    threadsByReview.set(reviewId, threads);
+  });
+
+  return candidates.filter(activity => isVisibleTimelineActivity(activity, threadsByReview)).reduce<Activity[][]>((groups, activity) => {
+    const reviewId = reviewIdForThread(activity);
+    if (reviewId !== null && threadsByReview.has(reviewId)) return groups;
+    if (activity.eventType === 'reviewed' && activity.githubId !== null) {
+      groups.push([activity, ...(threadsByReview.get(activity.githubId) ?? [])]);
+      return groups;
+    }
+    const previous = groups.at(-1);
+    const previousActivity = previous?.at(-1);
+    if (previousActivity && canGroupLabelEvents(previousActivity, activity)) {
+      previous.push(activity);
+    }
+    else {
+      groups.push([activity]);
+    }
+    return groups;
+  }, []);
+}
+
+function reviewIdForThread(activity: Activity) {
+  if (activity.eventType !== 'review_thread') return null;
+  return activity.payload.comments.find(comment => comment.inReplyToId === null)?.reviewId
+    ?? activity.payload.comments[0]?.reviewId
+    ?? null;
+}
+
+function canGroupLabelEvents(previous: Activity, activity: Activity) {
+  if (!LABEL_EVENT_TYPES.has(activity.eventType)
+      || activity.eventType !== previous.eventType
+      || activity.actor !== previous.actor) {
+    return false;
+  }
+  const previousTime = Date.parse(previous.timestamp ?? '');
+  const activityTime = Date.parse(activity.timestamp ?? '');
+  return Number.isFinite(previousTime)
+    && Number.isFinite(activityTime)
+    && activityTime - previousTime >= 0
+    && activityTime - previousTime <= LABEL_EVENT_GROUP_WINDOW_MS;
+}
+
+function isVisibleTimelineActivity(activity: Activity, threadsByReview: Map<number, Activity[]>) {
   return !(activity.eventType === 'reviewed'
     && activity.payload.state?.toUpperCase() === 'COMMENTED'
-    && !activity.body?.trim());
+    && !activity.body?.trim()
+    && (activity.githubId === null || !threadsByReview.has(activity.githubId)));
 }
 
 function CommitEvent({ activity }: { activity: Activity }) {
@@ -311,6 +371,32 @@ function CommentCard({ activity }: { activity: Activity }) {
       <MarkdownBody body={activity.body} />
       <Reactions reactions={activity.payload.reactions} />
     </article>
+  );
+}
+
+function ReviewGroup({ activities, pr, onRefresh }: {
+  activities: Activity[];
+  pr: PullRequestDto;
+  onRefresh: () => Promise<void>;
+}) {
+  const review = activities[0];
+  const actor = displayActor(review.actor || 'github');
+  const badge = reviewBadge(review.payload.state?.toUpperCase());
+  return (
+    <section className="pr-review-group">
+      <div className="pr-review-group__summary">
+        <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
+        <Avatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} />
+        <strong>{actor}</strong>
+        {review.payload.actorBot && <span className="pr-bot-badge">Bot</span>}
+        <span>reviewed</span>
+        <time>{relativeTime(review.timestamp)}</time>
+        {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
+      </div>
+      {activities.slice(1).map(thread => (
+        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread} pr={pr} onRefresh={onRefresh} />
+      ))}
+    </section>
   );
 }
 
@@ -418,9 +504,33 @@ function DiffHunk({ text }: { text: string }) {
   );
 }
 
-function CompactEvent({ activity }: { activity: Activity }) {
+function CompactEvent({ activities }: { activities: Activity[] }) {
+  const activity = activities[0];
   const { payload } = activity;
   const actor = displayActor(activity.actor || 'github');
+  if (LABEL_EVENT_TYPES.has(activity.eventType)) {
+    return (
+      <div className="pr-event pr-label-event">
+        <span className="pr-label-event__marker" aria-hidden="true"><TagIcon /></span>
+        <div className="pr-label-event__content">
+          <span className="pr-label-event__actor">
+            <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
+            <strong>{actor}</strong>
+            {payload.actorBot && <span className="pr-bot">Bot</span>}
+          </span>
+          <span>{activity.eventType === 'labeled' ? 'added' : 'removed'}</span>
+          <span className="pr-label-event__labels">
+            {activities.map(labelActivity => (
+              <LabelBadge name={labelActivity.payload.label ?? 'label'} color={labelActivity.payload.labelColor}
+                key={labelActivity.githubId ?? labelActivity.payload.label} />
+            ))}
+          </span>
+          {activities.length > 1 && <span>labels</span>}
+          <time>· {relativeTime(activity.timestamp)}</time>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="pr-event">
       <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
@@ -794,6 +904,14 @@ function ResolvedIcon() {
 
 function CommitIcon() {
   return <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M10.5 7.75a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0Zm1.957-.75a4.25 4.25 0 0 0-8.414 0H1.75a.75.75 0 0 0 0 1.5h2.293a4.25 4.25 0 0 0 8.414 0h2.293a.75.75 0 0 0 0-1.5h-2.293Z" /></svg>;
+}
+
+function TagIcon() {
+  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" aria-hidden="true"><path d="M2.5 2.5h5l6 6-5 5-6-6v-5Z" /><circle cx="5.4" cy="5.4" r="1" fill="currentColor" stroke="none" /></svg>;
+}
+
+function ReviewIcon() {
+  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4-6.5-4-6.5-4Z" /><circle cx="8" cy="8" r="1.8" /></svg>;
 }
 
 function ReactionMenuIcon() {

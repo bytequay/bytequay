@@ -193,6 +193,27 @@ class TestPullRequestService
     }
 
     @Test
+    void submitsReviewVerdictsAndInvalidatesDetail()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this");
+
+        verify(writes).submitReview(
+                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this");
+        verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED);
+        verify(detailStore).deleteByPrIds(Set.of(12L));
+    }
+
+    @Test
+    void rejectsCommentReviewWithoutBody()
+    {
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " "))
+                .isInstanceOf(ResponseStatusException.class);
+        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
     void mergesDirectlyWhenNoQueueIsConfigured()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);

@@ -346,6 +346,29 @@ public class PullRequestService
         viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         invalidatePullRequestCaches(repo, number);
     }
+
+    public void submitReview(String repo, int number, long prId, String event, String body)
+    {
+        requireNotBlank(event, "review event must not be blank");
+        String normalizedEvent = event.toUpperCase(Locale.ROOT);
+        if (!Set.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
+        }
+        String reviewBody = body == null ? "" : body.trim();
+        if (!"APPROVE".equals(normalizedEvent)) {
+            requireNotBlank(reviewBody, "review body must not be blank");
+        }
+
+        String pat = credentialService.resolveGitHubToken();
+        pullRequestWrites.submitReview(pat, parseRef(repo, number), normalizedEvent, reviewBody);
+        if ("APPROVE".equals(normalizedEvent)) {
+            viewStateStore.markReviewed(prId, HandledAction.APPROVED);
+        }
+        else if ("REQUEST_CHANGES".equals(normalizedEvent)) {
+            viewStateStore.markReviewed(prId, HandledAction.CHANGES_REQUESTED);
+        }
+        invalidatePullRequestCaches(repo, number);
+    }
     /** Merges directly, falling back to GitHub's merge queue when required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {

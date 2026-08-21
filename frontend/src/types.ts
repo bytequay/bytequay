@@ -61,6 +61,8 @@ export type PullRequestDetailDto = {
   htmlUrl: string | null;
   state: string | null;
   draft: boolean;
+  mergeable: boolean | null;
+  mergeableState: string | null;
   author: string | null;
   authorAvatarUrl: string | null;
   createdAt: string | null;
@@ -381,6 +383,13 @@ export type Bridge = {
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
+  submitReview: (
+    prId: number,
+    repo: string,
+    number: number,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+    body: string,
+  ) => Promise<void>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;

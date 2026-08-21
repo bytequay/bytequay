@@ -28,11 +28,8 @@ import com.bytequay.core.domain.StoredRepoMeta;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
-import com.bytequay.core.domain.WatchedRepo;
-import com.bytequay.core.store.DuplicateWatchedRepoException;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
-import com.bytequay.core.store.WatchedRepoStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,7 +58,6 @@ public class RepoService
     private static final Duration REPO_META_TTL = Duration.ofHours(1);
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
-    private final WatchedRepoStore watchedRepoStore;
     private final GitHubPullRequestReadClient pullRequests;
     private final GitHubRepoClient repos;
     private final GitHubAccountClient accounts;
@@ -72,7 +68,6 @@ public class RepoService
 
     @Autowired
     public RepoService(
-            WatchedRepoStore watchedRepoStore,
             GitHubPullRequestReadClient pullRequests,
             GitHubRepoClient repos,
             GitHubAccountClient accounts,
@@ -81,7 +76,6 @@ public class RepoService
             CredentialService credentialService,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
-        this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.repos = requireNonNull(repos, "repos is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
@@ -89,26 +83,6 @@ public class RepoService
         this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
-    }
-
-    public List<WatchedRepo> listWatchedRepos()
-    {
-        return watchedRepoStore.findAll();
-    }
-
-    public WatchedRepo addWatchedRepo(String owner, String repo)
-    {
-        try {
-            return watchedRepoStore.add(owner, repo);
-        }
-        catch (DuplicateWatchedRepoException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
-        }
-    }
-
-    public void removeWatchedRepo(String owner, String repo)
-    {
-        watchedRepoStore.remove(owner, repo);
     }
 
     public ContributionCalendar getContributionCalendar(String login)

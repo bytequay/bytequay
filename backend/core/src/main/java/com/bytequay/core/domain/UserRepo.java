@@ -13,9 +13,32 @@
  */
 package com.bytequay.core.domain;
 
+import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
+
 public record UserRepo(
+        long id,
         String owner,
         String name,
         String fullName,
-        String description)
-{}
+        Optional<String> description,
+        boolean fork,
+        String defaultBranch,
+        String cloneUrl,
+        Optional<Upstream> upstream)
+{
+    public UserRepo
+    {
+        requireNonNull(description, "description is null");
+        requireNonNull(upstream, "upstream is null");
+    }
+
+    public record Upstream(
+            long id,
+            String owner,
+            String name,
+            String defaultBranch,
+            String cloneUrl)
+    {}
+}

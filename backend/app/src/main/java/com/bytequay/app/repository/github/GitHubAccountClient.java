@@ -345,13 +345,7 @@ public class GitHubAccountClient
     }
 
     private static UserRepo toUserRepo(GitHubUserRepoItem item) {
-        String owner =
-                Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
-        return new UserRepo(
-                owner,
-                item.name(),
-                item.fullName(),
-                item.description());
+        return toUserRepoFromSearch(item);
     }
 
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
@@ -434,11 +428,26 @@ public class GitHubAccountClient
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item) {
         String owner =
                 Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
+        Optional<UserRepo.Upstream> upstream = Optional.ofNullable(item.source())
+                .or(() -> Optional.ofNullable(item.parent()))
+                .map(repository -> new UserRepo.Upstream(
+                        repository.id(),
+                        Optional.ofNullable(repository.owner())
+                                .map(GitHubUserRepoItem.Owner::login)
+                                .orElse(""),
+                        repository.name(),
+                        repository.defaultBranch(),
+                        repository.cloneUrl()));
         return new UserRepo(
+                item.id(),
                 owner,
                 item.name(),
                 item.fullName(),
-                item.description());
+                Optional.ofNullable(item.description()),
+                item.fork(),
+                item.defaultBranch(),
+                item.cloneUrl(),
+                upstream);
     }
 
     // ── Events ────────────────────────────────────────────────────────────────

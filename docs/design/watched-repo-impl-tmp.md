@@ -1,7 +1,8 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: not implemented. The existing commit browser and local cherry-pick execution are reusable;
-this checklist tracks the missing watch-to-workspace integration and its delivery checkpoints.
+Status: Checkpoint 1 complete; managed-clone concurrency remains in Checkpoint 3. The existing
+commit browser and local cherry-pick execution are reusable; this checklist tracks the missing
+watch-to-workspace integration and its delivery checkpoints.
 
 Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 
@@ -13,19 +14,19 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
 - [x] Local Git browse/history/diff/status/fetch operations exist.
 - [x] Cherry-pick preview, durable execution, worktree creation, progress, and conflict-agent flow
   exist.
-- [ ] Home watch records and Workspaces use one durable backend workspace model.
+- [x] Home watch records and Workspaces use one durable backend workspace model.
 - [ ] Watched repositories are cloned and opened without the user selecting a local directory.
 - [ ] Git browse and cherry-pick requests resolve by workspace ID instead of renderer paths.
 
 ## Fixed implementation rules
 
-- [ ] A watched repository is a workspace; do not maintain two authoritative models.
-- [ ] A stable GitHub repository ID can be watched only once; enforce this with a database unique
+- [x] A watched repository is a workspace; do not maintain two authoritative models.
+- [x] A stable GitHub repository ID can be watched only once; enforce this with a database unique
   constraint and idempotent watch behavior.
-- [ ] A repository has zero or one upstream; one upstream may be referenced by many watched repos.
-- [ ] Home and Workspaces list the same backend workspace rows.
+- [x] A repository has zero or one upstream; one upstream may be referenced by many watched repos.
+- [x] Home and Workspaces list the same backend workspace rows.
 - [ ] Save and commit the workspace before starting clone or metadata synchronization.
-- [ ] Code readiness and metadata readiness are independent states.
+- [x] Code readiness and metadata readiness are independent states.
 - [ ] The renderer never submits managed repository or worktree paths.
 - [ ] Direct repositories use `origin` for monitor, base, push, and PR base.
 - [ ] Forks use the selected fork as `origin`, canonical source as `upstream`, `upstream` for
@@ -37,7 +38,7 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
   locally for thirty days, keyed by monitored repository ID.
 - [ ] Push and pull-request creation remain explicit user-confirmed writes.
 - [ ] Existing commits/cherry-pick behavior is reused rather than reimplemented.
-- [ ] No watch/sync path restores the deleted task-agent or legacy development-flow systems.
+- [x] No watch/sync path restores the deleted task-agent or legacy development-flow systems.
 
 ## UI design checkpoint — Before frontend implementation
 
@@ -64,45 +65,45 @@ Canonical behavior: [Watched Repository / Workspace Design](watched-repo.md).
   (mockup: `watched-repo-ui/Workspace Pull Requests.dc.html`, frames A–E)
 - [x] Confirm that no replacement mockup is needed for Commits, Tasks, PR detail, or the shell.
   (confirmed in `watched-repo-ui.md` — component reuse map)
-- [ ] UI design gate: the four changed surfaces are approved before implementation begins.
+- [x] UI design gate: the four changed surfaces are approved before implementation begins.
 
 ## Checkpoint 1 — Durable workspace identity
 
 ### Backend model and persistence
 
-- [ ] Define the durable Workspace domain record and direct/fork topology enum.
-- [ ] Persist stable selected and monitored GitHub repository IDs.
-- [ ] Persist zero or one canonical upstream repository ID; do not use a multi-upstream join table.
-- [ ] Persist selected/monitored coordinates, default branch, clone routing, and managed path.
-- [ ] Persist independent code and metadata states, last-success times, and sanitized errors.
-- [ ] Add store/entity/repository mappings using existing backend conventions.
-- [ ] Make watch idempotent by stable selected repository ID.
-- [ ] Add a database unique constraint on selected GitHub repository ID.
-- [ ] Keep upstream repository ID non-unique so many watched forks can share it.
-- [ ] Decide and document migration of existing `WatchedRepo` rows.
-- [ ] Migrate or remove the renderer `bytequay.workspaces` localStorage authority.
-- [ ] Preserve user display ordering if the current watched-repository order is retained.
+- [x] Define the durable Workspace domain record and direct/fork topology enum.
+- [x] Persist stable selected and monitored GitHub repository IDs.
+- [x] Persist zero or one canonical upstream repository ID; do not use a multi-upstream join table.
+- [x] Persist selected/monitored coordinates, default branch, clone routing, and managed path.
+- [x] Persist independent code and metadata states, last-success times, and sanitized errors.
+- [x] Add store/entity/repository mappings using existing backend conventions.
+- [x] Make watch idempotent by stable selected repository ID.
+- [x] Add a database unique constraint on selected GitHub repository ID.
+- [x] Keep upstream repository ID non-unique so many watched forks can share it.
+- [x] Decide and document migration of existing `WatchedRepo` rows.
+- [x] Migrate or remove the renderer `bytequay.workspaces` localStorage authority.
+- [x] Preserve user display ordering if the current watched-repository order is retained.
 
 ### Workspace API
 
-- [ ] Implement `WorkspaceRepositoryService.watch`.
-- [ ] Implement `WorkspaceRepositoryService.listWorkspaces`.
-- [ ] Implement `WorkspaceRepositoryService.getWorkspace`.
-- [ ] Implement `WorkspaceRepositoryService.requireReadyRepository`.
-- [ ] Implement retry/sync and guarded unwatch operations.
-- [ ] Add workspace create/list/detail/sync/delete controller endpoints.
-- [ ] Return stable error codes and sanitized messages.
+- [x] Implement `WorkspaceRepositoryService.watch`.
+- [x] Implement `WorkspaceRepositoryService.listWorkspaces`.
+- [x] Implement `WorkspaceRepositoryService.getWorkspace`.
+- [x] Implement `WorkspaceRepositoryService.requireReadyRepository`.
+- [x] Implement retry/sync and guarded unwatch operations.
+- [x] Add workspace create/list/detail/sync/delete controller endpoints.
+- [x] Return stable error codes and sanitized messages.
 
 ### Tests and gate
 
-- [ ] Persistence round-trip covers direct and fork routing.
-- [ ] Repeating watch for the same stable repository returns the existing workspace.
+- [x] Persistence round-trip covers direct and fork routing.
+- [x] Repeating watch for the same stable repository returns the existing workspace.
 - [ ] Concurrent duplicate-watch attempts still create only one workspace and managed clone.
-- [ ] One fork cannot persist multiple upstream repositories.
-- [ ] Multiple fork workspaces can persist the same upstream repository.
-- [ ] Missing and not-ready workspace errors are mapped consistently.
-- [ ] Existing watched-repository migration test passes.
-- [ ] Checkpoint 1 gate: Home and Workspaces can be backed by one persisted identity.
+- [x] One fork cannot persist multiple upstream repositories.
+- [x] Multiple fork workspaces can persist the same upstream repository.
+- [x] Missing and not-ready workspace errors are mapped consistently.
+- [x] Existing watched-repository migration test passes.
+- [x] Checkpoint 1 gate: Home and Workspaces can be backed by one persisted identity.
 
 ## Checkpoint 2 — Search, topology, and watch confirmation
 

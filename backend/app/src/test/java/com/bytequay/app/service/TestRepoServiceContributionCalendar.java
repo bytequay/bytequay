@@ -18,10 +18,8 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.store.DuplicateWatchedRepoException;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
-import com.bytequay.core.store.WatchedRepoStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -54,37 +52,9 @@ class TestRepoServiceContributionCalendar
                 });
     }
 
-    @Test
-    void duplicateWatchedRepoRemainsAConflict()
-    {
-        WatchedRepoStore watchedRepoStore = mock(WatchedRepoStore.class);
-        when(watchedRepoStore.add("octo", "repo"))
-                .thenThrow(new DuplicateWatchedRepoException("octo", "repo"));
-
-        RepoService service = service(
-                mock(GitHubAccountClient.class),
-                mock(CredentialService.class),
-                watchedRepoStore);
-
-        assertThatThrownBy(() -> service.addWatchedRepo("octo", "repo"))
-                .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
-                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-                    assertThat(e.getReason()).isEqualTo("octo/repo is already watched");
-                });
-    }
-
     private static RepoService service(GitHubAccountClient gitHub, CredentialService credentialService)
     {
-        return service(gitHub, credentialService, mock(WatchedRepoStore.class));
-    }
-
-    private static RepoService service(
-            GitHubAccountClient gitHub,
-            CredentialService credentialService,
-            WatchedRepoStore watchedRepoStore)
-    {
         return new RepoService(
-                watchedRepoStore,
                 mock(GitHubPullRequestReadClient.class),
                 mock(GitHubRepoClient.class),
                 gitHub,

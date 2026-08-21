@@ -1,0 +1,279 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.workspace;
+
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.cherrypick.CherryPickExecution;
+import com.bytequay.core.cherrypick.CherryPickExecutionStore;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserRepo;
+import com.bytequay.core.domain.WatchedRepo;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.domain.Workspace.CodeState;
+import com.bytequay.core.domain.Workspace.MetadataState;
+import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.WatchedRepoStore;
+import com.bytequay.core.store.WorkspaceStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.net.URI;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.UUID;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
+
+@Service
+public class DefaultWorkspaceRepositoryService
+        implements WorkspaceRepositoryService
+{
+    private static final Logger log = LoggerFactory.getLogger(DefaultWorkspaceRepositoryService.class);
+
+    private final WorkspaceStore store;
+    private final WatchedRepoStore legacyStore;
+    private final CherryPickExecutionStore executions;
+    private final GitHubAccountClient gitHub;
+    private final CredentialService credentials;
+    private final Clock clock;
+    private final Path managedRoot;
+
+    public DefaultWorkspaceRepositoryService(
+            WorkspaceStore store,
+            WatchedRepoStore legacyStore,
+            CherryPickExecutionStore executions,
+            GitHubAccountClient gitHub,
+            CredentialService credentials,
+            Clock clock,
+            @Value("${bytequay.workspace.root:${java.io.tmpdir}/bytequay-workspaces}") String managedRoot)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.legacyStore = requireNonNull(legacyStore, "legacyStore is null");
+        this.executions = requireNonNull(executions, "executions is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.clock = requireNonNull(clock, "clock is null");
+        this.managedRoot = Path.of(requireNonNull(managedRoot, "managedRoot is null"))
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    @Override
+    public Workspace watch(WatchRepositoryCommand command)
+    {
+        return watch(command, OptionalInt.empty());
+    }
+
+    @Override
+    public List<WorkspaceSummary> listWorkspaces()
+    {
+        migrateLegacyRows();
+        return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
+    }
+
+    @Override
+    public WorkspaceDetails getWorkspace(String workspaceId)
+    {
+        return WorkspaceDetails.of(requireWorkspace(workspaceId));
+    }
+
+    @Override
+    public WorkspaceRepositoryContext requireReadyRepository(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.codeState() != CodeState.READY) {
+            throw WorkspaceException.repositoryNotReady();
+        }
+        Path repository = Path.of(workspace.localRepositoryPath()).toAbsolutePath().normalize();
+        if (!repository.startsWith(managedRoot)) {
+            throw WorkspaceException.invalidRepository("Managed repository path is invalid.");
+        }
+        return new WorkspaceRepositoryContext(
+                workspace.id(),
+                repository,
+                workspace.selectedRepository(),
+                workspace.monitoredRepository(),
+                workspace.topology(),
+                workspace.topology() == Topology.FORK ? "upstream" : "origin",
+                "origin",
+                workspace.defaultBranch());
+    }
+
+    @Override
+    public Workspace requestSync(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        CodeState code = workspace.codeState();
+        MetadataState metadata = workspace.metadataState();
+        if (code != CodeState.CLONING
+                && code != CodeState.SYNCING) {
+            code = CodeState.PENDING;
+        }
+        if (metadata != MetadataState.SYNCING) {
+            metadata = MetadataState.PENDING;
+        }
+        return store.save(workspace.withStates(code, metadata, clock.instant()));
+    }
+
+    @Override
+    public void unwatch(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        boolean active = executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
+                .filter(execution -> execution.terminalAt().isEmpty())
+                .map(CherryPickExecution::workspace)
+                .map(CherryPickExecution.Workspace::repository)
+                .anyMatch(repository -> repository.equals(workspace.selectedRepository())
+                        || repository.equals(workspace.monitoredRepository()));
+        if (active) {
+            throw WorkspaceException.busy();
+        }
+        store.delete(workspace.id());
+    }
+
+    private Workspace watch(WatchRepositoryCommand command, OptionalInt retainedDisplayOrder)
+    {
+        requireNonNull(command, "command is null");
+        UserRepo selected = gitHub.fetchRepository(
+                        credentials.resolveGitHubToken(), command.owner(), command.repo())
+                .orElseThrow(() -> WorkspaceException.repositoryNotFound(command.owner(), command.repo()));
+        validate(selected);
+
+        Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+
+        int displayOrder = retainedDisplayOrder.orElseGet(() -> store.findAll().stream()
+                .mapToInt(Workspace::displayOrder)
+                .max()
+                .orElse(-1) + 1);
+        String id = UUID.randomUUID().toString();
+        Instant now = clock.instant();
+        RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
+        Optional<UserRepo.Upstream> upstream = selected.upstream();
+        Optional<Long> upstreamId = upstream.map(UserRepo.Upstream::id);
+        Optional<RepoRef> upstreamRef = upstream.map(repository ->
+                RepoRef.of(repository.owner(), repository.name()));
+        Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
+        long monitoredId = upstreamId.orElse(selected.id());
+        RepoRef monitoredRef = upstreamRef.orElse(selectedRef);
+        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch)
+                .orElse(selected.defaultBranch());
+        Workspace proposed = new Workspace(
+                id,
+                command.name().orElse(selected.fullName()),
+                selected.id(),
+                selectedRef,
+                upstreamId,
+                upstreamRef,
+                monitoredId,
+                monitoredRef,
+                topology,
+                defaultBranch,
+                selected.cloneUrl(),
+                upstream.map(UserRepo.Upstream::cloneUrl),
+                managedRoot.resolve(id).resolve("repository").toString(),
+                CodeState.PENDING,
+                MetadataState.PENDING,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                displayOrder,
+                now,
+                now);
+        return store.createOrGet(proposed);
+    }
+
+    private Workspace requireWorkspace(String workspaceId)
+    {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            throw WorkspaceException.notFound(String.valueOf(workspaceId));
+        }
+        return store.findById(workspaceId)
+                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
+    }
+
+    private void migrateLegacyRows()
+    {
+        for (WatchedRepo legacy : legacyStore.findAll()) {
+            try {
+                watch(
+                        new WatchRepositoryCommand(
+                                legacy.owner(), legacy.repo(), Optional.of(legacy.fullName())),
+                        OptionalInt.of(legacy.displayOrder()));
+                legacyStore.remove(legacy.owner(), legacy.repo());
+            }
+            catch (RuntimeException failure) {
+                log.warn("Legacy watched repository migration deferred for {}/{}: {}",
+                        legacy.owner(), legacy.repo(), failure.getMessage());
+            }
+        }
+    }
+
+    private static void validate(UserRepo repository)
+    {
+        if (repository.id() <= 0
+                || isBlank(repository.owner())
+                || isBlank(repository.name())
+                || isBlank(repository.fullName())
+                || isBlank(repository.defaultBranch())
+                || !safeCloneUrl(repository.cloneUrl())) {
+            throw WorkspaceException.invalidRepository("GitHub returned incomplete repository routing.");
+        }
+        boolean validUpstream = repository.upstream()
+                .filter(upstream -> upstream.id() > 0)
+                .filter(upstream -> !isBlank(upstream.owner()))
+                .filter(upstream -> !isBlank(upstream.name()))
+                .filter(upstream -> !isBlank(upstream.defaultBranch()))
+                .filter(upstream -> safeCloneUrl(upstream.cloneUrl()))
+                .isPresent();
+        if (repository.fork() && !validUpstream) {
+            throw WorkspaceException.invalidRepository("Fork upstream routing is unavailable.");
+        }
+        if (!repository.fork() && repository.upstream().isPresent()) {
+            throw WorkspaceException.invalidRepository("Direct repository unexpectedly has upstream routing.");
+        }
+    }
+
+    private static boolean safeCloneUrl(String value)
+    {
+        if (isBlank(value)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && !isBlank(uri.getHost())
+                    && uri.getUserInfo() == null;
+        }
+        catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isBlank(String value)
+    {
+        return value == null || value.isBlank();
+    }
+}

@@ -17,7 +17,7 @@ import TasksView from '../commits/TasksView';
 import { isOpenTask } from '../commits/model';
 import PullsScreen from '../pulls/PullsScreen';
 import type { CherryPickExecution, GitOverviewDto } from '../types';
-import { githubSlug, removeWorkspace, upsertWorkspace, type Workspace } from './model';
+import { githubSlug, type Workspace } from './model';
 import '../css/workspaces.css';
 
 export type WorkspaceTab =
@@ -211,12 +211,12 @@ function WorkspaceHome({ workspace, onSelectTab }: {
   );
 }
 
-function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
+function WorkspaceSettings({ workspace, onRemoved }: {
   workspace: Workspace;
   onWorkspaceChanged: (workspace: Workspace) => void;
   onRemoved: () => void;
 }) {
-  const [draft, setDraft] = useState(workspace);
+  const draft = workspace;
   const [remotes, setRemotes] = useState<GitOverviewDto['remotes']>([]);
 
   useEffect(() => {
@@ -226,12 +226,6 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [workspace.path]);
-
-  const save = (next: Workspace) => {
-    setDraft(next);
-    upsertWorkspace(next);
-    onWorkspaceChanged(next);
-  };
 
   const upstreamUrl = remotes.find(remote => remote.name === draft.upstreamRemote)?.url;
 
@@ -243,7 +237,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
           Workspace name
           <input
             value={draft.name}
-            onChange={event => save({ ...draft, name: event.target.value })}
+            readOnly
           />
         </label>
         <label>
@@ -255,7 +249,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
           <input
             value={draft.defaultBranch}
             className="ws-mono ws-narrow"
-            onChange={event => save({ ...draft, defaultBranch: event.target.value })}
+            readOnly
           />
         </label>
 
@@ -275,10 +269,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
             </div>
             <select
               value={draft.upstreamRemote ?? ''}
-              onChange={event => save({
-                ...draft,
-                upstreamRemote: event.target.value === '' ? null : event.target.value,
-              })}
+              disabled
             >
               <option value="">None</option>
               {remotes.map(remote => (
@@ -294,7 +285,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
           <div className="ws-upstream-main">
             <div className="ws-upstream-name">Remove workspace</div>
             <div className="ws-upstream-sub">
-              Removes it from ByteQuay only — the local checkout stays on disk.
+              Stops watching this repository and removes its workspace record.
             </div>
           </div>
           <button
@@ -302,8 +293,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
             className="ws-btn-danger"
             onClick={() => {
               if (!window.confirm(`Remove ${draft.name} from ByteQuay?`)) return;
-              removeWorkspace(draft.id);
-              onRemoved();
+              void window.bridge.removeWorkspace(draft.id).then(onRemoved);
             }}
           >
             Remove…

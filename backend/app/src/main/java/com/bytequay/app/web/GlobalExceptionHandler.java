@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
@@ -123,6 +124,14 @@ public class GlobalExceptionHandler
                 request.getRequestURI());
     }
 
+    @ExceptionHandler(WorkspaceException.class)
+    public ResponseEntity<WorkspaceErrorResponse> handleWorkspaceException(WorkspaceException exception)
+    {
+        return ResponseEntity.status(exception.status())
+                .body(new WorkspaceErrorResponse(
+                        exception.code(), exception.getMessage(), exception.retryable()));
+    }
+
     /**
      * The client closed the connection before we finished writing the
      * response (a broken pipe — e.g. the request timed out,
@@ -170,4 +179,6 @@ public class GlobalExceptionHandler
     }
 
     public record ErrorResponse(Instant timestamp, int status, String message, String path) {}
+
+    public record WorkspaceErrorResponse(String code, String message, boolean retryable) {}
 }

@@ -145,9 +145,33 @@ export type PullTimelinePayloadDto = {
 };
 
 export type WatchedRepoDto = {
-  id: number;
+  id: string;
   owner: string;
   repo: string;
+  displayOrder: number;
+};
+
+export type WorkspaceDto = {
+  id: string;
+  name: string;
+  selectedRepositoryId: number;
+  selectedOwner: string;
+  selectedRepo: string;
+  upstreamRepositoryId: number | null;
+  upstreamOwner: string | null;
+  upstreamRepo: string | null;
+  monitoredRepositoryId: number;
+  monitoredOwner: string;
+  monitoredRepo: string;
+  topology: 'DIRECT' | 'FORK';
+  defaultBranch: string;
+  localRepositoryPath: string;
+  codeState: 'PENDING' | 'CLONING' | 'READY' | 'SYNCING' | 'FAILED';
+  metadataState: 'PENDING' | 'SYNCING' | 'READY' | 'FAILED';
+  lastCodeSyncAt: string | null;
+  lastMetadataSyncAt: string | null;
+  codeError: string | null;
+  metadataError: string | null;
   displayOrder: number;
 };
 
@@ -200,10 +224,14 @@ export type UserCommitDto = {
 };
 
 export type UserRepoDto = {
+  id: number;
   owner: string;
   name: string;
   fullName: string;
   description: string | null;
+  fork: boolean;
+  defaultBranch: string | null;
+  cloneUrl: string | null;
 };
 
 export type RecentEventDto = {
@@ -395,6 +423,10 @@ export type Bridge = {
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;
   addWatchedRepo: (owner: string, repo: string) => Promise<WatchedRepoDto>;
   removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
+  listWorkspaces: () => Promise<WorkspaceDto[]>;
+  getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
+  syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
+  removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;

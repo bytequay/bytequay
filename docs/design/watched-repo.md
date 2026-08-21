@@ -72,6 +72,15 @@ model. The Home grid and Workspaces list query the same workspace records:
 The existing `WatchedRepo` table can be migrated in place or replaced, but there is only one
 authoritative persisted identity after migration. Renderer `localStorage` is not authoritative.
 
+Checkpoint 1 uses a replacement `workspaces` table so Hibernate never has to add required routing
+columns to an existing SQLite table. On the first workspace list, each legacy `watched_repos` row
+is resolved through GitHub to obtain its stable repository ID and direct/fork routing. ByteQuay
+inserts or finds the idempotent workspace with the retained `displayOrder`, then deletes that
+legacy row only after the workspace exists. A failed lookup leaves the legacy row intact and the
+migration retries on a later list. The renderer no longer reads or writes
+`bytequay.workspaces`; stale localStorage data is ignored rather than imported because its
+user-selected paths are outside the managed-checkout ownership model.
+
 ### Repository identity and upstream cardinality
 
 These are persistence invariants, not UI conventions:
@@ -318,16 +327,15 @@ public interface WorkspaceRepositoryService
     WorkspaceRepositoryContext requireReadyRepository(String workspaceId);
 
     /**
-     * Requests asynchronous code, metadata, or full synchronization.
+     * Requests asynchronous code and metadata synchronization.
      *
      * <p>The request is idempotent while an equivalent synchronization is already
      * active. The returned workspace exposes the accepted state immediately.</p>
      *
      * @param workspaceId ByteQuay workspace ID
-     * @param scope requested synchronization scope
      * @return workspace state after the request is accepted
      */
-    Workspace requestSync(String workspaceId, WorkspaceSyncScope scope);
+    Workspace requestSync(String workspaceId);
 
     /**
      * Stops watching and removes a workspace from ByteQuay.

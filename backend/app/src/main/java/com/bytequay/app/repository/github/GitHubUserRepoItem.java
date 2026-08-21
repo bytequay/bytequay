@@ -18,11 +18,25 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubUserRepoItem(
+        long id,
         String name,
         @JsonProperty("full_name") String fullName,
         Owner owner,
-        String description)
+        String description,
+        boolean fork,
+        @JsonProperty("default_branch") String defaultBranch,
+        @JsonProperty("clone_url") String cloneUrl,
+        Repository parent,
+        Repository source)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Owner(String login) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Repository(
+            long id,
+            String name,
+            Owner owner,
+            @JsonProperty("default_branch") String defaultBranch,
+            @JsonProperty("clone_url") String cloneUrl) {}
 }

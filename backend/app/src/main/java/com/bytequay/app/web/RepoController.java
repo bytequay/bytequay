@@ -14,6 +14,9 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.workspace.WatchRepositoryCommand;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentEvent;
@@ -21,7 +24,7 @@ import com.bytequay.core.domain.RepoMeta;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
-import com.bytequay.core.domain.WatchedRepo;
+import com.bytequay.core.domain.Workspace;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,8 +38,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -44,33 +49,40 @@ import static java.util.Objects.requireNonNull;
 public class RepoController
 {
     private final RepoService repos;
+    private final WorkspaceRepositoryService workspaces;
 
-    public RepoController(RepoService repos)
+    public RepoController(RepoService repos, WorkspaceRepositoryService workspaces)
     {
         this.repos = requireNonNull(repos, "repos is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
     @GetMapping("/repos")
-    public List<WatchedRepo> listRepos()
+    public List<WatchedRepoView> listRepos()
     {
-        return repos.listWatchedRepos();
+        return workspaces.listWorkspaces().stream().map(WatchedRepoView::of).collect(toImmutableList());
     }
 
     @PostMapping("/repos")
-    public WatchedRepo addRepo(@RequestBody AddRepoRequest request)
+    public WatchedRepoView addRepo(@RequestBody AddRepoRequest request)
     {
         if (request == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
         }
         requireNotBlank(request.owner(), "owner is required");
         requireNotBlank(request.repo(), "repo is required");
-        return repos.addWatchedRepo(request.owner(), request.repo());
+        return WatchedRepoView.of(workspaces.watch(new WatchRepositoryCommand(
+                request.owner(), request.repo(), Optional.empty())));
     }
 
     @DeleteMapping("/repos/{owner}/{repo}")
     public Map<String, String> removeRepo(@PathVariable String owner, @PathVariable String repo)
     {
-        repos.removeWatchedRepo(owner, repo);
+        workspaces.listWorkspaces().stream()
+                .filter(workspace -> workspace.selectedOwner().equalsIgnoreCase(owner)
+                        && workspace.selectedRepo().equalsIgnoreCase(repo))
+                .findFirst()
+                .ifPresent(workspace -> workspaces.unwatch(workspace.id()));
         return Map.of("result", "removed");
     }
 
@@ -134,4 +146,21 @@ public class RepoController
     }
 
     public record AddRepoRequest(String owner, String repo) {}
+
+    public record WatchedRepoView(String id, String owner, String repo, int displayOrder)
+    {
+        static WatchedRepoView of(WorkspaceSummary workspace)
+        {
+            return new WatchedRepoView(
+                    workspace.id(),
+                    workspace.selectedOwner(),
+                    workspace.selectedRepo(),
+                    workspace.displayOrder());
+        }
+
+        static WatchedRepoView of(Workspace workspace)
+        {
+            return of(WorkspaceSummary.of(workspace));
+        }
+    }
 }

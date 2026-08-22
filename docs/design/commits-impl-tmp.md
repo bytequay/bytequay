@@ -1,6 +1,6 @@
 # Commit History and Refresh Implementation Checklist
 
-Status: planned; awaiting checklist review before implementation begins.
+Status: implementation in progress.
 
 Canonical behavior is defined in
 [Commit History and Refresh Design](commits.md). A box is checked only when the
@@ -106,29 +106,29 @@ URL.
 
 ### Cache and endpoint
 
-- [ ] Add one concrete `AvatarCache` below ByteQuay's application-data root.
-- [ ] Derive fixed-format keys from a digest of the source URL.
-- [ ] Write a downloaded image to a temporary file and atomically move it into
+- [x] Add one concrete `AvatarCache` below ByteQuay's application-data root.
+- [x] Derive fixed-format keys from a digest of the source URL.
+- [x] Write a downloaded image to a temporary file and atomically move it into
   place only after a successful bounded response.
-- [ ] Reuse an existing file for repeated authors/URLs.
-- [ ] Add `GET /api/avatars/{key}` that serves only an existing local file with
+- [x] Reuse an existing file for repeated authors/URLs.
+- [x] Add `GET /api/avatars/{key}` that serves only an existing local file with
   a stable content type and `ETag`.
-- [ ] Reject malformed keys and prove path traversal cannot escape the cache
+- [x] Reject malformed keys and prove path traversal cannot escape the cache
   root.
-- [ ] Return missing for an absent file without downloading from the read
+- [x] Return missing for an absent file without downloading from the read
   endpoint.
 
 ### Tests and gate
 
-- [ ] Cache tests cover first write, deduplication, failed download, and atomic
+- [x] Cache tests cover first write, deduplication, failed download, and atomic
   replacement behavior.
-- [ ] Controller tests cover local success, missing key, malformed key, and
+- [x] Controller tests cover local success, missing key, malformed key, and
   traversal attempts.
-- [ ] A test proves the avatar GET path makes zero remote calls.
+- [x] A test proves the avatar GET path makes zero remote calls.
 
 Checkpoint gate:
 
-- [ ] A cached avatar is readable after cache reconstruction with networking
+- [x] A cached avatar is readable after cache reconstruction with networking
   disabled.
 
 Suggested commit: `Cache commit avatars locally`

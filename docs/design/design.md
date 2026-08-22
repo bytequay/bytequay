@@ -28,6 +28,9 @@ The design deliberately separates current behavior from future implementation.
   target-presence detection, pull-request grouping and skip selection,
   conflict scope, immutable confirmation, local execution handoff, and final
   range review.
+- [Commit History and Refresh](commits.md) specifies local-only commit display,
+  durable commit-to-PR and avatar enrichment, scheduled and manual refresh,
+  backend service contracts, and the renderer call chain.
 - [Watched Repository / Workspace](watched-repo.md) specifies how watching a
   GitHub repository creates a durable workspace, provisions direct and fork
   repository routing, opens Workspace Home, and connects Commits to the

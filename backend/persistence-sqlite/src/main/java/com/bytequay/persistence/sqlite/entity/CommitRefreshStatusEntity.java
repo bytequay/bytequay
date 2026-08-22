@@ -1,0 +1,65 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.persistence.sqlite.entity;
+
+import com.bytequay.core.domain.CommitRefreshStatus.State;
+import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import java.time.Instant;
+
+@Entity
+@Table(name = "commit_refresh_status")
+public class CommitRefreshStatusEntity
+{
+    @Id
+    @Column(name = "workspace_id", nullable = false)
+    private String workspaceId;
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private State state;
+
+    @Column(name = "last_attempt_at")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant lastAttemptAt;
+
+    @Column(name = "last_succeeded_at")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant lastSucceededAt;
+
+    @Column(columnDefinition = "TEXT")
+    private String error;
+
+    public String getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+
+    public State getState() { return state; }
+    public void setState(State state) { this.state = state; }
+
+    public Instant getLastAttemptAt() { return lastAttemptAt; }
+    public void setLastAttemptAt(Instant lastAttemptAt) { this.lastAttemptAt = lastAttemptAt; }
+
+    public Instant getLastSucceededAt() { return lastSucceededAt; }
+    public void setLastSucceededAt(Instant lastSucceededAt) { this.lastSucceededAt = lastSucceededAt; }
+
+    public String getError() { return error; }
+    public void setError(String error) { this.error = error; }
+}

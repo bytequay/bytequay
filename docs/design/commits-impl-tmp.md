@@ -64,37 +64,37 @@ Goal: establish the durable local projection without changing runtime display.
 
 ### Core contracts
 
-- [ ] Add `CommitEnrichment`, `CommitEnrichmentSnapshot`, and
+- [x] Add `CommitEnrichment`, `CommitEnrichmentSnapshot`, and
   `CommitRefreshStatus` as framework-free `core` domain values.
-- [ ] Add the narrow `CommitHistoryStore` port with the documented named
+- [x] Add the narrow `CommitHistoryStore` port with the documented named
   request/response types from `commits.md`.
-- [ ] Validate repository ID, SHA, optional PR fields, timestamps, and state
+- [x] Validate repository ID, SHA, optional PR fields, timestamps, and state
   transitions at domain boundaries.
 
 ### SQLite adapter
 
-- [ ] Add one enrichment entity keyed by stable repository ID plus commit SHA.
-- [ ] Add one refresh-state entity keyed by workspace ID.
-- [ ] Implement batched enrichment reads and non-destructive upserts.
-- [ ] Preserve `lastSucceededAt` and previous enrichment when a later attempt
+- [x] Add one enrichment entity keyed by stable repository ID plus commit SHA.
+- [x] Add one refresh-state entity keyed by workspace ID.
+- [x] Implement batched enrichment reads and non-destructive upserts.
+- [x] Preserve `lastSucceededAt` and previous enrichment when a later attempt
   fails.
-- [ ] Use the existing Hibernate schema-update convention; do not add a
+- [x] Use the existing Hibernate schema-update convention; do not add a
   migration framework.
 
 ### Tests and gate
 
-- [ ] Persistence round-trip covers positive PR association, checked negative
+- [x] Persistence round-trip covers positive PR association, checked negative
   association, avatar key, and timestamps.
-- [ ] Upserting one SHA does not replace unrelated SHAs.
-- [ ] Stable repository ID continues to find enrichment after repository
+- [x] Upserting one SHA does not replace unrelated SHAs.
+- [x] Stable repository ID continues to find enrichment after repository
   coordinates change.
-- [ ] Restart-style SQLite test reloads association and refresh state from a
+- [x] Restart-style SQLite test reloads association and refresh state from a
   new store instance.
-- [ ] Failed-state update retains the previous success time.
+- [x] Failed-state update retains the previous success time.
 
 Checkpoint gate:
 
-- [ ] Durable enrichment and refresh state work independently of controllers,
+- [x] Durable enrichment and refresh state work independently of controllers,
   GitHub clients, and the renderer.
 
 Suggested commit: `Persist commit history enrichment`

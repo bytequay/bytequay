@@ -43,6 +43,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -919,8 +920,8 @@ class TestCherryPickExecutionService
                         conflict.stages().stream()
                                 .map(stage -> new CherryPickItem.IndexStage(
                                         stage.stage(), stage.mode(), stage.blobSha()))
-                                .toList()))
-                .toList();
+                                .collect(toImmutableList())))
+                .collect(toImmutableList());
     }
 
     private CherryPickExecution start(String baseRef, List<String> skipped)

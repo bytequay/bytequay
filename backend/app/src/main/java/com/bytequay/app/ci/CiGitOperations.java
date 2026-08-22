@@ -43,6 +43,7 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.REJECTED;
 import static com.bytequay.app.ci.CiPushResult.Outcome.RETRYABLE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.UNCERTAIN;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -144,7 +145,7 @@ public final class CiGitOperations
             List<String> changedPaths = changedPaths(worktree, command.baseSha(), head);
             List<String> commitSubjects = commits(worktree, command.baseSha(), head).stream()
                     .map(Commit::subject)
-                    .toList();
+                    .collect(toImmutableList());
             return CiGitInspection.ready(
                     head,
                     fingerprint(worktree, command.headRef(), head),

@@ -43,6 +43,7 @@ import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -53,12 +54,12 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -331,7 +332,7 @@ final class CiAutofixE2eHarness
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("message", message))))
+                        .content(objectMapper.writeValueAsString(ImmutableMap.of("message", message))))
                 .andExpect(status().isAccepted())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsByteArray());
@@ -361,7 +362,7 @@ final class CiAutofixE2eHarness
                 agent.cancellations(),
                 taskId.map(value -> events.readAfter(value, 0, 100).stream()
                         .map(event -> event.event().kind().name())
-                        .toList()).orElse(ImmutableList.of()),
+                        .collect(toImmutableList())).orElse(ImmutableList.of()),
                 taskId.map(this::runtimeFiles).orElse(ImmutableList.of()),
                 E2eGitRepository.git(
                         run.scope().worktree(),
@@ -400,7 +401,7 @@ final class CiAutofixE2eHarness
                     .map(Path::toString)
                     .sorted()
                     .limit(100)
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (IOException e) {
             return ImmutableList.of("runtime files unavailable: " + e.getClass().getSimpleName());
@@ -420,7 +421,7 @@ final class CiAutofixE2eHarness
             boolean allowExactLeasePush)
             throws Exception
     {
-        return objectMapper.writeValueAsString(Map.of(
+        return objectMapper.writeValueAsString(ImmutableMap.of(
                 "repository", fixture.repository().pullRequest().repoFullName(),
                 "pullRequestNumber", fixture.repository().pullRequest().number(),
                 "worktree", fixture.repository().worktree().toString(),

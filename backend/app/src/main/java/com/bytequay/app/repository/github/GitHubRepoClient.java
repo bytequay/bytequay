@@ -20,6 +20,8 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -34,6 +36,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -63,7 +66,7 @@ public class GitHubRepoClient
                         value.login(),
                         Optional.ofNullable(value.avatarUrl()).orElse(""),
                         "Bot".equalsIgnoreCase(value.type()) || value.login().endsWith("[bot]")))
-                .toList();
+                .collect(toImmutableList());
     }
 
     public List<RepositoryLabel> fetchLabels(String pat, RepoRef repo)
@@ -78,7 +81,7 @@ public class GitHubRepoClient
                 .filter(value -> value.name() != null && !value.name().isBlank())
                 .map(value -> new RepositoryLabel(
                         value.id(), value.name(), Optional.ofNullable(value.color()).orElse("")))
-                .toList();
+                .collect(toImmutableList());
     }
 
     public List<String> fetchTopics(String pat, RepoRef repo)
@@ -94,7 +97,7 @@ public class GitHubRepoClient
                 throw new ResponseStatusException(
                         HttpStatusCode.valueOf(502), "Empty response from GitHub /repos");
             }
-            return List.copyOf(Optional.ofNullable(response.topics()).orElse(List.of()));
+            return ImmutableList.copyOf(Optional.ofNullable(response.topics()).orElse(ImmutableList.of()));
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -121,18 +124,18 @@ public class GitHubRepoClient
                         Optional.ofNullable(value.user()).map(IssueUser::login).orElse("unknown"),
                         Optional.ofNullable(value.user()).map(IssueUser::avatarUrl).orElse(""),
                         Optional.ofNullable(value.htmlUrl()).orElse(""),
-                        Optional.ofNullable(value.labels()).orElse(List.of()).stream()
+                        Optional.ofNullable(value.labels()).orElse(ImmutableList.of()).stream()
                                 .map(IssueLabel::name)
                                 .filter(Objects::nonNull)
-                                .toList(),
-                        Optional.ofNullable(value.assignees()).orElse(List.of()).stream()
+                                .collect(toImmutableList()),
+                        Optional.ofNullable(value.assignees()).orElse(ImmutableList.of()).stream()
                                 .map(IssueUser::login)
                                 .filter(Objects::nonNull)
-                                .toList(),
+                                .collect(toImmutableList()),
                         Math.max(0, value.comments()),
                         value.createdAt(),
                         value.updatedAt()))
-                .toList();
+                .collect(toImmutableList());
     }
 
     public RepoMeta fetchRepoMeta(String pat, RepoRef repo)
@@ -173,7 +176,7 @@ public class GitHubRepoClient
                     response.size(),
                     response.createdAt(),
                     response.pushedAt(),
-                    Optional.ofNullable(response.topics()).orElse(List.of()),
+                    Optional.ofNullable(response.topics()).orElse(ImmutableList.of()),
                     languages,
                     Optional.ofNullable(response.owner())
                             .map(GitHubRepoResponse.Owner::avatarUrl)
@@ -196,10 +199,10 @@ public class GitHubRepoClient
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
-            return languages == null ? Map.of() : languages;
+            return languages == null ? ImmutableMap.of() : languages;
         }
         catch (RestClientResponseException ignored) {
-            return Map.of();
+            return ImmutableMap.of();
         }
     }
 

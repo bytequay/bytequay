@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
@@ -137,7 +138,7 @@ final class E2eGitRepository
     List<String> commitSubjects()
     {
         String output = git(worktree, "log", "--reverse", "--format=%s", baseSha + "..HEAD");
-        return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().toList());
+        return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().collect(toImmutableList()));
     }
 
     int headRefUpdates()
@@ -251,7 +252,7 @@ final class E2eGitRepository
 
     static String git(Path directory, String... arguments)
     {
-        ImmutableList<String> command = ImmutableList.<String>builder()
+        List<String> command = ImmutableList.<String>builder()
                 .add("git", "-C", directory.toString())
                 .add(arguments)
                 .build();

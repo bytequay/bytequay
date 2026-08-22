@@ -28,6 +28,9 @@ import com.bytequay.core.domain.RepoUser;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -45,7 +48,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
@@ -53,6 +55,8 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableExce
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -78,7 +82,7 @@ public class GitHubPullRequestReadClient
     private static final Pattern SHORT_ISSUE_REFERENCE = Pattern.compile(
             "(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
     private static final Set<String> ATTENTION_REASONS =
-            Set.of("review_requested", "mention");
+            ImmutableSet.of("review_requested", "mention");
 
     public List<PullRequest> searchPullRequests(String pat, String query) {
         return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
@@ -98,7 +102,7 @@ public class GitHubPullRequestReadClient
                         user.login(),
                         user.avatarUrl(),
                         "Bot".equalsIgnoreCase(user.type()) || user.login().endsWith("[bot]")))
-                .toList();
+                .collect(toImmutableList());
     }
 
     public PullRequestHistoryPage searchPullRequestsPaged(
@@ -134,14 +138,14 @@ public class GitHubPullRequestReadClient
                             .body(GitHubSearchResponse.class);
             if (response == null || response.items() == null) {
                 return new PullRequestHistoryPage(
-                        List.of(), safePage, safePerPage, 0, false);
+                        ImmutableList.of(), safePage, safePerPage, 0, false);
             }
             PullRequest.Origin origin =
                     query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
             List<PullRequest> items =
                     response.items().stream()
                             .map(item -> toPullRequest(item, origin))
-                            .toList();
+                            .collect(toImmutableList());
             // GitHub caps search at 1000 results, so a page that runs off
             // the end either by total or by the cap should report no more.
             int loadedSoFar = (safePage - 1) * safePerPage + items.size();
@@ -176,24 +180,24 @@ public class GitHubPullRequestReadClient
                 return null;
             }
             List<String> labels =
-                    Optional.ofNullable(r.labels()).orElse(List.of()).stream()
+                    Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
                             .map(GitHubPullRequestDetailResponse.Label::name)
-                            .toList();
-            Map<String, String> labelColors = Optional.ofNullable(r.labels()).orElse(List.of()).stream()
+                            .collect(toImmutableList());
+            Map<String, String> labelColors = Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
                     .filter(label -> label.name() != null && label.color() != null)
-                    .collect(Collectors.toUnmodifiableMap(
+                    .collect(toImmutableMap(
                             GitHubPullRequestDetailResponse.Label::name,
                             GitHubPullRequestDetailResponse.Label::color,
                             (left, right) -> left));
-            List<String> assignees = Optional.ofNullable(r.assignees()).orElse(List.of()).stream()
+            List<String> assignees = Optional.ofNullable(r.assignees()).orElse(ImmutableList.of()).stream()
                     .map(GitHubPullRequestDetailResponse.Assignee::login)
                     .filter(Objects::nonNull)
-                    .toList();
+                    .collect(toImmutableList());
             List<String> reviewerLogins =
-                    Optional.ofNullable(r.requestedReviewers()).orElse(List.of()).stream()
+                    Optional.ofNullable(r.requestedReviewers()).orElse(ImmutableList.of()).stream()
                             .map(GitHubPullRequestDetailResponse.RequestedReviewer::login)
                             .filter(Objects::nonNull)
-                            .toList();
+                            .collect(toImmutableList());
             int reviewerCount = reviewerLogins.size();
             String headSha =
                     Optional.ofNullable(r.head())
@@ -250,7 +254,7 @@ public class GitHubPullRequestReadClient
         if (body == null || body.isBlank()) {
             return body;
         }
-        return applyIssueReferenceReplacements(body, resolveIssueReferences(pat, pr, List.of(body)));
+        return applyIssueReferenceReplacements(body, resolveIssueReferences(pat, pr, ImmutableList.of(body)));
     }
 
     public List<PrTimelineEvent> enrichTimelineReferences(
@@ -267,7 +271,7 @@ public class GitHubPullRequestReadClient
         }
         return timeline.stream()
                 .map(event -> withIssueReferenceReplacements(event, replacements))
-                .toList();
+                .collect(toImmutableList());
     }
 
     private Map<String, String> resolveIssueReferences(
@@ -290,7 +294,7 @@ public class GitHubPullRequestReadClient
             }
         }
         if (references.isEmpty()) {
-            return Map.of();
+            return ImmutableMap.of();
         }
 
         StringBuilder query = new StringBuilder("query(");
@@ -315,7 +319,7 @@ public class GitHubPullRequestReadClient
         try {
             JsonNode response = graphQlRestClient.post()
                     .header("Authorization", authorization(pat))
-                    .body(Map.of("query", query.toString(), "variables", variables))
+                    .body(ImmutableMap.of("query", query.toString(), "variables", variables))
                     .retrieve()
                     .body(JsonNode.class);
             Map<String, String> replacements = new LinkedHashMap<>();
@@ -342,7 +346,7 @@ public class GitHubPullRequestReadClient
             return replacements;
         }
         catch (RestClientResponseException ignored) {
-            return Map.of();
+            return ImmutableMap.of();
         }
     }
 
@@ -362,7 +366,7 @@ public class GitHubPullRequestReadClient
                             comment.timestamp(), commentBody, comment.htmlUrl(), comment.reviewId(),
                             comment.inReplyToId(), comment.reactions());
                 })
-                .toList();
+                .collect(toImmutableList());
         if (Objects.equals(event.body(), body) && comments.equals(payload.comments())) {
             return event;
         }
@@ -427,10 +431,10 @@ public class GitHubPullRequestReadClient
                             r.submittedAt(),
                             r.body(),
                             r.htmlUrl()))
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
-            return List.of();
+            return ImmutableList.of();
         }
     }
 
@@ -452,7 +456,7 @@ public class GitHubPullRequestReadClient
                                             f.additions(),
                                             f.deletions(),
                                             f.patch()))
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -482,7 +486,7 @@ public class GitHubPullRequestReadClient
                         pr.number())
                 .stream()
                 .map(GitHubPullRequestReadClient::toTimelineEvent)
-                .toList();
+                .collect(toImmutableList());
         if (timeline.stream().noneMatch(event -> "reviewed".equals(event.event()))) {
             return timeline;
         }
@@ -492,7 +496,7 @@ public class GitHubPullRequestReadClient
                     .map(event -> event.githubId() == null
                             ? event
                             : withReviewReactions(event, reactions.get(event.githubId())))
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException ignored) {
             return timeline;
@@ -523,7 +527,7 @@ public class GitHubPullRequestReadClient
             variables.put("after", cursor);
             GitHubReviewReactionsResponse response = graphQlRestClient.post()
                     .header("Authorization", authorization(pat))
-                    .body(Map.of("query", query, "variables", variables))
+                    .body(ImmutableMap.of("query", query, "variables", variables))
                     .retrieve()
                     .body(GitHubReviewReactionsResponse.class);
             GitHubReviewReactionsResponse.Reviews reviews = Optional.ofNullable(response)
@@ -535,14 +539,14 @@ public class GitHubPullRequestReadClient
             if (reviews == null) {
                 break;
             }
-            for (GitHubReviewReactionsResponse.Review review : Optional.ofNullable(reviews.nodes()).orElse(List.of())) {
+            for (GitHubReviewReactionsResponse.Review review : Optional.ofNullable(reviews.nodes()).orElse(ImmutableList.of())) {
                 if (review.databaseId() == null) {
                     continue;
                 }
-                List<PrReaction> counts = Optional.ofNullable(review.reactionGroups()).orElse(List.of()).stream()
+                List<PrReaction> counts = Optional.ofNullable(review.reactionGroups()).orElse(ImmutableList.of()).stream()
                         .filter(group -> group.users() != null && group.users().totalCount() > 0)
                         .map(group -> new PrReaction(reactionContent(group.content()), group.users().totalCount()))
-                        .toList();
+                        .collect(toImmutableList());
                 if (!counts.isEmpty()) {
                     out.put(review.databaseId(), counts);
                 }
@@ -553,7 +557,7 @@ public class GitHubPullRequestReadClient
             }
             cursor = pageInfo.endCursor();
         }
-        return Map.copyOf(out);
+        return ImmutableMap.copyOf(out);
     }
 
     private static PrTimelineEvent withReviewReactions(PrTimelineEvent event, List<PrReaction> reactions)
@@ -600,7 +604,7 @@ public class GitHubPullRequestReadClient
                         pr.number())
                 .stream()
                 .map(GitHubPullRequestReadClient::toCommentedTimelineEvent)
-                .toList();
+                .collect(toImmutableList());
     }
 
     private static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c) {
@@ -619,7 +623,7 @@ public class GitHubPullRequestReadClient
                         null, null, null, null, null, null, null, null, null, null,
                         null, null, null, null, null, null, null, false, false,
                         toReactions(c.reactions()),
-                        List.of()),
+                        ImmutableList.of()),
                 Optional.empty());
     }
 
@@ -684,7 +688,7 @@ public class GitHubPullRequestReadClient
                         false,
                         false,
                         toReactions(event.reactions()),
-                        List.of()),
+                        ImmutableList.of()),
                 Optional.empty());
     }
 
@@ -698,7 +702,7 @@ public class GitHubPullRequestReadClient
                         pr.repo(),
                         pr.number()).stream()
                 .map(GitHubPullRequestReadClient::toCommittedTimelineEvent)
-                .toList();
+                .collect(toImmutableList());
     }
 
     private static PrTimelineEvent toCommittedTimelineEvent(GitHubPullRequestCommit commit)
@@ -725,7 +729,7 @@ public class GitHubPullRequestReadClient
                         commit.sha(),
                         Optional.ofNullable(commit.commit()).map(GitHubPullRequestCommit.Commit::message).orElse(null),
                         null, null, null, null, null, null, null, null, null, null, null,
-                        false, false, List.of(), List.of()),
+                        false, false, ImmutableList.of(), ImmutableList.of()),
                 Optional.empty());
     }
 
@@ -739,7 +743,7 @@ public class GitHubPullRequestReadClient
                 pr.repo(),
                 pr.number());
         if (comments.isEmpty()) {
-            return List.of();
+            return ImmutableList.of();
         }
         Map<Long, ReviewThreadFacts> facts = fetchReviewThreadFacts(pat, pr);
         Map<Long, Long> roots = new LinkedHashMap<>();
@@ -756,7 +760,7 @@ public class GitHubPullRequestReadClient
         return grouped.values().stream()
                 .map(thread -> toReviewThreadEvent(thread, facts.get(thread.getFirst().id())))
                 .sorted(Comparator.comparing(event -> Optional.ofNullable(event.timestamp()).orElse(Instant.EPOCH)))
-                .toList();
+                .collect(toImmutableList());
     }
 
     private Map<Long, ReviewThreadFacts> fetchReviewThreadFacts(String pat, PullRequestRef pr)
@@ -786,17 +790,17 @@ public class GitHubPullRequestReadClient
             try {
                 GitHubReviewThreadsResponse response = graphQlRestClient.post()
                         .header("Authorization", authorization(pat))
-                        .body(Map.of("query", query, "variables", variables))
+                        .body(ImmutableMap.of("query", query, "variables", variables))
                         .retrieve()
                         .body(GitHubReviewThreadsResponse.class);
                 GitHubReviewThreadsResponse.ReviewThreads threads = reviewThreads(response);
                 if (threads == null) {
                     break;
                 }
-                for (GitHubReviewThreadsResponse.Thread thread : Optional.ofNullable(threads.nodes()).orElse(List.of())) {
+                for (GitHubReviewThreadsResponse.Thread thread : Optional.ofNullable(threads.nodes()).orElse(ImmutableList.of())) {
                     Long rootId = Optional.ofNullable(thread.comments())
                             .map(GitHubReviewThreadsResponse.Comments::nodes)
-                            .orElse(List.of()).stream()
+                            .orElse(ImmutableList.of()).stream()
                             .map(GitHubReviewThreadsResponse.Comment::databaseId)
                             .filter(Objects::nonNull)
                             .findFirst()
@@ -823,7 +827,7 @@ public class GitHubPullRequestReadClient
                 throw toReadableException(e);
             }
         }
-        return Map.copyOf(facts);
+        return ImmutableMap.copyOf(facts);
     }
 
     private static GitHubReviewThreadsResponse.ReviewThreads reviewThreads(
@@ -856,7 +860,7 @@ public class GitHubPullRequestReadClient
                 : facts;
         List<PrTimelineComment> replies = thread.stream()
                 .map(GitHubPullRequestReadClient::toTimelineComment)
-                .toList();
+                .collect(toImmutableList());
         return new PrTimelineEvent(
                 root.id(),
                 "review_thread",
@@ -878,7 +882,7 @@ public class GitHubPullRequestReadClient
                         effective.side(),
                         effective.resolved(),
                         effective.outdated(),
-                        List.of(),
+                        ImmutableList.of(),
                         replies),
                 Optional.empty());
     }
@@ -902,7 +906,7 @@ public class GitHubPullRequestReadClient
     private static List<PrReaction> toReactions(GitHubReactions reactions)
     {
         if (reactions == null) {
-            return List.of();
+            return ImmutableList.of();
         }
         Map<String, Integer> counts = new LinkedHashMap<>();
         counts.put("+1", reactions.plusOne());
@@ -916,7 +920,7 @@ public class GitHubPullRequestReadClient
         return counts.entrySet().stream()
                 .filter(entry -> entry.getValue() > 0)
                 .map(entry -> new PrReaction(entry.getKey(), entry.getValue()))
-                .toList();
+                .collect(toImmutableList());
     }
 
     private record ReviewThreadFacts(
@@ -977,12 +981,12 @@ public class GitHubPullRequestReadClient
                             .retrieve()
                             .body(new ParameterizedTypeReference<>() {});
             if (notifications == null) {
-                return List.of();
+                return ImmutableList.of();
             }
             return notifications.stream()
                     .map(GitHubPullRequestReadClient::attentionPrRef)
                     .flatMap(Optional::stream)
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -1014,23 +1018,23 @@ public class GitHubPullRequestReadClient
 
     private static PullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
         List<GitHubRepoPullRequestItem.Label> rawLabels =
-                Optional.ofNullable(item.labels()).orElse(List.of());
+                Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         List<String> labels =
                 rawLabels.stream()
                         .map(GitHubRepoPullRequestItem.Label::name)
-                        .toList();
+                        .collect(toImmutableList());
         Map<String, String> labelColors =
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
                         .collect(
-                                Collectors.toUnmodifiableMap(
+                                toImmutableMap(
                                         GitHubRepoPullRequestItem.Label::name,
                                         GitHubRepoPullRequestItem.Label::color,
                                         (a, b) -> a));
         List<String> reviewers =
-                Optional.ofNullable(item.requestedReviewers()).orElse(List.of()).stream()
+                Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
                         .map(GitHubRepoPullRequestItem.RequestedReviewer::login)
-                        .toList();
+                        .collect(toImmutableList());
         String author =
                 Optional.ofNullable(item.user())
                         .map(GitHubRepoPullRequestItem.User::login)
@@ -1090,14 +1094,14 @@ public class GitHubPullRequestReadClient
     // ── Helpers ───────────────────────────────────────────────────────────────
     static PullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin) {
         List<GitHubSearchResponse.Label> rawLabels =
-                Optional.ofNullable(item.labels()).orElse(List.of());
+                Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         List<String> labels =
-                rawLabels.stream().map(GitHubSearchResponse.Label::name).toList();
+                rawLabels.stream().map(GitHubSearchResponse.Label::name).collect(toImmutableList());
         Map<String, String> labelColors =
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
                         .collect(
-                                Collectors.toUnmodifiableMap(
+                                toImmutableMap(
                                         GitHubSearchResponse.Label::name,
                                         GitHubSearchResponse.Label::color,
                                         (a, b) -> a));
@@ -1119,7 +1123,7 @@ public class GitHubPullRequestReadClient
                 null,
                 null,
                 null,
-                List.of(),
+                ImmutableList.of(),
                 null,
                 0,
                 0,

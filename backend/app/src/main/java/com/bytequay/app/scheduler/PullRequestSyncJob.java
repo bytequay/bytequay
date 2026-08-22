@@ -18,17 +18,18 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -94,10 +95,10 @@ public class PullRequestSyncJob
     private void syncAll()
     {
         synchronizeScope("global dashboard", pullRequestService::syncFromGitHub);
-        ImmutableList<RepoRef> repositories = workspaceStore.findAll().stream()
+        List<RepoRef> repositories = workspaceStore.findAll().stream()
                 .map(Workspace::monitoredRepository)
                 .distinct()
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
         for (RepoRef repository : repositories) {
             synchronizeScope(repository.fullName(), () -> pullRequestService.syncRepository(repository));
         }

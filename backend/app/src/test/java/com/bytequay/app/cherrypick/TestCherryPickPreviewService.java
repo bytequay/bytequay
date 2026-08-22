@@ -32,6 +32,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -92,7 +93,7 @@ class TestCherryPickPreviewService
 
         assertThat(preview.commits()).hasSize(12);
         assertThat(preview.commits().stream().map(CherryPickCommitPreview::position))
-                .containsExactlyElementsOf(IntStream.rangeClosed(1, 12).boxed().toList());
+                .containsExactlyElementsOf(IntStream.rangeClosed(1, 12).boxed().collect(toImmutableList()));
         assertThat(preview.commits().stream().map(CherryPickCommitPreview::title))
                 .containsExactly(IntStream.rangeClosed(1, 12)
                         .mapToObj(index -> "Upstream change " + index)
@@ -113,7 +114,7 @@ class TestCherryPickPreviewService
                 .map(CherryPickCommitPreview::sourceSha))
                 .containsExactlyElementsOf(preview.commits().stream()
                         .map(CherryPickCommitPreview::sourceSha)
-                        .toList());
+                        .collect(toImmutableList()));
     }
 
     @Test

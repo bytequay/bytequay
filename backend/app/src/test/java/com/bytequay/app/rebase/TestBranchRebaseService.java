@@ -56,6 +56,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -611,7 +612,7 @@ class TestBranchRebaseService
                     .filter(rebase -> rebase.status() == Status.RUNNING)
                     .sorted(Comparator.comparing(BranchRebase::updatedAt))
                     .limit(limit)
-                    .toList();
+                    .collect(toImmutableList());
         }
 
         @Override

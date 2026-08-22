@@ -38,6 +38,7 @@ import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,7 +64,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
-import java.util.stream.Collectors;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
@@ -72,6 +72,8 @@ import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -123,7 +125,7 @@ public class PullRequestService
      *  #NOTIFICATION_POLL_INTERVAL} so the search-invisible PRs they surface
      *  stay put; refreshed only past that interval. In-memory only — a restart
      *  just forces one poll on the next sweep. */
-    private volatile List<PullRequest> cachedNotificationPrs = List.of();
+    private volatile List<PullRequest> cachedNotificationPrs = ImmutableList.of();
     private volatile Instant lastNotificationPoll = Instant.EPOCH;
 
     @Autowired
@@ -182,7 +184,7 @@ public class PullRequestService
         String currentLogin = resolveCurrentLogin(pat);
         Map<Long, Instant> previous = store.findByRepository(repository.fullName()).stream()
                 .filter(pullRequest -> pullRequest.updatedAt() != null)
-                .collect(Collectors.toUnmodifiableMap(PullRequest::id, PullRequest::updatedAt));
+                .collect(toImmutableMap(PullRequest::id, PullRequest::updatedAt));
         String qualifier = " repo:" + repository.fullName();
         List<PullRequest> open = searchAllPages(pat, "is:pr is:open" + qualifier);
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
@@ -242,10 +244,10 @@ public class PullRequestService
 
         Set<Long> freshIds = fresh.stream()
                 .map(PullRequest::id)
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
         Set<Long> removedIds = existingUpdatedAt.keySet().stream()
                 .filter(id -> !freshIds.contains(id))
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
         if (!removedIds.isEmpty()) {
             detailStore.deleteByPrIds(removedIds);
             removedIds.forEach(lastBackfillAttempt::remove);
@@ -372,7 +374,7 @@ public class PullRequestService
                 return new StoredPrDetail(
                         cached.raw(),
                         cached.reviews(),
-                        List.copyOf(timeline),
+                        ImmutableList.copyOf(timeline),
                         cached.checkRuns(),
                         cached.unavailableSections());
             });
@@ -402,7 +404,7 @@ public class PullRequestService
     {
         requireNotBlank(event, "review event must not be blank");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
-        if (!Set.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
+        if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
         }
         String reviewBody = body == null ? "" : body.trim();
@@ -550,7 +552,7 @@ public class PullRequestService
         for (PullRequest pr : notificationBackstopPrs(pat, merged.keySet())) {
             merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, REVIEW_REQUESTED));
         }
-        return List.copyOf(merged.values());
+        return ImmutableList.copyOf(merged.values());
     }
 
     /**
@@ -596,7 +598,7 @@ public class PullRequestService
                 log.info("notification PR {} fetch failed: {}", ref.fullName(), e.getMessage());
             }
         }
-        cachedNotificationPrs = List.copyOf(resolved);
+        cachedNotificationPrs = ImmutableList.copyOf(resolved);
         return cachedNotificationPrs;
     }
 
@@ -622,7 +624,7 @@ public class PullRequestService
                 break;
             }
         }
-        return List.copyOf(all);
+        return ImmutableList.copyOf(all);
     }
 
     private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)
@@ -726,7 +728,7 @@ public class PullRequestService
     private void invalidatePullRequestDetail(String repo, int number)
     {
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(id -> detailStore.deleteByPrIds(Set.of(id)));
+                .ifPresent(id -> detailStore.deleteByPrIds(ImmutableSet.of(id)));
     }
 
     private void invalidatePullRequestCaches(String repo, int number)

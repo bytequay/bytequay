@@ -29,6 +29,7 @@ import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +49,7 @@ import java.util.regex.Pattern;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -162,14 +164,14 @@ public class RepoService
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         return accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
                 .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
-                .toList();
+                .collect(toImmutableList());
     }
 
     public List<RecentEvent> getFollowingEvents(String login)
     {
         requireNotBlank(login, "login must not be blank");
         List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
-        return List.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
+        return ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
     }
 
     private static PullRequest overlayViewState(PullRequest pr, PrViewState state)

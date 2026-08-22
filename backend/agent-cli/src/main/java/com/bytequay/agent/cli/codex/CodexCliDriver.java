@@ -46,8 +46,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -68,7 +70,7 @@ public final class CodexCliDriver
     private static final int MAX_APP_SERVER_STDOUT_BYTES = 64 * 1024 * 1024;
     private static final int MAX_APP_SERVER_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROBE_OUTPUT_BYTES = 16 * 1024;
-    private static final ImmutableSet<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
+    private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
             "ALL_PROXY",
             "CODEX_HOME",
             "HOME",
@@ -287,7 +289,7 @@ public final class CodexCliDriver
     }
 
     private ProcessSpec processSpec(
-            ImmutableList<String> argv,
+            List<String> argv,
             Duration maximumRuntime,
             int maximumStdoutBytes,
             int maximumStderrBytes)

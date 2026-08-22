@@ -18,6 +18,7 @@ import com.bytequay.app.git.SequenceState.ConflictedPath;
 import com.bytequay.app.git.SequenceState.ConflictedPath.IndexStage;
 import com.bytequay.app.git.SequenceState.Kind;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -110,7 +112,7 @@ public final class GitSequencerDriver
         }
         git.run(worktree, ImmutableList.<String>builder()
                 .add("add", "-A", "--")
-                .addAll(expectedConflicts.stream().map(ConflictedPath::path).toList())
+                .addAll(expectedConflicts.stream().map(ConflictedPath::path).collect(toImmutableList()))
                 .build());
         SequenceState staged = observe(worktree);
         if (staged.kind() != Kind.STOPPED_RESOLVED
@@ -192,7 +194,7 @@ public final class GitSequencerDriver
                             Kind.COMPLETED, head, Optional.empty(), ImmutableList.of(), "")
                     : unsafe(head, "No Git operation is open but the worktree is not clean");
         }
-        if (!openMarkers.equals(Set.of("CHERRY_PICK_HEAD")) || cherryPickHead.isEmpty()) {
+        if (!openMarkers.equals(ImmutableSet.of("CHERRY_PICK_HEAD")) || cherryPickHead.isEmpty()) {
             return unsafe(head, "Unexpected Git operation in progress: " + String.join(", ", openMarkers));
         }
         if (!conflicts.isEmpty()) {
@@ -327,8 +329,8 @@ public final class GitSequencerDriver
         }
         // The sequencer directory can outlive a completed operation until the next
         // command clears it, so on its own it does not mean work is open.
-        if (open.equals(Set.of("sequencer"))) {
-            return Set.of();
+        if (open.equals(ImmutableSet.of("sequencer"))) {
+            return ImmutableSet.of();
         }
         open.remove("sequencer");
         return open;
@@ -359,7 +361,7 @@ public final class GitSequencerDriver
             return ImmutableList.of();
         }
         Map<String, List<IndexStage>> stages = new LinkedHashMap<>();
-        for (String line : unmerged.output().lines().toList()) {
+        for (String line : unmerged.output().lines().collect(toImmutableList())) {
             int tab = line.indexOf('\t');
             if (tab < 0) {
                 continue;

@@ -22,6 +22,7 @@ import com.bytequay.core.domain.UserRepo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -117,7 +118,7 @@ public class GitHubAccountClient
                         + "  }"
                         + "}";
         Map<String, Object> body =
-                Map.of("query", query, "variables", Map.of("login", login));
+                ImmutableMap.of("query", query, "variables", ImmutableMap.of("login", login));
         try {
             ContributionGqlResponse response =
                     graphqlRestClient
@@ -149,7 +150,7 @@ public class GitHubAccountClient
             ContributionGqlCalendar cal =
                     response.data().user().contributionsCollection().contributionCalendar();
             List<ContributionGqlWeek> rawWeeks =
-                    cal.weeks() != null ? cal.weeks() : List.of();
+                    cal.weeks() != null ? cal.weeks() : ImmutableList.of();
             checkState(!rawWeeks.isEmpty(), "GitHub contribution calendar returned no weeks");
             List<ContributionCalendar.Week> weeks =
                     rawWeeks.stream()
@@ -176,8 +177,8 @@ public class GitHubAccountClient
                                                                                                             .contributionCount(),
                                                                                             d
                                                                                                     .color()))
-                                                                    .toList()))
-                            .toList();
+                                                                    .collect(toImmutableList())))
+                            .collect(toImmutableList());
             int total = cal.totalContributions() == null ? 0 : cal.totalContributions();
             return new ContributionCalendar(total, weeks);
         }
@@ -238,18 +239,18 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(CommitSearchResponse.class);
             if (response == null || response.items() == null) {
-                return List.of();
+                return ImmutableList.of();
             }
             return response.items().stream()
                     .map(GitHubAccountClient::toUserCommitSummary)
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
             // Non-essential affordance — degrade silently rather than
             // breaking the home-page click; the popover renders an
             // empty list.
             log.warn("commit search for {} on {} failed: {}", login, isoDate, e.getMessage());
-            return List.of();
+            return ImmutableList.of();
         }
     }
 
@@ -399,7 +400,7 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(GitHubRepoSearchResponse.class);
             if (response == null || response.items() == null) {
-                return List.of();
+                return ImmutableList.of();
             }
             return response.items().stream()
                     .map(GitHubAccountClient::toUserRepoFromSearch)
@@ -503,16 +504,16 @@ public class GitHubAccountClient
                             .retrieve()
                             .body(new ParameterizedTypeReference<>() {});
             if (items == null) {
-                return List.of();
+                return ImmutableList.of();
             }
             return items.stream()
                     .filter(e -> e.createdAt() != null)
                     .limit(limit)
                     .map(GitHubEventMapper::toRecentEvent)
-                    .toList();
+                    .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
-            return List.of();
+            return ImmutableList.of();
         }
     }
 }

@@ -28,6 +28,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -165,7 +166,7 @@ public class GitBrowseService
     {
         checkArgument(!summary.isBlank(), "summary is blank");
         require(repository, "add", "-A");
-        List<String> arguments = new ArrayList<>(List.of("commit", "-m", summary));
+        List<String> arguments = new ArrayList<>(ImmutableList.of("commit", "-m", summary));
         if (!description.isBlank()) {
             arguments.add("-m");
             arguments.add(description);
@@ -274,7 +275,7 @@ public class GitBrowseService
     private static Map<String, int[]> numstat(String output)
     {
         ImmutableMap.Builder<String, int[]> stats = ImmutableMap.builder();
-        for (String line : output.lines().toList()) {
+        for (String line : output.lines().collect(toImmutableList())) {
             String[] fields = line.split("\t");
             if (fields.length < 3) {
                 continue;
@@ -317,7 +318,7 @@ public class GitBrowseService
     private static List<DiffFile> splitPatch(String patch, Map<String, int[]> numstat)
     {
         ImmutableList.Builder<DiffFile> files = ImmutableList.builder();
-        List<String> lines = patch.lines().toList();
+        List<String> lines = patch.lines().collect(toImmutableList());
         int index = 0;
         while (index < lines.size()) {
             if (!lines.get(index).startsWith("diff --git ")) {

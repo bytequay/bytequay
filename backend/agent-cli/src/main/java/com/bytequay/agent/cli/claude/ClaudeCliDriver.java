@@ -83,7 +83,7 @@ public final class ClaudeCliDriver
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
     private static final int MAX_PROBE_OUTPUT_BYTES = 32 * 1024;
-    private static final ImmutableSet<String> REQUIRED_FLAGS = ImmutableSet.of(
+    private static final Set<String> REQUIRED_FLAGS = ImmutableSet.of(
             "--add-dir",
             "--include-hook-events",
             "--include-partial-messages",
@@ -93,7 +93,7 @@ public final class ClaudeCliDriver
             "--settings",
             "--setting-sources",
             "--strict-mcp-config");
-    private static final ImmutableSet<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
+    private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
             "ALL_PROXY",
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -283,7 +283,7 @@ public final class ClaudeCliDriver
         ImmutableList.copyOf(sessions).forEach(ClaudeSession::close);
     }
 
-    private ImmutableList<String> argv(
+    private List<String> argv(
             ClaudePermissionBroker.Registration registration,
             AgentPermissionPolicy permissionPolicy,
             String sessionId,
@@ -322,7 +322,7 @@ public final class ClaudeCliDriver
                     .map(ClaudeCliDriver::absoluteReadRule)
                     .iterator());
         }
-        ImmutableList<String> allowed = allowedTools.build();
+        List<String> allowed = allowedTools.build();
         if (!allowed.isEmpty()) {
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));
         }
@@ -369,7 +369,7 @@ public final class ClaudeCliDriver
     }
 
     private ProcessSpec processSpec(
-            ImmutableList<String> argv,
+            List<String> argv,
             Path workingDirectory,
             Duration maximumRuntime,
             int maximumStdoutBytes,
@@ -763,7 +763,7 @@ public final class ClaudeCliDriver
         }
     }
 
-    private static ImmutableList<AgentAttachment> attachments(
+    private static List<AgentAttachment> attachments(
             AgentSessionContext context,
             List<AgentAttachment> requested)
     {

@@ -33,6 +33,7 @@ import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -46,6 +47,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -110,7 +112,7 @@ class TestCiAutofixHttpApi
             throws Exception
     {
         when(service.start(any())).thenReturn(run);
-        when(service.list(10)).thenReturn(List.of(run));
+        when(service.list(10)).thenReturn(ImmutableList.of(run));
         when(service.get(run.id())).thenReturn(run);
         when(service.sendMessage(any())).thenReturn(run);
         when(service.cancel(run.id())).thenReturn(run);
@@ -200,7 +202,7 @@ class TestCiAutofixHttpApi
                 source.id(),
                 1,
                 "a".repeat(40),
-                List.of(new FailureEvidence(
+                ImmutableList.of(new FailureEvidence(
                         "compile",
                         "compile failed",
                         100,
@@ -210,8 +212,8 @@ class TestCiAutofixHttpApi
                         Optional.empty())),
                 NOW.plusSeconds(1));
         source = source.addAttempt(attempt, NOW.plusSeconds(1));
-        List<String> paths = IntStream.range(0, 201).mapToObj(index -> "src/File" + index + ".java").toList();
-        List<String> subjects = IntStream.range(0, 201).mapToObj(index -> "Commit " + index).toList();
+        List<String> paths = IntStream.range(0, 201).mapToObj(index -> "src/File" + index + ".java").collect(toImmutableList());
+        List<String> subjects = IntStream.range(0, 201).mapToObj(index -> "Commit " + index).collect(toImmutableList());
         attempt = source.attempts().getFirst().withGitResult(
                 new GitResult("c".repeat(40), "fingerprint", paths, subjects),
                 NOW.plusSeconds(2));

@@ -29,6 +29,8 @@ import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -76,12 +79,12 @@ public class SqlitePrDetailStore
     {
         return detailRepo.findById(prId).map(detail -> new StoredPrDetail(
                 toRawDetail(detail),
-                reviewRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toReview).toList(),
+                reviewRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toReview).collect(toImmutableList()),
                 timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
                         .map(SqlitePrDetailStore::toTimeline)
-                        .toList(),
-                checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).toList(),
-                detail.getUnavailableSections() != null ? detail.getUnavailableSections() : List.of()));
+                        .collect(toImmutableList()),
+                checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).collect(toImmutableList()),
+                detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of()));
     }
 
     @Override
@@ -91,13 +94,13 @@ public class SqlitePrDetailStore
         saveHeader(prId, detail.raw(), detail.unavailableSections());
 
         reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).toList());
+        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
 
         timelineRepo.deleteRemoteByPrId(prId);
-        timelineRepo.saveAll(detail.timeline().stream().map(event -> toEntity(prId, event)).toList());
+        timelineRepo.saveAll(detail.timeline().stream().map(event -> toEntity(prId, event)).collect(toImmutableList()));
 
         checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).toList());
+        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
     }
 
     @Override
@@ -129,16 +132,16 @@ public class SqlitePrDetailStore
         saveHeader(prId, detail.raw(), detail.unavailableSections());
 
         reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).toList());
+        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
 
         checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).toList());
+        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
 
         Set<Long> existingIds = new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
         timelineRepo.saveAll(detail.timeline().stream()
                 .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
                 .map(event -> toEntity(prId, event))
-                .toList());
+                .collect(toImmutableList()));
     }
 
     @Override
@@ -169,11 +172,11 @@ public class SqlitePrDetailStore
         entity.setUpdatedAt(raw.updatedAt());
         entity.setMergedAt(raw.mergedAt());
         entity.setBody(raw.body());
-        entity.setLabels(raw.labels() != null ? raw.labels() : List.of());
-        entity.setLabelColors(raw.labelColors() != null ? raw.labelColors() : java.util.Map.of());
-        entity.setAssignees(raw.assignees() != null ? raw.assignees() : List.of());
+        entity.setLabels(raw.labels() != null ? raw.labels() : ImmutableList.of());
+        entity.setLabelColors(raw.labelColors() != null ? raw.labelColors() : ImmutableMap.of());
+        entity.setAssignees(raw.assignees() != null ? raw.assignees() : ImmutableList.of());
         entity.setMilestone(raw.milestone());
-        entity.setUnavailableSections(unavailableSections != null ? unavailableSections : List.of());
+        entity.setUnavailableSections(unavailableSections != null ? unavailableSections : ImmutableList.of());
         entity.setDraft(raw.draft());
         entity.setMergeable(raw.mergeable());
         entity.setMergeableState(raw.mergeableState());
@@ -181,7 +184,7 @@ public class SqlitePrDetailStore
         entity.setDeletions(raw.deletions());
         entity.setChangedFiles(raw.changedFiles());
         entity.setRequestedReviewerCount(raw.requestedReviewerCount());
-        entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : List.of());
+        entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());
         entity.setBaseRef(raw.baseRef());
@@ -202,8 +205,8 @@ public class SqlitePrDetailStore
                 detail.getMergedAt(),
                 detail.getBody(),
                 detail.getLabels(),
-                detail.getLabelColors() != null ? detail.getLabelColors() : java.util.Map.of(),
-                detail.getAssignees() != null ? detail.getAssignees() : List.of(),
+                detail.getLabelColors() != null ? detail.getLabelColors() : ImmutableMap.of(),
+                detail.getAssignees() != null ? detail.getAssignees() : ImmutableList.of(),
                 detail.getMilestone(),
                 detail.isDraft(),
                 detail.getMergeable(),
@@ -212,7 +215,7 @@ public class SqlitePrDetailStore
                 detail.getDeletions(),
                 detail.getChangedFiles(),
                 detail.getRequestedReviewerCount(),
-                detail.getRequestedReviewers() != null ? detail.getRequestedReviewers() : List.of(),
+                detail.getRequestedReviewers() != null ? detail.getRequestedReviewers() : ImmutableList.of(),
                 detail.getHeadSha(),
                 detail.getHeadRef(),
                 detail.getBaseRef());

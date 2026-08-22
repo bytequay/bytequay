@@ -38,6 +38,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -257,7 +258,7 @@ public final class ClaudePermissionBroker
                         "additionalProperties", true));
     }
 
-    private static ImmutableList<ToolDefinition> tools(PermissionContext context)
+    private static List<ToolDefinition> tools(PermissionContext context)
     {
         ImmutableList.Builder<ToolDefinition> tools = ImmutableList.builder();
         tools.add(permissionTool());
@@ -524,7 +525,7 @@ public final class ClaudePermissionBroker
 
     private record ServerInfo(String name, String version) {}
 
-    private record ToolsResult(ImmutableList<ToolDefinition> tools) {}
+    private record ToolsResult(List<ToolDefinition> tools) {}
 
     private record ToolDefinition(String name, String description, Map<String, Object> inputSchema) {}
 
@@ -553,7 +554,7 @@ public final class ClaudePermissionBroker
             @JsonProperty("updatedInput") Optional<JsonNode> updatedInput,
             Optional<String> message) {}
 
-    private record ToolResult(ImmutableList<TextContent> content, @JsonProperty("isError") boolean error) {}
+    private record ToolResult(List<TextContent> content, @JsonProperty("isError") boolean error) {}
 
     private record TextContent(String type, String text) {}
 

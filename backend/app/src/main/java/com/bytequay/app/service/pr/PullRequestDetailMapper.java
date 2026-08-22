@@ -20,6 +20,9 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -28,9 +31,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
 final class PullRequestDetailMapper
 {
-    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = java.util.Set.of(
+    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = ImmutableSet.of(
             "failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
     private PullRequestDetailMapper() {}
@@ -58,7 +63,7 @@ final class PullRequestDetailMapper
                 raw.body(),
                 raw.labels().stream()
                         .map(label -> new PullRequestDetail.Label(label, raw.labelColors().get(label)))
-                        .toList(),
+                        .collect(toImmutableList()),
                 raw.assignees(),
                 raw.milestone(),
                 reviewers(raw, stored.reviews()),
@@ -81,7 +86,7 @@ final class PullRequestDetailMapper
             String key = checkRun.name() == null || checkRun.name().isBlank() ? "__anonymous__" + i : checkRun.name();
             latestByName.putIfAbsent(key, checkRun);
         }
-        return List.copyOf(latestByName.values());
+        return ImmutableList.copyOf(latestByName.values());
     }
 
     static List<PullRequestDetail.CheckRun> toCheckRuns(List<PrCheckRunState> checkRuns)
@@ -95,7 +100,7 @@ final class PullRequestDetailMapper
                         checkRun.detailsUrl(),
                         checkRun.source(),
                         checkCategory(checkRun)))
-                .toList();
+                .collect(toImmutableList());
     }
 
     static int countApprovals(List<PrReviewState> reviews)
@@ -134,7 +139,7 @@ final class PullRequestDetailMapper
                         event.body(),
                         event.githubId(),
                         event.payload()))
-                .toList();
+                .collect(toImmutableList());
     }
 
     static Instant latestPushAt(List<PrTimelineEvent> timeline)
@@ -152,7 +157,7 @@ final class PullRequestDetailMapper
     static Map<String, String> rolledUpReviewerVerdicts(List<PrReviewState> reviews)
     {
         if (reviews == null || reviews.isEmpty()) {
-            return Map.of();
+            return ImmutableMap.of();
         }
         Map<String, String> out = new LinkedHashMap<>();
         for (PrReviewState review : reviews) {
@@ -163,7 +168,7 @@ final class PullRequestDetailMapper
                 out.put(review.login(), review.state());
             }
         }
-        return Map.copyOf(out);
+        return ImmutableMap.copyOf(out);
     }
 
     private static List<PullRequestDetail.Reviewer> reviewers(
@@ -178,7 +183,7 @@ final class PullRequestDetailMapper
         latest.forEach((login, review) -> out.put(login, new PullRequestDetail.Reviewer(
                 login, review.avatarUrl(), review.state())));
         out.remove(raw.author());
-        return List.copyOf(out.values());
+        return ImmutableList.copyOf(out.values());
     }
 
     private static Map<String, PrReviewState> latestReviews(List<PrReviewState> reviews)

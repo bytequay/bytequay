@@ -21,6 +21,7 @@ import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +31,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -61,7 +64,7 @@ public class SqlitePullRequestStore
         return jpaRepository.findAll().stream()
                 .filter(SqlitePullRequestStore::dashboardVisible)
                 .map(e -> toDomain(e, stateByPrId.get(e.getId())))
-                .toList();
+                .collect(toImmutableList());
     }
 
     @Override
@@ -71,7 +74,7 @@ public class SqlitePullRequestStore
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
         return jpaRepository.findAllByRepoIgnoreCase(repository).stream()
                 .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())))
-                .toList();
+                .collect(toImmutableList());
     }
 
     @Override
@@ -83,7 +86,7 @@ public class SqlitePullRequestStore
 
         Set<Long> freshIds = pullRequests.stream()
                 .map(PullRequest::id)
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
 
         // Preserve detail-derived enrichment columns from the previous
         // sync. The search-API responses fed in here don't include
@@ -93,7 +96,7 @@ public class SqlitePullRequestStore
         // enrichment is missing) — for unchanged PRs we want their
         // last-known verdict map to survive this replace.
         Map<Long, PullRequestEntity> existingById = jpaRepository.findAll().stream()
-                .collect(Collectors.toMap(PullRequestEntity::getId, e -> e));
+                .collect(toImmutableMap(PullRequestEntity::getId, e -> e));
 
         List<PullRequestEntity> entities = pullRequests.stream()
                 .map(pr -> {
@@ -106,7 +109,7 @@ public class SqlitePullRequestStore
                     }
                     return entity;
                 })
-                .toList();
+                .collect(toImmutableList());
 
         jpaRepository.saveAll(entities);
         existingById.values().stream()
@@ -132,10 +135,10 @@ public class SqlitePullRequestStore
         requireNonNull(pullRequests, "pullRequests is null");
         Instant now = Instant.now();
         Map<Long, PullRequestEntity> existingById = jpaRepository.findAllByRepoIgnoreCase(repository).stream()
-                .collect(Collectors.toMap(PullRequestEntity::getId, entity -> entity));
+                .collect(toImmutableMap(PullRequestEntity::getId, entity -> entity));
         Set<Long> freshIds = pullRequests.stream()
                 .map(PullRequest::id)
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
 
         List<PullRequestEntity> fresh = pullRequests.stream()
                 .map(pullRequest -> {
@@ -148,7 +151,7 @@ public class SqlitePullRequestStore
                     }
                     return entity;
                 })
-                .toList();
+                .collect(toImmutableList());
         jpaRepository.saveAll(fresh);
 
         existingById.values().stream()
@@ -177,7 +180,7 @@ public class SqlitePullRequestStore
         return viewStateStore.findAll().values().stream()
                 .filter(s -> s.reviewedAt() != null && s.reviewedAt().isAfter(cutoff))
                 .map(PrViewState::prId)
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
     }
 
     @Override
@@ -185,7 +188,7 @@ public class SqlitePullRequestStore
     {
         return jpaRepository.findAll().stream()
                 .filter(SqlitePullRequestStore::dashboardVisible)
-                .collect(Collectors.toUnmodifiableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
     }
 
     @Override
@@ -208,7 +211,7 @@ public class SqlitePullRequestStore
                     return e.getHeadRef() == null;
                 })
                 .map(PullRequestEntity::getId)
-                .collect(Collectors.toUnmodifiableSet());
+                .collect(toImmutableSet());
     }
 
     @Override
@@ -370,7 +373,7 @@ public class SqlitePullRequestStore
                 Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
-                List.of(),
+                ImmutableList.of(),
                 entity.getCiStatus(),
                 entity.getAdditions(),
                 entity.getDeletions(),

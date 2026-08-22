@@ -18,6 +18,7 @@ import com.bytequay.app.git.SequenceState.ConflictedPath;
 import com.bytequay.app.git.SequenceState.ConflictedPath.IndexStage;
 import com.bytequay.app.git.SequenceState.Kind;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -28,13 +29,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Runs guarded rebase commands and reports only observable Git state. */
 @Component
 public final class RebaseSequencerDriver
 {
-    private static final Set<String> UNMERGED_CODES = Set.of(
+    private static final Set<String> UNMERGED_CODES = ImmutableSet.of(
             "DD", "AU", "UD", "UA", "DU", "AA", "UU");
     private static final List<String> OPERATION_MARKERS = ImmutableList.of(
             "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
@@ -130,8 +132,8 @@ public final class RebaseSequencerDriver
                     ? completed(head)
                     : unsafe(head, "No rebase is open but the worktree is not clean");
         }
-        boolean oneRebaseMarker = openMarkers.equals(Set.of("rebase-merge"))
-                || openMarkers.equals(Set.of("rebase-apply"));
+        boolean oneRebaseMarker = openMarkers.equals(ImmutableSet.of("rebase-merge"))
+                || openMarkers.equals(ImmutableSet.of("rebase-apply"));
         Optional<String> rebaseHead = markerCommit(worktree, "REBASE_HEAD");
         if (!oneRebaseMarker || rebaseHead.isEmpty()) {
             return unsafe(head, "Unexpected Git operation in progress: " + String.join(", ", openMarkers));
@@ -197,7 +199,7 @@ public final class RebaseSequencerDriver
             return ImmutableList.of();
         }
         Map<String, List<IndexStage>> stages = new LinkedHashMap<>();
-        for (String line : unmerged.output().lines().toList()) {
+        for (String line : unmerged.output().lines().collect(toImmutableList())) {
             int tab = line.indexOf('\t');
             if (tab < 0) {
                 continue;

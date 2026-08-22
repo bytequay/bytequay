@@ -13,9 +13,14 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * The list-level shape of a PR. Most fields come straight from GitHub's
@@ -67,6 +72,21 @@ public record PullRequest(
         Map<String, String> reviewerVerdicts,
         String headRef)
 {
+    public PullRequest
+    {
+        requireNonNull(repo, "repo is null");
+        requireNonNull(title, "title is null");
+        requireNonNull(origin, "origin is null");
+        labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
+        if (labelColors != null) {
+            labelColors = ImmutableMap.copyOf(labelColors);
+        }
+        requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
+        if (reviewerVerdicts != null) {
+            reviewerVerdicts = ImmutableMap.copyOf(reviewerVerdicts);
+        }
+    }
+
     public enum Origin
     {
         AUTHORED,

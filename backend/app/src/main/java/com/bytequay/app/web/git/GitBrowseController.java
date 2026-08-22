@@ -20,6 +20,7 @@ import com.bytequay.app.git.GitBrowseService.RepoOverview;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -96,15 +98,15 @@ public class GitBrowseController
         List<String> remotes = request.remotes().stream()
                 .map(remote -> allowedRemote(context, remote))
                 .distinct()
-                .toList();
+                .collect(toImmutableList());
         service.fetch(context.repository(), remotes);
-        return Map.of("fetched", true);
+        return ImmutableMap.of("fetched", true);
     }
 
     @PostMapping("/commit")
     public Map<String, String> commit(@PathVariable String workspaceId, @RequestBody GitCommitRequest request)
     {
-        return Map.of("sha", service.commit(
+        return ImmutableMap.of("sha", service.commit(
                 context(workspaceId).repository(),
                 request.summary(),
                 request.description() == null ? "" : request.description()));
@@ -113,7 +115,7 @@ public class GitBrowseController
     @PostMapping("/reword")
     public Map<String, String> reword(@PathVariable String workspaceId, @RequestBody GitRewordRequest request)
     {
-        return Map.of("sha", service.reword(
+        return ImmutableMap.of("sha", service.reword(
                 context(workspaceId).repository(),
                 revision(request.branch()),
                 revision(request.sha()),
@@ -123,7 +125,7 @@ public class GitBrowseController
     @PostMapping("/squash")
     public Map<String, String> squash(@PathVariable String workspaceId, @RequestBody GitSquashRequest request)
     {
-        return Map.of("sha", service.squash(
+        return ImmutableMap.of("sha", service.squash(
                 context(workspaceId).repository(),
                 revision(request.branch()),
                 revision(request.baseSha()),

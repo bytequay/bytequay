@@ -71,6 +71,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -135,7 +136,7 @@ class TestCiAutofixRestartEndToEnd
             memoryBeforeRestart = Files.readString(runtimeDirectory.resolve("ci-memory.md"));
             eventSequences = first.getBean(AgentEventService.class).readAfter(taskId, 0, 100).stream()
                     .map(event -> event.sequence())
-                    .toList();
+                    .collect(toImmutableList());
             metricsBeforeRestart = first.getBean(AgentMetricsService.class).taskTotals(taskId);
 
             assertThat(first.getBean(LostPushCiGitService.class).pushCalls()).isEqualTo(1);
@@ -200,7 +201,7 @@ class TestCiAutofixRestartEndToEnd
 
             List<String> timelineKeys = details.find(fixture.prId()).orElseThrow().timeline().stream()
                     .map(event -> event.localEventKey().orElseThrow())
-                    .toList();
+                    .collect(toImmutableList());
             assertThat(timelineKeys).containsExactly(finished.attempts().getFirst().timelineEventKey().orElseThrow());
             var checkedAt = finished.finalFixupCheck().orElseThrow().checkedAt();
             monitor.tick();

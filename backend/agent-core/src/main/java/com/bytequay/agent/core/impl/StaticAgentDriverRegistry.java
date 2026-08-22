@@ -20,9 +20,9 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.Maps.uniqueIndex;
@@ -34,7 +34,7 @@ import static java.util.Objects.requireNonNull;
 public final class StaticAgentDriverRegistry
         implements AgentDriverRegistry
 {
-    private final ImmutableMap<AgentLaneId, AgentDriver> driversByLane;
+    private final Map<AgentLaneId, AgentDriver> driversByLane;
 
     public StaticAgentDriverRegistry(List<AgentDriver> drivers)
     {

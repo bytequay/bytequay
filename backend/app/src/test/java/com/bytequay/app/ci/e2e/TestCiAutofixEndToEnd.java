@@ -37,6 +37,7 @@ import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -320,8 +322,8 @@ class TestCiAutofixEndToEnd
         List<String> timelineKeys = details.find(fixture.prId()).orElseThrow().timeline().stream()
                 .filter(event -> event.localEventKey().isPresent())
                 .map(event -> event.localEventKey().orElseThrow())
-                .toList();
-        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream().map(attempt -> attempt.timelineEventKey().orElseThrow()).toList());
+                .collect(toImmutableList());
+        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream().map(attempt -> attempt.timelineEventKey().orElseThrow()).collect(toImmutableList()));
         assertThat(timelineKeys).hasSize(2);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).allSatisfy(event -> assertThat(event.body()).doesNotContain("CI is green", "Root cause:"));
 
@@ -433,7 +435,7 @@ class TestCiAutofixEndToEnd
                 repository.worktree(),
                 "The stale checks need another run; no code change is needed.",
                 ignored -> {});
-        List<RerunFailedJobsCommand> expectedReruns = List.of(
+        List<RerunFailedJobsCommand> expectedReruns = ImmutableList.of(
                 harness.allowRerun(fixture, 1),
                 harness.allowRerun(fixture, 2),
                 harness.allowRerun(fixture, 3));

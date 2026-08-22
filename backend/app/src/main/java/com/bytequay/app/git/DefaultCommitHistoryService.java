@@ -15,7 +15,6 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.CommitEnrichment;
@@ -77,8 +76,7 @@ public class DefaultCommitHistoryService
         List<CommitHistoryRef> requested = refs.stream().distinct().toList();
         checkArgument(!requested.isEmpty(), "refs is empty");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
-        WorkspaceDetails details = workspaces.getWorkspace(workspaceId);
-        requested.forEach(ref -> CommitHistoryRouting.resolve(context, details.summary(), ref));
+        requested.forEach(ref -> CommitHistoryRouting.resolve(context, ref));
         CommitRefreshStatus previous = store.findRefreshStatus(workspaceId);
         CommitRefreshStatus queued = new CommitRefreshStatus(
                 workspaceId,
@@ -103,8 +101,7 @@ public class DefaultCommitHistoryService
         requireNonNull(ref, "ref is null");
         checkArgument(limit > 0, "limit must be positive");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
-        WorkspaceDetails details = workspaces.getWorkspace(workspaceId);
-        ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, details.summary(), ref);
+        ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, ref);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichment = store.findEnrichment(
                         resolved.repositoryId(),

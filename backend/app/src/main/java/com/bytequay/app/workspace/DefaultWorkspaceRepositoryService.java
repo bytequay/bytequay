@@ -44,6 +44,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -183,7 +184,11 @@ public class DefaultWorkspaceRepositoryService
         return new WorkspaceRepositoryContext(
                 workspace.id(),
                 repository,
+                workspace.selectedRepositoryId(),
                 workspace.selectedRepository(),
+                workspace.upstreamRepositoryId().isPresent()
+                        ? OptionalLong.of(workspace.upstreamRepositoryId().orElseThrow())
+                        : OptionalLong.empty(),
                 workspace.monitoredRepository(),
                 workspace.upstreamWorkspaceId().isPresent() ? "upstream" : "origin",
                 "origin",

@@ -23,7 +23,6 @@ import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpMethod.GET;
@@ -54,12 +53,12 @@ class TestCherryPickPullRequestLookup
                                 """));
 
         List<String> warnings = new ArrayList<>();
-        Map<String, PullRequestAssociation> associations =
-                lookup(builder).lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result =
+                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
 
-        assertThat(associations.get(SHA).number()).isEqualTo(23401);
-        assertThat(associations.get(SHA).title()).isEqualTo("Fix Hive coercion");
-        assertThat(associations.get(SHA).mergedAt()).isEqualTo("2026-08-03T10:00:00Z");
+        assertThat(association(result, SHA).number()).isEqualTo(23401);
+        assertThat(association(result, SHA).title()).isEqualTo("Fix Hive coercion");
+        assertThat(association(result, SHA).mergedAt()).isEqualTo("2026-08-03T10:00:00Z");
         assertThat(warnings).isEmpty();
         server.verify();
     }
@@ -90,11 +89,12 @@ class TestCherryPickPullRequestLookup
                                 """));
 
         List<String> warnings = new ArrayList<>();
-        Map<String, PullRequestAssociation> associations =
-                lookup(builder).lookUp(REPOSITORY, ImmutableList.of(SHA, tie), "master", warnings);
+        PullRequestLookupResult result =
+                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA, tie), "master", warnings);
 
-        assertThat(associations.get(SHA).number()).as("base ref breaks the tie").isEqualTo(2);
-        assertThat(associations).as("an ambiguous commit is never guessed").doesNotContainKey(tie);
+        assertThat(association(result, SHA).number()).as("base ref breaks the tie").isEqualTo(2);
+        assertThat(result.associations()).as("an ambiguous commit is never guessed")
+                .noneMatch(value -> value.sha().equals(tie));
         assertThat(warnings).anyMatch(warning -> warning.contains("no single merged pull request"));
     }
 
@@ -112,7 +112,8 @@ class TestCherryPickPullRequestLookup
                                 """));
 
         List<String> warnings = new ArrayList<>();
-        assertThat(lookup(builder).lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings)).isEmpty();
+        assertThat(lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings)
+                .associations()).isEmpty();
         assertThat(warnings).anyMatch(warning -> warning.contains("listed individually"));
     }
 
@@ -142,7 +143,8 @@ class TestCherryPickPullRequestLookup
                 });
 
         List<String> warnings = new ArrayList<>();
-        assertThat(lookup.lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings)).isEmpty();
+        assertThat(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings)
+                .associations()).isEmpty();
         assertThat(warnings).anyMatch(warning -> warning.contains("without GitHub credentials"));
     }
 
@@ -161,8 +163,9 @@ class TestCherryPickPullRequestLookup
 
         CherryPickPullRequestLookup lookup = lookup(builder);
         List<String> warnings = new ArrayList<>();
-        lookup.lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
-        assertThat(lookup.lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings).get(SHA).number())
+        lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        assertThat(association(
+                lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings), SHA).number())
                 .isEqualTo(5);
         server.verify();
     }
@@ -187,6 +190,15 @@ class TestCherryPickPullRequestLookup
     private static CherryPickPullRequestLookup lookup(RestClient.Builder builder)
     {
         return new CherryPickPullRequestLookup(builder.build(), () -> "test-token");
+    }
+
+    private static PullRequestAssociation association(PullRequestLookupResult result, String sha)
+    {
+        return result.associations().stream()
+                .filter(value -> value.sha().equals(sha))
+                .findFirst()
+                .orElseThrow()
+                .pullRequest();
     }
 
     private static String url(String sha)

@@ -14,7 +14,6 @@
 package com.bytequay.app.git;
 
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
-import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.RepoRef;
 
 import static com.bytequay.app.git.CommitHistoryRef.Source.UPSTREAM;
@@ -27,21 +26,18 @@ final class CommitHistoryRouting
 
     static ResolvedCommitHistoryRef resolve(
             WorkspaceRepositoryContext context,
-            WorkspaceSummary workspace,
             CommitHistoryRef ref)
     {
         requireNonNull(context, "context is null");
-        requireNonNull(workspace, "workspace is null");
         requireNonNull(ref, "ref is null");
         if (ref.source() != UPSTREAM) {
             return new ResolvedCommitHistoryRef(
-                    workspace.selectedRepositoryId(), context.selectedRepository(), ref.branch(), ref.branch());
+                    context.selectedRepositoryId(), context.selectedRepository(), ref.branch(), ref.branch());
         }
-        checkArgument(workspace.upstreamWorkspaceId() != null, "no watched upstream workspace is linked");
-        checkArgument(workspace.upstreamRepositoryId() != null, "linked upstream repository is missing");
+        checkArgument(context.upstreamRepositoryId().isPresent(), "no watched upstream workspace is linked");
         checkArgument(!context.sourceRemote().equals(context.targetRemote()), "linked upstream remote is missing");
         return new ResolvedCommitHistoryRef(
-                workspace.upstreamRepositoryId(),
+                context.upstreamRepositoryId().orElseThrow(),
                 context.monitoredRepository(),
                 context.sourceRemote() + "/" + ref.branch(),
                 ref.branch());

@@ -26,7 +26,6 @@ import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -37,7 +36,6 @@ import java.util.concurrent.Future;
 import java.util.function.Supplier;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -71,26 +69,6 @@ public class CherryPickPullRequestLookup
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.tokenSupplier = requireNonNull(tokenSupplier, "tokenSupplier is null");
-    }
-
-    /**
-     * Associates each commit with the merged pull request that introduced it.
-     *
-     * @param repository repository the commits belong to
-     * @param sourceShas commits to look up
-     * @param sourceBranch branch the range was taken from, used to break ties
-     * @param warnings collects anything the user should know; never throws
-     * @return association per commit, absent where none is unambiguous
-     */
-    public Map<String, PullRequestAssociation> lookUp(
-            RepoRef repository,
-            List<String> sourceShas,
-            String sourceBranch,
-            List<String> warnings)
-    {
-        return lookUpResult(repository, sourceShas, sourceBranch, warnings).associations().stream()
-                .collect(toImmutableMap(PullRequestLookupResult.Association::sha,
-                        PullRequestLookupResult.Association::pullRequest));
     }
 
     /** Looks up only the requested SHAs and reports provider failures separately from checked negatives. */

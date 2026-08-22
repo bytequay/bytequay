@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -162,6 +163,7 @@ class TestCherryPickPreviewHttpApi
         assertThat(commands.getValue()).satisfies(command -> {
             assertThat(command.repository()).isEqualTo(Path.of("/managed/workspace-id/repository"));
             assertThat(command.workspaceId()).contains("workspace-id");
+            assertThat(command.sourceRepositoryId()).hasValue(202);
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.targetRemote()).isEqualTo("upstream");
         });
@@ -176,6 +178,14 @@ class TestCherryPickPreviewHttpApi
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;
         return new WorkspaceRepositoryContext(
-                workspaceId, repository, selected, monitored, sourceRemote, "origin", "main");
+                workspaceId,
+                repository,
+                101,
+                selected,
+                topology == Topology.FORK ? OptionalLong.of(202) : OptionalLong.empty(),
+                monitored,
+                sourceRemote,
+                "origin",
+                "main");
     }
 }

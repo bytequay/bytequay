@@ -24,7 +24,6 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -185,9 +184,8 @@ public class CommitHistoryRefreshWorker
             throw new IllegalStateException("managed repository synchronization failed");
         }
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(batch.workspaceId());
-        WorkspaceDetails details = workspaces.getWorkspace(batch.workspaceId());
         List<ResolvedCommitHistoryRef> resolved = batch.refs().stream()
-                .map(ref -> CommitHistoryRouting.resolve(context, details.summary(), ref))
+                .map(ref -> CommitHistoryRouting.resolve(context, ref))
                 .toList();
         String token = credentials.resolveGitHubToken();
         Instant now = clock.instant();

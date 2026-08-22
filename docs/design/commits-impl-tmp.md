@@ -263,28 +263,28 @@ Goal: remove remote work from the request that opens History.
 
 ### Controller and preview
 
-- [ ] Change `GitBrowseController.commits(...)` to delegate only to
+- [x] Change `GitBrowseController.commits(...)` to delegate only to
   `CommitHistoryService.listHistory(...)`.
-- [ ] Return `CommitHistorySnapshot` rather than a bare commit list.
-- [ ] Remove `GitHubRepoClient`, `CredentialService`, and
+- [x] Return `CommitHistorySnapshot` rather than a bare commit list.
+- [x] Remove `GitHubRepoClient`, `CredentialService`, and
   `CherryPickPullRequestLookup` from the controller constructor.
-- [ ] Make `CherryPickPreviewService` read the same persisted associations and
+- [x] Make `CherryPickPreviewService` read the same persisted associations and
   retain the existing non-load-bearing warning when enrichment is absent.
-- [ ] Keep `CherryPickPullRequestLookup` callable only by the refresh worker.
-- [ ] Remove obsolete display-time and preview-time association cache paths.
+- [x] Keep `CherryPickPullRequestLookup` callable only by the refresh worker.
+- [x] Remove obsolete display-time and preview-time association cache paths.
 
 ### Tests and gate
 
-- [ ] Controller tests assert zero avatar or PR-association GitHub calls.
-- [ ] Opening history with no GitHub credentials still returns local commits.
-- [ ] Preview uses stored PR groups and keeps every commit selectable when an
+- [x] Controller tests assert zero avatar or PR-association GitHub calls.
+- [x] Opening history with no GitHub credentials still returns local commits.
+- [x] Preview uses stored PR groups and keeps every commit selectable when an
   association is missing.
-- [ ] Existing diff, status, branch, rewrite, and cherry-pick endpoints remain
+- [x] Existing diff, status, branch, rewrite, and cherry-pick endpoints remain
   unchanged.
 
 Checkpoint gate:
 
-- [ ] Every normal History and preview read is local-only and all focused
+- [x] Every normal History and preview read is local-only and all focused
   backend tests pass.
 
 Suggested commit: `Read commit history from local data`

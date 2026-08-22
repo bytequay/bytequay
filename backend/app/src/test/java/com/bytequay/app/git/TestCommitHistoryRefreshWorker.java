@@ -25,19 +25,15 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.CommitRefreshStatus.State;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.CommitHistoryStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +51,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -292,38 +289,16 @@ class TestCommitHistoryRefreshWorker
 
     private void readyWorkspace()
     {
-        WorkspaceSummary summary = new WorkspaceSummary(
-                WORKSPACE_ID,
-                "Example workspace",
-                101,
-                SELECTED.owner(),
-                SELECTED.repo(),
-                null,
-                null,
-                null,
-                null,
-                101,
-                SELECTED.owner(),
-                SELECTED.repo(),
-                Topology.DIRECT,
-                "main",
-                null,
-                REPOSITORY.toString(),
-                CodeState.READY,
-                MetadataState.READY,
-                NOW,
-                NOW,
-                null,
-                null,
-                0);
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
-                WORKSPACE_ID, REPOSITORY, SELECTED, SELECTED, "origin", "origin", "main"));
-        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(new WorkspaceDetails(
-                summary,
-                "https://example.invalid/example-owner/example-repository.git",
-                null,
-                NOW.minusSeconds(86_400),
-                NOW));
+                WORKSPACE_ID,
+                REPOSITORY,
+                101,
+                SELECTED,
+                OptionalLong.empty(),
+                SELECTED,
+                "origin",
+                "origin",
+                "main"));
     }
 
     private static Commit commit(String sha, Instant authoredAt)

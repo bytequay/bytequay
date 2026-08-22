@@ -15,7 +15,6 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
@@ -36,6 +35,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -148,7 +148,7 @@ class TestDefaultCommitHistoryService
                 WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not ready");
-        verify(workspaces, never()).getWorkspace(WORKSPACE_ID);
+        verify(git, never()).log(REPOSITORY, "main", 25);
     }
 
     @Test
@@ -181,19 +181,15 @@ class TestDefaultCommitHistoryService
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
                 REPOSITORY,
+                summary.selectedRepositoryId(),
                 SELECTED,
+                summary.upstreamRepositoryId() == null
+                        ? OptionalLong.empty()
+                        : OptionalLong.of(summary.upstreamRepositoryId()),
                 summary.upstreamWorkspaceId() == null ? SELECTED : UPSTREAM,
                 summary.upstreamWorkspaceId() == null ? "origin" : "upstream",
                 "origin",
                 "main"));
-        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(new WorkspaceDetails(
-                summary,
-                "https://example.invalid/example-owner/example-fork.git",
-                summary.upstreamWorkspaceId() == null
-                        ? null
-                        : "https://example.invalid/example-upstream/example-repo.git",
-                Instant.parse("2026-08-20T00:00:00Z"),
-                Instant.parse("2026-08-22T00:00:00Z")));
     }
 
     private static WorkspaceSummary linkedSummary()

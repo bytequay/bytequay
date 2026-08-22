@@ -13,31 +13,31 @@
  */
 package com.bytequay.app.web.git;
 
-import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
-import com.bytequay.app.cherrypick.PullRequestAssociation;
+import com.bytequay.app.git.CommitHistoryItem;
+import com.bytequay.app.git.CommitHistoryRef;
+import com.bytequay.app.git.CommitHistoryRef.Source;
+import com.bytequay.app.git.CommitHistoryService;
+import com.bytequay.app.git.CommitHistorySnapshot;
 import com.bytequay.app.git.GitBrowseService;
-import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -55,9 +55,7 @@ class TestGitBrowseController
 
     private WorkspaceRepositoryService workspaces;
     private GitBrowseService git;
-    private GitHubRepoClient gitHub;
-    private CredentialService credentials;
-    private CherryPickPullRequestLookup pullRequests;
+    private CommitHistoryService commits;
     private MockMvc mvc;
 
     @BeforeEach
@@ -65,10 +63,8 @@ class TestGitBrowseController
     {
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
-        gitHub = mock(GitHubRepoClient.class);
-        credentials = mock(CredentialService.class);
-        pullRequests = mock(CherryPickPullRequestLookup.class);
-        mvc = standaloneSetup(new GitBrowseController(workspaces, git, gitHub, credentials, pullRequests))
+        commits = mock(CommitHistoryService.class);
+        mvc = standaloneSetup(new GitBrowseController(workspaces, git, commits))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -143,32 +139,32 @@ class TestGitBrowseController
     }
 
     @Test
-    void addsGitHubAvatarsToUpstreamCommitHistory()
+    void returnsTheCompleteLocalCommitHistorySnapshotWithoutProviderClients()
             throws Exception
     {
-        when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
-        when(git.log(REPOSITORY_A, "upstream/main", 20)).thenReturn(ImmutableList.of(new Commit(
-                "abc", "Title", "", "Alice Example", "2026-08-22T00:00:00Z", Optional.empty())));
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        when(credentials.resolveGitHubToken()).thenReturn("pat");
-        when(gitHub.fetchCommitAvatars("pat", RepoRef.of("upstream", "project"), "main", 20))
-                .thenReturn(ImmutableMap.of("abc", "https://avatars/alice"));
-        when(pullRequests.lookUp(
-                eq(RepoRef.of("upstream", "project")),
-                eq(ImmutableList.of("abc")),
-                eq("main"),
-                anyList()))
-                .thenReturn(ImmutableMap.of("abc", new PullRequestAssociation(
-                        42, "Improve commit browsing", "https://github.test/pull/42", "main", "2026-08-22T00:00:00Z")));
+        CommitHistoryRef ref = new CommitHistoryRef(Source.UPSTREAM, "main");
+        when(commits.listHistory("workspace-a", ref, 20)).thenReturn(new CommitHistorySnapshot(
+                List.of(new CommitHistoryItem(
+                        "abc",
+                        "Example change",
+                        "",
+                        "Example Author",
+                        Optional.of("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64)),
+                        "2026-08-22T00:00:00Z",
+                        Optional.of(42),
+                        Optional.of("Example pull request"))),
+                CommitRefreshStatus.idle("workspace-a")));
 
         mvc.perform(get("/api/workspaces/workspace-a/git/commits")
-                        .param("ref", "upstream/main")
+                        .param("source", "UPSTREAM")
+                        .param("branch", "main")
                         .param("limit", "20"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].author").value("Alice Example"))
-                .andExpect(jsonPath("$[0].authorAvatarUrl").value("https://avatars/alice"))
-                .andExpect(jsonPath("$[0].pullRequestNumber").value(42))
-                .andExpect(jsonPath("$[0].pullRequestTitle").value("Improve commit browsing"));
+                .andExpect(jsonPath("$.commits[0].author").value("Example Author"))
+                .andExpect(jsonPath("$.commits[0].authorAvatarUrl").isNotEmpty())
+                .andExpect(jsonPath("$.commits[0].pullRequestNumber").value(42))
+                .andExpect(jsonPath("$.commits[0].pullRequestTitle").value("Example pull request"));
+        verify(commits).listHistory("workspace-a", ref, 20);
     }
 
     private static WorkspaceRepositoryContext context(String workspaceId, Path repository)
@@ -176,7 +172,9 @@ class TestGitBrowseController
         return new WorkspaceRepositoryContext(
                 workspaceId,
                 repository,
+                101,
                 RepoRef.of("fork", "project"),
+                OptionalLong.of(202),
                 RepoRef.of("upstream", "project"),
                 "upstream",
                 "origin",

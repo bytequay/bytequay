@@ -45,6 +45,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,7 +83,9 @@ class TestCherryPickExecutionHttpApi
         when(workspaces.requireReadyRepository("workspace-id")).thenReturn(new WorkspaceRepositoryContext(
                 "workspace-id",
                 Path.of("/managed/workspace-id/repository"),
+                101,
                 RepoRef.of("contributor", "trino"),
+                OptionalLong.of(202),
                 RepoRef.of("trinodb", "trino"),
                 "upstream",
                 "origin",

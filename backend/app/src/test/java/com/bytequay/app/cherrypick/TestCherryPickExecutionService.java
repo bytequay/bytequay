@@ -28,6 +28,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,10 +43,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestCherryPickExecutionService
 {
@@ -91,11 +94,7 @@ class TestCherryPickExecutionService
         previews = new CherryPickPreviewService(
                 GIT,
                 new CherryPickConflictScout(GIT),
-                new CherryPickPullRequestLookup(
-                        TestCherryPickPullRequestLookup.offlineClient(),
-                        () -> {
-                            throw new IllegalStateException("execution tests use no GitHub credential");
-                        }),
+                mock(CommitHistoryStore.class),
                 CLOCK);
         agent = new ScriptedCherryPickAgent(temporaryDirectory);
         service = new CherryPickExecutionService(
@@ -933,7 +932,14 @@ class TestCherryPickExecutionService
     private CherryPickPreview preview(String baseRef)
     {
         return previews.preview(new PreviewCherryPickRangeCommand(
-                clone, Optional.of(WORKSPACE_ID), "origin", baseRef, "origin/main", "cork", "main"));
+                clone,
+                Optional.of(WORKSPACE_ID),
+                OptionalLong.empty(),
+                "origin",
+                baseRef,
+                "origin/main",
+                "cork",
+                "main"));
     }
 
     private static StartCherryPickExecutionCommand command(

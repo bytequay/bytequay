@@ -717,6 +717,21 @@ Verification: the full Vitest suite passes (45/45), with ESLint, TypeScript, and
 
 Runtime verification: a clean `dev.sh` restart launched Electron and the backend hello endpoint returned `ByteQuay-backend ok`.
 
+## Checkpoint 42 — Changes diff review workflow
+
+- [x] Wrap long diff lines within the visible pane and remove horizontal scrolling.
+- [x] Expand leading, inter-hunk, and trailing unchanged lines on demand.
+- [x] Select one line or a consecutive line range and either post it immediately or add it to the pending review.
+- [x] Submit pending line comments with the existing batch review flow.
+- [x] Select all commits, one commit, or a consecutive commit range for the displayed diff.
+- [x] Add focused frontend and backend regression coverage.
+- [x] Run frontend and backend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the full Vitest suite passes (51/51), the focused backend diff-review tests pass, all 80 backend Surefire reports have zero failures or errors, and ESLint, TypeScript, and `git diff --check` are clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend hello endpoint returned `ByteQuay-backend ok`.
+
 ## Checkpoint 40 — Completed merge-check status
 
 - [x] Show a static green check after every reported check has passed.

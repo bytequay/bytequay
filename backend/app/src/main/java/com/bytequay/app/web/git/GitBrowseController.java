@@ -13,13 +13,19 @@
  */
 package com.bytequay.app.web.git;
 
+import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
+import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.bytequay.app.git.GitBrowseService;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.DiffFile;
+import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,8 +35,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -46,11 +54,22 @@ public class GitBrowseController
 {
     private final WorkspaceRepositoryService workspaces;
     private final GitBrowseService service;
+    private final GitHubRepoClient gitHub;
+    private final CredentialService credentials;
+    private final CherryPickPullRequestLookup pullRequests;
 
-    public GitBrowseController(WorkspaceRepositoryService workspaces, GitBrowseService service)
+    public GitBrowseController(
+            WorkspaceRepositoryService workspaces,
+            GitBrowseService service,
+            GitHubRepoClient gitHub,
+            CredentialService credentials,
+            CherryPickPullRequestLookup pullRequests)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.service = requireNonNull(service, "service is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
     @GetMapping("/overview")
@@ -67,12 +86,49 @@ public class GitBrowseController
     }
 
     @GetMapping("/commits")
-    public List<Commit> commits(
+    public List<GitCommitResponse> commits(
             @PathVariable String workspaceId,
             @RequestParam String ref,
             @RequestParam(defaultValue = "200") int limit)
     {
-        return service.log(context(workspaceId).repository(), revision(ref), limit);
+        WorkspaceRepositoryContext context = context(workspaceId);
+        String validatedRef = revision(ref);
+        List<Commit> commits = service.log(context.repository(), validatedRef, limit);
+        RepoRef repository = context.selectedRepository();
+        String githubRef = validatedRef;
+        String sourcePrefix = context.sourceRemote() + "/";
+        if (validatedRef.startsWith(sourcePrefix)) {
+            repository = context.monitoredRepository();
+            githubRef = validatedRef.substring(sourcePrefix.length());
+        }
+        Map<String, String> avatars = credentials.isGitHubAccountConfigured()
+                ? gitHub.fetchCommitAvatars(credentials.resolveGitHubToken(), repository, githubRef, limit)
+                : ImmutableMap.of();
+        Map<String, PullRequestAssociation> associations = pullRequests.lookUp(
+                repository,
+                commits.stream().map(Commit::sha).collect(toImmutableList()),
+                githubRef,
+                new ArrayList<>());
+        return commits.stream()
+                .map(commit -> response(commit, avatars, associations))
+                .collect(toImmutableList());
+    }
+
+    private static GitCommitResponse response(
+            Commit commit,
+            Map<String, String> avatars,
+            Map<String, PullRequestAssociation> associations)
+    {
+        PullRequestAssociation association = associations.get(commit.sha());
+        return new GitCommitResponse(
+                commit.sha(),
+                commit.title(),
+                commit.body(),
+                commit.author(),
+                Optional.ofNullable(avatars.get(commit.sha())),
+                commit.authoredAt(),
+                Optional.ofNullable(association).map(PullRequestAssociation::number).or(() -> commit.pullRequestNumber()),
+                Optional.ofNullable(association).map(PullRequestAssociation::title).filter(title -> !title.isBlank()));
     }
 
     @GetMapping("/diff")
@@ -82,6 +138,17 @@ public class GitBrowseController
             @RequestParam String head)
     {
         return service.diff(context(workspaceId).repository(), revision(base), revision(head));
+    }
+
+    @GetMapping("/diff-content")
+    public FileContent diffFileContent(
+            @PathVariable String workspaceId,
+            @RequestParam String base,
+            @RequestParam String head,
+            @RequestParam String path)
+    {
+        return service.diffFileContent(
+                context(workspaceId).repository(), revision(base), revision(head), path);
     }
 
     @GetMapping("/status")

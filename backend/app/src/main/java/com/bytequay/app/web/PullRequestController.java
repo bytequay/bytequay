@@ -15,7 +15,10 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -83,9 +86,36 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/diffFiles")
-    public List<DiffFile> diffFiles(@RequestParam("repo") String repo, @RequestParam("number") int number)
+    public List<DiffFile> diffFiles(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam(value = "base", required = false) String baseSha,
+            @RequestParam(value = "head", required = false) String headSha)
     {
-        return pullRequests.getPullRequestDiffFiles(repo, number);
+        return baseSha == null && headSha == null
+                ? pullRequests.getPullRequestDiffFiles(repo, number)
+                : pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
+    }
+
+    @GetMapping("/prs/diffCommits")
+    public List<DiffCommit> diffCommits(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return pullRequests.getPullRequestDiffCommits(repo, number);
+    }
+
+    @GetMapping("/prs/diffContent")
+    public DiffFileContent diffContent(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("path") String path,
+            @RequestParam(value = "base", required = false) String baseSha,
+            @RequestParam(value = "head", required = false) String headSha)
+    {
+        return baseSha == null && headSha == null
+                ? pullRequests.getPullRequestDiffFileContent(repo, number, path)
+                : pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
     }
 
     @GetMapping("/prs/merge-mode")
@@ -98,7 +128,7 @@ public class PullRequestController
 
     public record CommentRequest(String body) {}
 
-    public record ReviewRequest(String event, String body) {}
+    public record ReviewRequest(String event, String body, List<InlineReviewComment> comments) {}
 
     public record ResolutionRequest(boolean resolved) {}
 
@@ -151,8 +181,23 @@ public class PullRequestController
             @RequestParam("id") long prId,
             @RequestBody ReviewRequest request)
     {
-        pullRequests.submitReview(repo, number, prId, request.event(), request.body());
+        if (request.comments() == null) {
+            pullRequests.submitReview(repo, number, prId, request.event(), request.body());
+        }
+        else {
+            pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
+        }
         return ImmutableMap.of("result", "reviewed");
+    }
+
+    @PostMapping("/prs/review-comment")
+    public Map<String, String> reviewComment(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody InlineReviewComment comment)
+    {
+        pullRequests.createReviewComment(repo, number, comment);
+        return ImmutableMap.of("result", "commented");
     }
 
     @PostMapping("/prs/merge")

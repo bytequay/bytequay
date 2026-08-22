@@ -61,5 +61,5 @@ public record GitHubPullRequestDetailResponse(
     public record Head(String sha, String ref) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Base(String ref) {}
+    public record Base(String sha, String ref) {}
 }

@@ -50,7 +50,7 @@ import static java.util.Objects.requireNonNull;
  * ungrouped.
  */
 @Component
-class CherryPickPullRequestLookup
+public class CherryPickPullRequestLookup
 {
     private static final Logger log = LoggerFactory.getLogger(CherryPickPullRequestLookup.class);
     /** Bounded so a 300-commit range cannot open 300 simultaneous requests. */
@@ -85,7 +85,7 @@ class CherryPickPullRequestLookup
      * @param warnings collects anything the user should know; never throws
      * @return association per commit, absent where none is unambiguous
      */
-    Map<String, PullRequestAssociation> lookUp(
+    public Map<String, PullRequestAssociation> lookUp(
             RepoRef repository,
             List<String> sourceShas,
             String sourceBranch,

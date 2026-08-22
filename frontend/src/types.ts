@@ -46,6 +46,29 @@ export type DiffFileDto = {
   patch: string | null;
 };
 
+export type DiffCommitDto = {
+  sha: string;
+  parentSha: string | null;
+  message: string | null;
+  author: string | null;
+  authoredAt: string | null;
+};
+
+export type DiffFileContentDto = {
+  oldContent: string | null;
+  newContent: string | null;
+};
+
+export type InlineReviewCommentDto = {
+  path: string;
+  body: string;
+  line: number;
+  side: 'LEFT' | 'RIGHT';
+  startLine: number | null;
+  startSide: 'LEFT' | 'RIGHT' | null;
+  commitId: string | null;
+};
+
 export type RepoUserDto = {
   login: string;
   avatarUrl: string | null;
@@ -477,8 +500,10 @@ export type GitCommitDto = {
   title: string;
   body: string;
   author: string;
+  authorAvatarUrl?: string | null;
   authoredAt: string;
   pullRequestNumber?: number | null;
+  pullRequestTitle?: string | null;
 };
 
 export type GitDiffFileDto = {
@@ -504,7 +529,25 @@ export type Bridge = {
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
   refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
-  fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
+  fetchPrDiffFiles: (
+    repo: string,
+    number: number,
+    baseSha?: string,
+    headSha?: string,
+  ) => Promise<DiffFileDto[]>;
+  fetchPrDiffCommits: (repo: string, number: number) => Promise<DiffCommitDto[]>;
+  fetchPrDiffFileContent: (
+    repo: string,
+    number: number,
+    path: string,
+    baseSha?: string,
+    headSha?: string,
+  ) => Promise<DiffFileContentDto>;
+  postPrReviewComment: (
+    repo: string,
+    number: number,
+    comment: InlineReviewCommentDto,
+  ) => Promise<void>;
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
@@ -515,6 +558,7 @@ export type Bridge = {
     number: number,
     event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
     body: string,
+    comments?: InlineReviewCommentDto[],
   ) => Promise<void>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
@@ -588,6 +632,12 @@ export type Bridge = {
   gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;
   gitLog: (workspaceId: string, ref: string, limit: number) => Promise<GitCommitDto[]>;
   gitDiff: (workspaceId: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
+  gitDiffFileContent: (
+    workspaceId: string,
+    base: string,
+    head: string,
+    path: string,
+  ) => Promise<DiffFileContentDto>;
   gitStatus: (workspaceId: string) => Promise<GitWorktreeStatusDto>;
   gitFetch: (workspaceId: string, remotes: string[]) => Promise<{ fetched: boolean }>;
   gitCommit: (workspaceId: string, summary: string, description: string) => Promise<{ sha: string }>;

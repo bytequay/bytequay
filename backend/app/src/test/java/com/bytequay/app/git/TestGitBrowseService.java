@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.DiffFile;
+import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -112,6 +113,21 @@ class TestGitBrowseService
         assertThat(file.path()).isEqualTo("docs/My Design File.html");
         assertThat(file.status()).isEqualTo("A");
         assertThat(file.additions()).isEqualTo(1);
+    }
+
+    @Test
+    void diffFileContentReturnsBothRevisions()
+    {
+        write("folder/file.txt", "before\n");
+        commit("Base");
+        String base = head();
+        write("folder/file.txt", "after\n");
+        commit("Change");
+
+        FileContent content = service.diffFileContent(repository, base, head(), "folder/file.txt");
+
+        assertThat(content.oldContent()).contains("before\n");
+        assertThat(content.newContent()).contains("after\n");
     }
 
     @Test

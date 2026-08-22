@@ -13,8 +13,14 @@
  */
 package com.bytequay.app.web.git;
 
+import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
+import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.bytequay.app.git.GitBrowseService;
+import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -22,13 +28,17 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +56,9 @@ class TestGitBrowseController
 
     private WorkspaceRepositoryService workspaces;
     private GitBrowseService git;
+    private GitHubRepoClient gitHub;
+    private CredentialService credentials;
+    private CherryPickPullRequestLookup pullRequests;
     private MockMvc mvc;
 
     @BeforeEach
@@ -53,7 +66,10 @@ class TestGitBrowseController
     {
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
-        mvc = standaloneSetup(new GitBrowseController(workspaces, git))
+        gitHub = mock(GitHubRepoClient.class);
+        credentials = mock(CredentialService.class);
+        pullRequests = mock(CherryPickPullRequestLookup.class);
+        mvc = standaloneSetup(new GitBrowseController(workspaces, git, gitHub, credentials, pullRequests))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -106,6 +122,54 @@ class TestGitBrowseController
                         .param("remote", "--upload-pack=malicious"))
                 .andExpect(status().isBadRequest());
         verify(git, never()).remoteBranches(REPOSITORY_A, "--upload-pack=malicious");
+    }
+
+    @Test
+    void readsDiffContextFromTheManagedRepository()
+            throws Exception
+    {
+        when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
+        when(git.diffFileContent(REPOSITORY_A, "base", "head", "src/App.java"))
+                .thenReturn(new FileContent(Optional.of("old\n"), Optional.of("new\n")));
+
+        mvc.perform(get("/api/workspaces/workspace-a/git/diff-content")
+                        .param("base", "base")
+                        .param("head", "head")
+                        .param("path", "src/App.java"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.oldContent").value("old\n"))
+                .andExpect(jsonPath("$.newContent").value("new\n"));
+
+        verify(git).diffFileContent(REPOSITORY_A, "base", "head", "src/App.java");
+    }
+
+    @Test
+    void addsGitHubAvatarsToUpstreamCommitHistory()
+            throws Exception
+    {
+        when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
+        when(git.log(REPOSITORY_A, "upstream/main", 20)).thenReturn(ImmutableList.of(new Commit(
+                "abc", "Title", "", "Alice Example", "2026-08-22T00:00:00Z", Optional.empty())));
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(credentials.resolveGitHubToken()).thenReturn("pat");
+        when(gitHub.fetchCommitAvatars("pat", RepoRef.of("upstream", "project"), "main", 20))
+                .thenReturn(ImmutableMap.of("abc", "https://avatars/alice"));
+        when(pullRequests.lookUp(
+                eq(RepoRef.of("upstream", "project")),
+                eq(ImmutableList.of("abc")),
+                eq("main"),
+                anyList()))
+                .thenReturn(ImmutableMap.of("abc", new PullRequestAssociation(
+                        42, "Improve commit browsing", "https://github.test/pull/42", "main", "2026-08-22T00:00:00Z")));
+
+        mvc.perform(get("/api/workspaces/workspace-a/git/commits")
+                        .param("ref", "upstream/main")
+                        .param("limit", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].author").value("Alice Example"))
+                .andExpect(jsonPath("$[0].authorAvatarUrl").value("https://avatars/alice"))
+                .andExpect(jsonPath("$[0].pullRequestNumber").value(42))
+                .andExpect(jsonPath("$[0].pullRequestTitle").value("Improve commit browsing"));
     }
 
     private static WorkspaceRepositoryContext context(String workspaceId, Path repository)

@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import type { CherryPickPreview, GitCommitDto, GitOverviewDto } from '../types';
+import type { CherryPickPreview, GitCommitDto, GitOverviewDto, PullRequestDto } from '../types';
 import { githubSlug, type Workspace } from '../workspaces/model';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';
@@ -26,10 +26,11 @@ import '../css/commits.css';
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
 
-export default function CommitsTab({ workspace, initialExecutionId }: {
+export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
+  onOpenPullRequest: (number: number) => void;
 }) {
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
@@ -42,6 +43,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
   const [commits, setCommits] = useState<GitCommitDto[]>([]);
+  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [logLoading, setLogLoading] = useState(true);
   const [checkedWs, setCheckedWs] = useState<Set<string>>(new Set());
   const [checkedUp, setCheckedUp] = useState<Set<string>>(new Set());
@@ -74,6 +76,14 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
   }, [workspace.id]);
 
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.fetchPrs(workspace.id)
+      .then(value => { if (!cancelled) setPullRequests(value); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [workspace.id]);
 
   // Menus close on any outside press; the chip wrappers stop propagation.
   useEffect(() => {
@@ -206,7 +216,9 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
               title="This workspace's branch — click again to switch branch"
               onClick={wsChipClick}
             >
-              <span className="cmt-mono">⑂</span> {branch} <span className="cmt-caret">▾</span>
+              <span className="cmt-mono">⑂</span>
+              <span className="cmt-repo-chip__label">{branch}</span>
+              <span className="cmt-caret">▾</span>
             </button>
             {branchMenu && (
               <div className="cmt-menu">
@@ -217,6 +229,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
                   <button
                     type="button"
                     key={name}
+                    title={name}
                     className={`cmt-menu-item${name === branch ? ' is-current' : ''}`}
                     onClick={() => {
                       setBranch(name);
@@ -238,7 +251,10 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
                 title="Remote source — read-only, cherry-pick source — click again to switch branch"
                 onClick={upChipClick}
               >
-                <span className="cmt-mono">↞</span> {upstreamSlug ?? sourceRemote} · {upBranch}
+                <span className="cmt-mono">↞</span>
+                <span className="cmt-repo-chip__label">
+                  {upstreamSlug ?? sourceRemote} · {upBranch}
+                </span>
                 <span className="cmt-readonly">read-only</span>
                 <span className="cmt-caret">▾</span>
               </button>
@@ -255,6 +271,7 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
                     <button
                       type="button"
                       key={name}
+                      title={name}
                       className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
                       onClick={() => {
                         setUpBranch(name);
@@ -340,8 +357,10 @@ export default function CommitsTab({ workspace, initialExecutionId }: {
           commits={commits}
           loading={logLoading}
           checked={checked}
+          pullRequests={pullRequests}
           onChangeChecked={next => (isUpstream ? setCheckedUp(next) : setCheckedWs(next))}
           onHistoryRewritten={() => setLogVersion(version => version + 1)}
+          onOpenPullRequest={onOpenPullRequest}
         />
       )}
       {screen === 'tasks' && (

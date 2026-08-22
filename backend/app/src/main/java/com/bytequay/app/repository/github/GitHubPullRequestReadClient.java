@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -449,20 +451,127 @@ public class GitHubPullRequestReadClient
                     pr.owner(),
                     pr.repo(),
                     pr.number());
-            return files.stream()
-                    .map(
-                            f ->
-                                    new DiffFile(
-                                            f.filename(),
-                                            f.status(),
-                                            f.additions(),
-                                            f.deletions(),
-                                            f.patch()))
-                    .collect(toImmutableList());
+            return toDiffFiles(files);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr, String baseSha, String headSha)
+    {
+        requirePat(pat);
+        if (baseSha == null || baseSha.isBlank() || headSha == null || headSha.isBlank()) {
+            return fetchPrDiffFiles(pat, pr);
+        }
+        try {
+            GitHubCompareResponse response = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/compare/{base}...{head}",
+                            pr.owner(), pr.repo(), baseSha, headSha)
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubCompareResponse.class);
+            return response == null ? ImmutableList.of() : toDiffFiles(response.files());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    public List<DiffCommit> fetchPrDiffCommits(String pat, PullRequestRef pr)
+    {
+        return paginator.paginate(
+                        pat,
+                        "/repos/{owner}/{repo}/pulls/{number}/commits",
+                        new ParameterizedTypeReference<List<GitHubPullRequestCommit>>() {},
+                        pr.owner(),
+                        pr.repo(),
+                        pr.number()).stream()
+                .map(commit -> {
+                    GitHubPullRequestCommit.Author author = Optional.ofNullable(commit.commit())
+                            .map(GitHubPullRequestCommit.Commit::author)
+                            .orElse(null);
+                    return new DiffCommit(
+                            commit.sha(),
+                            Optional.ofNullable(commit.parents()).orElse(ImmutableList.of()).stream()
+                                    .findFirst()
+                                    .map(GitHubPullRequestCommit.Parent::sha)
+                                    .orElse(null),
+                            Optional.ofNullable(commit.commit()).map(GitHubPullRequestCommit.Commit::message).orElse(null),
+                            Optional.ofNullable(commit.author()).map(GitHubPullRequestCommit.User::login)
+                                    .orElseGet(() -> Optional.ofNullable(author)
+                                            .map(GitHubPullRequestCommit.Author::name)
+                                            .orElse(null)),
+                            Optional.ofNullable(author).map(GitHubPullRequestCommit.Author::date).orElse(null));
+                })
+                .collect(toImmutableList());
+    }
+
+    public DiffFileContent fetchPrDiffFileContent(String pat, PullRequestRef pr, String path)
+    {
+        requirePat(pat);
+        if (path == null || path.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
+        }
+        try {
+            GitHubPullRequestDetailResponse detail = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubPullRequestDetailResponse.class);
+            if (detail == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty pull request response from GitHub");
+            }
+            String baseSha = Optional.ofNullable(detail.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null);
+            String headSha = Optional.ofNullable(detail.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
+            return fetchPrDiffFileContent(pat, pr, path, baseSha, headSha);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    public DiffFileContent fetchPrDiffFileContent(
+            String pat, PullRequestRef pr, String path, String baseSha, String headSha)
+    {
+        requirePat(pat);
+        if (path == null || path.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
+        }
+        return new DiffFileContent(
+                fetchRepositoryFile(pat, pr, path, baseSha),
+                fetchRepositoryFile(pat, pr, path, headSha));
+    }
+
+    private String fetchRepositoryFile(String pat, PullRequestRef pr, String path, String ref)
+    {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        try {
+            return gitHubRestClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/contents/")
+                            .path(path)
+                            .queryParam("ref", ref)
+                            .build(pr.owner(), pr.repo()))
+                    .header("Authorization", authorization(pat))
+                    .header("Accept", "application/vnd.github.raw+json")
+                    .retrieve()
+                    .body(String.class);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private static List<DiffFile> toDiffFiles(List<GitHubPullRequestFileWithPatch> files)
+    {
+        return Optional.ofNullable(files).orElse(ImmutableList.of()).stream()
+                .map(f -> new DiffFile(f.filename(), f.status(), f.additions(), f.deletions(), f.patch()))
+                .collect(toImmutableList());
     }
 
     public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, Instant since) {

@@ -348,6 +348,13 @@ function registerIpc(): void {
     gitGet(workspaceId, 'commits', { ref, limit: String(limit) }));
   ipcMain.handle('git:diff', (_event, workspaceId: string, base: string, head: string) =>
     gitGet(workspaceId, 'diff', { base, head }));
+  ipcMain.handle('git:diff-content', (
+    _event,
+    workspaceId: string,
+    base: string,
+    head: string,
+    path: string,
+  ) => gitGet(workspaceId, 'diff-content', { base, head, path }));
   ipcMain.handle('git:status', (_event, workspaceId: string) =>
     gitGet(workspaceId, 'status', {}));
   ipcMain.handle('git:fetch', (_event, workspaceId: string, remotes: string[]) =>
@@ -414,8 +421,48 @@ function registerIpc(): void {
     const url = prUrl('/prs/detail/refresh', repo, number);
     return backendJson(url, { method: 'POST' });
   });
-  ipcMain.handle('prs:diff', (_event, repo: string, number: number) =>
-    backendJson(prUrl('/prs/diffFiles', repo, number)));
+  ipcMain.handle('prs:diff', (
+    _event,
+    repo: string,
+    number: number,
+    baseSha?: string,
+    headSha?: string,
+  ) => {
+    const url = prUrl('/prs/diffFiles', repo, number);
+    if (baseSha && headSha) {
+      url.searchParams.set('base', baseSha);
+      url.searchParams.set('head', headSha);
+    }
+    return backendJson(url);
+  });
+  ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number) =>
+    backendJson(prUrl('/prs/diffCommits', repo, number)));
+  ipcMain.handle('prs:diff-content', (
+    _event,
+    repo: string,
+    number: number,
+    path: string,
+    baseSha?: string,
+    headSha?: string,
+  ) => {
+    const url = prUrl('/prs/diffContent', repo, number);
+    url.searchParams.set('path', path);
+    if (baseSha && headSha) {
+      url.searchParams.set('base', baseSha);
+      url.searchParams.set('head', headSha);
+    }
+    return backendJson(url);
+  });
+  ipcMain.handle('prs:review-comment:create', (
+    _event,
+    repo: string,
+    number: number,
+    comment: import('./types').InlineReviewCommentDto,
+  ) => backendVoid(prUrl('/prs/review-comment', repo, number), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(comment),
+  }));
   ipcMain.handle('prs:comment', (
     _event,
     repo: string,
@@ -469,13 +516,14 @@ function registerIpc(): void {
     number: number,
     event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
     body: string,
+    comments?: import('./types').InlineReviewCommentDto[],
   ) => {
     const url = prUrl('/prs/review', repo, number);
     url.searchParams.set('id', String(prId));
     return backendVoid(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, body }),
+      body: JSON.stringify({ event, body, comments }),
     });
   });
   ipcMain.handle('prs:merge', (

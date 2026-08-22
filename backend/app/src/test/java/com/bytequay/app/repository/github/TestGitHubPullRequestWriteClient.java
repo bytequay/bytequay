@@ -13,12 +13,16 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -30,6 +34,83 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubPullRequestWriteClient
 {
+    @Test
+    void postsSingleInlineReviewComment()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/comments"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("""
+                        {
+                          "path":"src/Main.java",
+                          "body":"Please simplify this",
+                          "line":18,
+                          "side":"RIGHT",
+                          "start_line":16,
+                          "start_side":"RIGHT",
+                          "commit_id":"head-sha"
+                        }
+                        """))
+                .andRespond(withSuccess());
+
+        client.createReviewComment(
+                "pat",
+                PullRequestRef.of("upstream", "project", 12),
+                new InlineReviewComment(
+                        "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha"));
+
+        server.verify();
+    }
+
+    @Test
+    void submitsInlineCommentsAsOneReview()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/reviews"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("""
+                        {
+                          "event":"COMMENT",
+                          "commit_id":"head-sha",
+                          "comments":[{
+                            "path":"src/Main.java",
+                            "body":"First note",
+                            "line":18,
+                            "side":"RIGHT"
+                          },{
+                            "path":"src/Other.java",
+                            "body":"Second note",
+                            "line":9,
+                            "side":"LEFT"
+                          }]
+                        }
+                        """))
+                .andRespond(withSuccess());
+
+        client.submitReview(
+                "pat",
+                PullRequestRef.of("upstream", "project", 12),
+                "COMMENT",
+                "",
+                List.of(
+                        new InlineReviewComment(
+                                "src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha"),
+                        new InlineReviewComment(
+                                "src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha")));
+
+        server.verify();
+    }
+
     @Test
     void createsPullRequestThroughExistingWriteClient()
     {

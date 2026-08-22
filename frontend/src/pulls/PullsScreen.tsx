@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import type { DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
-import PullChanges from './PullChanges';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../types';
+import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { PULL_TABS, reconcilePullRequestDetail, rowsForTab, type PullRow, type PullTab } from './model';
@@ -38,6 +38,10 @@ export default function PullsScreen({
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
   const [diffs, setDiffs] = useState<DiffFileDto[] | null>(null);
+  const [diffCommits, setDiffCommits] = useState<DiffCommitDto[]>([]);
+  const [diffRange, setDiffRange] = useState<CommitRange>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
   const [loading, setLoading] = useState(true);
@@ -120,15 +124,44 @@ export default function PullsScreen({
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
-    window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number)
-      .then(setDiffs)
-      .catch(e => setError(e instanceof Error ? e.message : String(e)));
+    setDiffLoading(true);
+    Promise.all([
+      window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number),
+      window.bridge.fetchPrDiffCommits(selectedPr.repo, selectedPr.number),
+    ])
+      .then(([files, commits]) => {
+        setDiffs(files);
+        setDiffCommits(commits);
+      })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setDiffLoading(false));
   }, [detailTab, selectedPr, diffs]);
 
   const pick = (row: PullRow) => {
     setSelected(row.id);
     setDetailTab('overview');
     setDiffs(null);
+    setDiffCommits([]);
+    setDiffRange(null);
+    setPendingReviewComments([]);
+  };
+
+  const changeCommitRange = (range: CommitRange) => {
+    if (!selectedPr) return;
+    const start = range === null ? null : diffCommits[range.start];
+    const end = range === null ? null : diffCommits[range.end];
+    if (range !== null && (!start?.parentSha || !end?.sha)) {
+      setError('This commit range does not have enough Git history to compare.');
+      return;
+    }
+    setDiffRange(range);
+    setPendingReviewComments([]);
+    setDiffLoading(true);
+    setError(null);
+    window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number, start?.parentSha ?? undefined, end?.sha)
+      .then(setDiffs)
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setDiffLoading(false));
   };
 
   const refresh = async () => {
@@ -252,6 +285,8 @@ export default function PullsScreen({
             tab={detailTab}
             onTab={setDetailTab}
             onRefresh={refresh}
+            pendingComments={pendingReviewComments}
+            onPendingCommentsChange={setPendingReviewComments}
           />
           {error && <div className="pull-detail__error">{error}</div>}
           {detailLoading ? (
@@ -264,6 +299,12 @@ export default function PullsScreen({
               pr={selectedPr}
               detail={detail}
               diffs={diffs}
+              diffCommits={diffCommits}
+              diffRange={diffRange}
+              diffLoading={diffLoading}
+              pendingComments={pendingReviewComments}
+              onCommitRangeChange={changeCommitRange}
+              onPendingCommentsChange={setPendingReviewComments}
               contributorsWorkspaceId={repositoryScope?.workspaceId}
               onRefresh={refresh}
             />
@@ -307,12 +348,22 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
   };
 }
 
-function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
+function PullDetailHeader({
+  pr,
+  detail,
+  tab,
+  onTab,
+  onRefresh,
+  pendingComments,
+  onPendingCommentsChange,
+}: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
+  pendingComments: InlineReviewCommentDto[];
+  onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -397,6 +448,8 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
       </nav>
       {reviewOpen && detail && (
         <ReviewDialog pr={pr} detail={detail}
+          pendingComments={pendingComments}
+          onPendingCommentsChange={onPendingCommentsChange}
           onClose={() => setReviewOpen(false)} onRefresh={onRefresh} />
       )}
       {mergeOpen && detail && typeof mergeQueue === 'boolean' && (
@@ -448,9 +501,18 @@ export function mergeStatus(detail: PullRequestDetailDto) {
 
 type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 
-export function ReviewDialog({ pr, detail, onClose, onRefresh }: {
+export function ReviewDialog({
+  pr,
+  detail,
+  pendingComments = [],
+  onPendingCommentsChange = () => undefined,
+  onClose,
+  onRefresh,
+}: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
+  pendingComments?: InlineReviewCommentDto[];
+  onPendingCommentsChange?: (comments: InlineReviewCommentDto[]) => void;
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -458,7 +520,7 @@ export function ReviewDialog({ pr, detail, onClose, onRefresh }: {
   const [event, setEvent] = useState<ReviewEvent>('APPROVE');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bodyRequired = event !== 'APPROVE';
+  const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0;
 
   useEffect(() => {
     const close = (keyboardEvent: KeyboardEvent) => {
@@ -472,7 +534,15 @@ export function ReviewDialog({ pr, detail, onClose, onRefresh }: {
     setSubmitting(true);
     setError(null);
     try {
-      await window.bridge.submitReview(pr.id, detail.repo, detail.number, event, body.trim());
+      await window.bridge.submitReview(
+        pr.id,
+        detail.repo,
+        detail.number,
+        event,
+        body.trim(),
+        pendingComments,
+      );
+      onPendingCommentsChange([]);
       await onRefresh();
       onClose();
     }
@@ -497,6 +567,21 @@ export function ReviewDialog({ pr, detail, onClose, onRefresh }: {
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
           onChange={change => setBody(change.target.value)} />
+        {pendingComments.length > 0 && (
+          <div className="pr-review-sheet__pending">
+            {pendingComments.map((comment, index) => (
+              <div key={`${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}>
+                <span><code>{comment.path}</code> · {comment.startLine && comment.startLine !== comment.line
+                  ? `lines ${comment.startLine}–${comment.line}`
+                  : `line ${comment.line}`}</span>
+                <p>{comment.body}</p>
+                <button type="button" onClick={() => onPendingCommentsChange(
+                  pendingComments.filter((_, commentIndex) => commentIndex !== index),
+                )}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
         <ReviewChoice
           checked={event === 'COMMENT'}
           title="Comment"
@@ -660,6 +745,12 @@ function DetailBody({
   pr,
   detail,
   diffs,
+  diffCommits,
+  diffRange,
+  diffLoading,
+  pendingComments,
+  onCommitRangeChange,
+  onPendingCommentsChange,
   contributorsWorkspaceId,
   onRefresh,
 }: {
@@ -667,12 +758,30 @@ function DetailBody({
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   diffs: DiffFileDto[] | null;
+  diffCommits: DiffCommitDto[];
+  diffRange: CommitRange;
+  diffLoading: boolean;
+  pendingComments: InlineReviewCommentDto[];
+  onCommitRangeChange: (range: CommitRange) => void;
+  onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
-    return <div className="pull-detail__body pull-detail__changes"><PullChanges files={diffs} /></div>;
+    return <div className="pull-detail__body pull-detail__changes"><PullChanges
+      repo={detail.repo}
+      number={detail.number}
+      files={diffs}
+      commits={diffCommits}
+      commitRange={diffRange}
+      loading={diffLoading}
+      canReview={canSubmitReview(pr, detail)}
+      pendingComments={pendingComments}
+      onCommitRangeChange={onCommitRangeChange}
+      onPendingCommentsChange={onPendingCommentsChange}
+      onReviewPosted={onRefresh}
+    /></div>;
   }
   return <div className="pull-detail__body"><PullOverview
     pr={pr}

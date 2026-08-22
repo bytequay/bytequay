@@ -13,9 +13,10 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import type { GitCommitDto, GitDiffFileDto } from '../types';
+import type { DiffFileDto, GitCommitDto, GitDiffFileDto, PullRequestDto } from '../types';
 import Avatar from '../Avatar';
-import DiffPane from './DiffPane';
+import { DiffViewer } from '../pulls/PullChanges';
+import { useResizablePane } from '../useResizablePane';
 import { groupByDay, selectedSpan, shortSha, spanFromShas, squashMessage } from './model';
 
 export default function HistoryView({
@@ -27,8 +28,10 @@ export default function HistoryView({
   commits,
   loading,
   checked,
+  pullRequests,
   onChangeChecked,
   onHistoryRewritten,
+  onOpenPullRequest,
 }: {
   workspaceId: string;
   branch: string;
@@ -40,21 +43,24 @@ export default function HistoryView({
   commits: GitCommitDto[];
   loading: boolean;
   checked: ReadonlySet<string>;
+  pullRequests: PullRequestDto[];
   onChangeChecked: (next: Set<string>) => void;
   onHistoryRewritten: () => void;
+  onOpenPullRequest: (number: number) => void;
 }) {
   const [viewedSha, setViewedSha] = useState<string | null>(null);
   const [rangeFrom, setRangeFrom] = useState('');
   const [rangeTo, setRangeTo] = useState('');
   const [rangeError, setRangeError] = useState(false);
   const [diffFiles, setDiffFiles] = useState<GitDiffFileDto[]>([]);
-  const [diffIndex, setDiffIndex] = useState(0);
+  const [diffLoading, setDiffLoading] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editBody, setEditBody] = useState<string | null>(null);
   const [squashDraft, setSquashDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const commitPane = useResizablePane(460, 340, 800);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
   const spanCommits = useMemo(
@@ -64,6 +70,17 @@ export default function HistoryView({
   const single = !isUpstream && spanCommits.length === 1 ? spanCommits[0] : null;
   const multi = !isUpstream && spanCommits.length > 1;
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
+  const pullRequestsByNumber = useMemo(
+    () => new Map(pullRequests.map(pullRequest => [pullRequest.number, pullRequest])),
+    [pullRequests],
+  );
+  const viewerFiles = useMemo<DiffFileDto[]>(() => diffFiles.map(file => ({
+    filename: file.path,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch ?? null,
+  })), [diffFiles]);
 
   const viewed = commits.find(commit => commit.sha === viewedSha) ?? commits[0] ?? null;
 
@@ -75,17 +92,22 @@ export default function HistoryView({
   useEffect(() => {
     if (!diffBase || !diffHead) {
       setDiffFiles([]);
+      setDiffLoading(false);
       return;
     }
     let cancelled = false;
+    setDiffLoading(true);
     window.bridge.gitDiff(workspaceId, diffBase, diffHead)
       .then(files => {
         if (cancelled) return;
         setDiffFiles(files);
-        setDiffIndex(0);
+        setError(null);
       })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+      })
+      .finally(() => {
+        if (!cancelled) setDiffLoading(false);
       });
     return () => { cancelled = true; };
   }, [workspaceId, diffBase, diffHead]);
@@ -168,7 +190,10 @@ export default function HistoryView({
 
   return (
     <div className="cmt-history">
-      <div className="cmt-history-left">
+      <div
+        className="cmt-history-left"
+        style={{ width: commitPane.width, flexBasis: commitPane.width }}
+      >
         <div className="cmt-range-bar">
           <div className="cmt-range-row">
             <span className="cmt-range-label">RANGE</span>
@@ -213,11 +238,16 @@ export default function HistoryView({
               {group.commits.map(({ commit, index }) => {
                 const inRange = span !== null && index >= span.lo && index <= span.hi;
                 const isViewed = viewed?.sha === commit.sha;
+                const pullRequestNumber = commit.pullRequestNumber ?? null;
+                const pullRequest = pullRequestNumber === null
+                  ? null
+                  : pullRequestsByNumber.get(pullRequestNumber) ?? null;
+                const pullRequestTitle = commit.pullRequestTitle ?? pullRequest?.title ?? null;
                 return (
                   <div key={commit.sha}>
                     <div
                       className={`cmt-commit-row${inRange ? ' is-selected' : ''}${isViewed && !multi ? ' is-viewed' : ''}`}
-                      onClick={() => { setViewedSha(commit.sha); setDiffIndex(0); }}
+                      onClick={() => setViewedSha(commit.sha)}
                     >
                       <input
                         type="checkbox"
@@ -229,12 +259,27 @@ export default function HistoryView({
                       <div className="cmt-commit-main">
                         <div className="cmt-commit-title-row">
                           <span className="cmt-commit-title">{commit.title}</span>
-                          {commit.pullRequestNumber != null && (
-                            <span className="cmt-chip is-pr">#{commit.pullRequestNumber}</span>
-                          )}
                         </div>
+                        {pullRequestNumber !== null && (
+                          <button
+                            type="button"
+                            className="cmt-commit-pr"
+                            title={pullRequestTitle
+                              ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
+                              : `Open PR #${pullRequestNumber}`}
+                            onClick={event => {
+                              event.stopPropagation();
+                              onOpenPullRequest(pullRequestNumber);
+                            }}
+                          >
+                            <span className="cmt-chip is-pr">PR #{pullRequestNumber}</span>
+                            <span className="cmt-commit-pr-title">
+                              {pullRequestTitle ?? 'View pull request'}
+                            </span>
+                          </button>
+                        )}
                         <div className="cmt-commit-meta">
-                          <Avatar login={commit.author} size={14} />
+                          <Avatar login={commit.author} avatarUrl={commit.authorAvatarUrl} size={14} />
                           <span>
                             <strong>{commit.author}</strong>
                             {' committed '}
@@ -310,6 +355,15 @@ export default function HistoryView({
         </div>
       </div>
 
+      <div
+        className={`cmt-history-resize${commitPane.resizing ? ' is-resizing' : ''}`}
+        role="separator"
+        aria-label="Resize commit history"
+        aria-orientation="vertical"
+        title="Drag to resize"
+        onMouseDown={commitPane.startResize}
+      />
+
       <div className="cmt-history-right">
         {error && <div className="cmt-error" role="alert">{error}</div>}
         <div className="cmt-view-head">
@@ -331,7 +385,13 @@ export default function HistoryView({
             −{diffFiles.reduce((sum, file) => sum + file.deletions, 0)}
           </span>
         </div>
-        <DiffPane files={diffFiles} selected={diffIndex} onSelect={setDiffIndex} />
+        <DiffViewer
+          files={viewerFiles}
+          loading={diffLoading}
+          loadFileContent={diffBase && diffHead
+            ? path => window.bridge.gitDiffFileContent(workspaceId, diffBase, diffHead, path)
+            : undefined}
+        />
       </div>
     </div>
   );

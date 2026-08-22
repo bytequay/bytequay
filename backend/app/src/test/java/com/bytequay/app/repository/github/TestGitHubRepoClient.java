@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -82,6 +83,22 @@ class TestGitHubRepoClient
                     assertThat(issue.labels()).containsExactly("bug");
                     assertThat(issue.assignees()).containsExactly("bob");
                 });
+        fixture.server().verify();
+    }
+
+    @Test
+    void fetchesCommitAvatarsBySha()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
+                .andRespond(withSuccess("""
+                        [{"sha":"abc","author":{"avatar_url":"https://avatars/alice"}},
+                         {"sha":"def","author":null}]
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchCommitAvatars("pat", REPOSITORY, "main", 2))
+                .containsExactlyEntriesOf(ImmutableMap.of("abc", "https://avatars/alice"));
         fixture.server().verify();
     }
 

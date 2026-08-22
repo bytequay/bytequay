@@ -486,6 +486,7 @@ samp {
 }
 
 .app-sidebar {
+  position: relative;
   display: flex;
   width: 222px;
   flex: 0 0 222px;
@@ -497,6 +498,31 @@ samp {
   font-family: var(--left-nav-font);
   transition: width var(--motion-base), flex-basis var(--motion-base);
 }
+
+.app-sidebar.is-resizing { transition: none; }
+
+.app-sidebar__resize {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.app-sidebar__resize::after {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  content: '';
+}
+
+.app-sidebar__resize:hover::after,
+.app-sidebar.is-resizing .app-sidebar__resize::after { background: #0969da; }
 
 .app-sidebar.is-collapsed {
   width: 48px;

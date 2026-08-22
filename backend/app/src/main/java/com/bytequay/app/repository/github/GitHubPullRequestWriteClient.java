@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -95,6 +96,72 @@ public class GitHubPullRequestWriteClient
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    public void submitReview(
+            String pat,
+            PullRequestRef pr,
+            String event,
+            String body,
+            List<InlineReviewComment> comments)
+    {
+        try {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("event", event);
+            if (body != null && !body.isBlank()) {
+                request.put("body", body);
+            }
+            if (comments != null && !comments.isEmpty()) {
+                Optional.ofNullable(comments.getFirst().commitId())
+                        .filter(commitId -> !commitId.isBlank())
+                        .ifPresent(commitId -> request.put("commit_id", commitId));
+                request.put("comments", comments.stream()
+                        .map(GitHubPullRequestWriteClient::toReviewCommentRequest)
+                        .toList());
+            }
+            gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    public void createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
+    {
+        try {
+            Map<String, Object> request = toReviewCommentRequest(comment);
+            request.put("commit_id", comment.commitId());
+            gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}/comments", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static Map<String, Object> toReviewCommentRequest(InlineReviewComment comment)
+    {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("path", comment.path());
+        request.put("body", comment.body());
+        request.put("line", comment.line());
+        request.put("side", comment.side());
+        if (comment.startLine() != null) {
+            request.put("start_line", comment.startLine());
+            request.put("start_side", comment.startSide());
+        }
+        return request;
     }
 
     public void replyToReviewComment(String pat, PullRequestRef pr, long commentId, String body)

@@ -26,6 +26,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,6 +37,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -67,6 +69,47 @@ public class GitHubRepoClient
                         Optional.ofNullable(value.avatarUrl()).orElse(""),
                         "Bot".equalsIgnoreCase(value.type()) || value.login().endsWith("[bot]")))
                 .collect(toImmutableList());
+    }
+
+    /** Returns GitHub avatar URLs keyed by commit SHA for the requested branch history. */
+    public Map<String, String> fetchCommitAvatars(String pat, RepoRef repo, String ref, int limit)
+    {
+        requireNonNull(repo, "repo is null");
+        requireNonNull(ref, "ref is null");
+        checkArgument(!ref.isBlank(), "ref is blank");
+        checkArgument(limit > 0, "limit is not positive");
+        ImmutableMap.Builder<String, String> avatars = ImmutableMap.builder();
+        int remaining = limit;
+        try {
+            for (int page = 1; remaining > 0; page++) {
+                int pageSize = Math.min(remaining, 100);
+                int currentPage = page;
+                List<CommitResponse> commits = gitHubRestClient.get()
+                        .uri(builder -> builder.path("/repos/{owner}/{repo}/commits")
+                                .queryParam("sha", ref)
+                                .queryParam("per_page", pageSize)
+                                .queryParam("page", currentPage)
+                                .build(repo.owner(), repo.repo()))
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+                if (commits == null || commits.isEmpty()) {
+                    break;
+                }
+                commits.stream()
+                        .filter(commit -> commit.sha() != null && commit.author() != null)
+                        .filter(commit -> commit.author().avatarUrl() != null && !commit.author().avatarUrl().isBlank())
+                        .forEach(commit -> avatars.put(commit.sha(), commit.author().avatarUrl()));
+                remaining -= commits.size();
+                if (commits.size() < pageSize) {
+                    break;
+                }
+            }
+            return avatars.buildKeepingLast();
+        }
+        catch (RestClientException ignored) {
+            return ImmutableMap.of();
+        }
     }
 
     public List<RepositoryLabel> fetchLabels(String pat, RepoRef repo)
@@ -238,4 +281,10 @@ public class GitHubRepoClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueLabel(String name) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record CommitResponse(String sha, CommitAuthor author) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record CommitAuthor(@JsonProperty("avatar_url") String avatarUrl) {}
 }

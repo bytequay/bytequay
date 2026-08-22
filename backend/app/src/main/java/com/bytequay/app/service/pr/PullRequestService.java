@@ -19,9 +19,12 @@ import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.GithubReviewState;
 import com.bytequay.core.domain.HandledAction;
+import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrReviewState;
@@ -358,6 +361,40 @@ public class PullRequestService
         return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number));
     }
 
+    public List<DiffFile> getPullRequestDiffFiles(
+            String repo, int number, String baseSha, String headSha)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number), baseSha, headSha);
+    }
+
+    public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        return gitHub.fetchPrDiffCommits(pat, parseRef(repo, number));
+    }
+
+    public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        return gitHub.fetchPrDiffFileContent(pat, parseRef(repo, number), path);
+    }
+
+    public DiffFileContent getPullRequestDiffFileContent(
+            String repo, int number, String path, String baseSha, String headSha)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        return gitHub.fetchPrDiffFileContent(pat, parseRef(repo, number), path, baseSha, headSha);
+    }
+
+    public void createReviewComment(String repo, int number, InlineReviewComment comment)
+    {
+        validateReviewComment(comment, true);
+        String pat = credentialService.resolveGitHubToken();
+        pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
+        invalidatePullRequestCaches(repo, number);
+    }
+
     public void commentOnPullRequest(String repo, int number, String body)
     {
         requireNotBlank(body, "comment body must not be blank");
@@ -430,6 +467,61 @@ public class PullRequestService
             viewStateStore.markReviewed(prId, HandledAction.CHANGES_REQUESTED);
         }
         invalidatePullRequestCaches(repo, number);
+    }
+
+    public void submitReview(
+            String repo,
+            int number,
+            long prId,
+            String event,
+            String body,
+            List<InlineReviewComment> comments)
+    {
+        requireNotBlank(event, "review event must not be blank");
+        String normalizedEvent = event.toUpperCase(Locale.ROOT);
+        if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
+        }
+        List<InlineReviewComment> reviewComments = comments == null ? ImmutableList.of() : comments;
+        reviewComments.forEach(comment -> validateReviewComment(comment, false));
+        String reviewBody = body == null ? "" : body.trim();
+        if (!"APPROVE".equals(normalizedEvent) && reviewBody.isBlank() && reviewComments.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review body or inline comment must not be blank");
+        }
+
+        String pat = credentialService.resolveGitHubToken();
+        pullRequestWrites.submitReview(
+                pat, parseRef(repo, number), normalizedEvent, reviewBody, reviewComments);
+        if ("APPROVE".equals(normalizedEvent)) {
+            viewStateStore.markReviewed(prId, HandledAction.APPROVED);
+        }
+        else if ("REQUEST_CHANGES".equals(normalizedEvent)) {
+            viewStateStore.markReviewed(prId, HandledAction.CHANGES_REQUESTED);
+        }
+        invalidatePullRequestCaches(repo, number);
+    }
+
+    private static void validateReviewComment(InlineReviewComment comment, boolean requireCommit)
+    {
+        if (comment == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment must not be null");
+        }
+        requireNotBlank(comment.path(), "review comment path must not be blank");
+        requireNotBlank(comment.body(), "review comment body must not be blank");
+        requireNotBlank(comment.side(), "review comment side must not be blank");
+        String side = comment.side().toUpperCase(Locale.ROOT);
+        if (!ImmutableSet.of("LEFT", "RIGHT").contains(side)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment side must be LEFT or RIGHT");
+        }
+        if (comment.line() < 1 || comment.startLine() != null && (comment.startLine() < 1 || comment.startLine() > comment.line())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid review comment line range");
+        }
+        if (comment.startLine() != null && !side.equalsIgnoreCase(comment.startSide())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment range must stay on one side");
+        }
+        if (requireCommit) {
+            requireNotBlank(comment.commitId(), "review comment commit must not be blank");
+        }
     }
     /** Merges directly, falling back to GitHub's merge queue when required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)

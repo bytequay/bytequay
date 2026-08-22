@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
+import { useResizablePane } from './useResizablePane';
 import type { WorkspaceTab } from './workspaces/WorkspaceShell';
 import type { Workspace } from './workspaces/model';
 
@@ -48,6 +49,7 @@ export default function AppSidebar({
   onExitWorkspace: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const sidebar = useResizablePane(222, 180, 420);
 
   const navItem = ({ page: destination, label, icon }: typeof NAV_ITEMS[number]) => (
     <button
@@ -90,7 +92,10 @@ export default function AppSidebar({
   };
 
   return (
-    <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
+    <aside
+      className={`app-sidebar${collapsed ? ' is-collapsed' : ''}${sidebar.resizing ? ' is-resizing' : ''}`}
+      style={collapsed ? undefined : { width: sidebar.width, flexBasis: sidebar.width }}
+    >
       <div className="app-sidebar__traffic">
         <div className="app-sidebar__lights" aria-label="Window controls">
           <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }} />
@@ -137,6 +142,16 @@ export default function AppSidebar({
             {workspaceItem({ tab: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
           </nav>
         </>
+      )}
+      {!collapsed && (
+        <div
+          className="app-sidebar__resize"
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+          title="Drag to resize"
+          onMouseDown={sidebar.startResize}
+        />
       )}
     </aside>
   );

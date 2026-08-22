@@ -39,6 +39,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   onRemoved: () => void;
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
+  const [openPullRequestNumber, setOpenPullRequestNumber] = useState<number | null>(null);
 
   // A task jump is one-shot: leaving the Commits tab forgets it, so the next
   // visit starts on the commit browser again.
@@ -65,14 +66,23 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         key={openExecutionId ?? 'commits'}
         workspace={workspace}
         initialExecutionId={openExecutionId}
+        onOpenPullRequest={number => {
+          setOpenPullRequestNumber(number);
+          onSelectTab('prs');
+        }}
       />
     );
   }
   if (tab === 'prs') {
-    return <PullsScreen repositoryScope={{
-      workspaceId: workspace.id,
-      repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
-    }} />;
+    const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+    return (
+      <PullsScreen
+        initialPr={openPullRequestNumber === null
+          ? undefined
+          : { repo: repository, number: openPullRequestNumber }}
+        repositoryScope={{ workspaceId: workspace.id, repository }}
+      />
+    );
   }
   if (tab === 'issues') {
     return <WorkspaceIssuesScreen

@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { GitWorktreeStatusDto } from '../types';
-import { DiffView, FileList } from './DiffPane';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DiffViewer } from '../pulls/PullChanges';
+import type { DiffFileDto, GitWorktreeStatusDto } from '../types';
 
 /** GitHub-Desktop-style working-tree view; workspace repo only. */
 export default function ChangesView({ workspaceId, onCommitted }: {
@@ -21,7 +21,6 @@ export default function ChangesView({ workspaceId, onCommitted }: {
   onCommitted: () => void;
 }) {
   const [status, setStatus] = useState<GitWorktreeStatusDto | null>(null);
-  const [selected, setSelected] = useState(0);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,7 +30,6 @@ export default function ChangesView({ workspaceId, onCommitted }: {
     try {
       const next = await window.bridge.gitStatus(workspaceId);
       setStatus(next);
-      setSelected(current => Math.min(current, Math.max(0, next.files.length - 1)));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     }
@@ -56,7 +54,14 @@ export default function ChangesView({ workspaceId, onCommitted }: {
     }
   };
 
-  const files = status?.files ?? [];
+  const files = useMemo(() => status?.files ?? [], [status]);
+  const viewerFiles = useMemo<DiffFileDto[]>(() => files.map(file => ({
+    filename: file.path,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch ?? null,
+  })), [files]);
   const totals = files.reduce(
     (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
     { additions: 0, deletions: 0 },
@@ -64,15 +69,9 @@ export default function ChangesView({ workspaceId, onCommitted }: {
 
   return (
     <div className="cmt-changes">
-      <div className="cmt-changes-left">
+      <div className="cmt-changes-workbar">
         <div className="cmt-changes-summary">
           {files.length} changed files · +{totals.additions} −{totals.deletions} · uncommitted
-        </div>
-        <div className="cmt-changes-files">
-          <FileList files={files} selected={selected} onSelect={setSelected} />
-          {status !== null && files.length === 0 && (
-            <div className="cmt-loading">The working tree is clean.</div>
-          )}
         </div>
         <div className="cmt-commit-box">
           {error && <div className="cmt-error" role="alert">{error}</div>}
@@ -97,9 +96,9 @@ export default function ChangesView({ workspaceId, onCommitted }: {
           </button>
         </div>
       </div>
-      <div className="cmt-changes-right">
-        <DiffView file={files[Math.min(selected, files.length - 1)] ?? null} />
-      </div>
+      {status !== null && files.length === 0
+        ? <div className="cmt-loading">The working tree is clean.</div>
+        : <DiffViewer files={viewerFiles} loading={status === null} />}
     </div>
   );
 }

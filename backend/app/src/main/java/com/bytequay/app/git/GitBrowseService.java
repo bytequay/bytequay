@@ -119,6 +119,24 @@ public class GitBrowseService
         return splitPatch(patch, numstat);
     }
 
+    public FileContent diffFileContent(Path repository, String base, String head, String path)
+    {
+        checkArgument(!base.isBlank(), "base is blank");
+        checkArgument(!head.isBlank(), "head is blank");
+        checkArgument(!path.isBlank(), "path is blank");
+        checkArgument(!path.startsWith("/"), "path is absolute");
+        return new FileContent(fileAtRevision(repository, base, path), fileAtRevision(repository, head, path));
+    }
+
+    private Optional<String> fileAtRevision(Path repository, String revision, String path)
+    {
+        Result result = git.run(repository, "show", revision + ":" + path);
+        if (!result.successful() || result.truncated()) {
+            return Optional.empty();
+        }
+        return Optional.of(result.output());
+    }
+
     public WorktreeStatus status(Path repository)
     {
         String branch = require(repository, "rev-parse", "--abbrev-ref", "HEAD").strip();
@@ -377,6 +395,15 @@ public class GitBrowseService
     {}
 
     public record DiffFile(String path, String status, int additions, int deletions, Optional<String> patch) {}
+
+    public record FileContent(Optional<String> oldContent, Optional<String> newContent)
+    {
+        public FileContent
+        {
+            requireNonNull(oldContent, "oldContent is null");
+            requireNonNull(newContent, "newContent is null");
+        }
+    }
 
     public record WorktreeStatus(String branch, List<DiffFile> files) {}
 }

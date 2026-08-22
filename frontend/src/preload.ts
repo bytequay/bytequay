@@ -24,15 +24,21 @@ const bridge: Bridge = {
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
   refreshPullRequestDetail: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh', repo, number),
-  fetchPrDiffFiles: (repo, number) => ipcRenderer.invoke('prs:diff', repo, number),
+  fetchPrDiffFiles: (repo, number, baseSha, headSha) =>
+    ipcRenderer.invoke('prs:diff', repo, number, baseSha, headSha),
+  fetchPrDiffCommits: (repo, number) => ipcRenderer.invoke('prs:diff-commits', repo, number),
+  fetchPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
+    ipcRenderer.invoke('prs:diff-content', repo, number, path, baseSha, headSha),
+  postPrReviewComment: (repo, number, comment) =>
+    ipcRenderer.invoke('prs:review-comment:create', repo, number, comment),
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
   replyToReviewComment: (repo, number, commentId, body) =>
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),
   setReviewThreadResolved: (repo, number, commentId, resolved) =>
     ipcRenderer.invoke('prs:review-thread:resolution', repo, number, commentId, resolved),
   approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
-  submitReview: (prId, repo, number, event, body) =>
-    ipcRenderer.invoke('prs:review', prId, repo, number, event, body),
+  submitReview: (prId, repo, number, event, body, comments) =>
+    ipcRenderer.invoke('prs:review', prId, repo, number, event, body, comments),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
 
@@ -110,6 +116,8 @@ const bridge: Bridge = {
   gitRemoteBranches: (workspaceId, remote) => ipcRenderer.invoke('git:branches', workspaceId, remote),
   gitLog: (workspaceId, ref, limit) => ipcRenderer.invoke('git:log', workspaceId, ref, limit),
   gitDiff: (workspaceId, base, head) => ipcRenderer.invoke('git:diff', workspaceId, base, head),
+  gitDiffFileContent: (workspaceId, base, head, path) =>
+    ipcRenderer.invoke('git:diff-content', workspaceId, base, head, path),
   gitStatus: workspaceId => ipcRenderer.invoke('git:status', workspaceId),
   gitFetch: (workspaceId, remotes) => ipcRenderer.invoke('git:fetch', workspaceId, remotes),
   gitCommit: (workspaceId, summary, description) =>

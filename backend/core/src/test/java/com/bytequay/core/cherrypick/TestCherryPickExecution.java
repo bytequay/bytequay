@@ -29,7 +29,6 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -256,7 +255,7 @@ class TestCherryPickExecution
                 workspace(),
                 Optional.empty(),
                 new Range(BASE, TIP, TARGET),
-                List.of(items),
+                ImmutableList.copyOf(items),
                 NOW);
     }
 

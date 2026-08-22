@@ -25,6 +25,7 @@ import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -119,10 +120,10 @@ class TestDefaultWorkspaceMetadataService
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         when(gitHub.fetchContributors("token", DIRECT))
-                .thenReturn(List.of(new RepositoryContributor(1, "alice", "avatar", false)));
+                .thenReturn(ImmutableList.of(new RepositoryContributor(1, "alice", "avatar", false)));
         when(gitHub.fetchLabels("token", DIRECT))
-                .thenReturn(List.of(new RepositoryLabel(2, "bug", "ff0000")));
-        when(gitHub.fetchTopics("token", DIRECT)).thenReturn(List.of("java"));
+                .thenReturn(ImmutableList.of(new RepositoryLabel(2, "bug", "ff0000")));
+        when(gitHub.fetchTopics("token", DIRECT)).thenReturn(ImmutableList.of("java"));
 
         WorkspaceMetadataSyncResult result = service.synchronize("direct");
 
@@ -139,9 +140,9 @@ class TestDefaultWorkspaceMetadataService
     {
         workspaces.put("fork-one", workspace("fork-one", 300, UPSTREAM, Topology.FORK));
         workspaces.put("fork-two", workspace("fork-two", 300, UPSTREAM, Topology.FORK));
-        when(gitHub.fetchContributors("token", UPSTREAM)).thenReturn(List.of());
-        when(gitHub.fetchLabels("token", UPSTREAM)).thenReturn(List.of());
-        when(gitHub.fetchTopics("token", UPSTREAM)).thenReturn(List.of());
+        when(gitHub.fetchContributors("token", UPSTREAM)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchLabels("token", UPSTREAM)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchTopics("token", UPSTREAM)).thenReturn(ImmutableList.of());
 
         service.synchronize("fork-one");
         service.synchronize("fork-two");
@@ -159,13 +160,13 @@ class TestDefaultWorkspaceMetadataService
         RepositoryMetadataSnapshot previous = new RepositoryMetadataSnapshot(
                 100,
                 DIRECT,
-                List.of(new RepositoryContributor(1, "alice", "avatar", false)),
-                List.of(new RepositoryLabel(2, "bug", "ff0000")),
-                List.of("java"),
+                ImmutableList.of(new RepositoryContributor(1, "alice", "avatar", false)),
+                ImmutableList.of(new RepositoryLabel(2, "bug", "ff0000")),
+                ImmutableList.of("java"),
                 Optional.of(NOW.minusSeconds(8 * 24 * 60 * 60)),
                 Optional.of(NOW.minusSeconds(31L * 24 * 60 * 60)));
         snapshots.put(100L, previous);
-        when(gitHub.fetchContributors("token", DIRECT)).thenReturn(List.of());
+        when(gitHub.fetchContributors("token", DIRECT)).thenReturn(ImmutableList.of());
         when(gitHub.fetchLabels("token", DIRECT)).thenThrow(new IllegalStateException("provider down"));
 
         WorkspaceMetadataSyncResult result = service.synchronize("direct");

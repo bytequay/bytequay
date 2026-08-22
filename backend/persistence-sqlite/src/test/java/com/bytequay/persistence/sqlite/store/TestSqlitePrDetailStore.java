@@ -23,6 +23,9 @@ import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,10 +37,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,8 +82,8 @@ class TestSqlitePrDetailStore
         pullRequest.setNumber(PULL_REQUEST.number());
         pullRequest.setTitle("CI fix");
         pullRequest.setOrigin("AUTHORED");
-        pullRequest.setLabels(List.of());
-        pullRequest.setLabelColors(Map.of());
+        pullRequest.setLabels(ImmutableList.of());
+        pullRequest.setLabelColors(ImmutableMap.of());
         pullRequest.setSyncedAt(NOW);
         pullRequests.saveAndFlush(pullRequest);
     }
@@ -127,7 +127,7 @@ class TestSqlitePrDetailStore
                 "verified push facts",
                 Optional.of("ci-autofix:delete")));
 
-        store.deleteByPrIds(Set.of(PR_ID));
+        store.deleteByPrIds(ImmutableSet.of(PR_ID));
 
         assertThat(timeline.count()).isZero();
     }
@@ -139,17 +139,17 @@ class TestSqlitePrDetailStore
                 "https://avatars/bot", true, null, "https://github/event", "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, false, false,
-                List.of(new PrReaction("+1", 2)), List.of());
+                ImmutableList.of(new PrReaction("+1", 2)), ImmutableList.of());
         StoredPrDetail detail = new StoredPrDetail(
                 new PrRawDetail(
                         "Overview", "https://github/pr/42", "open", "alice", "https://avatars/alice",
-                        NOW, NOW, null, "body", List.of("docs"), Map.of("docs", "d4c5f9"),
-                        List.of("bob"), "v1", false, true, "clean", 1, 1, 1, 0, List.of(),
+                        NOW, NOW, null, "body", ImmutableList.of("docs"), ImmutableMap.of("docs", "d4c5f9"),
+                        ImmutableList.of("bob"), "v1", false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
                         "a".repeat(40), "feature", "main"),
-                List.of(),
-                List.of(new PrTimelineEvent(10L, "labeled", "bot", NOW, null, payload, Optional.empty())),
-                List.of(),
-                List.of("checks"));
+                ImmutableList.of(),
+                ImmutableList.of(new PrTimelineEvent(10L, "labeled", "bot", NOW, null, payload, Optional.empty())),
+                ImmutableList.of(),
+                ImmutableList.of("checks"));
 
         store.save(PR_ID, detail);
 
@@ -166,11 +166,11 @@ class TestSqlitePrDetailStore
     private static StoredPrDetail detail(PrTimelineEvent event)
     {
         return new StoredPrDetail(
-                new PrRawDetail("body", List.of(), false, true, "clean", 1, 1, 1, 0, List.of(),
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
                         "a".repeat(40), "feature"),
-                List.of(),
-                List.of(event),
-                List.of());
+                ImmutableList.of(),
+                ImmutableList.of(event),
+                ImmutableList.of());
     }
 
     private static PrTimelineEvent remote(long githubId, Instant timestamp)

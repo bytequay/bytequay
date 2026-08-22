@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -39,7 +40,7 @@ public class CredentialController
     @GetMapping("/api/auth/github/configured")
     public Map<String, Boolean> accountConfigured()
     {
-        return Map.of("configured", credentialService.isGitHubAccountConfigured());
+        return ImmutableMap.of("configured", credentialService.isGitHubAccountConfigured());
     }
 
     @PostMapping("/api/auth/github/token")
@@ -52,12 +53,12 @@ public class CredentialController
     @GetMapping("/api/auth/github/cli")
     public Map<String, Boolean> ghCliAvailable()
     {
-        return Map.of("available", credentialService.isGitHubCliAvailable());
+        return ImmutableMap.of("available", credentialService.isGitHubCliAvailable());
     }
 
     @PostMapping("/api/auth/github/cli/import")
     public Map<String, String> importGhCliToken()
     {
-        return Map.of("login", credentialService.importGitHubCliToken());
+        return ImmutableMap.of("login", credentialService.importGitHubCliToken());
     }
 }

@@ -18,6 +18,7 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -221,7 +222,7 @@ class TestGitHubPullRequestOverviewClient
                 "See #8",
                 Optional.empty());
         List<PrTimelineEvent> enriched = fixture.client().enrichTimelineReferences(
-                "pat", PULL_REQUEST, List.of(issueComment, threads.getFirst()));
+                "pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
 
         assertThat(threads).singleElement().satisfies(thread -> {
             assertThat(thread.event()).isEqualTo("review_thread");

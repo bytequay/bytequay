@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient.CreatedPullRequest;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;

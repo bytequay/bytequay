@@ -20,6 +20,7 @@ import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.persistence.sqlite.entity.RepositoryMetadataEntity;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,7 +62,7 @@ public class SqliteRepositoryMetadataStore
         Map<Long, RepositoryContributor> byId = new LinkedHashMap<>();
         entity.getContributors().forEach(value -> byId.put(value.id(), value));
         contributors.forEach(value -> byId.put(value.id(), value));
-        entity.setContributors(List.copyOf(byId.values()));
+        entity.setContributors(ImmutableList.copyOf(byId.values()));
         entity.setContributorsSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
         repository.save(entity);
     }
@@ -81,8 +82,8 @@ public class SqliteRepositoryMetadataStore
         Map<Long, RepositoryLabel> byId = new LinkedHashMap<>();
         entity.getLabels().forEach(value -> byId.put(value.id(), value));
         labels.forEach(value -> byId.put(value.id(), value));
-        entity.setLabels(List.copyOf(byId.values()));
-        entity.setTopics(List.copyOf(topics));
+        entity.setLabels(ImmutableList.copyOf(byId.values()));
+        entity.setTopics(ImmutableList.copyOf(topics));
         entity.setLabelsTopicsSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
         repository.save(entity);
     }
@@ -96,13 +97,13 @@ public class SqliteRepositoryMetadataStore
         entity.setOwner(repositoryRef.owner());
         entity.setRepo(repositoryRef.repo());
         if (entity.getContributors() == null) {
-            entity.setContributors(List.of());
+            entity.setContributors(ImmutableList.of());
         }
         if (entity.getLabels() == null) {
-            entity.setLabels(List.of());
+            entity.setLabels(ImmutableList.of());
         }
         if (entity.getTopics() == null) {
-            entity.setTopics(List.of());
+            entity.setTopics(ImmutableList.of());
         }
         return entity;
     }

@@ -20,12 +20,12 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,7 +68,7 @@ class TestRepoServiceContributionCalendar
     {
         return new ContributionCalendar(
                 1,
-                List.of(new ContributionCalendar.Week(List.of(
+                ImmutableList.of(new ContributionCalendar.Week(ImmutableList.of(
                         new ContributionCalendar.Day(LocalDate.parse("2026-07-17"), 1, "#40c463")))));
     }
 }

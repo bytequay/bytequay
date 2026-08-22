@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -34,9 +36,9 @@ public record RepositoryMetadataSnapshot(
     {
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         requireNonNull(repository, "repository is null");
-        contributors = List.copyOf(requireNonNull(contributors, "contributors is null"));
-        labels = List.copyOf(requireNonNull(labels, "labels is null"));
-        topics = List.copyOf(requireNonNull(topics, "topics is null"));
+        contributors = ImmutableList.copyOf(requireNonNull(contributors, "contributors is null"));
+        labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
+        topics = ImmutableList.copyOf(requireNonNull(topics, "topics is null"));
         requireNonNull(contributorsSyncedAt, "contributorsSyncedAt is null");
         requireNonNull(labelsTopicsSyncedAt, "labelsTopicsSyncedAt is null");
     }
@@ -44,7 +46,7 @@ public record RepositoryMetadataSnapshot(
     public static RepositoryMetadataSnapshot empty(long repositoryId, RepoRef repository)
     {
         return new RepositoryMetadataSnapshot(
-                repositoryId, repository, List.of(), List.of(), List.of(),
+                repositoryId, repository, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty());
     }
 }

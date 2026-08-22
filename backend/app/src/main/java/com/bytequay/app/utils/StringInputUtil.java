@@ -16,6 +16,9 @@ package com.bytequay.app.utils;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+
 public final class StringInputUtil
 {
     private StringInputUtil() {}
@@ -30,5 +33,11 @@ public final class StringInputUtil
         if (!isNotBlank(value)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), message);
         }
+    }
+
+    public static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        checkArgument(!value.isBlank(), name + " is blank");
     }
 }

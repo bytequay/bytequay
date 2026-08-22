@@ -19,6 +19,7 @@ import com.bytequay.core.domain.RepositoryIssueSnapshot;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.persistence.sqlite.entity.RepositoryIssueSnapshotEntity;
 import com.bytequay.persistence.sqlite.repository.RepositoryIssueJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,7 +64,7 @@ public class SqliteRepositoryIssueStore
         entity.setRepositoryId(repositoryId);
         entity.setOwner(repositoryRef.owner());
         entity.setRepo(repositoryRef.repo());
-        entity.setIssues(List.copyOf(requireNonNull(issues, "issues is null")));
+        entity.setIssues(ImmutableList.copyOf(requireNonNull(issues, "issues is null")));
         entity.setSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
         repository.save(entity);
     }

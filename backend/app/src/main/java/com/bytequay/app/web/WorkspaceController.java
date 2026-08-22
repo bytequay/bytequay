@@ -27,6 +27,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssueSnapshot;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -145,7 +146,7 @@ public class WorkspaceController
     public Map<String, String> unwatch(@PathVariable String workspaceId)
     {
         workspaces.unwatch(workspaceId);
-        return Map.of("result", "removed");
+        return ImmutableMap.of("result", "removed");
     }
 
     public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}

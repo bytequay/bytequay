@@ -26,6 +26,7 @@ import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -178,7 +179,7 @@ class TestGitHubActionsClient
     @Test
     void reportsMissingOrExpiredLogWithoutWritingBlob()
     {
-        for (HttpStatus status : List.of(HttpStatus.NOT_FOUND, HttpStatus.GONE)) {
+        for (HttpStatus status : ImmutableList.of(HttpStatus.NOT_FOUND, HttpStatus.GONE)) {
             Fixture fixture = fixture();
             fixture.apiServer.expect(requestTo(
                             "https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
@@ -391,7 +392,7 @@ class TestGitHubActionsClient
                 Optional.of("failure"),
                 HEAD_SHA,
                 "https://github.com/owner/repo/actions/runs/900",
-                List.of(job));
+                ImmutableList.of(job));
         return new ReadCiLogQuery(TaskId.random(), PULL_REQUEST, workflow, job, maximumBytes);
     }
 
@@ -405,7 +406,7 @@ class TestGitHubActionsClient
                 "completed",
                 Optional.of("failure"),
                 "https://github.com/job/902",
-                List.of(new CiStep(3, "Compile Java", "completed", Optional.of("failure"))));
+                ImmutableList.of(new CiStep(3, "Compile Java", "completed", Optional.of("failure"))));
     }
 
     private static RerunFailedJobsCommand rerunCommand(boolean authorized)

@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -43,8 +45,8 @@ public record RepositoryIssue(
         requireNonNull(author, "author is null");
         requireNonNull(authorAvatarUrl, "authorAvatarUrl is null");
         requireNonNull(htmlUrl, "htmlUrl is null");
-        labels = List.copyOf(requireNonNull(labels, "labels is null"));
-        assignees = List.copyOf(requireNonNull(assignees, "assignees is null"));
+        labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
+        assignees = ImmutableList.copyOf(requireNonNull(assignees, "assignees is null"));
         checkArgument(commentCount >= 0, "commentCount is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");

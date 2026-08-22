@@ -14,6 +14,7 @@
 package com.bytequay.app.service.github;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -59,7 +60,7 @@ public class GhCliService
     /** A packaged Electron app inherits the GUI's minimal PATH
      *  (/usr/bin:/bin:/usr/sbin:/sbin), so the usual install locations are
      *  probed explicitly before falling back to PATH. */
-    private static final List<Path> PREFERRED_PATHS = List.of(
+    private static final List<Path> PREFERRED_PATHS = ImmutableList.of(
             Path.of("/opt/homebrew/bin/gh"),
             Path.of("/usr/local/bin/gh"));
 
@@ -104,8 +105,8 @@ public class GhCliService
     /** Binary-path seam so the read is testable without a real gh on disk. */
     CliCredential readCredential(String gh)
     {
-        String token = run(List.of(gh, "auth", "token"));
-        String login = run(List.of(gh, "api", "user", "--jq", ".login"));
+        String token = run(ImmutableList.of(gh, "auth", "token"));
+        String login = run(ImmutableList.of(gh, "api", "user", "--jq", ".login"));
         cached.set(new CachedToken(token, Instant.now()));
         return new CliCredential(token, login);
     }
@@ -132,7 +133,7 @@ public class GhCliService
             return Optional.of(hit.token());
         }
         try {
-            String token = run(List.of(gh, "auth", "token"));
+            String token = run(ImmutableList.of(gh, "auth", "token"));
             cached.set(new CachedToken(token, Instant.now()));
             return Optional.of(token);
         }

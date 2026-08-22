@@ -74,6 +74,18 @@ npm run package
 Backend Java follows the checked-in Trino-derived Checkstyle rules. Prefer
 records for DTOs and immutable values at boundaries.
 
+Keep public collection signatures on JDK interfaces, but use Guava immutable
+implementations for values and defensive copies. Do not use JDK
+`List.of/copyOf`, `Set.of/copyOf`, or `Map.of/copyOf` in new production code,
+tests, or HTTP request bodies; use the corresponding `ImmutableList`,
+`ImmutableSet`, or `ImmutableMap` factory.
+
+Keep independently useful records as top-level types. Nest a record in a
+service, client, or controller only when it is private implementation data or
+belongs exclusively to that enclosing API contract. Reuse the module's shared
+validation helper for repeated non-blank and bounded-text checks instead of
+duplicating local methods.
+
 State guards use Guava `Preconditions.checkState` rather than a hand-written
 `if (...) { throw new IllegalStateException(...); }`, the same way argument
 checks already use `checkArgument`. Keep the plain `throw` where `checkState`

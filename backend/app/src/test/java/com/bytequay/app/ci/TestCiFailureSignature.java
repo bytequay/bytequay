@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.BlobRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,15 +31,15 @@ class TestCiFailureSignature
     {
         CiJob job = failedJob();
         CiWorkflowRun workflow = failedWorkflow(job);
-        BoundedCiLog firstLog = log(List.of("error: cannot find symbol", "build failed"));
-        BoundedCiLog sameLog = log(List.of("error: cannot find symbol", "build failed"));
+        BoundedCiLog firstLog = log(ImmutableList.of("error: cannot find symbol", "build failed"));
+        BoundedCiLog sameLog = log(ImmutableList.of("error: cannot find symbol", "build failed"));
 
         String first = CiFailureSignature.compute(workflow, job, firstLog);
         String second = CiFailureSignature.compute(workflow, job, sameLog);
         String changed = CiFailureSignature.compute(
                 workflow,
                 job,
-                log(List.of("error: incompatible types", "build failed")));
+                log(ImmutableList.of("error: incompatible types", "build failed")));
 
         assertThat(first).isEqualTo(second);
         assertThat(first).matches("ci-[0-9a-f]{64}");
@@ -56,7 +57,7 @@ class TestCiFailureSignature
                 Optional.of("failure"),
                 HEAD_SHA,
                 "https://github.com/actions/runs/900",
-                List.of(job));
+                ImmutableList.of(job));
     }
 
     private static CiJob failedJob()
@@ -69,7 +70,7 @@ class TestCiFailureSignature
                 "completed",
                 Optional.of("failure"),
                 "https://github.com/actions/jobs/902",
-                List.of(new CiStep(3, "Compile Java", "completed", Optional.of("failure"))));
+                ImmutableList.of(new CiStep(3, "Compile Java", "completed", Optional.of("failure"))));
     }
 
     private static BoundedCiLog log(List<String> errors)

@@ -13,6 +13,9 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +68,7 @@ public record PrRawDetail(
     {
         this(
                 null, null, null, null, null, null, null, null,
-                body, labels, Map.of(), List.of(), null, draft, mergeable,
+                body, labels, ImmutableMap.of(), ImmutableList.of(), null, draft, mergeable,
                 mergeableState, additions, deletions, changedFiles,
                 requestedReviewerCount, requestedReviewers, headSha, headRef,
                 null);

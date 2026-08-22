@@ -18,6 +18,7 @@ import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -54,9 +55,9 @@ public class GitHubMergeClient
     {
         String query = "query($owner: String!, $name: String!, $branch: String!) {"
                 + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
-        Map<String, Object> body = Map.of(
+        Map<String, Object> body = ImmutableMap.of(
                 "query", query,
-                "variables", Map.of("owner", repo.owner(), "name", repo.repo(), "branch", branch));
+                "variables", ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch));
         try {
             MergeQueueResponse response = graphqlRestClient
                     .post()
@@ -113,9 +114,9 @@ public class GitHubMergeClient
     {
         String query = "query($owner: String!, $name: String!, $number: Int!) {"
                 + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
-        Map<String, Object> body = Map.of(
+        Map<String, Object> body = ImmutableMap.of(
                 "query", query,
-                "variables", Map.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()));
+                "variables", ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()));
         try {
             return graphqlRestClient
                     .post()
@@ -156,9 +157,9 @@ public class GitHubMergeClient
             EnqueueResponse response = graphqlRestClient
                     .post()
                     .header("Authorization", authorization(pat))
-                    .body(Map.of(
+                    .body(ImmutableMap.of(
                             "query", mutation,
-                            "variables", Map.of("id", pullRequestNodeId)))
+                            "variables", ImmutableMap.of("id", pullRequestNodeId)))
                     .retrieve()
                     .body(EnqueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {

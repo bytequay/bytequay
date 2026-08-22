@@ -123,7 +123,7 @@ class TestDefaultWorkspaceRepositoryService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         WatchedRepoStore legacy = mock(WatchedRepoStore.class);
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(legacy.findAll()).thenReturn(List.of(new WatchedRepo(9, "owner", "project", 4)));
+        when(legacy.findAll()).thenReturn(ImmutableList.of(new WatchedRepo(9, "owner", "project", 4)));
         when(gitHub.fetchRepository("token", "owner", "project"))
                 .thenReturn(Optional.of(direct(100, "owner")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, legacy);
@@ -220,7 +220,7 @@ class TestDefaultWorkspaceRepositoryService
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
-        when(executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT)).thenReturn(List.of());
+        when(executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT)).thenReturn(ImmutableList.of());
         return new DefaultWorkspaceRepositoryService(
                 store,
                 legacy,
@@ -269,7 +269,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo repository = direct(100, "owner");
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(repository));
-        when(gitHub.fetchUserRepos("token")).thenReturn(List.of(repository));
+        when(gitHub.fetchUserRepos("token")).thenReturn(ImmutableList.of(repository));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
         Workspace watched = watch(service, 100);
 

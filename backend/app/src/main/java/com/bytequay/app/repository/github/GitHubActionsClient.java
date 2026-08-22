@@ -32,6 +32,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
@@ -151,7 +152,7 @@ public class GitHubActionsClient
             }
         }
         result.addAll(fetchCommitStatuses(pat, owner, repo, sha));
-        return List.copyOf(result);
+        return ImmutableList.copyOf(result);
     }
 
     private List<PrCheckRunState> fetchCommitStatuses(
@@ -529,7 +530,7 @@ public class GitHubActionsClient
 
     private static byte[] redact(byte[] bytes, String pat)
     {
-        SecretRedactor redactor = SecretRedactor.fromEnvironment(Map.of("GITHUB_TOKEN", pat));
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("GITHUB_TOKEN", pat));
         String text = redactor.redact(new String(bytes, StandardCharsets.UTF_8));
         text = AUTHORIZATION_VALUE.matcher(text).replaceAll("$1[REDACTED]");
         text = GITHUB_TOKEN.matcher(text).replaceAll("[REDACTED]");

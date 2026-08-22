@@ -16,11 +16,11 @@ package com.bytequay.app.pr;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.store.PrDetailStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,8 +46,8 @@ class TestPullRequestTimelineService
                 Instant.parse("2026-08-18T00:00:00Z"),
                 "a".repeat(40),
                 "b".repeat(40),
-                List.of("fixup! Compile feature"),
-                List.of("src/Main.java"));
+                ImmutableList.of("fixup! Compile feature"),
+                ImmutableList.of("src/Main.java"));
 
         ArgumentCaptor<PrTimelineEvent> event = ArgumentCaptor.forClass(PrTimelineEvent.class);
         verify(store).recordLocalTimelineEvent(eq(pullRequest), event.capture());

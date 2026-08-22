@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.domain.RepositoryContributor;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Converter;
 
 import java.util.List;
@@ -25,7 +26,7 @@ public class RepositoryContributorListConverter
 {
     RepositoryContributorListConverter()
     {
-        super(new TypeReference<>() {}, "repository contributor list", "[]", List.of());
+        super(new TypeReference<>() {}, "repository contributor list", "[]", ImmutableList.of());
     }
 
     @Override

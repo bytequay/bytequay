@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web.cherrypick;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
@@ -40,7 +42,7 @@ public record CherryPickExecutionRequest(
         requireNonNull(expectedSourceBaseSha, "expectedSourceBaseSha is null");
         requireNonNull(expectedSourceTipSha, "expectedSourceTipSha is null");
         requireNonNull(expectedTargetSha, "expectedTargetSha is null");
-        userSkippedSourceShas = List.copyOf(requireNonNull(
+        userSkippedSourceShas = ImmutableList.copyOf(requireNonNull(
                 userSkippedSourceShas, "userSkippedSourceShas is null"));
         requireNonNull(laneId, "laneId is null");
         requireNonNull(idempotencyKey, "idempotencyKey is null");

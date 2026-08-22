@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 public record StoredPrDetail(
@@ -28,6 +30,6 @@ public record StoredPrDetail(
             List<PrTimelineEvent> timeline,
             List<PrCheckRunState> checkRuns)
     {
-        this(raw, reviews, timeline, checkRuns, List.of());
+        this(raw, reviews, timeline, checkRuns, ImmutableList.of());
     }
 }

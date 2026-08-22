@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
+import com.google.common.collect.ImmutableSet;
 
 import java.net.URI;
 import java.util.Locale;
@@ -25,14 +26,14 @@ import static java.util.Objects.requireNonNull;
 
 final class CiActionsChecks
 {
-    private static final Set<String> ACTIONABLE_CONCLUSIONS = Set.of(
+    private static final Set<String> ACTIONABLE_CONCLUSIONS = ImmutableSet.of(
             "action_required",
             "cancelled",
             "failure",
             "stale",
             "startup_failure",
             "timed_out");
-    private static final Set<String> PASSING_CONCLUSIONS = Set.of("neutral", "skipped", "success");
+    private static final Set<String> PASSING_CONCLUSIONS = ImmutableSet.of("neutral", "skipped", "success");
 
     private CiActionsChecks() {}
 

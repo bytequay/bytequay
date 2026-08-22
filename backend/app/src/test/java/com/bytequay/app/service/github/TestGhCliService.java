@@ -13,10 +13,9 @@
  */
 package com.bytequay.app.service.github;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,9 +39,9 @@ class TestGhCliService
             throws Exception
     {
         BoundedProcessRunner runner = mock(BoundedProcessRunner.class);
-        when(runner.run(any(), eq(List.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
+        when(runner.run(any(), eq(ImmutableList.of("/fake/gh", "auth", "token")), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(0, "gho_secret\n"));
-        when(runner.run(any(), eq(List.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
+        when(runner.run(any(), eq(ImmutableList.of("/fake/gh", "api", "user", "--jq", ".login")), anyLong(), anyInt()))
                 .thenReturn(new BoundedProcessRunner.Result(0, "octocat\n"));
 
         var credential = new GhCliService(runner).readCredential("/fake/gh");

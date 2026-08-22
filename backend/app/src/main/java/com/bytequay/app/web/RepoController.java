@@ -24,6 +24,7 @@ import com.bytequay.core.domain.RepoMeta;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,7 +65,7 @@ public class RepoController
                         && workspace.selectedRepo().equalsIgnoreCase(repo))
                 .findFirst()
                 .ifPresent(workspace -> workspaces.unwatch(workspace.id()));
-        return Map.of("result", "removed");
+        return ImmutableMap.of("result", "removed");
     }
 
     @GetMapping("/profile")

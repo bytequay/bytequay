@@ -22,6 +22,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +31,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,8 +59,8 @@ class TestPullRequestDetailFetcher
     void setUp()
     {
         fetcher = new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run);
-        lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(List.of());
-        lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(List.of());
+        lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
+        lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.enrichTimelineReferences(eq("pat"), eq(REF), anyList()))
                 .thenAnswer(invocation -> invocation.getArgument(2));
     }
@@ -71,10 +71,10 @@ class TestPullRequestDetailFetcher
         PrReviewState review = new PrReviewState("alice", "APPROVED");
         PrCheckRunState check = new PrCheckRunState(1L, "build", "completed", "success");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw("head"));
-        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of(review));
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(List.of(check));
+        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of(review));
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(ImmutableList.of(check));
 
         StoredPrDetail stored = fetcher.fetch("pat", REF);
 
@@ -104,9 +104,9 @@ class TestPullRequestDetailFetcher
     void skipsCheckRunsWithoutHeadSha()
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
-        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
+        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
         StoredPrDetail stored = fetcher.fetch("pat", REF);
 
@@ -118,9 +118,9 @@ class TestPullRequestDetailFetcher
     void rejectsEmptyDetailAsBadGateway()
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(null);
-        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
+        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
         assertThatThrownBy(() -> fetcher.fetch("pat", REF))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
@@ -134,8 +134,8 @@ class TestPullRequestDetailFetcher
         ResponseStatusException notFound = new ResponseStatusException(NOT_FOUND, "gone");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenThrow(notFound);
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
         StoredPrDetail stored = fetcher.fetch("pat", REF);
 
@@ -151,9 +151,9 @@ class TestPullRequestDetailFetcher
         PrTimelineEvent labeled = new PrTimelineEvent(2L, "labeled", "bob", commentedAt, null, Optional.empty());
         PrTimelineEvent issueCopy = comment(3L, "alice", commentedAt, "copy with reactions");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
-        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of(timelineCopy, labeled));
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of(issueCopy));
+        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of(timelineCopy, labeled));
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of(issueCopy));
 
         StoredPrDetail stored = fetcher.fetch("pat", REF);
 
@@ -164,9 +164,9 @@ class TestPullRequestDetailFetcher
     void refetchesTheFullMutableTimeline()
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
-        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(List.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(List.of());
+        when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
         fetcher.fetch("pat", REF);
 
@@ -177,7 +177,7 @@ class TestPullRequestDetailFetcher
     private static PrRawDetail raw(String headSha)
     {
         return new PrRawDetail(
-                "body", List.of(), false, true, "clean", 4, 2, 1, 0, List.of(),
+                "body", ImmutableList.of(), false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
                 headSha, "feature");
     }
 

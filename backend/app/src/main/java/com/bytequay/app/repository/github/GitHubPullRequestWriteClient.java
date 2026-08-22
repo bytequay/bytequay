@@ -16,7 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -30,7 +30,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
-import static com.google.common.base.Preconditions.checkArgument;
+import static com.bytequay.app.utils.StringInputUtil.requireText;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -50,7 +50,7 @@ public class GitHubPullRequestWriteClient
                     .uri("/repos/{owner}/{repo}/issues/{number}/comments", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("body", body))
+                    .body(ImmutableMap.of("body", body))
                     .retrieve()
                     .body(GitHubIssueComment.class);
             if (posted == null) {
@@ -99,7 +99,7 @@ public class GitHubPullRequestWriteClient
                             pr.owner(), pr.repo(), pr.number(), commentId)
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("body", body))
+                    .body(ImmutableMap.of("body", body))
                     .retrieve()
                     .toBodilessEntity();
         }
@@ -127,7 +127,7 @@ public class GitHubPullRequestWriteClient
                     .uri("/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("title", title, "body", body, "head", head, "base", base))
+                    .body(ImmutableMap.of("title", title, "body", body, "head", head, "base", base))
                     .retrieve()
                     .body(GitHubCreatedPullRequest.class);
             if (created == null) {
@@ -152,27 +152,4 @@ public class GitHubPullRequestWriteClient
                 comment.body(),
                 Optional.empty());
     }
-
-    private static void requireText(String value, String name)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
-    }
-
-    /** Stable identity returned by GitHub after pull-request creation. */
-    public record CreatedPullRequest(long id, int number, String url)
-    {
-        public CreatedPullRequest
-        {
-            checkArgument(id > 0, "id is not positive");
-            checkArgument(number > 0, "number is not positive");
-            requireText(url, "url");
-        }
-    }
-
-    private record GitHubCreatedPullRequest(
-            long id,
-            int number,
-            @JsonProperty("html_url") String htmlUrl)
-    {}
 }

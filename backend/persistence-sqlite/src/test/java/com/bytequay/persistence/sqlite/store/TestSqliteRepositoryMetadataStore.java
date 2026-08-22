@@ -19,6 +19,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -29,7 +30,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,20 +70,20 @@ class TestSqliteRepositoryMetadataStore
         store.upsertContributors(
                 100,
                 REPOSITORY,
-                List.of(new RepositoryContributor(1, "alice", "old-avatar", false)),
+                ImmutableList.of(new RepositoryContributor(1, "alice", "old-avatar", false)),
                 NOW.minusSeconds(1));
         store.upsertContributors(
                 100,
                 REPOSITORY,
-                List.of(
+                ImmutableList.of(
                         new RepositoryContributor(1, "alice", "new-avatar", false),
                         new RepositoryContributor(2, "bob", "bob-avatar", false)),
                 NOW);
         store.upsertLabelsAndTopics(
                 100,
                 REPOSITORY,
-                List.of(new RepositoryLabel(10, "bug", "ff0000")),
-                List.of("java"),
+                ImmutableList.of(new RepositoryLabel(10, "bug", "ff0000")),
+                ImmutableList.of("java"),
                 NOW);
 
         var snapshot = store.find(100).orElseThrow();
@@ -101,10 +101,10 @@ class TestSqliteRepositoryMetadataStore
         RepositoryIssue issue = new RepositoryIssue(
                 50, 7, "Issue", "body", "alice", "avatar",
                 "https://github.com/owner/project/issues/7",
-                List.of("bug"), List.of("bob"), 2, NOW, NOW);
+                ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
 
-        issueStore.replace(100, REPOSITORY, List.of(issue), NOW.minusSeconds(1));
-        issueStore.replace(100, REPOSITORY, List.of(issue), NOW);
+        issueStore.replace(100, REPOSITORY, ImmutableList.of(issue), NOW.minusSeconds(1));
+        issueStore.replace(100, REPOSITORY, ImmutableList.of(issue), NOW);
 
         var snapshot = issueStore.find(100).orElseThrow();
         assertThat(snapshot.issues()).containsExactly(issue);

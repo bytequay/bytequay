@@ -14,10 +14,10 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.RecentEvent;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -35,7 +35,7 @@ class TestGitHubEventMapper
                 null,
                 null,
                 null,
-                List.of(
+                ImmutableList.of(
                         new GitHubEventItem.CommitPayload("fix: inbox ack\n\nLong body"),
                         new GitHubEventItem.CommitPayload("test: ack behavior"))));
 

@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -31,12 +33,12 @@ public record RepositoryIssueSnapshot(
     {
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         requireNonNull(repository, "repository is null");
-        issues = List.copyOf(requireNonNull(issues, "issues is null"));
+        issues = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
         requireNonNull(syncedAt, "syncedAt is null");
     }
 
     public static RepositoryIssueSnapshot empty(long repositoryId, RepoRef repository)
     {
-        return new RepositoryIssueSnapshot(repositoryId, repository, List.of(), Optional.empty());
+        return new RepositoryIssueSnapshot(repositoryId, repository, ImmutableList.of(), Optional.empty());
     }
 }

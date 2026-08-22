@@ -20,6 +20,7 @@ import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoUser;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -92,7 +93,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("branch") String branch)
     {
-        return Map.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch));
+        return ImmutableMap.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch));
     }
 
     public record CommentRequest(String body) {}
@@ -106,7 +107,7 @@ public class PullRequestController
             @RequestBody CommentRequest request)
     {
         pullRequests.commentOnPullRequest(repo, number, request.body());
-        return Map.of("result", "commented");
+        return ImmutableMap.of("result", "commented");
     }
 
     @PostMapping("/prs/review-comments/{commentId}/replies")
@@ -117,7 +118,7 @@ public class PullRequestController
             @RequestBody CommentRequest request)
     {
         pullRequests.replyToReviewComment(repo, number, commentId, request.body());
-        return Map.of("result", "replied");
+        return ImmutableMap.of("result", "replied");
     }
 
     @PostMapping("/prs/approve")
@@ -127,7 +128,7 @@ public class PullRequestController
             @RequestParam("id") long prId)
     {
         pullRequests.approvePullRequest(repo, number, prId);
-        return Map.of("result", "approved");
+        return ImmutableMap.of("result", "approved");
     }
 
     @PostMapping("/prs/review")
@@ -138,7 +139,7 @@ public class PullRequestController
             @RequestBody ReviewRequest request)
     {
         pullRequests.submitReview(repo, number, prId, request.event(), request.body());
-        return Map.of("result", "reviewed");
+        return ImmutableMap.of("result", "reviewed");
     }
 
     @PostMapping("/prs/merge")

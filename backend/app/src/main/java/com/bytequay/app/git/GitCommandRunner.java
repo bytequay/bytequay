@@ -14,6 +14,7 @@
 package com.bytequay.app.git;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -74,7 +75,7 @@ public final class GitCommandRunner
      */
     public Result run(Path worktree, Duration timeout, List<String> arguments)
     {
-        return run(worktree, timeout, Map.of(), arguments);
+        return run(worktree, timeout, ImmutableMap.of(), arguments);
     }
 
     /**

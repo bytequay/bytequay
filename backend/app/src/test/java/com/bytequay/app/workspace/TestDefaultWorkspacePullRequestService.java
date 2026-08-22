@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient.CreatedPullRequest;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceBranchPusher.Push;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestCommand;

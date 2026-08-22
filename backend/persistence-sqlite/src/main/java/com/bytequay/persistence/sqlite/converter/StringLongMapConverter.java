@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Converter;
 
 import java.util.Map;
@@ -29,7 +30,7 @@ public class StringLongMapConverter
 {
     StringLongMapConverter()
     {
-        super(new TypeReference<>() {}, "string-long map", "{}", Map.of());
+        super(new TypeReference<>() {}, "string-long map", "{}", ImmutableMap.of());
     }
 
     @Override

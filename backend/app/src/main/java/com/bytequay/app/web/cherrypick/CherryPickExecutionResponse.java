@@ -15,6 +15,7 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickItem;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -65,7 +66,7 @@ public record CherryPickExecutionResponse(
         requireNonNull(currentPosition, "currentPosition is null");
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
         requireNonNull(delivery, "delivery is null");
-        items = List.copyOf(requireNonNull(items, "items is null"));
+        items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
     }
 
     public static CherryPickExecutionResponse of(CherryPickExecution execution)

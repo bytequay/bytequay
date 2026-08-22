@@ -15,6 +15,8 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -25,8 +27,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,9 +61,9 @@ class TestSqlitePullRequestWorkspaceScope
         PullRequest workspaceOnly = pullRequest(3, "owner/project", 3);
         PullRequest otherWorkspace = pullRequest(4, "other/project", 4);
 
-        store.replaceAll(List.of(global, shared));
-        store.replaceRepository("owner/project", List.of(shared, workspaceOnly));
-        store.replaceRepository("other/project", List.of(otherWorkspace));
+        store.replaceAll(ImmutableList.of(global, shared));
+        store.replaceRepository("owner/project", ImmutableList.of(shared, workspaceOnly));
+        store.replaceRepository("other/project", ImmutableList.of(otherWorkspace));
 
         assertThat(store.findAll()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L);
         assertThat(store.findByRepository("OWNER/PROJECT"))
@@ -73,7 +73,7 @@ class TestSqlitePullRequestWorkspaceScope
                 .extracting(PullRequest::id)
                 .doesNotContain(4L);
 
-        store.replaceAll(List.of(global));
+        store.replaceAll(ImmutableList.of(global));
 
         assertThat(store.findAll()).extracting(PullRequest::id).containsExactly(1L);
         assertThat(store.findByRepository("owner/project"))
@@ -93,13 +93,13 @@ class TestSqlitePullRequestWorkspaceScope
                 Instant.parse("2026-08-20T00:00:00Z"),
                 Instant.parse("2026-08-21T00:00:00Z"),
                 PullRequest.Origin.AUTHORED,
-                List.of(),
-                Map.of(),
+                ImmutableList.of(),
+                ImmutableMap.of(),
                 false,
                 null,
                 null,
                 null,
-                List.of(),
+                ImmutableList.of(),
                 null,
                 0,
                 0,
@@ -111,7 +111,7 @@ class TestSqlitePullRequestWorkspaceScope
                 null,
                 null,
                 null,
-                Map.of(),
+                ImmutableMap.of(),
                 "feature");
     }
 }

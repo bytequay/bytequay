@@ -19,6 +19,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,7 +36,7 @@ class TestPrAttention
     void unseenThirdPartyMentionPromotesThePullRequest()
     {
         StoredPrDetail detail = detail(
-                List.of(comment("bob", "hey @Alice", NOW.minusSeconds(1))), List.of(), raw(true, "clean"));
+                ImmutableList.of(comment("bob", "hey @Alice", NOW.minusSeconds(1))), ImmutableList.of(), raw(true, "clean"));
 
         assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW.minusSeconds(2), NOW)).isEqualTo(AttentionReason.MENTIONED);
         assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW, NOW)).isNull();
@@ -45,8 +46,8 @@ class TestPrAttention
     void failingCiTakesPriority()
     {
         StoredPrDetail detail = detail(
-                List.of(),
-                List.of(new PrCheckRunState(1L, "ci", "completed", "failure")),
+                ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(1L, "ci", "completed", "failure")),
                 raw(false, "dirty"));
 
         assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail, "alice", NOW, NOW))
@@ -56,21 +57,21 @@ class TestPrAttention
     @Test
     void authoredPullRequestsFallBackToMine()
     {
-        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail(List.of(), List.of(), raw(true, "clean")), "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail(ImmutableList.of(), ImmutableList.of(), raw(true, "clean")), "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
     }
 
     @Test
     void countsTimelineComments()
     {
         StoredPrDetail detail = detail(
-                List.of(comment("bob", "one", NOW), comment("carol", "two", NOW)), List.of(), raw(true, "clean"));
+                ImmutableList.of(comment("bob", "one", NOW), comment("carol", "two", NOW)), ImmutableList.of(), raw(true, "clean"));
         assertThat(PrAttention.countComments(detail)).isEqualTo(2);
     }
 
     private static StoredPrDetail detail(
             List<PrTimelineEvent> timeline, List<PrCheckRunState> checks, PrRawDetail raw)
     {
-        return new StoredPrDetail(raw, List.of(), timeline, checks);
+        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checks);
     }
 
     private static PrTimelineEvent comment(String actor, String body, Instant timestamp)
@@ -81,7 +82,7 @@ class TestPrAttention
     private static PrRawDetail raw(boolean mergeable, String mergeableState)
     {
         return new PrRawDetail(
-                null, List.of(), false, mergeable, mergeableState, 0, 0, 0, 0, List.of(),
+                null, ImmutableList.of(), false, mergeable, mergeableState, 0, 0, 0, 0, ImmutableList.of(),
                 "head", null);
     }
 
@@ -89,7 +90,7 @@ class TestPrAttention
     {
         return new PullRequest(
                 1, "owner/repo", 7, "title", "alice", "url", null, NOW, origin,
-                List.of(), null, false, null, null, null, List.of(), null,
+                ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
                 0, 0, 0, null, "open", null, null, null, null, null, null, null);
     }
 }

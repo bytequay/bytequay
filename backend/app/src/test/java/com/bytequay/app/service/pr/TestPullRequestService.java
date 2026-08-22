@@ -35,6 +35,9 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,9 +49,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -95,18 +96,18 @@ class TestPullRequestService
     void workspaceSyncScopesGitHubAndDoesNotReplaceGlobalList()
     {
         RepoRef repository = RepoRef.of("owner", "repo");
-        when(store.findByRepository("owner/repo")).thenReturn(List.of());
+        when(store.findByRepository("owner/repo")).thenReturn(ImmutableList.of());
         when(gitHub.searchPullRequestsPaged(
                 eq("pat"), eq("is:pr is:open repo:owner/repo"), anyInt(), anyInt(),
                 eq("updated"), eq("desc")))
-                .thenReturn(new PullRequestHistoryPage(List.of(), 1, 100, 0, false));
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
         when(gitHub.searchPullRequests(
                 eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo")))
-                .thenReturn(List.of());
+                .thenReturn(ImmutableList.of());
 
         service.syncRepository(repository);
 
-        verify(store).replaceRepository("owner/repo", List.of());
+        verify(store).replaceRepository("owner/repo", ImmutableList.of());
         verify(store, never()).replaceAll(any());
     }
 
@@ -134,9 +135,9 @@ class TestPullRequestService
         StoredPrDetail stored = new StoredPrDetail(
                 new PrRawDetail(
                         "title", "url", "merged", "alice", null, null, updatedAt, mergedAt,
-                        "body", List.of(), Map.of(), List.of(), null, false, false, "unknown",
-                        1, 1, 1, 0, List.of(), "head", "feature", "main"),
-                List.of(), List.of(), List.of());
+                        "body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, false, "unknown",
+                        1, 1, 1, 0, ImmutableList.of(), "head", "feature", "main"),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored));
@@ -153,10 +154,10 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.empty());
         when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
-        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(List.of(new PrReviewState("alice", "APPROVED")));
-        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(List.of());
-        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(List.of());
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(List.of());
+        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of(new PrReviewState("alice", "APPROVED")));
+        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(ImmutableList.of());
 
         service.getPullRequestDetail("owner/repo", 7);
 
@@ -171,7 +172,7 @@ class TestPullRequestService
 
         service.refreshPullRequestDetail("owner/repo", 7);
 
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -198,7 +199,7 @@ class TestPullRequestService
         service.replyToReviewComment("owner/repo", 7, 99L, "fixed");
 
         verify(writes).replyToReviewComment("pat", PullRequestRef.of("owner", "repo", 7), 99L, "fixed");
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -210,7 +211,7 @@ class TestPullRequestService
 
         verify(writes).approve("pat", PullRequestRef.of("owner", "repo", 7));
         verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED);
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -223,7 +224,7 @@ class TestPullRequestService
         verify(writes).submitReview(
                 "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this");
         verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED);
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -246,7 +247,7 @@ class TestPullRequestService
 
         assertThat(result.merged()).isTrue();
         verify(viewStateStore).markReviewed(12L, HandledAction.MERGED);
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -264,7 +265,7 @@ class TestPullRequestService
 
         assertThat(result.queued()).isTrue();
         verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
@@ -280,13 +281,13 @@ class TestPullRequestService
         assertThat(result.queued()).isTrue();
         verify(merges, never()).mergePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
-        verify(detailStore).deleteByPrIds(Set.of(12L));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test
     void returnsDiffFilesFromGitHub()
     {
-        List<DiffFile> files = List.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
+        List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
         when(gitHub.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(files);
         assertThat(service.getPullRequestDiffFiles("owner/repo", 7)).isEqualTo(files);
     }
@@ -294,7 +295,7 @@ class TestPullRequestService
     @Test
     void derivesTheCurrentUsersLatestReviewVerdict()
     {
-        assertThat(PullRequestService.deriveHandledActionFromReviews(List.of(
+        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
                 new PrReviewState("me", "APPROVED"),
                 new PrReviewState("me", "DISMISSED"),
                 new PrReviewState("me", "CHANGES_REQUESTED")), "me"))
@@ -304,14 +305,14 @@ class TestPullRequestService
     private static StoredPrDetail stored()
     {
         return new StoredPrDetail(
-                raw(), List.of(new PrReviewState("alice", "APPROVED")), List.of(),
-                List.of(new PrCheckRunState(1L, "build", "completed", "success")));
+                raw(), ImmutableList.of(new PrReviewState("alice", "APPROVED")), ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
     }
 
     private static PrRawDetail raw()
     {
         return new PrRawDetail(
-                "body", List.of(), false, true, "clean", 4, 2, 1, 0, List.of(),
+                "body", ImmutableList.of(), false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
                 "head", "feature");
     }
 }

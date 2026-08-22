@@ -99,7 +99,7 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void roundTripsConflictAndJournalDetail()
     {
-        CherryPickExecution created = store.createOrGet(execution("detail", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution created = store.createOrGet(execution("detail", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution updated = store.save(created
                 .withJournal(
                         new ActionJournal(
@@ -133,8 +133,8 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void returnsTheSameExecutionForARepeatedIdempotencyKey()
     {
-        CherryPickExecution first = store.createOrGet(execution("repeat", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        CherryPickExecution second = store.createOrGet(execution("repeat", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution first = store.createOrGet(execution("repeat", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution second = store.createOrGet(execution("repeat", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
 
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(store.listRecent(10).stream().filter(value -> value.startIdempotencyKey().equals("repeat")))
@@ -144,7 +144,7 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void rejectsASaveWhoseVersionMoved()
     {
-        CherryPickExecution created = store.createOrGet(execution("version", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution created = store.createOrGet(execution("version", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution saved = store.save(created.withStep(Step.APPLYING, NOW.plusSeconds(1)));
         assertThat(saved.version()).isGreaterThan(created.version());
 
@@ -156,8 +156,8 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void listsRecentNewestFirstAndRunningOldestFirst()
     {
-        store.createOrGet(execution("older", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        CherryPickExecution newer = store.createOrGet(execution("newer", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        store.createOrGet(execution("older", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution newer = store.createOrGet(execution("newer", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
         store.save(newer.withStep(Step.APPLYING, NOW.plusSeconds(60)));
 
         assertThat(store.listRecent(10).stream().map(CherryPickExecution::startIdempotencyKey))
@@ -169,9 +169,9 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void listsOnlyRunningExecutionsForTheMonitor()
     {
-        CherryPickExecution running = store.createOrGet(execution("running", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        CherryPickExecution paused = store.createOrGet(execution("paused", List.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        CherryPickExecution finished = store.createOrGet(execution("finished", List.of(planned(1, Disposition.USER_SKIPPED))));
+        CherryPickExecution running = store.createOrGet(execution("running", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution paused = store.createOrGet(execution("paused", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution finished = store.createOrGet(execution("finished", ImmutableList.of(planned(1, Disposition.USER_SKIPPED))));
         store.save(paused.pause(PauseReason.UNSAFE_GIT_STATE, "unexpected commit", NOW.plusSeconds(1)));
         store.save(finished.finish(FinishReason.COMPLETED, "nothing to do", NOW.plusSeconds(1)));
 
@@ -193,7 +193,7 @@ class TestSqliteCherryPickExecutionStore
     {
         CherryPickExecution created = store.createOrGet(execution(
                 "applied",
-                List.of(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))));
+                ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution first = store.save(created.recordApplied(sha(1), created(1), NOW.plusSeconds(1)));
         store.save(first.recordApplied(sha(2), created(2), NOW.plusSeconds(2)));
 

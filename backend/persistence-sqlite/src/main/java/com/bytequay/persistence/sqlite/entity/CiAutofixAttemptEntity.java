@@ -20,6 +20,7 @@ import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -139,8 +140,8 @@ public class CiAutofixAttemptEntity
         untrustedAgentNote = attempt.untrustedAgentNote().orElse(null);
         inspectedLocalHead = attempt.gitResult().map(GitResult::localHead).orElse(null);
         localFingerprint = attempt.gitResult().map(GitResult::fingerprint).orElse(null);
-        changedPaths = attempt.gitResult().map(GitResult::changedPaths).orElse(List.of());
-        commitSubjects = attempt.gitResult().map(GitResult::commitSubjects).orElse(List.of());
+        changedPaths = attempt.gitResult().map(GitResult::changedPaths).orElse(ImmutableList.of());
+        commitSubjects = attempt.gitResult().map(GitResult::commitSubjects).orElse(ImmutableList.of());
         expectedRemoteSha = attempt.expectedRemoteSha().orElse(null);
         pushedSha = attempt.pushedSha().orElse(null);
         pushedAt = attempt.pushedAt().orElse(null);
@@ -157,7 +158,7 @@ public class CiAutofixAttemptEntity
                         head,
                         localFingerprint,
                         changedPaths,
-                        commitSubjects == null ? List.of() : commitSubjects));
+                        commitSubjects == null ? ImmutableList.of() : commitSubjects));
         return new CiAutofixAttempt(
                 CiAutofixAttemptId.valueOf(id),
                 CiAutofixRunId.valueOf(runId),

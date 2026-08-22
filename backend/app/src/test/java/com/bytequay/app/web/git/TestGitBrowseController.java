@@ -21,13 +21,13 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -63,7 +63,7 @@ class TestGitBrowseController
             throws Exception
     {
         when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
-        when(git.overview(REPOSITORY_A)).thenReturn(new RepoOverview("main", List.of("main"), List.of()));
+        when(git.overview(REPOSITORY_A)).thenReturn(new RepoOverview("main", ImmutableList.of("main"), ImmutableList.of()));
 
         mvc.perform(get("/api/workspaces/workspace-a/git/overview")
                         .param("repository", REPOSITORY_B.toString()))
@@ -81,7 +81,7 @@ class TestGitBrowseController
         when(workspaces.requireReadyRepository("pending")).thenThrow(WorkspaceException.repositoryNotReady());
         when(workspaces.requireReadyRepository("failed")).thenThrow(WorkspaceException.repositoryNotReady());
 
-        for (String workspaceId : List.of("pending", "failed")) {
+        for (String workspaceId : ImmutableList.of("pending", "failed")) {
             mvc.perform(get("/api/workspaces/{workspaceId}/git/status", workspaceId))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("WORKSPACE_CODE_NOT_READY"))
@@ -100,7 +100,7 @@ class TestGitBrowseController
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"remotes\":[\"origin\",\"upstream\"]}"))
                 .andExpect(status().isOk());
-        verify(git).fetch(REPOSITORY_A, List.of("origin", "upstream"));
+        verify(git).fetch(REPOSITORY_A, ImmutableList.of("origin", "upstream"));
 
         mvc.perform(get("/api/workspaces/workspace-a/git/branches")
                         .param("remote", "--upload-pack=malicious"))

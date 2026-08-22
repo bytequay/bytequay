@@ -24,6 +24,7 @@ import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -90,8 +91,8 @@ class TestDefaultWorkspaceIssueService
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
-        when(gitHub.fetchOpenIssues("token", DIRECT)).thenReturn(List.of(issue(1)));
-        when(gitHub.fetchOpenIssues("token", UPSTREAM)).thenReturn(List.of(issue(2)));
+        when(gitHub.fetchOpenIssues("token", DIRECT)).thenReturn(ImmutableList.of(issue(1)));
+        when(gitHub.fetchOpenIssues("token", UPSTREAM)).thenReturn(ImmutableList.of(issue(2)));
 
         assertThat(service.synchronize("direct").issues()).extracting(RepositoryIssue::id).containsExactly(1L);
         assertThat(service.synchronize("fork").issues()).extracting(RepositoryIssue::id).containsExactly(2L);
@@ -104,7 +105,7 @@ class TestDefaultWorkspaceIssueService
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         RepositoryIssueSnapshot previous = new RepositoryIssueSnapshot(
-                100, DIRECT, List.of(issue(1)), Optional.of(NOW.minusSeconds(60)));
+                100, DIRECT, ImmutableList.of(issue(1)), Optional.of(NOW.minusSeconds(60)));
         snapshots.put(100L, previous);
         when(gitHub.fetchOpenIssues("token", DIRECT)).thenThrow(new IllegalStateException("provider down"));
 
@@ -119,7 +120,7 @@ class TestDefaultWorkspaceIssueService
         return new RepositoryIssue(
                 id, (int) id, "Issue " + id, "body", "alice", "avatar",
                 "https://github.com/owner/project/issues/" + id,
-                List.of("bug"), List.of("bob"), 1, NOW, NOW);
+                ImmutableList.of("bug"), ImmutableList.of("bob"), 1, NOW, NOW);
     }
 
     private static Workspace workspace(String id, long monitoredId, RepoRef monitored, Topology topology)

@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.domain.RepositoryIssue;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Converter;
 
 import java.util.List;
@@ -25,7 +26,7 @@ public class RepositoryIssueListConverter
 {
     RepositoryIssueListConverter()
     {
-        super(new TypeReference<>() {}, "repository issue list", "[]", List.of());
+        super(new TypeReference<>() {}, "repository issue list", "[]", ImmutableList.of());
     }
 
     @Override

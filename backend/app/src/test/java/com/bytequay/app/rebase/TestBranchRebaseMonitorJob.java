@@ -23,6 +23,7 @@ import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -43,7 +44,7 @@ class TestBranchRebaseMonitorJob
     {
         BranchRebase first = rebase("first");
         BranchRebase second = rebase("second");
-        FailingReadStore store = new FailingReadStore(List.of(first, second));
+        FailingReadStore store = new FailingReadStore(ImmutableList.of(first, second));
         GitCommandRunner git = new GitCommandRunner();
         BranchRebaseService service = new BranchRebaseService(
                 store,

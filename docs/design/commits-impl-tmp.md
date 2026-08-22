@@ -229,30 +229,30 @@ Goal: route every trigger through the worker built in Checkpoint 4.
 
 ### Backend API and schedule
 
-- [ ] Add `POST /api/workspaces/{workspaceId}/git/commits/refresh` with named
+- [x] Add `POST /api/workspaces/{workspaceId}/git/commits/refresh` with named
   request and response classes.
-- [ ] Return `202 Accepted` after queuing, not after GitHub synchronization.
-- [ ] Accept only source-and-branch selectors; never accept filesystem paths,
+- [x] Return `202 Accepted` after queuing, not after GitHub synchronization.
+- [x] Accept only source-and-branch selectors; never accept filesystem paths,
   stable repository IDs, or remote names from the renderer.
-- [ ] Add `CommitHistorySyncJob` with a one-minute due-work tick and a
+- [x] Add `CommitHistorySyncJob` with a one-minute due-work tick and a
   five-minute freshness threshold.
-- [ ] Queue only ready workspaces and their default workspace/upstream refs.
-- [ ] Invoke the same due-work path at application startup.
-- [ ] Ensure a recent manual success suppresses scheduled work until stale.
+- [x] Queue only ready workspaces and their default workspace/upstream refs.
+- [x] Invoke the same due-work path at application startup.
+- [x] Ensure a recent manual success suppresses scheduled work until stale.
 
 ### Tests and gate
 
-- [ ] HTTP tests cover accepted manual refresh and validation failures.
-- [ ] Scheduler tests use a controlled clock and direct method invocation, not
+- [x] HTTP tests cover accepted manual refresh and validation failures.
+- [x] Scheduler tests use a controlled clock and direct method invocation, not
   wall-clock waiting.
-- [ ] Startup, scheduled, and manual requests coalesce in the same worker.
-- [ ] Unlinked workspaces never queue an upstream ref.
-- [ ] Multiple workspaces sharing a repository reuse enrichment by stable
+- [x] Startup, scheduled, and manual requests coalesce in the same worker.
+- [x] Unlinked workspaces never queue an upstream ref.
+- [x] Multiple workspaces sharing a repository reuse enrichment by stable
   repository ID and SHA.
 
 Checkpoint gate:
 
-- [ ] Manual and scheduled triggers produce identical validated worker
+- [x] Manual and scheduled triggers produce identical validated worker
   requests and cannot create overlapping refreshes.
 
 Suggested commit: `Schedule commit history refresh`

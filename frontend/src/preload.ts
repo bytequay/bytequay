@@ -28,6 +28,8 @@ const bridge: Bridge = {
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
   replyToReviewComment: (repo, number, commentId, body) =>
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),
+  setReviewThreadResolved: (repo, number, commentId, resolved) =>
+    ipcRenderer.invoke('prs:review-thread:resolution', repo, number, commentId, resolved),
   approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
   submitReview: (prId, repo, number, event, body) =>
     ipcRenderer.invoke('prs:review', prId, repo, number, event, body),

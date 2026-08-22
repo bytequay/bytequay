@@ -443,6 +443,20 @@ function registerIpc(): void {
       body: JSON.stringify({ body }),
     });
   });
+  ipcMain.handle('prs:review-thread:resolution', (
+    _event,
+    repo: string,
+    number: number,
+    commentId: number,
+    resolved: boolean,
+  ) => {
+    const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number);
+    return backendVoid(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved }),
+    });
+  });
   ipcMain.handle('prs:approve', (_event, prId: number, repo: string, number: number) => {
     const url = prUrl('/prs/approve', repo, number);
     url.searchParams.set('id', String(prId));

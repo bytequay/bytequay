@@ -100,6 +100,8 @@ public class PullRequestController
 
     public record ReviewRequest(String event, String body) {}
 
+    public record ResolutionRequest(boolean resolved) {}
+
     @PostMapping("/prs/comment")
     public Map<String, String> comment(
             @RequestParam("repo") String repo,
@@ -119,6 +121,17 @@ public class PullRequestController
     {
         pullRequests.replyToReviewComment(repo, number, commentId, request.body());
         return ImmutableMap.of("result", "replied");
+    }
+
+    @PostMapping("/prs/review-comments/{commentId}/resolution")
+    public Map<String, String> setReviewThreadResolved(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @PathVariable("commentId") long commentId,
+            @RequestBody ResolutionRequest request)
+    {
+        pullRequests.setReviewThreadResolved(repo, number, commentId, request.resolved());
+        return ImmutableMap.of("result", request.resolved() ? "resolved" : "unresolved");
     }
 
     @PostMapping("/prs/approve")

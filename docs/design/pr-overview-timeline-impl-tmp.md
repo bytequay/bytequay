@@ -653,3 +653,92 @@ Runtime verification: a clean `dev.sh` restart launched Electron and the backend
 Verification: the live payload relates review `4925022844` to thread root `3773729721`; the frontend now performs that association instead of treating the thread as an unrelated row. Focused tests pass (17/17), the full Vitest suite passes (35/35), and ESLint, TypeScript, and `git diff --check` are clean.
 
 Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 35 — GitHub Markdown tables
+
+- [x] Parse GitHub pipe-table headers, alignment rows, and body rows.
+- [x] Render description tables with GitHub-style borders, alignment, striping, and horizontal overflow.
+- [x] Add regression coverage for the `CI impact` table shape.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: focused Markdown/overview tests pass (18/18), with the full frontend suite, ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 36 — Review-thread code and reactions
+
+- [x] Increase the inline review file-path and diff code size.
+- [x] Remove the plus sign from the shared reaction icon.
+- [x] Remove the duplicate reaction picker beside the thread `Reply` action.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: focused overview tests pass (18/18), the full Vitest suite passes (44/44), and ESLint, TypeScript, and `git diff --check` are clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 37 — Review-thread reply and resolution controls
+
+- [x] Show a reply action on both resolved and unresolved review threads.
+- [x] Show `Resolve` for unresolved threads and `Unresolve` for resolved threads.
+- [x] Post replies through the existing GitHub review-comment API and update
+  thread resolution through GitHub GraphQL.
+- [x] Refresh the PR detail after each successful action and surface failures
+  without discarding the user's reply.
+- [x] Add focused frontend and backend regression coverage.
+- [x] Run frontend and backend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: focused backend tests pass (19/19), the full Vitest suite passes (45/45), and Maven Checkstyle, ESLint, TypeScript, and `git diff --check` are clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 38 — Markdown fence presentation
+
+- [x] Remove the visible language label from fenced Markdown blocks.
+- [x] Color Markdown heading lines separately inside fenced Markdown blocks.
+- [x] Color backtick-delimited spans separately inside fenced Markdown blocks.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the full Vitest suite passes (45/45), with ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend health endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 39 — Left-aligned review verdicts
+
+- [x] Keep review verdict badges beside the reviewer timestamp.
+- [x] Preserve reaction and menu controls at the right edge.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the full Vitest suite passes (45/45), with ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend hello endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 40 — Completed merge-check status
+
+- [x] Show a static green check after every reported check has passed.
+- [x] Keep the animated progress ring only while checks are pending.
+- [x] Show explicit failure and no-check states instead of a misleading spinner.
+- [x] Add focused frontend regression coverage.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the full Vitest suite passes (46/46), with ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend hello endpoint returned `ByteQuay-backend ok`.
+
+## Checkpoint 41 — Blocked merge status
+
+- [x] Replace the progress ring with a failure icon after checks fail.
+- [x] Show `Merge blocked` instead of a ready message when checks or review threads block merging.
+- [x] Disable the dialog merge action until checks and review threads are clear.
+- [x] Add focused frontend regression coverage.
+- [x] Run frontend verification.
+- [x] Restart through `dev.sh` and verify the running app.
+
+Verification: the full Vitest suite passes (47/47), with ESLint, TypeScript, and `git diff --check` clean.
+
+Runtime verification: a clean `dev.sh` restart launched Electron and the backend hello endpoint returned `ByteQuay-backend ok`.

@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, replaceMention } from './PullOverview';
-import { canSubmitReview, hasMergeConflicts, mergeActionLabel, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
+import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -56,6 +56,41 @@ describe('PullOverview', () => {
 
     expect(html).toContain('class="pr-sheet-overlay"');
     expect(html).toContain('class="pr-review-sheet" role="dialog"');
+  });
+
+  it('stops showing the progress ring after every merge check passes', () => {
+    const value = detail();
+    value.checkRuns = value.checkRuns.map(check => ({
+      ...check,
+      conclusion: 'success',
+      category: 'successful',
+    }));
+    const html = renderToStaticMarkup(<MergeDialog
+      pr={pullRequest()}
+      detail={value}
+      mergeQueue
+      onClose={() => {}}
+      onRefresh={async () => {}} />);
+
+    expect(html).toContain('All checks have passed');
+    expect(html).toContain('class="pr-merge-success-icon"');
+    expect(html).not.toContain('class="pr-merge-ready-icon"');
+  });
+
+  it('blocks merging without a progress ring after checks fail', () => {
+    const value = detail();
+    const html = renderToStaticMarkup(<MergeDialog
+      pr={pullRequest()}
+      detail={value}
+      mergeQueue={false}
+      onClose={() => {}}
+      onRefresh={async () => {}} />);
+
+    expect(mergeStatus(value).state).toBe('failed');
+    expect(html).toContain('Merge blocked');
+    expect(html).toContain('Some checks were not successful');
+    expect(html).not.toContain('class="pr-merge-ready-icon"');
+    expect(html).toContain('<button class="is-primary" type="button" disabled="">');
   });
 
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {
@@ -106,7 +141,7 @@ describe('PullOverview', () => {
     expect(html).toContain('<span>labels</span>');
   });
 
-  it('renders a regular reply action and reaction menu for an unresolved review thread', () => {
+  it('renders a regular reply action without a duplicate footer reaction menu', () => {
     const value = detail();
     value.recentActivity = [{
       actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
@@ -134,7 +169,40 @@ describe('PullOverview', () => {
 
     expect(html).toContain('class="pr-thread-reply__open"');
     expect(html).toContain('class="pr-thread-comment__menu"');
+    expect(html).toContain('>Reply</button><button class="pr-thread-resolve"');
+    expect(html).toContain('>Resolve</button>');
     expect(html).not.toContain('<strong>Reply</strong>');
+  });
+
+  it('offers reply and unresolve actions inside a resolved review thread', () => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+      payload: {
+        ...emptyPayload,
+        resolved: true,
+        path: 'src/Example.java',
+        line: 18,
+        comments: [{
+          githubId: 99,
+          actor: 'bob',
+          actorAvatarUrl: null,
+          actorBot: false,
+          timestamp: '2026-08-20T09:35:00Z',
+          body: 'Please update this.',
+          htmlUrl: null,
+          reviewId: 9,
+          inReplyToId: null,
+          reactions: [],
+        }],
+      },
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('class="pr-thread-row__comments"');
+    expect(html).toContain('class="pr-thread-reply__open"');
+    expect(html).toContain('>Unresolve</button>');
   });
 
   it('parses the markdown blocks used by GitHub descriptions', () => {
@@ -145,6 +213,29 @@ describe('PullOverview', () => {
         { kind: 'list', ordered: false, items: ['one', 'two'] },
         { kind: 'code', language: 'java', text: 'run();' },
       ]);
+  });
+
+  it('renders GitHub Markdown tables instead of exposing their pipe syntax', () => {
+    const body = '| Area | Existing bundled job | New longest job | Improvement |\n'
+      + '|---|---:|---:|---:|\n'
+      + '| Overall critical path (Iceberg) | 38:05 | 24:35 | 13:30 (35%) |\n'
+      + '| Authentication and clients | 32:18 | 12:57 | 19:21 (60%) |';
+
+    expect(markdownBlocks(body)[0]).toEqual({
+      kind: 'table',
+      headers: ['Area', 'Existing bundled job', 'New longest job', 'Improvement'],
+      aligns: ['left', 'right', 'right', 'right'],
+      rows: [
+        ['Overall critical path (Iceberg)', '38:05', '24:35', '13:30 (35%)'],
+        ['Authentication and clients', '32:18', '12:57', '19:21 (60%)'],
+      ],
+    });
+
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+    expect(html).toContain('<div class="md-table-scroll"><table><thead>');
+    expect(html).toContain('<th style="text-align:right">Improvement</th>');
+    expect(html).toContain('<td style="text-align:right">13:30 (35%)</td>');
+    expect(html).not.toContain('|---|');
   });
 
   it('renders GitHub details and anchor HTML without exposing raw tags', () => {
@@ -244,11 +335,13 @@ describe('PullOverview', () => {
     expect(html).toContain('Can you add a test?');
   });
 
-  it('shows the code-fence language header used by the reference', () => {
-    const html = renderToStaticMarkup(<MarkdownBody body={'```\nplain\n```\n\n```markdown\n# title\n```'} />);
+  it('omits the Markdown fence label and highlights its syntax', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'```\nplain\n```\n\n```markdown\n## Section\n* Fix some things. ({issue}`issuenumber`)\n```'} />);
 
     expect(html).toContain('<span>Plain text</span>');
-    expect(html).toContain('<span>markdown</span>');
+    expect(html).not.toContain('<span>markdown</span>');
+    expect(html).toContain('<span class="md-code-markdown-heading">## Section</span>');
+    expect(html).toContain('<span class="md-code-markdown-inline">`issuenumber`</span>');
   });
 
   it('renders queued state, enriched GitHub references, and description reactions', () => {

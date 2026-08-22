@@ -21,6 +21,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -34,7 +35,9 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -61,5 +64,35 @@ class TestGitHubPullRequestWriteClient
         assertThat(created).isEqualTo(new CreatedPullRequest(
                 900, 12, "https://github.com/upstream/project/pull/12"));
         server.verify();
+    }
+
+    @Test
+    void resolvesAndUnresolvesReviewThreadsWithGraphQl()
+    {
+        RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
+        RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        MockRestServiceServer graphQlServer = MockRestServiceServer.bindTo(graphQlBuilder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                restBuilder.build(), graphQlBuilder.build());
+        graphQlServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().string(containsString("resolveReviewThread")))
+                .andExpect(content().string(containsString("\"threadId\":\"PRRT_1\"")))
+                .andRespond(withSuccess("""
+                        {"data":{"resolveReviewThread":{"thread":{"id":"PRRT_1","isResolved":true}}}}
+                        """, MediaType.APPLICATION_JSON));
+        graphQlServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().string(containsString("unresolveReviewThread")))
+                .andRespond(withSuccess("""
+                        {"data":{"unresolveReviewThread":{"thread":{"id":"PRRT_1","isResolved":false}}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        client.setReviewThreadResolved("pat", "PRRT_1", true);
+        client.setReviewThreadResolved("pat", "PRRT_1", false);
+
+        graphQlServer.verify();
     }
 }

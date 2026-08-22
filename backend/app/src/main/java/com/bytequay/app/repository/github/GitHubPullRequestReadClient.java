@@ -33,9 +33,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -807,6 +809,7 @@ public class GitHubPullRequestReadClient
                             .orElse(null);
                     if (rootId != null) {
                         facts.put(rootId, new ReviewThreadFacts(
+                                thread.id(),
                                 thread.isResolved(),
                                 thread.isOutdated(),
                                 thread.path(),
@@ -830,6 +833,16 @@ public class GitHubPullRequestReadClient
         return ImmutableMap.copyOf(facts);
     }
 
+    public String findReviewThreadId(String pat, PullRequestRef pr, long rootCommentId)
+    {
+        ReviewThreadFacts facts = fetchReviewThreadFacts(pat, pr).get(rootCommentId);
+        if (facts == null || facts.id() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "GitHub review thread was not found");
+        }
+        return facts.id();
+    }
+
     private static GitHubReviewThreadsResponse.ReviewThreads reviewThreads(
             GitHubReviewThreadsResponse response)
     {
@@ -849,6 +862,7 @@ public class GitHubPullRequestReadClient
         GitHubReviewComment.User user = root.user();
         ReviewThreadFacts effective = facts == null
                 ? new ReviewThreadFacts(
+                        null,
                         false,
                         root.line() == null,
                         root.path(),
@@ -924,6 +938,7 @@ public class GitHubPullRequestReadClient
     }
 
     private record ReviewThreadFacts(
+            String id,
             boolean resolved,
             boolean outdated,
             String path,

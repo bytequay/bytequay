@@ -413,6 +413,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
   const [replying, setReplying] = useState(false);
   const [body, setBody] = useState('');
   const [posting, setPosting] = useState(false);
+  const [changingResolution, setChangingResolution] = useState(false);
   const [error, setError] = useState('');
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
@@ -433,6 +434,49 @@ function ReviewThread({ activity, pr, onRefresh }: {
     setPosting(false);
     await onRefresh();
   };
+  const changeResolution = async () => {
+    if (!rootCommentId) return;
+    setChangingResolution(true);
+    setError('');
+    try {
+      await window.bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, !payload.resolved);
+      await onRefresh();
+    }
+    catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Could not ${payload.resolved ? 'unresolve' : 'resolve'} thread.`);
+    }
+    setChangingResolution(false);
+  };
+  const controls = replying ? (
+    <footer className="pr-thread-reply">
+      <textarea autoFocus aria-label="Reply to review thread" value={body} rows={4}
+        placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
+        onKeyDown={event => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            void submit();
+          }
+        }} />
+      {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+      <div className="pr-thread-reply__actions">
+        <button type="button" onClick={() => { setReplying(false); setBody(''); setError(''); }}>Cancel</button>
+        <button className="is-primary" type="button" disabled={posting || !body.trim()}
+          onClick={() => { void submit(); }}>{posting ? 'Replying…' : 'Reply'}</button>
+      </div>
+    </footer>
+  ) : (
+    <footer>
+      <button className="pr-thread-reply__open" type="button" disabled={!rootCommentId}
+        onClick={() => { setError(''); setReplying(true); }}>Reply</button>
+      {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+      <button className="pr-thread-resolve" type="button" disabled={!rootCommentId || changingResolution}
+        onClick={() => { void changeResolution(); }}>
+        {changingResolution
+          ? (payload.resolved ? 'Unresolving…' : 'Resolving…')
+          : (payload.resolved ? 'Unresolve' : 'Resolve')}
+      </button>
+    </footer>
+  );
   if (payload.resolved) {
     return (
       <details className="pr-thread-row">
@@ -443,6 +487,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
         </summary>
         <div className="pr-thread-row__comments">
           {payload.comments.map(comment => <ThreadComment comment={comment} key={comment.githubId ?? comment.timestamp} />)}
+          {controls}
         </div>
       </details>
     );
@@ -452,34 +497,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
       <header><code>{threadLocation(payload.path, payload.line ?? payload.originalLine)}</code></header>
       {payload.diffHunk && <DiffHunk text={payload.diffHunk} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} key={comment.githubId ?? comment.timestamp} />)}
-      {replying ? (
-        <footer className="pr-thread-reply">
-          <textarea autoFocus aria-label="Reply to review thread" value={body} rows={4}
-            placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
-            onKeyDown={event => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault();
-                void submit();
-              }
-            }} />
-          {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-          <div className="pr-thread-reply__actions">
-            <button type="button" onClick={() => { setReplying(false); setBody(''); setError(''); }}>Cancel</button>
-            <button className="is-primary" type="button" disabled={posting || !body.trim()}
-              onClick={() => { void submit(); }}>{posting ? 'Replying…' : 'Reply'}</button>
-          </div>
-        </footer>
-      ) : (
-        <footer>
-          <button className="pr-thread-reply__open" type="button" disabled={!rootCommentId}
-            onClick={() => setReplying(true)}>Reply</button>
-          <ReactionPicker compact />
-          <button className="pr-thread-resolve" type="button" disabled={!payload.htmlUrl} title="Resolve on GitHub"
-            onClick={() => { if (payload.htmlUrl) void window.bridge.openInAppBrowser(payload.htmlUrl); }}>
-            Resolve
-          </button>
-        </footer>
-      )}
+      {controls}
     </article>
   );
 }
@@ -919,7 +937,7 @@ function ReviewIcon() {
 }
 
 function ReactionMenuIcon() {
-  return <svg viewBox="0 0 16 16" width="21" height="21" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.3" aria-hidden="true"><circle cx="7" cy="8" r="5.4" /><path d="M5 9.2c.8 1.2 3.2 1.2 4 0M5.2 6.5h.1M8.7 6.5h.1M12.5 1.5v4M10.5 3.5h4" /></svg>;
+  return <svg viewBox="0 0 16 16" width="21" height="21" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.4" /><path d="M6 9.2c.8 1.2 3.2 1.2 4 0M6.2 6.5h.1M9.7 6.5h.1" /></svg>;
 }
 
 function KebabIcon() {

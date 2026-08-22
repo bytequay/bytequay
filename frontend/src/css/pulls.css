@@ -249,6 +249,17 @@
 .pull-detail__merge-action .pr-merge-ready-icon i { border-top-color: #fff; }
 .pull-detail__merge-action.is-loading .pr-merge-ready-icon { border-color: #d8dee4; }
 .pull-detail__merge-action.is-loading .pr-merge-ready-icon i { border-top-color: #2da44e; }
+.pr-merge-success-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #1f883d;
+  color: #fff;
+}
 
 .pr-sheet-overlay {
   position: fixed;
@@ -503,12 +514,20 @@
 .markdown-body ul,
 .markdown-body ol { margin: 0 0 14px; padding-left: 28px; }
 .markdown-body li + li { margin-top: 4px; }
+.md-table-scroll { max-width: 100%; overflow-x: auto; margin: 14px 0 16px; }
+.markdown-body table { width: max-content; min-width: 65%; border-spacing: 0; border-collapse: collapse; }
+.markdown-body th,
+.markdown-body td { border: 1px solid #d0d7de; padding: 6px 13px; }
+.markdown-body th { font-weight: 600; }
+.markdown-body tbody tr:nth-child(even) { background: #f6f8fa; }
 .markdown-body code,
 .pr-event code { border-radius: 6px; background: #eff2f4; padding: 2px 5px; font-family: var(--font-mono); font-size: 0.9em; }
 .md-code-block { overflow: hidden; margin: 14px 0; border: 1px solid #e1e7eb; border-radius: 8px; background: #f6f8fa; }
 .md-code-block > span { display: block; padding: 13px 15px 0; color: #59636e; font-size: 0.9em; }
 .markdown-body .md-code-block pre { overflow-x: auto; margin: 0; border: 0; border-radius: 0; background: transparent; padding: 13px 15px; }
 .markdown-body pre code { background: transparent; padding: 0; font-size: 14px; }
+.md-code-markdown-heading { color: #0550ae; }
+.md-code-markdown-inline { color: #8250df; }
 .markdown-body blockquote { margin: 14px 0; border-left: 4px solid #d0d7de; color: #59636e; padding: 3px 14px; }
 .markdown-body a,
 .md-link { color: #0969da; text-decoration: none; }
@@ -527,8 +546,7 @@
 .md-alert.is-warning strong,
 .md-alert.is-caution strong { color: #9a6700; }
 
-.pr-review-badge { margin-left: auto; border: 1px solid; border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 600; }
-.pr-review-badge + .pr-card__menu { margin-left: 4px; }
+.pr-review-badge { border: 1px solid; border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 600; }
 .pr-review-badge.is-approved { border-color: #aceebb; background: #dafbe1; color: #1a7f37; }
 .pr-review-badge.is-changes { border-color: #ffcecb; background: #ffebe9; color: #cf222e; }
 .pr-review-badge.is-dismissed { border-color: #d0d7de; background: #eff2f4; color: #59636e; }
@@ -566,7 +584,6 @@
 .pr-review-group__summary > .avatar { flex: 0 0 auto; margin-right: 2px; background: #fff; }
 .pr-review-group__summary strong { color: #24292f; font-size: 15px; font-weight: 500; }
 .pr-review-group__summary time { color: #59636e; text-decoration: underline; text-underline-offset: 3px; }
-.pr-review-group__summary .pr-review-badge { margin-left: auto; }
 .pr-label-event__marker { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1px solid #d0d7de; border-radius: 50%; background: #f6f8fa; box-shadow: 0 0 0 4px #fff; color: #59636e; }
 .pr-label-event__content { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 4px; }
 .pr-label-event__actor { display: inline-flex; align-items: center; gap: 5px; margin-right: 1px; }
@@ -588,8 +605,8 @@
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
 .pr-inline-thread { margin-left: 43px; }
 .pr-inline-thread > header { overflow: hidden; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 14px; text-overflow: ellipsis; white-space: nowrap; }
-.pr-inline-thread > header code { font-family: var(--font-mono); font-size: 11.5px; }
-.pr-diff-hunk { overflow-x: auto; margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
+.pr-inline-thread > header code { font-family: var(--font-mono); font-size: 13px; }
+.pr-diff-hunk { overflow-x: auto; margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 0; font-family: var(--font-mono); font-size: 13px; line-height: 1.55; }
 .pr-diff-hunk span { display: block; min-width: max-content; padding: 0 13px; }
 .pr-diff-hunk .is-add { background: #dafbe1; color: #116329; }
 .pr-diff-hunk .is-del { background: #ffebe9; color: #a40e26; }
@@ -599,10 +616,10 @@
 .pr-thread-comment__author time { margin-left: 2px; }
 .pr-thread-comment__menu { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .pr-thread-comment .markdown-body { padding-top: 10px; }
-.pr-inline-thread > footer { display: flex; min-height: 50px; align-items: center; padding: 10px 16px; }
-.pr-inline-thread > footer > button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #59636e; padding: 6px 11px; }
-.pr-inline-thread > footer .pr-thread-reply__open { border: 0; background: transparent; color: #24292f; padding-left: 0; font-weight: 400; }
-.pr-inline-thread > footer .pr-thread-resolve { margin-left: auto; }
+.pr-inline-thread > footer, .pr-thread-row__comments > footer { display: flex; min-height: 50px; align-items: center; padding: 10px 16px; }
+.pr-inline-thread > footer > button, .pr-thread-row__comments > footer > button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #59636e; padding: 6px 11px; }
+.pr-inline-thread > footer .pr-thread-reply__open, .pr-thread-row__comments > footer .pr-thread-reply__open { border: 0; background: transparent; color: #24292f; padding-left: 0; font-weight: 400; }
+.pr-inline-thread > footer .pr-thread-resolve, .pr-thread-row__comments > footer .pr-thread-resolve { margin-left: auto; }
 .pr-thread-reply { display: grid !important; gap: 9px; background: #f6f8fa; }
 .pr-thread-reply textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #0969da; border-radius: 8px; outline: 0; background: #fff; color: #24292f; padding: 11px 13px; font: inherit; font-size: 14px; }
 .pr-thread-reply__error { color: #cf222e; font-size: 12px; }

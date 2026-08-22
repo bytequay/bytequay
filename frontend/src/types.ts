@@ -507,6 +507,7 @@ export type Bridge = {
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
+  setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   submitReview: (
     prId: number,

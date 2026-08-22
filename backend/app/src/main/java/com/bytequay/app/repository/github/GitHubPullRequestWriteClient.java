@@ -17,6 +17,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -25,6 +26,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,10 +39,14 @@ import static java.util.Objects.requireNonNull;
 public class GitHubPullRequestWriteClient
 {
     private final RestClient gitHubRestClient;
+    private final RestClient graphQlRestClient;
 
-    public GitHubPullRequestWriteClient(RestClient gitHubRestClient)
+    public GitHubPullRequestWriteClient(
+            RestClient gitHubRestClient,
+            @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
+        this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
     }
 
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
@@ -108,6 +114,34 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    public void setReviewThreadResolved(String pat, String threadId, boolean resolved)
+    {
+        String mutation = resolved
+                ? "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}"
+                : "mutation($threadId:ID!){unresolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
+        try {
+            ReviewThreadMutationResponse response = graphQlRestClient.post()
+                    .header("Authorization", authorization(pat))
+                    .body(ImmutableMap.of(
+                            "query", mutation,
+                            "variables", ImmutableMap.of("threadId", threadId)))
+                    .retrieve()
+                    .body(ReviewThreadMutationResponse.class);
+            if (response == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "Empty response from GitHub when updating review thread");
+            }
+            if (response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "GitHub review thread update failed: " + response.errors().getFirst().message());
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     /** Creates a pull request using the same authenticated write client as existing PR actions. */
     public CreatedPullRequest createPullRequest(
             String pat,
@@ -152,4 +186,6 @@ public class GitHubPullRequestWriteClient
                 comment.body(),
                 Optional.empty());
     }
+
+    private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
 }

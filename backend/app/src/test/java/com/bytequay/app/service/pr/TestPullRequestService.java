@@ -203,6 +203,19 @@ class TestPullRequestService
     }
 
     @Test
+    void changesReviewThreadResolutionAndInvalidatesDetail()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.findReviewThreadId("pat", ref, 99L)).thenReturn("PRRT_1");
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.setReviewThreadResolved("owner/repo", 7, 99L, true);
+
+        verify(writes).setReviewThreadResolved("pat", "PRRT_1", true);
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
     void approvesAndMarksReviewed()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));

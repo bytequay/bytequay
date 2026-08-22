@@ -1,6 +1,6 @@
 # Watched Repository / Workspace Design
 
-Status: proposed. Implementation progress is tracked in
+Status: implemented through Checkpoint 8. Verification and handoff progress is tracked in
 [watched-repo-impl-tmp.md](watched-repo-impl-tmp.md).
 
 This design connects the existing watched-repository entry point to the existing workspace
@@ -24,7 +24,7 @@ The workspace shell also contains Tasks, Pull Requests, Issues, Memory, and Sett
 design gives those features a stable workspace identity and repository routing context, but it
 does not require all of them to be completed before the commits vertical slice ships.
 
-## What already exists
+## Starting point before implementation
 
 The repository currently has:
 
@@ -42,21 +42,22 @@ The handoff and cherry-pick implementation is described by
 [design_handoff_cherry_pick_flow/README.md](design_handoff_cherry_pick_flow/README.md) and
 [cherry-pick-range.md](cherry-pick-range.md).
 
-## What is missing
+## Original implementation gaps
 
-The current pieces do not yet form one product flow:
+Before this design was implemented, the existing pieces did not form one product flow:
 
-- Home watches a repository, but does not create a workspace.
-- Workspaces are stored separately in renderer `localStorage`.
-- Users must choose an existing checkout instead of ByteQuay cloning the watched repository.
-- Git and cherry-pick APIs accept a renderer-provided filesystem path rather than a workspace
+- Home watched a repository but did not create a workspace.
+- Workspaces were stored separately in renderer `localStorage`.
+- Users had to choose an existing checkout instead of ByteQuay cloning the watched repository.
+- Git and cherry-pick APIs accepted a renderer-provided filesystem path rather than a workspace
   ID resolved by the backend.
-- the persisted watched-repository record does not contain stable GitHub identity, fork
+- The persisted watched-repository record did not contain stable GitHub identity, fork
   topology, permissions, clone state, paths, or sync state;
-- pull requests are synchronized from account-centric queries rather than from the repository
+- Pull requests were synchronized from account-centric queries rather than from the repository
   monitored by a workspace;
-- repository issues and contributors are not synchronized for workspace use;
-- push and pull-request creation for the generated cherry-pick branch remain deferred.
+- Repository issues and contributors were not synchronized for workspace use;
+- Push and pull-request creation for the generated cherry-pick branch were deferred until
+  Checkpoint 8.
 
 ## Core decision
 
@@ -459,10 +460,10 @@ repository under one overlap guard. Watch, application startup, and manual refre
 same coordinator. Opening `PullsScreen` reads the local projection without triggering another
 GitHub refresh.
 
-`WorkspacePullRequestService` below owns only the missing delivery routing for a cherry-pick work
-branch. Its implementation should delegate to existing pull-request/GitHub write code wherever
-the operation already exists. Push and pull-request creation remain explicit user actions and can
-ship after the watch-to-local-cherry-pick vertical slice.
+`WorkspacePullRequestService` below owns only the delivery routing for a cherry-pick work branch.
+Its implementation delegates to existing pull-request/GitHub write code wherever the operation
+already exists. Push and pull-request creation remain explicit user actions and shipped after the
+watch-to-local-cherry-pick vertical slice in Checkpoint 8.
 
 ```java
 package com.bytequay.app.workspace;
@@ -530,7 +531,7 @@ Code readiness and metadata readiness are separate:
 - Pull Requests uses the existing locally persisted PR data filtered to the monitored repository.
 - Contributor, label, and topic/tag lookup uses the latest locally stored reference snapshot and
   refreshes only when its weekly/monthly freshness interval expires.
-- Issues uses its own workspace projection when that feature is implemented.
+- Issues uses its own workspace projection.
 - Workspace Home can be opened in every state.
 
 ## HTTP contract
@@ -565,6 +566,8 @@ POST   /api/workspaces/{workspaceId}/git/squash
 
 POST   /api/workspaces/{workspaceId}/cherry-pick/preview
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions
+POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/cancel
+GET    /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/delivery
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/push
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/pull-request
 ```
@@ -759,8 +762,8 @@ sequenceDiagram
 8. Add explicit push and pull-request creation using the persisted routing policy.
 
 The first shippable gate is step 6: a user can watch, open, browse commits, and complete the local
-cherry-pick flow. Metadata can synchronize alongside that work, while push/PR delivery remains a
-separate explicit checkpoint.
+cherry-pick flow. Metadata synchronizes alongside that work, while Checkpoint 8 adds push/PR
+delivery as a separate explicit gate.
 
 ## Acceptance criteria
 
@@ -774,8 +777,8 @@ separate explicit checkpoint.
 - Clicking the workspace opens Workspace Home even while preparation is in progress or failed.
 - Commits becomes available when code is ready and uses no renderer-supplied repository path.
 - Direct-repository history and cherry-pick bases resolve from `origin`.
-- Fork-repository history/target bases resolve from `upstream`, while a future push resolves to
-  writable `origin` and a future PR resolves back to upstream.
+- Fork-repository history/target bases resolve from `upstream`, push resolves to writable
+  `origin`, and the pull request resolves back to upstream.
 - The existing commit range selection, preview, worktree execution, Tasks, Progress, and conflict
   flow continue to work.
 - Issues, pull requests, and contributors are read from the monitored upstream for a fork.

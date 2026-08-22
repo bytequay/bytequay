@@ -389,6 +389,15 @@ public class PullRequestService
         invalidatePullRequestCaches(repo, number);
     }
 
+    public void setReviewThreadResolved(String repo, int number, long rootCommentId, boolean resolved)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, number);
+        String threadId = gitHub.findReviewThreadId(pat, ref, rootCommentId);
+        pullRequestWrites.setReviewThreadResolved(pat, threadId, resolved);
+        invalidatePullRequestCaches(repo, number);
+    }
+
     /**
      * Submits an approval review for the given pull request on GitHub and records a local reviewed state.
      */

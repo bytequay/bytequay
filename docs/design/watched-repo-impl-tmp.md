@@ -1,6 +1,6 @@
 # Watched Repository / Workspace Implementation Checklist
 
-Status: Checkpoint 7 complete; explicit push and pull-request delivery are next in Checkpoint 8.
+Status: Checkpoint 9 automated verification complete; manual acceptance remains.
 The existing commit browser and cherry-pick execution now run through the durable
 workspace boundary; this checklist tracks the remaining repository features and delivery gates.
 
@@ -359,17 +359,23 @@ shipping gate.
 
 ### Automated verification
 
-- [ ] Backend focused workspace/provisioning/metadata tests pass.
-- [ ] Backend existing Git browse and cherry-pick tests pass.
-- [ ] Backend full Maven verification passes.
-- [ ] Frontend lint passes.
-- [ ] Frontend TypeScript check passes.
-- [ ] Frontend tests pass.
-- [ ] Frontend packaging/build verification passes.
-- [ ] Documentation/code links and endpoint names match the implementation.
-- [ ] `git diff --check` passes.
+- [x] Backend focused workspace/provisioning/metadata tests pass.
+- [x] Backend existing Git browse and cherry-pick tests pass.
+- [x] Backend full Maven verification passes.
+- [x] Frontend lint passes.
+- [x] Frontend TypeScript check passes.
+- [x] Frontend tests pass.
+- [x] Frontend packaging/build verification passes.
+- [x] Documentation/code links and endpoint names match the implementation.
+- [x] `git diff --check` passes.
 
 ### Manual acceptance
+
+Read-only live inspection confirmed the existing direct `trinodb/trino` workspace is `READY`,
+uses only the expected `origin`, and renders real commit history and diffs in the workspace
+Commits tab. The acceptance boxes remain open because no fresh direct watch/cherry-pick run was
+created, no fork workspace is available locally, and remote delivery requires separate explicit
+confirmation before writing to GitHub.
 
 - [ ] Direct repository: search, preview, watch, clone, open Workspace Home, browse Commits, and
   complete a local cherry-pick execution.

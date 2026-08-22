@@ -18,6 +18,7 @@ type Block =
   | { kind: 'paragraph'; text: string }
   | { kind: 'code'; language: string; text: string }
   | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'table'; headers: string[]; rows: string[][]; aligns: Array<'left' | 'center' | 'right'> }
   | { kind: 'quote'; text: string }
   | { kind: 'alert'; label: string; text: string }
   | { kind: 'rule' };
@@ -80,6 +81,21 @@ function decodeEntities(value: string) {
     .replaceAll('&amp;', '&');
 }
 
+function tableCells(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return null;
+  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+}
+
+function tableAlignments(line: string) {
+  const cells = tableCells(line);
+  if (!cells?.length || cells.some(cell => !/^:?-{3,}:?$/.test(cell))) return null;
+  return cells.map((cell): 'left' | 'center' | 'right' => {
+    if (cell.startsWith(':') && cell.endsWith(':')) return 'center';
+    return cell.endsWith(':') ? 'right' : 'left';
+  });
+}
+
 export function markdownBlocks(markdown: string): Block[] {
   const blocks: Block[] = [];
   const lines = markdown.replaceAll('\r\n', '\n').split('\n');
@@ -116,6 +132,22 @@ export function markdownBlocks(markdown: string): Block[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+    const headers = tableCells(line);
+    const aligns = index + 1 < lines.length ? tableAlignments(lines[index + 1]) : null;
+    if (headers && aligns && headers.length === aligns.length) {
+      flushParagraph();
+      flushList();
+      const rows: string[][] = [];
+      let cursor = index + 2;
+      for (; cursor < lines.length; cursor++) {
+        const cells = tableCells(lines[cursor]);
+        if (!cells) break;
+        rows.push(headers.map((_header, cellIndex) => cells[cellIndex] ?? ''));
+      }
+      blocks.push({ kind: 'table', headers, rows, aligns });
+      index = cursor - 1;
       continue;
     }
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
@@ -212,6 +244,26 @@ function ReferenceIcon({ pull }: { pull: boolean }) {
     : <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></svg>;
 }
 
+function markdownCode(text: string, keyPrefix: string) {
+  return text.split('\n').map((line, index) => {
+    const heading = line.match(/^(#{1,6}\s+)(.*)$/);
+    const content = heading ? heading[2] : line;
+    const highlighted = content.split(/(`[^`]+`)/g).filter(Boolean).map((part, partIndex) => (
+      part.startsWith('`') && part.endsWith('`')
+        ? <span className="md-code-markdown-inline" key={`${keyPrefix}-${index}-${partIndex}`}>{part}</span>
+        : <Fragment key={`${keyPrefix}-${index}-${partIndex}`}>{part}</Fragment>
+    ));
+    return (
+      <Fragment key={`${keyPrefix}-${index}`}>
+        {index > 0 && '\n'}
+        {heading
+          ? <span className="md-code-markdown-heading">{heading[1]}{highlighted}</span>
+          : highlighted}
+      </Fragment>
+    );
+  });
+}
+
 export default function MarkdownBody({ body, className = '' }: { body: string; className?: string }) {
   return (
     <div className={`markdown-body ${className}`.trim()}>
@@ -235,17 +287,34 @@ function MarkdownBlocks({ markdown }: { markdown: string }) {
           return <Heading key={key}>{inline(block.text, key)}</Heading>;
         }
         if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key)}</p>;
-        if (block.kind === 'code') return (
-          <div className="md-code-block" key={key}>
-            <span>{block.language || 'Plain text'}</span>
-            <pre><code data-language={block.language}>{block.text}</code></pre>
-          </div>
-        );
+        if (block.kind === 'code') {
+          const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
+          return (
+            <div className="md-code-block" key={key}>
+              {!isMarkdown && <span>{block.language || 'Plain text'}</span>}
+              <pre><code data-language={block.language}>{isMarkdown ? markdownCode(block.text, key) : block.text}</code></pre>
+            </div>
+          );
+        }
         if (block.kind === 'alert') return (
           <aside className={`md-alert is-${block.label.toLowerCase()}`} key={key}>
             <strong>ⓘ {block.label[0]}{block.label.slice(1).toLowerCase()}</strong>
             <p>{inline(block.text, key)}</p>
           </aside>
+        );
+        if (block.kind === 'table') return (
+          <div className="md-table-scroll" key={key}>
+            <table>
+              <thead><tr>{block.headers.map((header, cellIndex) => (
+                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`)}</th>
+              ))}</tr></thead>
+              <tbody>{block.rows.map((row, rowIndex) => (
+                <tr key={`${key}-row-${rowIndex}`}>{row.map((cell, cellIndex) => (
+                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`)}</td>
+                ))}</tr>
+              ))}</tbody>
+            </table>
+          </div>
         );
         if (block.kind === 'quote') return <blockquote key={key}>{inline(block.text, key)}</blockquote>;
         if (block.kind === 'rule') return <hr key={key} />;

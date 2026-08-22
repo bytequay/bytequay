@@ -325,7 +325,21 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
     && detail.viewerCanWrite
     && !isQueued(detail.recentActivity);
   const conflicts = hasMergeConflicts(detail);
-  const mergeReady = typeof mergeQueue === 'boolean' && !conflicts;
+  const merge = detail ? mergeStatus(detail) : null;
+  const mergeModeReady = typeof mergeQueue === 'boolean';
+  const mergeBlocked = merge?.state === 'failed' || merge?.state === 'blocked';
+  const mergeLoading = mergeQueue === undefined || mergeQueue === null || merge?.state === 'pending';
+  const mergeLabel = conflicts
+    ? 'Conflicts'
+    : mergeQueue === undefined || mergeQueue === null
+      ? mergeActionLabel(mergeQueue)
+      : merge?.state === 'failed'
+        ? 'Checks failed'
+        : merge?.state === 'blocked'
+          ? 'Merge blocked'
+          : merge?.state === 'pending'
+            ? 'Checks running'
+            : mergeActionLabel(mergeQueue);
 
   useEffect(() => {
     setMergeOpen(false);
@@ -357,11 +371,15 @@ function PullDetailHeader({ pr, detail, tab, onTab, onRefresh }: {
           )}
           {canMerge && (
             <button
-              className={`pull-detail__merge-action${conflicts ? ' is-conflicts' : mergeReady ? '' : ' is-loading'}`}
+              className={`pull-detail__merge-action${conflicts || mergeBlocked ? ' is-conflicts' : mergeLoading ? ' is-loading' : ''}`}
               type="button"
-              disabled={!mergeReady}
+              disabled={!mergeModeReady || conflicts}
               onClick={() => setMergeOpen(true)}>
-              {conflicts ? <ConflictIcon /> : <MergeReadyIcon />} {mergeActionLabel(mergeQueue, conflicts)}
+              {conflicts || mergeBlocked
+                ? <ConflictIcon />
+                : mergeLoading
+                  ? <MergeReadyIcon />
+                  : <PullRequestIcon />} {mergeLabel}
             </button>
           )}
         </div>
@@ -407,6 +425,25 @@ export function mergeActionLabel(mergeQueue: boolean | null | undefined, conflic
 export function unresolvedReviewCount(detail: PullRequestDetailDto) {
   return detail.recentActivity.filter(activity =>
     activity.eventType === 'review_thread' && !activity.payload.resolved).length;
+}
+
+export function mergeStatus(detail: PullRequestDetailDto) {
+  const counts = detail.checkRuns.reduce((result, check) => {
+    result[check.category] = (result[check.category] ?? 0) + 1;
+    return result;
+  }, {} as Record<string, number>);
+  const pending = counts.pending ?? 0;
+  const failing = counts.failing ?? 0;
+  const successful = counts.successful ?? 0;
+  const unresolved = unresolvedReviewCount(detail);
+  const state: 'failed' | 'pending' | 'blocked' | 'ready' = failing > 0
+    ? 'failed'
+    : pending > 0
+      ? 'pending'
+      : unresolved > 0
+        ? 'blocked'
+        : 'ready';
+  return { pending, failing, successful, unresolved, checksReported: detail.checkRuns.length > 0, state };
 }
 
 type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -504,7 +541,7 @@ function ReviewChoice({ checked, title, description, onChange }: {
   );
 }
 
-function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
+export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   mergeQueue: boolean;
@@ -513,14 +550,8 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const unresolved = unresolvedReviewCount(detail);
-  const counts = detail.checkRuns.reduce((result, check) => {
-    result[check.category] = (result[check.category] ?? 0) + 1;
-    return result;
-  }, {} as Record<string, number>);
-  const pending = counts.pending ?? 0;
-  const failing = counts.failing ?? 0;
-  const successful = counts.successful ?? 0;
+  const { pending, failing, successful, unresolved, checksReported, state } = mergeStatus(detail);
+  const blocked = state === 'failed' || state === 'blocked';
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !submitting) onClose(); };
@@ -552,14 +583,34 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
         <button type="button" aria-label="Close merge dialog" disabled={submitting} onClick={onClose}>×</button>
       </div>
       <div className="pr-merge-sheet__content">
-        <div className="pr-merge-status-card">
-          <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />
-          <strong>{mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
+        <div className={`pr-merge-status-card${blocked ? ' is-danger' : ''}`}>
+          {blocked
+            ? <ConflictIcon />
+            : state === 'pending'
+              ? <MergeReadyIcon />
+              : <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />}
+          <strong>{blocked
+            ? 'Merge blocked'
+            : state === 'pending'
+              ? 'Waiting for checks'
+              : mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
         </div>
         <div className="pr-merge-status-card is-stacked">
           <div>
-            <MergeReadyIcon />
-            <strong>{pending > 0 ? 'Checks are running' : failing > 0 ? 'Some checks were not successful' : 'All checks have passed'}</strong>
+            {failing > 0
+                ? <ConflictIcon />
+              : pending > 0
+                ? <MergeReadyIcon />
+                : checksReported
+                  ? <MergeSuccessIcon />
+                  : <span className="pr-merge-dot" aria-hidden="true" />}
+            <strong>{failing > 0
+                ? 'Some checks were not successful'
+              : pending > 0
+                ? 'Checks are running'
+                : checksReported
+                  ? 'All checks have passed'
+                  : 'No checks reported'}</strong>
           </div>
           <div className="pr-merge-status-card__groups">
             {pending > 0 && <span>In progress ({pending})</span>}
@@ -578,7 +629,7 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
       </div>
       <footer className="pr-merge-sheet__footer">
         <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
-        <button className="is-primary" type="button" disabled={submitting} onClick={() => { void submit(); }}>
+        <button className="is-primary" type="button" disabled={submitting || state !== 'ready'} onClick={() => { void submit(); }}>
           <PullRequestIcon /> {submitting ? 'Submitting…' : mergeQueue ? 'Queue when ready' : 'Rebase and merge'}
         </button>
       </footer>
@@ -589,6 +640,15 @@ function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
 
 function MergeReadyIcon() {
   return <span className="pr-merge-ready-icon" aria-hidden="true"><i /></span>;
+}
+
+function MergeSuccessIcon() {
+  return <span className="pr-merge-success-icon" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor"
+      strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4">
+      <path d="m3.5 8.2 2.8 2.8 6.2-6" />
+    </svg>
+  </span>;
 }
 
 function ConflictIcon() {

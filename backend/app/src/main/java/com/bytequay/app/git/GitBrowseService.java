@@ -61,7 +61,7 @@ public class GitBrowseService
         List<String> branches = lines(require(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads"));
         List<Remote> remotes = lines(require(repository, "remote")).stream()
                 .map(name -> new Remote(name, require(repository, "config", "--get", "remote." + name + ".url").strip()))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
         return new RepoOverview(currentBranch, branches, remotes);
     }
 
@@ -72,7 +72,7 @@ public class GitBrowseService
         return lines(require(repository, "for-each-ref", "--format=%(refname:short)", prefix)).stream()
                 .map(name -> name.substring(remote.length() + 1))
                 .filter(name -> !name.equals("HEAD"))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
     }
 
     public List<Commit> log(Path repository, String ref, int limit)
@@ -287,7 +287,7 @@ public class GitBrowseService
         return output.lines()
                 .map(String::strip)
                 .filter(line -> !line.isEmpty())
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
     }
 
     private static Map<String, int[]> numstat(String output)

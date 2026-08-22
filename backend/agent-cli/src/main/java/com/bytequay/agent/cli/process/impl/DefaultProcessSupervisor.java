@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Default JDK process implementation used by the Codex and Claude CLI lanes. */
@@ -314,7 +315,7 @@ public final class DefaultProcessSupervisor
         {
             try {
                 return ImmutableList.<ProcessHandle>builder()
-                        .addAll(process.descendants().collect(ImmutableList.toImmutableList()))
+                        .addAll(process.descendants().collect(toImmutableList()))
                         .add(process.toHandle())
                         .build();
             }

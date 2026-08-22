@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Replaces known credential environment values before diagnostics or events leave a CLI driver. */
@@ -48,7 +49,7 @@ public final class SecretRedactor
                 .filter(value -> value != null && value.length() >= 4)
                 .distinct()
                 .sorted(Comparator.comparingInt(String::length).reversed())
-                .collect(ImmutableList.toImmutableList()));
+                .collect(toImmutableList()));
     }
 
     /**

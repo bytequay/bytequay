@@ -26,7 +26,6 @@ import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CiAutofixRunJpaRepository;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
@@ -40,6 +39,7 @@ import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
@@ -173,7 +173,7 @@ public class SqliteCiAutofixStore
             throw new CiAutofixConflictException("Existing CI Autofix attempts cannot be removed");
         }
         Map<String, CiAutofixAttemptEntity> existingById = existing.stream()
-                .collect(ImmutableMap.toImmutableMap(CiAutofixAttemptEntity::getId, value -> value));
+                .collect(toImmutableMap(CiAutofixAttemptEntity::getId, value -> value));
         List<CiAutofixAttemptEntity> updatedAttempts = run.attempts().stream()
                 .map(attempt -> updateAttempt(existingById, attempt))
                 .collect(toImmutableList());

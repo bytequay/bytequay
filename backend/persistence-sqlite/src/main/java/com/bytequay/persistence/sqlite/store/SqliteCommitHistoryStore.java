@@ -21,7 +21,6 @@ import com.bytequay.persistence.sqlite.entity.CommitEnrichmentEntity;
 import com.bytequay.persistence.sqlite.entity.CommitRefreshStatusEntity;
 import com.bytequay.persistence.sqlite.repository.CommitEnrichmentJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CommitRefreshStatusJpaRepository;
-import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
@@ -54,10 +54,10 @@ public class SqliteCommitHistoryStore
         requireNonNull(shas, "shas is null");
         List<CommitEnrichmentEntity.Key> keys = shas.stream()
                 .map(sha -> new CommitEnrichmentEntity.Key(repositoryId, sha))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
         return new CommitEnrichmentSnapshot(enrichment.findAllById(keys).stream()
                 .map(SqliteCommitHistoryStore::toDomain)
-                .collect(ImmutableList.toImmutableList()));
+                .collect(toImmutableList()));
     }
 
     @Override
@@ -67,12 +67,12 @@ public class SqliteCommitHistoryStore
         requireNonNull(values, "enrichment is null");
         List<CommitEnrichmentEntity.Key> keys = values.stream()
                 .map(value -> new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha()))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
         Map<CommitEnrichmentEntity.Key, CommitEnrichmentEntity> existing = enrichment.findAllById(keys).stream()
                 .collect(toImmutableMap(CommitEnrichmentEntity::getId, entity -> entity));
         List<CommitEnrichmentEntity> updated = values.stream()
                 .map(value -> merge(existing.get(new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha())), value))
-                .collect(ImmutableList.toImmutableList());
+                .collect(toImmutableList());
         enrichment.saveAll(updated);
     }
 

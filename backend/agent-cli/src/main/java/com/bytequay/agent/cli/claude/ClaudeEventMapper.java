@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 final class ClaudeEventMapper
@@ -198,7 +199,7 @@ final class ClaudeEventMapper
                     timestamp,
                     toolUseId,
                     ProviderAgentEvent.ActivityState.STARTED,
-                    call.input().command().stream().map(this::bounded).collect(ImmutableList.toImmutableList()),
+                    call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.empty(),
                     Optional.empty(),
                     false);
@@ -228,7 +229,7 @@ final class ClaudeEventMapper
                     timestamp,
                     result.toolUseId(),
                     state,
-                    call.input().command().stream().map(this::bounded).collect(ImmutableList.toImmutableList()),
+                    call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.of(bounded(result.text())),
                     Optional.empty(),
                     result.text().length() > MAX_OUTPUT_CHARACTERS);

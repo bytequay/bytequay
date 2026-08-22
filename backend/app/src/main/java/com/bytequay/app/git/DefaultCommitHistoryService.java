@@ -61,7 +61,7 @@ public class DefaultCommitHistoryService
         this.store = requireNonNull(store, "store is null");
         this.refreshWorker = requireNonNull(refreshWorker, "refreshWorker is null");
         this.clock = requireNonNull(clock, "clock is null");
-        checkArgument(serverPort > 0 && serverPort <= 65_535, "serverPort is invalid");
+        checkArgument(serverPort >= 0 && serverPort <= 65_535, "serverPort is invalid");
         this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
     }
 

@@ -16,7 +16,6 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -98,8 +97,12 @@ class TestGitHubRepoClient
                          {"sha":"def","author":null}]
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchCommitAvatars("pat", REPOSITORY, "main", 2))
-                .containsExactlyEntriesOf(ImmutableMap.of("abc", "https://avatars/alice"));
+        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot(
+                "pat", REPOSITORY, "main", 2);
+
+        assertThat(snapshot.succeeded()).isTrue();
+        assertThat(snapshot.avatars()).containsExactly(
+                new CommitAvatarSnapshot.CommitAvatar("abc", "https://avatars/alice"));
         fixture.server().verify();
     }
 

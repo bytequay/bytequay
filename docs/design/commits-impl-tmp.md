@@ -1,6 +1,7 @@
 # Commit History and Refresh Implementation Checklist
 
-Status: implementation in progress.
+Status: implementation complete; literal offline/failure desktop scenarios
+that require changing the host environment remain called out below.
 
 Canonical behavior is defined in
 [Commit History and Refresh Design](commits.md). A box is checked only when the
@@ -10,28 +11,28 @@ to make the UI appear complete sooner.
 
 ## Fixed implementation rules
 
-- [ ] Opening or switching Commit History performs no GitHub, `gh`, Git fetch,
+- [x] Opening or switching Commit History performs no GitHub, `gh`, Git fetch,
   or refresh-enqueue operation.
-- [ ] Managed Git remains the source of truth for commit facts and order; do
+- [x] Managed Git remains the source of truth for commit facts and order; do
   not add a duplicate commit table.
-- [ ] SQLite stores only durable enrichment and refresh state.
-- [ ] Full PR data continues to use the existing `PullRequestStore`,
+- [x] SQLite stores only durable enrichment and refresh state.
+- [x] Full PR data continues to use the existing `PullRequestStore`,
   `PrDetailStore`, and `PullRequestService`.
-- [ ] Commit-to-PR lookup results, including checked negative results, survive
+- [x] Commit-to-PR lookup results, including checked negative results, survive
   application restart.
-- [ ] Avatar bytes shown on commit cards come from ByteQuay's local cache;
+- [x] Avatar bytes shown on commit cards come from ByteQuay's local cache;
   renderer image failure falls back to an initial without a remote URL.
-- [ ] Scheduled, startup, and manual refreshes share one queue and worker.
-- [ ] Existing rows remain visible while refresh is queued, running, or failed.
-- [ ] Refresh may fetch/prune Git refs but never checks out, resets, cleans,
+- [x] Scheduled, startup, and manual refreshes share one queue and worker.
+- [x] Existing rows remain visible while refresh is queued, running, or failed.
+- [x] Refresh may fetch/prune Git refs but never checks out, resets, cleans,
   rebases, merges, pushes, or modifies working-tree files.
-- [ ] The upstream source is resolved only from the explicitly linked watched
+- [x] The upstream source is resolved only from the explicitly linked watched
   workspace; GitHub topology never chooses it.
-- [ ] API and storage contracts return named response types, not raw maps.
-- [ ] Documentation, fixtures, and examples use synthetic identities.
-- [ ] Existing PR chip/title, avatar, selection, diff, rewrite, cherry-pick,
+- [x] API and storage contracts return named response types, not raw maps.
+- [x] Documentation, fixtures, and examples use synthetic identities.
+- [x] Existing PR chip/title, avatar, selection, diff, rewrite, cherry-pick,
   Tasks, Progress, and “No upstream linked” behavior do not regress.
-- [ ] Add no dependency, executor, generic cache framework, or second PR
+- [x] Add no dependency, executor, generic cache framework, or second PR
   service for this feature.
 
 ## Checkpoint 0 — Lock the current commit-card behavior
@@ -198,8 +199,8 @@ requests.
 - [x] Load enrichment in one store query and request avatars once per ref.
 - [x] Query PR associations only for unknown, failed, or due-negative SHAs.
 - [x] Cache avatar files before persisting their keys.
-- [x] Reuse `PullRequestService.syncRepository(...)` for the existing full PR
-  projection and share its repository-level overlap guard.
+- [x] Reuse `PullRequestSyncJob.synchronizeRepository(...)` for the existing
+  full PR projection and share the periodic job's overlap guard.
 - [x] Upsert successful enrichment without clearing prior values after a
   partial provider failure.
 - [x] Persist `IDLE` plus a new success time only after required work succeeds;
@@ -337,21 +338,21 @@ Goal: prove the complete local-first behavior and leave no transitional path.
 
 ### Automated verification
 
-- [ ] Run `mvn verify` in `backend/` and confirm Checkstyle and every module
+- [x] Run `mvn verify` in `backend/` and confirm Checkstyle and every module
   test pass.
-- [ ] Run frontend lint, TypeScript type-check, all tests, and packaging.
-- [ ] Run `git diff --check`.
-- [ ] Search production display code for direct commit-avatar and
+- [x] Run frontend lint, TypeScript type-check, all tests, and packaging.
+- [x] Run `git diff --check`.
+- [x] Search production display code for direct commit-avatar and
   commit-association GitHub calls.
-- [ ] Reconcile every checked box with the final code and focused test.
+- [x] Reconcile every checked box with the final code and focused test.
 
 ### Manual acceptance
 
-- [ ] Open Commit History repeatedly and confirm only local history requests
+- [x] Open Commit History repeatedly and confirm only local history requests
   occur.
 - [ ] Restart offline and confirm commits, stored PR associations, and cached
   avatars remain visible.
-- [ ] Trigger manual refresh and confirm old rows remain until the new local
+- [x] Trigger manual refresh and confirm old rows remain until the new local
   snapshot is ready.
 - [ ] Simulate GitHub failure and confirm stale rows, prior avatars/PR chips,
   last-success time, and retry control remain.
@@ -361,7 +362,20 @@ Goal: prove the complete local-first behavior and leave no transitional path.
 
 Final gate:
 
-- [ ] The implementation, tests, and `commits.md` describe the same local-only
+- [x] The implementation, tests, and `commits.md` describe the same local-only
   display and shared scheduled/manual refresh behavior.
+
+Live desktop acceptance on August 23, 2026 reopened Commit History, observed
+persisted PR chips and avatar images, kept the existing 300-row snapshot while
+manual refresh reported `syncing…`, and observed the durable status advance to
+`synced now`. The unchecked offline restart, forced provider failure, routing
+matrix, and worktree-integrity rows are covered by automated tests but were not
+repeated by mutating this desktop's network, credentials, workspace links, or
+managed checkout.
+
+Final automated evidence: the Maven reactor passed with 343 application tests
+and zero Checkstyle violations; frontend lint, TypeScript, all 60 Vitest tests,
+and Electron packaging passed; `git diff --check` and the production display
+call-chain audit passed.
 
 Suggested commit: `Verify local commit history refresh`

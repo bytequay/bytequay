@@ -40,7 +40,6 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -71,13 +70,6 @@ public class GitHubRepoClient
                         Optional.ofNullable(value.avatarUrl()).orElse(""),
                         "Bot".equalsIgnoreCase(value.type()) || value.login().endsWith("[bot]")))
                 .collect(toImmutableList());
-    }
-
-    /** Returns GitHub avatar URLs keyed by commit SHA for the requested branch history. */
-    public Map<String, String> fetchCommitAvatars(String pat, RepoRef repo, String ref, int limit)
-    {
-        return fetchCommitAvatarSnapshot(pat, repo, ref, limit).avatars().stream()
-                .collect(toImmutableMap(CommitAvatar::sha, CommitAvatar::sourceUrl));
     }
 
     /** Returns a named avatar scan so synchronization can distinguish an empty branch from provider failure. */

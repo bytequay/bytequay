@@ -9,14 +9,14 @@ This document refines the Commits section of
 [Watched Repository / Workspace](watched-repo.md). The explicit upstream is a
 linked watched workspace; GitHub fork topology does not select it.
 
-## 1. Current behavior and the problem
+## 1. Pre-refactor behavior and the problem
 
-The current History request is not local-only:
+Before this design was implemented, the History request was not local-only:
 
 1. `CommitsTab` calls `gitLog(workspaceId, ref, 300)`.
 2. `GitBrowseController.commits(...)` runs local `GitBrowseService.log(...)`.
-3. The same request calls `GitHubRepoClient.fetchCommitAvatars(...)`.
-4. It then calls `CherryPickPullRequestLookup.lookUp(...)`, which can make one
+3. The same request called the commit-avatar provider lookup.
+4. It then called the commit-to-PR provider lookup, which could make one
    GitHub request per commit with at most eight requests in flight.
 5. `CherryPickPullRequestLookup` caches associations only in memory, so an app
    restart loses them.
@@ -27,7 +27,7 @@ but commit-to-PR associations are not persisted. `Avatar` renders a remote URL
 and falls back to another `github.com/{login}.png` URL, so the image itself is
 not under ByteQuay's local persistence policy.
 
-The refresh button currently runs Git fetch only and writes its displayed
+The old refresh button ran Git fetch only and wrote its displayed
 timestamp to renderer `localStorage`. It does not refresh or report completion
 of commit enrichment and PR synchronization.
 
@@ -254,9 +254,12 @@ interface. It uses existing components:
 
 - `WorkspaceProvisioningService.synchronizeCode(...)` for safe fetch/prune;
 - `GitBrowseService.log(...)` for local commit extraction;
-- `GitHubRepoClient.fetchCommitAvatars(...)` for one branch-level avatar map;
-- `CherryPickPullRequestLookup.lookUp(...)` only for associations that are due;
-- `PullRequestService.syncRepository(...)` for the existing full PR projection;
+- `GitHubRepoClient.fetchCommitAvatarSnapshot(...)` for one named branch-level
+  avatar result;
+- `CherryPickPullRequestLookup.lookUpResult(...)` only for associations that
+  are due;
+- `PullRequestSyncJob.synchronizeRepository(...)` for the existing full PR
+  projection under its shared overlap guard;
 - `CommitHistoryStore` for durable enrichment and status; and
 - a concrete `AvatarCache` for local image files.
 
@@ -282,8 +285,8 @@ For one accepted workspace request, the worker:
    avatar keys. A provider failure leaves old keys unchanged.
 7. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
-8. Refreshes the existing PR projection once for each distinct monitored
-   repository involved in the request.
+8. Calls the existing guarded PR synchronization once for each distinct
+   monitored repository involved in the request.
 9. Upserts enrichment and marks the workspace `IDLE` with a new
    `lastSucceededAt` only after the required steps complete.
 10. On failure, marks `FAILED`, keeps the last successful timestamp and all
@@ -333,10 +336,10 @@ therefore suppresses the next scheduled refresh. App startup invokes the same
 due-work method after persisted workspaces are restored.
 
 The existing `PullRequestSyncJob` remains responsible for the global
-account-centric PR dashboard. Workspace PR synchronization invoked by the
-commit worker must use the same repository-level overlap guard as that job;
-move that small guard into `PullRequestService.syncRepository(...)` or a shared
-concrete helper rather than create a second PR store or scheduler policy.
+account-centric PR dashboard. The commit worker invokes its concrete
+`synchronizeRepository(...)` helper, so periodic and commit-history PR work use
+the same overlap guard. There is no second PR store, scheduler, or overlap
+policy.
 
 ## 8. HTTP and Electron bridge
 
@@ -428,7 +431,7 @@ sequenceDiagram
     participant Worker as CommitHistoryRefreshWorker
     participant Git as WorkspaceProvisioningService
     participant GitHub as GitHub clients
-    participant PR as PullRequestService
+    participant PR as PullRequestSyncJob
     participant Store as CommitHistoryStore
 
     UI->>API: POST commits/refresh(current refs)
@@ -442,7 +445,7 @@ sequenceDiagram
     Worker->>Worker: GitBrowseService.log(refs)
     Worker->>Store: findEnrichment(repositoryId, shas)
     Worker->>GitHub: fetch avatars and due PR associations
-    Worker->>PR: syncRepository(monitoredRepository)
+    Worker->>PR: synchronizeRepository(monitoredRepository)
     Worker->>Store: upsertEnrichment + save IDLE/succeededAt
     loop only while QUEUED or RUNNING
         UI->>API: GET commits(...)
@@ -552,6 +555,6 @@ upstream ref.
 - Commit-card regression tests assert both the PR chip/title and an avatar
   `<img>` when a local avatar key exists, plus the fixed-size initial fallback
   when it does not.
-- The display-path backend test asserts zero calls to
-  `GitHubRepoClient.fetchCommitAvatars(...)` and
-  `CherryPickPullRequestLookup.lookUp(...)`.
+- The display-path backend test proves that the controller and local history
+  service have no `GitHubRepoClient` or `CherryPickPullRequestLookup`
+  dependency.

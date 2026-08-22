@@ -40,20 +40,20 @@ Goal: make the reported regressions fail tests before changing the data path.
 
 ### Tests
 
-- [ ] Extend `HistoryView` coverage so one commit with persisted association
+- [x] Extend `HistoryView` coverage so one commit with persisted association
   data renders its PR chip, PR title, and click action.
-- [ ] Assert a commit with an avatar URL renders an `<img>` in the reserved
+- [x] Assert a commit with an avatar URL renders an `<img>` in the reserved
   avatar slot.
-- [ ] Assert a commit without an avatar renders the fixed-size initial
+- [x] Assert a commit without an avatar renders the fixed-size initial
   fallback without changing card layout.
-- [ ] Keep a focused `CommitsTab` assertion for the “No upstream linked” chip
+- [x] Keep a focused `CommitsTab` assertion for the “No upstream linked” chip
   and Settings action.
-- [ ] Keep selection, viewed-row, and short-SHA assertions unchanged.
-- [ ] Run the focused frontend tests before production changes.
+- [x] Keep selection, viewed-row, and short-SHA assertions unchanged.
+- [x] Run the focused frontend tests before production changes.
 
 Checkpoint gate:
 
-- [ ] A removal of the PR row, avatar slot, or unlinked-upstream control fails
+- [x] A removal of the PR row, avatar slot, or unlinked-upstream control fails
   a focused test.
 
 Suggested commit: `Protect commit history card behavior`

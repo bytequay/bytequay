@@ -13,6 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
 import HistoryView from './HistoryView';
 
@@ -44,14 +45,14 @@ describe('workspace commit history', () => {
         sha: '0123456789abcdef',
         title: 'Improve commit browsing (#42)',
         body: '',
-        author: 'octocat',
-        authorAvatarUrl: 'https://avatars.example/octocat',
+        author: 'example-author',
+        authorAvatarUrl: 'https://avatars.example/author',
         authoredAt: '2026-08-22T00:00:00Z',
         pullRequestNumber: 42,
         pullRequestTitle: 'Improve commit browsing',
       }]}
       loading={false}
-      checked={new Set()}
+      checked={new Set(['0123456789abcdef'])}
       pullRequests={[]}
       onChangeChecked={() => {}}
       onHistoryRewritten={() => {}}
@@ -61,6 +62,18 @@ describe('workspace commit history', () => {
     expect(html).toContain('PR #42');
     expect(html).toContain('Improve commit browsing');
     expect(html).toContain('Open PR #42');
-    expect(html).toContain('src="https://avatars.example/octocat"');
+    expect(html).toContain('class="cmt-commit-pr"');
+    expect(html).toContain('src="https://avatars.example/author"');
+    expect(html).toContain('cmt-commit-row is-selected is-viewed');
+    expect(html).toContain('0123456');
+  });
+
+  it('keeps the initial fallback in the avatar slot', () => {
+    const html = renderToStaticMarkup(<Avatar login="" avatarUrl={null} size={14} />);
+
+    expect(html).toContain('avatar--fallback');
+    expect(html).toContain('width:14px');
+    expect(html).toContain('height:14px');
+    expect(html).toContain('>?</span>');
   });
 });

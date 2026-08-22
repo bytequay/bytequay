@@ -140,35 +140,35 @@ controller path.
 
 ### Service
 
-- [ ] Add `CommitHistoryRef` with `WORKSPACE` and `UPSTREAM` sources plus a
+- [x] Add `CommitHistoryRef` with `WORKSPACE` and `UPSTREAM` sources plus a
   validated branch.
-- [ ] Implement `CommitHistoryService.listHistory(...)` using
+- [x] Implement `CommitHistoryService.listHistory(...)` using
   `WorkspaceRepositoryService`, `GitBrowseService.log(...)`, and
   `CommitHistoryStore` only.
-- [ ] Resolve selected and upstream stable repository IDs from durable
+- [x] Resolve selected and upstream stable repository IDs from durable
   workspace routing.
-- [ ] Reject an upstream ref when no watched upstream workspace is linked.
-- [ ] Cap the limit at 300 and retain existing revision safety checks.
-- [ ] Return a named `CommitHistorySnapshot` containing commit DTOs and durable
+- [x] Reject an upstream ref when no watched upstream workspace is linked.
+- [x] Cap the limit at 300 and retain existing revision safety checks.
+- [x] Return a named `CommitHistorySnapshot` containing commit DTOs and durable
   refresh status.
-- [ ] Convert avatar keys to localhost avatar URLs without storing the runtime
+- [x] Convert avatar keys to localhost avatar URLs without storing the runtime
   port in SQLite.
-- [ ] Join persisted PR number/title directly into each commit response.
+- [x] Join persisted PR number/title directly into each commit response.
 
 ### Tests and gate
 
-- [ ] Direct-workspace and linked-upstream histories resolve the correct Git
+- [x] Direct-workspace and linked-upstream histories resolve the correct Git
   ref and repository ID.
-- [ ] Unlinked-upstream, invalid branch, missing workspace, and not-ready
+- [x] Unlinked-upstream, invalid branch, missing workspace, and not-ready
   workspace cases fail safely.
-- [ ] Missing enrichment still returns the local commit with null optional
+- [x] Missing enrichment still returns the local commit with null optional
   fields.
-- [ ] Inject GitHub collaborators that throw if called and prove
+- [x] Inject GitHub collaborators that throw if called and prove
   `listHistory(...)` still succeeds.
 
 Checkpoint gate:
 
-- [ ] The local service returns the complete card model with zero network
+- [x] The local service returns the complete card model with zero network
   dependencies.
 
 Suggested commit: `Add local commit history service`

@@ -46,14 +46,13 @@ describe('workspace commit history', () => {
         title: 'Improve commit browsing (#42)',
         body: '',
         author: 'example-author',
-        authorAvatarUrl: 'https://avatars.example/author',
+        authorAvatarUrl: 'http://127.0.0.1:48765/api/avatars/abc123',
         authoredAt: '2026-08-22T00:00:00Z',
         pullRequestNumber: 42,
         pullRequestTitle: 'Improve commit browsing',
       }]}
       loading={false}
       checked={new Set(['0123456789abcdef'])}
-      pullRequests={[]}
       onChangeChecked={() => {}}
       onHistoryRewritten={() => {}}
       onOpenPullRequest={() => {}}
@@ -63,7 +62,7 @@ describe('workspace commit history', () => {
     expect(html).toContain('Improve commit browsing');
     expect(html).toContain('Open PR #42');
     expect(html).toContain('class="cmt-commit-pr"');
-    expect(html).toContain('src="https://avatars.example/author"');
+    expect(html).toContain('src="http://127.0.0.1:48765/api/avatars/abc123"');
     expect(html).toContain('cmt-commit-row is-selected is-viewed');
     expect(html).toContain('0123456');
   });
@@ -75,5 +74,31 @@ describe('workspace commit history', () => {
     expect(html).toContain('width:14px');
     expect(html).toContain('height:14px');
     expect(html).toContain('>?</span>');
+  });
+
+  it('does not synthesize a remote avatar URL for a commit card', () => {
+    const html = renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[{
+        sha: 'fedcba9876543210',
+        title: 'Keep history local',
+        body: '',
+        author: 'example-author',
+        authorAvatarUrl: null,
+        authoredAt: '2026-08-22T00:00:00Z',
+      }]}
+      loading={false}
+      checked={new Set()}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+
+    expect(html).toContain('avatar--fallback');
+    expect(html).not.toContain('github.com');
   });
 });

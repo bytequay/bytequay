@@ -296,37 +296,37 @@ chains.
 
 ### Bridge and state
 
-- [ ] Add named TypeScript DTOs for `CommitHistorySnapshot`,
+- [x] Add named TypeScript DTOs for `CommitHistorySnapshot`,
   `CommitRefreshStatus`, and refresh refs.
-- [ ] Update `gitLog` to consume the named snapshot response.
-- [ ] Add `refreshCommitHistory(workspaceId, refs)` to main/preload/types.
-- [ ] Replace the toolbar's direct `gitFetch(...)` call with the refresh
+- [x] Update `gitLog` to consume the named snapshot response.
+- [x] Add `refreshCommitHistory(workspaceId, refs)` to main/preload/types.
+- [x] Replace the toolbar's direct `gitFetch(...)` call with the refresh
   endpoint.
-- [ ] Remove `bytequay.lastSync.*` localStorage reads and writes.
-- [ ] Display the backend's queued/running/failed/last-success state.
-- [ ] Keep current commits rendered during refresh and poll local history only
+- [x] Remove `bytequay.lastSync.*` localStorage reads and writes.
+- [x] Display the backend's queued/running/failed/last-success state.
+- [x] Keep current commits rendered during refresh and poll local history only
   while a user-triggered refresh is queued or running.
-- [ ] Stop the separate `fetchPrs(workspaceId)` request from `CommitsTab`; use
+- [x] Stop the separate `fetchPrs(workspaceId)` request from `CommitsTab`; use
   the PR number/title already present on each commit.
-- [ ] Change `Avatar` so commit cards use the localhost URL or initial fallback
+- [x] Change `Avatar` so commit cards use the localhost URL or initial fallback
   and never synthesize a GitHub URL after failure.
 
 ### Regression tests and gate
 
-- [ ] PR chip/title and click action still render from the snapshot.
-- [ ] Cached avatar `<img>` and fixed-size fallback both render correctly.
-- [ ] “No upstream linked” remains aligned and opens Settings.
-- [ ] Manual refresh sends the selected workspace branch and only sends an
+- [x] PR chip/title and click action still render from the snapshot.
+- [x] Cached avatar `<img>` and fixed-size fallback both render correctly.
+- [x] “No upstream linked” remains aligned and opens Settings.
+- [x] Manual refresh sends the selected workspace branch and only sends an
   upstream branch when an explicit link exists.
-- [ ] Old rows remain during queued/running/failed states.
-- [ ] Polling starts only for a manual active refresh and stops on success,
+- [x] Old rows remain during queued/running/failed states.
+- [x] Polling starts only for a manual active refresh and stops on success,
   failure, unmount, or workspace change.
-- [ ] History, Changes, selection, rewrite, cherry-pick, Tasks, and Progress
+- [x] History, Changes, selection, rewrite, cherry-pick, Tasks, and Progress
   focused tests pass.
 
 Checkpoint gate:
 
-- [ ] The visible Commit History behavior is unchanged except that opening is
+- [x] The visible Commit History behavior is unchanged except that opening is
   fast/local and refresh status is durable.
 
 Suggested commit: `Use local commit history in the UI`

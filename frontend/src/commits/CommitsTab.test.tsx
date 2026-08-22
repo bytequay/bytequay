@@ -12,16 +12,17 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { CommitRefreshStatusDto } from '../types';
 import type { Workspace } from '../workspaces/model';
-import CommitsTab from './CommitsTab';
+import CommitsTab, {
+  commitRefreshRefs,
+  commitSyncLabel,
+  isCommitRefreshActive,
+} from './CommitsTab';
 
 describe('workspace commits tab', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
   it('shows the Settings control when no upstream workspace is linked', () => {
-    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
-
     const html = renderToStaticMarkup(<CommitsTab
       workspace={workspace()}
       onOpenPullRequest={() => {}}
@@ -32,7 +33,36 @@ describe('workspace commits tab', () => {
     expect(html).toContain('Link another watched workspace');
     expect(html).toContain('cmt-readonly">Settings');
   });
+
+  it('refreshes the workspace and only an explicitly linked upstream', () => {
+    expect(commitRefreshRefs('feature', 'main', false)).toEqual([
+      { source: 'WORKSPACE', branch: 'feature' },
+    ]);
+    expect(commitRefreshRefs('feature', 'release', true)).toEqual([
+      { source: 'WORKSPACE', branch: 'feature' },
+      { source: 'UPSTREAM', branch: 'release' },
+    ]);
+  });
+
+  it('polls only active manual refresh states and reports durable status', () => {
+    expect(isCommitRefreshActive(status('QUEUED'))).toBe(true);
+    expect(isCommitRefreshActive(status('RUNNING'))).toBe(true);
+    expect(isCommitRefreshActive(status('IDLE'))).toBe(false);
+    expect(isCommitRefreshActive(status('FAILED'))).toBe(false);
+    expect(commitSyncLabel(status('FAILED'))).toBe('sync failed');
+    expect(commitSyncLabel(status('IDLE'))).toBe('not synced yet');
+  });
 });
+
+function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto {
+  return {
+    workspaceId: 'workspace-id',
+    state,
+    lastAttemptAt: null,
+    lastSucceededAt: null,
+    error: state === 'FAILED' ? 'refresh failed' : null,
+  };
+}
 
 function workspace(): Workspace {
   return {

@@ -18,6 +18,7 @@ type Props = {
   avatarUrl?: string | null;
   size?: number;
   className?: string;
+  allowGitHubFallback?: boolean;
 };
 
 /** GitHub's REST/GraphQL `login` for a bot actor comes back with a literal
@@ -42,12 +43,16 @@ function avatarHandle(login: string): string {
  * surrounding CSS Grid/Flex would re-place the sibling into the avatar
  * slot and its text would wrap at 3 chars per line.
  */
-function Avatar({ login, avatarUrl, size = 20, className }: Props) {
+function Avatar({ login, avatarUrl, size = 20, className, allowGitHubFallback = true }: Props) {
   const [failed, setFailed] = useState(false);
   const classes = ['avatar', className].filter(Boolean).join(' ');
   const hasLogin = login.trim().length > 0;
+  const source = avatarUrl?.trim()
+    || (allowGitHubFallback && hasLogin
+      ? `https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`
+      : null);
 
-  if (failed || !hasLogin) {
+  if (failed || !hasLogin || !source) {
     const initial = hasLogin ? login.trim().charAt(0).toUpperCase() : '?';
     return (
       <span
@@ -68,8 +73,7 @@ function Avatar({ login, avatarUrl, size = 20, className }: Props) {
   return (
     <img
       className={classes}
-      src={avatarUrl?.trim()
-        || `https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`}
+      src={source}
       alt={login}
       width={size}
       height={size}

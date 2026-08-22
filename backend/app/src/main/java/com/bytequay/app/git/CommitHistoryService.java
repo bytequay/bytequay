@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.git;
 
+import com.bytequay.core.domain.CommitRefreshStatus;
+
+import java.util.List;
+
 /** Local-first application boundary for commit history. */
 public interface CommitHistoryService
 {
@@ -21,4 +25,13 @@ public interface CommitHistoryService
      * This method never contacts a provider or enqueues refresh work.
      */
     CommitHistorySnapshot listHistory(String workspaceId, CommitHistoryRef ref, int limit);
+
+    /** Validates and queues refresh work on the shared application executor. */
+    CommitRefreshStatus requestRefresh(
+            String workspaceId,
+            List<CommitHistoryRef> refs,
+            CommitRefreshCause cause);
+
+    /** Reads durable refresh state without Git or provider access. */
+    CommitRefreshStatus getRefreshStatus(String workspaceId);
 }

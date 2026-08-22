@@ -31,7 +31,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +55,7 @@ class TestDefaultCommitHistoryService
     private WorkspaceRepositoryService workspaces;
     private GitBrowseService git;
     private CommitHistoryStore store;
+    private CommitHistoryRefreshWorker refreshWorker;
     private DefaultCommitHistoryService service;
 
     @BeforeEach
@@ -61,7 +64,14 @@ class TestDefaultCommitHistoryService
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
         store = mock(CommitHistoryStore.class);
-        service = new DefaultCommitHistoryService(workspaces, git, store, 53123);
+        refreshWorker = mock(CommitHistoryRefreshWorker.class);
+        service = new DefaultCommitHistoryService(
+                workspaces,
+                git,
+                store,
+                refreshWorker,
+                Clock.fixed(Instant.parse("2026-08-23T00:00:00Z"), ZoneOffset.UTC),
+                53123);
         when(store.findRefreshStatus(WORKSPACE_ID)).thenReturn(CommitRefreshStatus.idle(WORKSPACE_ID));
     }
 

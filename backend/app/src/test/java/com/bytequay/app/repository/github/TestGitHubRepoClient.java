@@ -24,6 +24,7 @@ import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubRepoClient
@@ -99,6 +100,22 @@ class TestGitHubRepoClient
 
         assertThat(fixture.client().fetchCommitAvatars("pat", REPOSITORY, "main", 2))
                 .containsExactlyEntriesOf(ImmutableMap.of("abc", "https://avatars/alice"));
+        fixture.server().verify();
+    }
+
+    @Test
+    void reportsCommitAvatarProviderFailure()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
+                .andRespond(withServerError());
+
+        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot(
+                "pat", REPOSITORY, "main", 2);
+
+        assertThat(snapshot.succeeded()).isFalse();
+        assertThat(snapshot.avatars()).isEmpty();
         fixture.server().verify();
     }
 

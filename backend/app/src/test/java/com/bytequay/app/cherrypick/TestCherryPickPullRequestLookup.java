@@ -124,10 +124,11 @@ class TestCherryPickPullRequestLookup
         server.expect(manyTimes(), requestTo(url(SHA))).andRespond(withServerError());
 
         List<String> warnings = new ArrayList<>();
-        Map<String, PullRequestAssociation> associations =
-                lookup(builder).lookUp(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result =
+                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
 
-        assertThat(associations).isEmpty();
+        assertThat(result.associations()).isEmpty();
+        assertThat(result.failedShas()).containsExactly(SHA);
         assertThat(warnings).anyMatch(warning -> warning.contains("could not be checked against GitHub"));
     }
 

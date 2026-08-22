@@ -13,23 +13,25 @@
  */
 package com.bytequay.app.git;
 
+import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitEnrichment;
+import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static com.bytequay.app.git.CommitHistoryRef.Source.UPSTREAM;
+import static com.bytequay.core.domain.CommitRefreshStatus.State.QUEUED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -43,19 +45,56 @@ public class DefaultCommitHistoryService
     private final WorkspaceRepositoryService workspaces;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
+    private final CommitHistoryRefreshWorker refreshWorker;
+    private final Clock clock;
     private final String avatarBaseUrl;
 
     public DefaultCommitHistoryService(
             WorkspaceRepositoryService workspaces,
             GitBrowseService git,
             CommitHistoryStore store,
+            CommitHistoryRefreshWorker refreshWorker,
+            Clock clock,
             @Value("${server.port:53123}") int serverPort)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
+        this.refreshWorker = requireNonNull(refreshWorker, "refreshWorker is null");
+        this.clock = requireNonNull(clock, "clock is null");
         checkArgument(serverPort > 0 && serverPort <= 65_535, "serverPort is invalid");
         this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
+    }
+
+    @Override
+    public CommitRefreshStatus requestRefresh(
+            String workspaceId,
+            List<CommitHistoryRef> refs,
+            CommitRefreshCause cause)
+    {
+        requireNonNull(refs, "refs is null");
+        requireNonNull(cause, "cause is null");
+        List<CommitHistoryRef> requested = refs.stream().distinct().toList();
+        checkArgument(!requested.isEmpty(), "refs is empty");
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
+        WorkspaceDetails details = workspaces.getWorkspace(workspaceId);
+        requested.forEach(ref -> CommitHistoryRouting.resolve(context, details.summary(), ref));
+        CommitRefreshStatus previous = store.findRefreshStatus(workspaceId);
+        CommitRefreshStatus queued = new CommitRefreshStatus(
+                workspaceId,
+                QUEUED,
+                Optional.of(clock.instant()),
+                previous.lastSucceededAt(),
+                Optional.empty());
+        store.saveRefreshStatus(queued);
+        refreshWorker.enqueue(workspaceId, requested);
+        return queued;
+    }
+
+    @Override
+    public CommitRefreshStatus getRefreshStatus(String workspaceId)
+    {
+        return store.findRefreshStatus(workspaceId);
     }
 
     @Override
@@ -65,7 +104,7 @@ public class DefaultCommitHistoryService
         checkArgument(limit > 0, "limit must be positive");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         WorkspaceDetails details = workspaces.getWorkspace(workspaceId);
-        ResolvedRef resolved = resolve(context, details.summary(), ref);
+        ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, details.summary(), ref);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichment = store.findEnrichment(
                         resolved.repositoryId(),
@@ -77,20 +116,6 @@ public class DefaultCommitHistoryService
             items.add(item(commit, Optional.ofNullable(enrichment.get(commit.sha()))));
         }
         return new CommitHistorySnapshot(items.build(), store.findRefreshStatus(workspaceId));
-    }
-
-    private static ResolvedRef resolve(
-            WorkspaceRepositoryContext context,
-            WorkspaceSummary workspace,
-            CommitHistoryRef ref)
-    {
-        if (ref.source() != UPSTREAM) {
-            return new ResolvedRef(workspace.selectedRepositoryId(), ref.branch());
-        }
-        checkArgument(workspace.upstreamWorkspaceId() != null, "no watched upstream workspace is linked");
-        checkArgument(workspace.upstreamRepositoryId() != null, "linked upstream repository is missing");
-        checkArgument(!context.sourceRemote().equals(context.targetRemote()), "linked upstream remote is missing");
-        return new ResolvedRef(workspace.upstreamRepositoryId(), context.sourceRemote() + "/" + ref.branch());
     }
 
     private CommitHistoryItem item(Commit commit, Optional<CommitEnrichment> enrichment)
@@ -107,6 +132,4 @@ public class DefaultCommitHistoryService
                 pullRequestNumber,
                 enrichment.flatMap(CommitEnrichment::pullRequestTitle));
     }
-
-    private record ResolvedRef(long repositoryId, String gitRef) {}
 }

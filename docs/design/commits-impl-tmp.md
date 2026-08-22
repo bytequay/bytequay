@@ -180,45 +180,45 @@ requests.
 
 ### Queue and state transitions
 
-- [ ] Implement `CommitHistoryService.requestRefresh(...)` on the existing
+- [x] Implement `CommitHistoryService.requestRefresh(...)` on the existing
   application executor.
-- [ ] Persist `QUEUED` before returning and `RUNNING` before remote work starts.
-- [ ] Coalesce refs per workspace in one pending set.
-- [ ] Use one drain guard so a request arriving during a run remains pending
+- [x] Persist `QUEUED` before returning and `RUNNING` before remote work starts.
+- [x] Coalesce refs per workspace in one pending set.
+- [x] Use one drain guard so a request arriving during a run remains pending
   and is eventually processed.
-- [ ] Do not create a new executor or wait with `Thread.sleep` in tests.
+- [x] Do not create a new executor or wait with `Thread.sleep` in tests.
 
 ### Synchronization
 
-- [ ] Resolve every requested ref again inside the worker so stale renderer
+- [x] Resolve every requested ref again inside the worker so stale renderer
   routing cannot select a repository.
-- [ ] Call `WorkspaceProvisioningService.synchronizeCode(...)` for safe
+- [x] Call `WorkspaceProvisioningService.synchronizeCode(...)` for safe
   fetch/prune before reading remote refs.
-- [ ] Read at most 300 local commits per requested ref.
-- [ ] Load enrichment in one store query and request avatars once per ref.
-- [ ] Query PR associations only for unknown, failed, or due-negative SHAs.
-- [ ] Cache avatar files before persisting their keys.
-- [ ] Reuse `PullRequestService.syncRepository(...)` for the existing full PR
+- [x] Read at most 300 local commits per requested ref.
+- [x] Load enrichment in one store query and request avatars once per ref.
+- [x] Query PR associations only for unknown, failed, or due-negative SHAs.
+- [x] Cache avatar files before persisting their keys.
+- [x] Reuse `PullRequestService.syncRepository(...)` for the existing full PR
   projection and share its repository-level overlap guard.
-- [ ] Upsert successful enrichment without clearing prior values after a
+- [x] Upsert successful enrichment without clearing prior values after a
   partial provider failure.
-- [ ] Persist `IDLE` plus a new success time only after required work succeeds;
+- [x] Persist `IDLE` plus a new success time only after required work succeeds;
   otherwise persist `FAILED` with a safe correlation reference.
 
 ### Tests and gate
 
-- [ ] Successful refresh covers Git fetch, avatar enrichment, PR association,
+- [x] Successful refresh covers Git fetch, avatar enrichment, PR association,
   existing PR sync, persistence, and state transitions in order.
-- [ ] Duplicate requests coalesce and never run concurrently.
-- [ ] A request received during execution runs in a later drain pass.
-- [ ] Provider, Git fetch, and persistence failures retain the last usable
+- [x] Duplicate requests coalesce and never run concurrently.
+- [x] A request received during execution runs in a later drain pass.
+- [x] Provider, Git fetch, and persistence failures retain the last usable
   snapshot and success time.
-- [ ] Positive associations are not re-fetched; recent negative associations
+- [x] Positive associations are not re-fetched; recent negative associations
   obey the documented daily retry window.
 
 Checkpoint gate:
 
-- [ ] One service request creates a restart-safe local snapshot without any UI
+- [x] One service request creates a restart-safe local snapshot without any UI
   participation.
 
 Suggested commit: `Synchronize commit history snapshots`

@@ -75,10 +75,10 @@ public class PullRequestSyncJob
     }
 
     /** Synchronizes one monitored repository under the same overlap guard as the periodic job. */
-    public void synchronizeRepository(RepoRef repository)
+    public boolean synchronizeRepository(RepoRef repository)
     {
         requireNonNull(repository, "repository is null");
-        runSync("repository " + repository.fullName(), () -> pullRequestService.syncRepository(repository));
+        return runSync("repository " + repository.fullName(), () -> pullRequestService.syncRepository(repository));
     }
 
     @Scheduled(fixedDelay = 60_000)
@@ -114,26 +114,28 @@ public class PullRequestSyncJob
         }
     }
 
-    private void runSync(String scope, Runnable synchronization)
+    private boolean runSync(String scope, Runnable synchronization)
     {
         // Sync uses the account-level GitHub credential.
         if (!credentialService.isGitHubAccountConfigured()) {
             log.debug("Sync skipped: no GitHub PAT registered");
-            return;
+            return false;
         }
 
         if (!syncing.compareAndSet(false, true)) {
             log.debug("Sync skipped: already in progress");
-            return;
+            return false;
         }
 
         try {
             log.info("Syncing {} from GitHub", scope);
             synchronization.run();
             log.info("Sync complete for {}", scope);
+            return true;
         }
         catch (Exception e) {
             log.warn("Pull request sync failed for {}: {}", scope, e.getMessage());
+            return false;
         }
         finally {
             syncing.set(false);

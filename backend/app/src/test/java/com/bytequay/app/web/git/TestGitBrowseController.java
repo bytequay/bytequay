@@ -26,7 +26,6 @@ import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -179,7 +178,6 @@ class TestGitBrowseController
                 repository,
                 RepoRef.of("fork", "project"),
                 RepoRef.of("upstream", "project"),
-                Topology.FORK,
                 "upstream",
                 "origin",
                 "main");

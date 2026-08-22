@@ -33,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,7 +84,6 @@ class TestCherryPickExecutionHttpApi
                 Path.of("/managed/workspace-id/repository"),
                 RepoRef.of("contributor", "trino"),
                 RepoRef.of("trinodb", "trino"),
-                Topology.FORK,
                 "upstream",
                 "origin",
                 "master"));

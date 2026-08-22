@@ -14,7 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.Topology;
 
 import java.nio.file.Path;
 
@@ -24,7 +23,6 @@ public record WorkspaceRepositoryContext(
         Path repository,
         RepoRef selectedRepository,
         RepoRef monitoredRepository,
-        Topology topology,
         String sourceRemote,
         String targetRemote,
         String defaultBranch)

@@ -54,7 +54,7 @@ class TestDefaultWorkspaceRepositoryService
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
     @Test
-    void persistsDirectAndForkRoutingFromExactGitHubIdentity()
+    void watchingPersistsSelectedRepositoryWithoutInferringAnUpstream()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
@@ -80,9 +80,10 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(direct.monitoredRepositoryId()).isEqualTo(100);
         assertThat(direct.upstreamRepositoryId()).isEmpty();
         assertThat(fork.topology()).isEqualTo(Topology.FORK);
-        assertThat(fork.upstreamRepositoryId()).contains(300L);
-        assertThat(fork.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
-        assertThat(fork.defaultBranch()).isEqualTo("main");
+        assertThat(fork.upstreamWorkspaceId()).isEmpty();
+        assertThat(fork.upstreamRepositoryId()).isEmpty();
+        assertThat(fork.monitoredRepository()).isEqualTo(RepoRef.of("contributor", "project"));
+        assertThat(fork.defaultBranch()).isEqualTo("feature-default");
     }
 
     @Test
@@ -250,16 +251,62 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(preview.topology()).isEqualTo(Topology.FORK);
         assertThat(preview.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
-        assertThat(preview.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
-        assertThat(preview.developmentBase()).isEqualTo("upstream/main");
+        assertThat(preview.monitoredRepository()).isEqualTo(RepoRef.of("contributor", "project"));
+        assertThat(preview.developmentBase()).isEqualTo("origin/feature-default");
         assertThat(preview.pushRemote()).isEqualTo("origin");
         assertThat(preview.pushWritable()).isTrue();
-        assertThat(preview.pullRequestBase()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThat(preview.pullRequestBase()).isEqualTo(RepoRef.of("contributor", "project"));
         assertThatThrownBy(() -> service.watch(new WatchRepositoryCommand(
                 200, preview.fingerprint(), Optional.empty())))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WATCH_PREVIEW_CHANGED"));
         assertThat(store.findAll()).isEmpty();
+    }
+
+    @Test
+    void linksAndUnlinksOnlyAnotherWatchedWorkspace()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "contributor")));
+        when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
+        Workspace upstream = store.save(watch(service, 300).withStates(CodeState.READY, MetadataState.READY, NOW));
+
+        Workspace linked = service.setUpstream(selected.id(), Optional.of(upstream.id()));
+
+        assertThat(linked.upstreamWorkspaceId()).contains(upstream.id());
+        assertThat(linked.upstreamRepository()).contains(upstream.selectedRepository());
+        assertThat(linked.monitoredRepository()).isEqualTo(upstream.selectedRepository());
+        assertThat(linked.upstreamDefaultBranch()).contains(upstream.defaultBranch());
+        assertThatThrownBy(() -> service.unwatch(upstream.id()))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_IN_USE"));
+
+        store.save(linked.withStates(CodeState.READY, MetadataState.READY, NOW));
+        Workspace unlinked = service.setUpstream(selected.id(), Optional.empty());
+
+        assertThat(unlinked.upstreamWorkspaceId()).isEmpty();
+        assertThat(unlinked.upstreamRepository()).isEmpty();
+        assertThat(unlinked.monitoredRepository()).isEqualTo(selected.selectedRepository());
+    }
+
+    @Test
+    void rejectsSelfAndUnwatchedUpstreamLinks()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
+
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(selected.id())))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of("not-watched")))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
     }
 
     @Test

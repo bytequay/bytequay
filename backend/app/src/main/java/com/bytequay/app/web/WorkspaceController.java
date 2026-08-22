@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -142,6 +143,15 @@ public class WorkspaceController
         return WorkspaceSummary.of(workspaces.requestSync(workspaceId));
     }
 
+    @PutMapping("/{workspaceId}/upstream")
+    public WorkspaceSummary setUpstream(@PathVariable String workspaceId, @RequestBody UpstreamRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return WorkspaceSummary.of(workspaces.setUpstream(
+                workspaceId,
+                Optional.ofNullable(request.upstreamWorkspaceId())));
+    }
+
     @DeleteMapping("/{workspaceId}")
     public Map<String, String> unwatch(@PathVariable String workspaceId)
     {
@@ -152,4 +162,6 @@ public class WorkspaceController
     public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}
 
     public record WatchPreviewRequest(long selectedRepositoryId) {}
+
+    public record UpstreamRequest(String upstreamWorkspaceId) {}
 }

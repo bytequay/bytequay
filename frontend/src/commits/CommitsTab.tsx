@@ -26,18 +26,19 @@ import '../css/commits.css';
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
 
-export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest }: {
+export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest, onOpenSettings }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
   onOpenPullRequest: (number: number) => void;
+  onOpenSettings: () => void;
 }) {
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
   const [repo, setRepo] = useState<'workspace' | 'upstream'>('workspace');
   const [branch, setBranch] = useState(workspace.defaultBranch);
-  const [upBranch, setUpBranch] = useState(workspace.defaultBranch);
+  const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
   const [branchMenu, setBranchMenu] = useState(false);
   const [upMenu, setUpMenu] = useState(false);
   const [upBranchQuery, setUpBranchQuery] = useState('');
@@ -59,11 +60,13 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
 
-  const isUpstream = repo === 'upstream';
+  const hasUpstream = workspace.upstreamWorkspaceId !== null && workspace.upstreamRemote !== null;
+  const isUpstream = repo === 'upstream' && hasUpstream;
   const upstreamRemote = workspace.upstreamRemote;
   const sourceRemote = upstreamRemote ?? workspace.originRemote;
-  const upstreamUrl = overview?.remotes.find(remote => remote.name === sourceRemote)?.url ?? null;
-  const upstreamSlug = upstreamUrl ? githubSlug(upstreamUrl) : null;
+  const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
+    ? `${workspace.upstreamOwner}/${workspace.upstreamRepo}`
+    : null;
   const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url ?? null;
   const originSlug = originUrl ? githubSlug(originUrl) : null;
   const logRef = isUpstream ? `${sourceRemote}/${upBranch}` : branch;
@@ -76,6 +79,13 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   }, [workspace.id]);
 
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
+
+  useEffect(() => {
+    if (!hasUpstream) setRepo('workspace');
+    setUpBranch(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
+    setUpBranches([]);
+    setCheckedUp(new Set());
+  }, [hasUpstream, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,13 +136,13 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   }, [workspace.id, isUpstream, logVersion, commitsView]);
 
   useEffect(() => {
-    if (!upMenu || upBranches.length > 0) return;
+    if (!hasUpstream || !upMenu || upBranches.length > 0) return;
     let cancelled = false;
     window.bridge.gitRemoteBranches(workspace.id, sourceRemote)
       .then(value => { if (!cancelled) setUpBranches(value); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [upMenu, sourceRemote, upBranches.length, workspace.id]);
+  }, [hasUpstream, upMenu, sourceRemote, upBranches.length, workspace.id]);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
 
@@ -155,6 +165,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   };
 
   const openFlow = async () => {
+    if (!hasUpstream) {
+      onOpenSettings();
+      return;
+    }
     if (!span) return;
     setPreviewBusy(true);
     setError(null);
@@ -189,6 +203,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   };
 
   const upChipClick = () => {
+    if (!hasUpstream) {
+      onOpenSettings();
+      return;
+    }
     if (screen !== 'commits' || !isUpstream) {
       setScreen('commits');
       setRepo('upstream');
@@ -244,7 +262,8 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
             )}
           </div>
 
-          <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
+          {hasUpstream ? (
+            <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
               <button
                 type="button"
                 className={`cmt-repo-chip${isUpstream ? ' is-active' : ''}`}
@@ -286,7 +305,21 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
                   {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
                 </div>
               )}
-          </div>
+            </div>
+          ) : (
+            <div className="cmt-chip-wrap">
+              <button
+                type="button"
+                className="cmt-repo-chip"
+                title="Link another watched workspace"
+                onClick={onOpenSettings}
+              >
+                <span className="cmt-mono">↞</span>
+                <span className="cmt-repo-chip__label">No upstream linked</span>
+                <span className="cmt-readonly">Settings</span>
+              </button>
+            </div>
+          )}
 
           <div className="cmt-sync">
             <button
@@ -371,6 +404,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
             setScreen('progress');
           }}
           onNewCherryPick={() => {
+            if (!hasUpstream) {
+              onOpenSettings();
+              return;
+            }
             setScreen('commits');
             setRepo('upstream');
             setCommitsView('history');
@@ -397,6 +434,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
           upstreamSlug={upstreamSlug}
           onBackToTasks={() => setScreen('tasks')}
           onStartAnotherRange={() => {
+            if (!hasUpstream) {
+              onOpenSettings();
+              return;
+            }
             setScreen('commits');
             setRepo('upstream');
             setCommitsView('history');

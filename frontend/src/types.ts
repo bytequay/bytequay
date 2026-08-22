@@ -223,6 +223,7 @@ export type WorkspaceDto = {
   selectedRepositoryId: number;
   selectedOwner: string;
   selectedRepo: string;
+  upstreamWorkspaceId: string | null;
   upstreamRepositoryId: number | null;
   upstreamOwner: string | null;
   upstreamRepo: string | null;
@@ -231,6 +232,7 @@ export type WorkspaceDto = {
   monitoredRepo: string;
   topology: 'DIRECT' | 'FORK';
   defaultBranch: string;
+  upstreamDefaultBranch: string | null;
   localRepositoryPath: string;
   codeState: 'PENDING' | 'CLONING' | 'READY' | 'SYNCING' | 'FAILED';
   metadataState: 'PENDING' | 'SYNCING' | 'READY' | 'FAILED';
@@ -573,6 +575,10 @@ export type Bridge = {
   fetchWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   syncWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
+  setWorkspaceUpstream: (
+    workspaceId: string,
+    upstreamWorkspaceId: string | null,
+  ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;

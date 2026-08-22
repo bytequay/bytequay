@@ -131,6 +131,7 @@ class TestDefaultWorkspaceIssueService
                 id,
                 topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
                 selected,
+                topology == Topology.FORK ? Optional.of("upstream-workspace") : Optional.empty(),
                 topology == Topology.FORK ? Optional.of(monitoredId) : Optional.empty(),
                 topology == Topology.FORK ? Optional.of(monitored) : Optional.empty(),
                 monitoredId,
@@ -138,6 +139,7 @@ class TestDefaultWorkspaceIssueService
                 topology,
                 "main",
                 "https://github.com/" + selected.fullName() + ".git",
+                topology == Topology.FORK ? Optional.of("main") : Optional.empty(),
                 topology == Topology.FORK
                         ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
                         : Optional.empty(),

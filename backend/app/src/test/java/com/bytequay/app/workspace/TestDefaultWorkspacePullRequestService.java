@@ -146,6 +146,7 @@ class TestDefaultWorkspacePullRequestService
     {
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
         when(workspaceStore.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(workspaceStore.findById("upstream-workspace")).thenReturn(Optional.of(upstreamWorkspace()));
         CherryPickExecution initial = completedExecution(workspace);
         AtomicReference<CherryPickExecution> current = new AtomicReference<>(initial);
         CherryPickExecutionStore executionStore = mock(CherryPickExecutionStore.class);
@@ -191,8 +192,8 @@ class TestDefaultWorkspacePullRequestService
                         new CherryPickExecution.Workspace(
                                 Optional.of("workspace"),
                                 workspace.monitoredRepository(),
-                                workspace.topology() == Topology.FORK ? "upstream" : "origin",
-                                workspace.topology() == Topology.FORK ? "upstream" : "origin",
+                                workspace.upstreamWorkspaceId().isPresent() ? "upstream" : "origin",
+                                workspace.upstreamWorkspaceId().isPresent() ? "upstream" : "origin",
                                 "main",
                                 "bytequay-base",
                                 WORK_BRANCH,
@@ -208,8 +209,10 @@ class TestDefaultWorkspacePullRequestService
     private Workspace directWorkspace()
     {
         return workspace(
+                "workspace",
                 100,
                 RepoRef.of("owner", "project"),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 100,
@@ -222,8 +225,10 @@ class TestDefaultWorkspacePullRequestService
     private Workspace forkWorkspace()
     {
         return workspace(
+                "workspace",
                 200,
                 RepoRef.of("contributor", "project"),
+                Optional.of("upstream-workspace"),
                 Optional.of(300L),
                 Optional.of(RepoRef.of("upstream", "project")),
                 300,
@@ -234,8 +239,10 @@ class TestDefaultWorkspacePullRequestService
     }
 
     private Workspace workspace(
+            String id,
             long selectedId,
             RepoRef selected,
+            Optional<String> upstreamWorkspaceId,
             Optional<Long> upstreamId,
             Optional<RepoRef> upstream,
             long monitoredId,
@@ -245,10 +252,11 @@ class TestDefaultWorkspacePullRequestService
             Optional<String> upstreamUrl)
     {
         return new Workspace(
-                "workspace",
+                id,
                 "project",
                 selectedId,
                 selected,
+                upstreamWorkspaceId,
                 upstreamId,
                 upstream,
                 monitoredId,
@@ -256,6 +264,7 @@ class TestDefaultWorkspacePullRequestService
                 topology,
                 "main",
                 originUrl,
+                upstreamWorkspaceId.map(ignored -> "main"),
                 upstreamUrl,
                 temporaryDirectory.resolve("repository").toString(),
                 CodeState.READY,
@@ -267,6 +276,22 @@ class TestDefaultWorkspacePullRequestService
                 0,
                 NOW,
                 NOW);
+    }
+
+    private Workspace upstreamWorkspace()
+    {
+        return workspace(
+                "upstream-workspace",
+                300,
+                RepoRef.of("upstream", "project"),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                300,
+                RepoRef.of("upstream", "project"),
+                Topology.DIRECT,
+                "https://github.com/upstream/project.git",
+                Optional.empty());
     }
 
     private static UserRepo directRepository(boolean writable)

@@ -53,6 +53,8 @@ const bridge: Bridge = {
   fetchWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues', workspaceId),
   syncWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:sync', workspaceId),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
+  setWorkspaceUpstream: (workspaceId, upstreamWorkspaceId) =>
+    ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamWorkspaceId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),

@@ -17,10 +17,9 @@ import TasksView from '../commits/TasksView';
 import { isOpenTask } from '../commits/model';
 import PullsScreen from '../pulls/PullsScreen';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, GitOverviewDto, RepositoryMetadataDto } from '../types';
+import type { CherryPickExecution, RepositoryMetadataDto, WorkspaceDto } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
-  githubSlug,
   workspaceFromDto,
   workspaceIsUpdating,
   workspaceStateLabel,
@@ -70,6 +69,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           setOpenPullRequestNumber(number);
           onSelectTab('prs');
         }}
+        onOpenSettings={() => onSelectTab('settings')}
       />
     );
   }
@@ -101,7 +101,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           }}
           onNewCherryPick={() => {
             setOpenExecutionId(null);
-            onSelectTab('commits');
+            onSelectTab(workspace.upstreamWorkspaceId ? 'commits' : 'settings');
           }}
         />
       </div>
@@ -185,7 +185,9 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
   const workspaceTasks = tasks.filter(task => task.workspaceId === workspace.id);
   const activeTasks = workspaceTasks.filter(isOpenTask);
   const codeReady = workspace.codeState === 'READY';
-  const developmentBase = `${workspace.topology === 'FORK' ? 'upstream' : 'origin'}/${workspace.defaultBranch}`;
+  const developmentBase = workspace.upstreamWorkspaceId
+    ? `upstream/${workspace.upstreamDefaultBranch}`
+    : `origin/${workspace.defaultBranch}`;
   const retryable = workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED';
 
   const retry = async () => {
@@ -228,7 +230,7 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
           <div className="ws-routing-list">
             <div><span>Selected repository</span><b>{workspace.selectedOwner}/{workspace.selectedRepo} · origin</b></div>
             {workspace.upstreamOwner && workspace.upstreamRepo && (
-              <div><span>Upstream repository</span><b>{workspace.upstreamOwner}/{workspace.upstreamRepo} · upstream</b></div>
+              <div><span>Linked upstream workspace</span><b>{workspace.upstreamOwner}/{workspace.upstreamRepo} · upstream</b></div>
             )}
             <div><span>Followed for updates</span><b>{workspace.monitoredOwner}/{workspace.monitoredRepo}</b></div>
             <div><span>Default branch</span><b>{workspace.defaultBranch}</b></div>
@@ -328,32 +330,68 @@ function WorkspaceReadiness({ label, state, lastSyncAt, error, detail }: {
   );
 }
 
-function WorkspaceSettings({ workspace, onRemoved }: {
+function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
   workspace: Workspace;
   onWorkspaceChanged: (workspace: Workspace) => void;
   onRemoved: () => void;
 }) {
   const draft = workspace;
-  const [remotes, setRemotes] = useState<GitOverviewDto['remotes']>([]);
+  const [candidates, setCandidates] = useState<WorkspaceDto[]>([]);
+  const [upstreamWorkspaceId, setUpstreamWorkspaceId] = useState(workspace.upstreamWorkspaceId ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (workspace.codeState !== 'READY') return;
     let cancelled = false;
-    window.bridge.gitOverview(workspace.id)
-      .then(overview => { if (!cancelled) setRemotes(overview.remotes); })
-      .catch(() => {});
+    window.bridge.listWorkspaces()
+      .then(values => {
+        if (!cancelled) setCandidates(values.filter(value => value.id !== workspace.id));
+      })
+      .catch(failure => {
+        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+      });
     return () => { cancelled = true; };
-  }, [workspace.codeState, workspace.id]);
+  }, [workspace.id]);
 
-  const upstreamUrl = remotes.find(remote => remote.name === draft.upstreamRemote)?.url;
-  const upstreamLabel = draft.upstreamOwner && draft.upstreamRepo
-    ? `${draft.upstreamOwner}/${draft.upstreamRepo}`
-    : draft.upstreamRemote;
+  useEffect(() => {
+    setUpstreamWorkspaceId(workspace.upstreamWorkspaceId ?? '');
+  }, [workspace.upstreamWorkspaceId]);
+
+  const saveUpstream = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const changed = await window.bridge.setWorkspaceUpstream(
+        workspace.id,
+        upstreamWorkspaceId || null,
+      );
+      onWorkspaceChanged(workspaceFromDto(changed));
+    }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+    finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(`Remove ${draft.name} from ByteQuay?`)) return;
+    setError(null);
+    try {
+      await window.bridge.removeWorkspace(draft.id);
+      onRemoved();
+    }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+  };
 
   return (
     <div className="ws-tab-page">
       <h1>Workspace settings</h1>
       <div className="ws-settings">
+        {error && <div className="ws-error" role="alert">{error}</div>}
         <label>
           Workspace name
           <input
@@ -375,30 +413,39 @@ function WorkspaceSettings({ workspace, onRemoved }: {
         </label>
 
         <div className="ws-upstream-card">
-          <div className="ws-upstream-head">Linked upstream repository</div>
+          <div className="ws-upstream-head">Linked upstream workspace</div>
           <div className="ws-upstream-body">
             <div className="ws-upstream-main">
               <div className="ws-upstream-name">
-                {draft.upstreamRemote
-                  ? (upstreamUrl ? githubSlug(upstreamUrl) ?? upstreamLabel : upstreamLabel)
+                {draft.upstreamOwner && draft.upstreamRepo
+                  ? `${draft.upstreamOwner}/${draft.upstreamRepo}`
                   : 'None'}
-                {draft.upstreamRemote && <span className="ws-card-upstream">read-only</span>}
+                {draft.upstreamWorkspaceId && <span className="ws-card-upstream">read-only</span>}
               </div>
               <div className="ws-upstream-sub">
-                Browse its commits from the Commits tab and cherry-pick ranges into this workspace.
+                Choose another watched workspace. Its local checkout supplies commits, pull requests,
+                issues, and cherry-pick source branches.
               </div>
             </div>
             <select
-              value={draft.upstreamRemote ?? ''}
-              disabled
+              value={upstreamWorkspaceId}
+              disabled={saving}
+              onChange={event => setUpstreamWorkspaceId(event.target.value)}
             >
               <option value="">None</option>
-              {remotes.map(remote => (
-                <option key={remote.name} value={remote.name}>
-                  {remote.name} — {githubSlug(remote.url) ?? remote.url}
+              {candidates.map(candidate => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name} — {candidate.selectedOwner}/{candidate.selectedRepo}
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              disabled={saving || upstreamWorkspaceId === (workspace.upstreamWorkspaceId ?? '')}
+              onClick={() => { void saveUpstream(); }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
           </div>
         </div>
 
@@ -412,10 +459,7 @@ function WorkspaceSettings({ workspace, onRemoved }: {
           <button
             type="button"
             className="ws-btn-danger"
-            onClick={() => {
-              if (!window.confirm(`Remove ${draft.name} from ByteQuay?`)) return;
-              void window.bridge.removeWorkspace(draft.id).then(onRemoved);
-            }}
+            onClick={() => { void remove(); }}
           >
             Remove…
           </button>

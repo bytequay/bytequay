@@ -52,6 +52,9 @@ public class WorkspaceEntity
     @Column(nullable = false)
     private String selectedRepo;
 
+    @Column(name = "upstream_workspace_id")
+    private String upstreamWorkspaceId;
+
     @Column(name = "upstream_repository_id")
     private Long upstreamRepositoryId;
 
@@ -77,6 +80,8 @@ public class WorkspaceEntity
 
     @Column(nullable = false)
     private String originCloneUrl;
+
+    private String upstreamDefaultBranch;
 
     private String upstreamCloneUrl;
 
@@ -124,6 +129,7 @@ public class WorkspaceEntity
         selectedRepositoryId = workspace.selectedRepositoryId();
         selectedOwner = workspace.selectedRepository().owner();
         selectedRepo = workspace.selectedRepository().repo();
+        upstreamWorkspaceId = workspace.upstreamWorkspaceId().orElse(null);
         upstreamRepositoryId = workspace.upstreamRepositoryId().orElse(null);
         upstreamOwner = workspace.upstreamRepository().map(RepoRef::owner).orElse(null);
         upstreamRepo = workspace.upstreamRepository().map(RepoRef::repo).orElse(null);
@@ -133,6 +139,7 @@ public class WorkspaceEntity
         topology = workspace.topology();
         defaultBranch = workspace.defaultBranch();
         originCloneUrl = workspace.originCloneUrl();
+        upstreamDefaultBranch = workspace.upstreamDefaultBranch().orElse(null);
         upstreamCloneUrl = workspace.upstreamCloneUrl().orElse(null);
         localRepositoryPath = workspace.localRepositoryPath();
         codeState = workspace.codeState();
@@ -148,22 +155,32 @@ public class WorkspaceEntity
 
     public Workspace toDomain()
     {
-        Optional<RepoRef> upstream = Optional.ofNullable(upstreamOwner)
+        RepoRef selected = RepoRef.of(selectedOwner, selectedRepo);
+        Optional<String> linkedWorkspaceId = Optional.ofNullable(upstreamWorkspaceId);
+        Optional<RepoRef> persistedUpstream = Optional.ofNullable(upstreamOwner)
                 .flatMap(owner -> Optional.ofNullable(upstreamRepo)
                         .map(repo -> RepoRef.of(owner, repo)));
+        Optional<Long> upstreamId = linkedWorkspaceId.isPresent()
+                ? Optional.ofNullable(upstreamRepositoryId)
+                : Optional.empty();
+        Optional<RepoRef> upstream = linkedWorkspaceId.isPresent()
+                ? persistedUpstream
+                : Optional.empty();
         return new Workspace(
                 id,
                 name,
                 selectedRepositoryId,
-                RepoRef.of(selectedOwner, selectedRepo),
-                Optional.ofNullable(upstreamRepositoryId),
+                selected,
+                linkedWorkspaceId,
+                upstreamId,
                 upstream,
-                monitoredRepositoryId,
-                RepoRef.of(monitoredOwner, monitoredRepo),
+                linkedWorkspaceId.isPresent() ? monitoredRepositoryId : selectedRepositoryId,
+                linkedWorkspaceId.isPresent() ? RepoRef.of(monitoredOwner, monitoredRepo) : selected,
                 topology,
                 defaultBranch,
                 originCloneUrl,
-                Optional.ofNullable(upstreamCloneUrl),
+                linkedWorkspaceId.isPresent() ? Optional.ofNullable(upstreamDefaultBranch) : Optional.empty(),
+                linkedWorkspaceId.isPresent() ? Optional.ofNullable(upstreamCloneUrl) : Optional.empty(),
                 localRepositoryPath,
                 codeState,
                 metadataState,

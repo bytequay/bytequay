@@ -72,6 +72,20 @@ public final class WorkspaceException
                 "Workspace has active synchronization or cherry-pick work.", true);
     }
 
+    public static WorkspaceException invalidUpstream(String message)
+    {
+        return new WorkspaceException(
+                "WORKSPACE_UPSTREAM_INVALID", HttpStatus.UNPROCESSABLE_ENTITY,
+                message, false);
+    }
+
+    public static WorkspaceException upstreamInUse()
+    {
+        return new WorkspaceException(
+                "WORKSPACE_UPSTREAM_IN_USE", HttpStatus.CONFLICT,
+                "Another workspace uses this workspace as its upstream. Unlink it first.", false);
+    }
+
     public static WorkspaceException invalidRepository(String message)
     {
         return new WorkspaceException(

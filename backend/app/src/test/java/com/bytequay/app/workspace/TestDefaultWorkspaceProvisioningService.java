@@ -71,6 +71,7 @@ class TestDefaultWorkspaceProvisioningService
                 commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace direct = store.createOrGet(workspace("direct", false));
+        store.createOrGet(upstreamWorkspace());
         Workspace fork = store.createOrGet(workspace("fork", true));
         DefaultWorkspaceProvisioningService service = service(store, git);
 
@@ -82,6 +83,23 @@ class TestDefaultWorkspaceProvisioningService
         assertThat(forkResult.codeState()).isEqualTo(CodeState.READY);
         assertThat(git(directPath(fork), "remote").lines()).containsExactly("origin", "upstream");
         assertThat(git(directPath(fork), "remote", "get-url", "upstream")).isEqualTo(UPSTREAM_URL);
+
+        Workspace linked = store.findById(fork.id()).orElseThrow();
+        store.save(linked.withRepositoryRouting(
+                linked.selectedRepository(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                linked.selectedRepositoryId(),
+                linked.selectedRepository(),
+                linked.defaultBranch(),
+                linked.originCloneUrl(),
+                Optional.empty(),
+                Optional.empty(),
+                NOW));
+
+        assertThat(service.synchronizeCode(fork.id()).codeState()).isEqualTo(CodeState.READY);
+        assertThat(git(directPath(fork), "remote").lines()).containsExactly("origin");
     }
 
     @Test
@@ -295,6 +313,7 @@ class TestDefaultWorkspaceProvisioningService
                 id,
                 fork ? 200 : 100,
                 RepoRef.of("contributor", "project"),
+                fork ? Optional.of("upstream-workspace") : Optional.empty(),
                 fork ? Optional.of(300L) : Optional.empty(),
                 fork ? Optional.of(RepoRef.of("upstream", "project")) : Optional.empty(),
                 fork ? 300 : 100,
@@ -302,12 +321,43 @@ class TestDefaultWorkspaceProvisioningService
                 fork ? Topology.FORK : Topology.DIRECT,
                 "main",
                 ORIGIN_URL,
+                fork ? Optional.of("main") : Optional.empty(),
                 fork ? Optional.of(UPSTREAM_URL) : Optional.empty(),
                 paths.workspace(id).resolve("repository").toString(),
                 CodeState.PENDING,
                 MetadataState.PENDING,
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW);
+    }
+
+    private Workspace upstreamWorkspace()
+    {
+        WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
+        return new Workspace(
+                "upstream-workspace",
+                "upstream/project",
+                300,
+                RepoRef.of("upstream", "project"),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                300,
+                RepoRef.of("upstream", "project"),
+                Topology.DIRECT,
+                "main",
+                UPSTREAM_URL,
+                Optional.empty(),
+                Optional.empty(),
+                paths.workspace("upstream-workspace").resolve("repository").toString(),
+                CodeState.READY,
+                MetadataState.READY,
+                Optional.of(NOW),
+                Optional.of(NOW),
                 Optional.empty(),
                 Optional.empty(),
                 0,

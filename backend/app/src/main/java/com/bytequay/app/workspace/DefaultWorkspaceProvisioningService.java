@@ -19,7 +19,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
@@ -147,33 +146,23 @@ public final class DefaultWorkspaceProvisioningService
                 .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
                         "GitHub repository is no longer accessible. Restore access and retry.",
                         "Repository ID is unavailable: " + workspace.selectedRepositoryId()));
-        if (selected.id() != workspace.selectedRepositoryId()
-                || selected.fork() != (workspace.topology() == Topology.FORK)) {
-            throw topologyChanged("Selected repository topology changed");
+        if (selected.id() != workspace.selectedRepositoryId()) {
+            throw routingChanged("Selected repository identity changed");
         }
 
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Optional<UserRepo.Upstream> upstream = selected.upstream();
-        if (workspace.topology() == Topology.DIRECT && upstream.isPresent()) {
-            throw topologyChanged("Direct repository now has an upstream");
-        }
-        if (workspace.topology() == Topology.FORK
-                && upstream.map(UserRepo.Upstream::id)
-                        .filter(workspace.upstreamRepositoryId().orElseThrow()::equals)
-                        .isEmpty()) {
-            throw topologyChanged("Fork upstream identity changed");
-        }
-
-        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
-        RepoRef monitored = upstreamRef.orElse(selectedRef);
-        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch).orElse(selected.defaultBranch());
+        Optional<Workspace> upstream = workspace.upstreamWorkspaceId().map(this::requireLinkedWorkspace);
         return workspace.withRepositoryRouting(
                 selectedRef,
-                upstreamRef,
-                monitored,
-                defaultBranch,
+                upstream.map(Workspace::id),
+                upstream.map(Workspace::selectedRepositoryId),
+                upstream.map(Workspace::selectedRepository),
+                upstream.map(Workspace::selectedRepositoryId).orElse(selected.id()),
+                upstream.map(Workspace::selectedRepository).orElse(selectedRef),
+                selected.defaultBranch(),
                 selected.cloneUrl(),
-                upstream.map(UserRepo.Upstream::cloneUrl),
+                upstream.map(Workspace::defaultBranch),
+                upstream.map(Workspace::originCloneUrl),
                 clock.instant());
     }
 
@@ -197,10 +186,14 @@ public final class DefaultWorkspaceProvisioningService
     {
         return latest.withRepositoryRouting(
                 routing.selectedRepository(),
+                routing.upstreamWorkspaceId(),
+                routing.upstreamRepositoryId(),
                 routing.upstreamRepository(),
+                routing.monitoredRepositoryId(),
                 routing.monitoredRepository(),
                 routing.defaultBranch(),
                 routing.originCloneUrl(),
+                routing.upstreamDefaultBranch(),
                 routing.upstreamCloneUrl(),
                 now);
     }
@@ -211,10 +204,16 @@ public final class DefaultWorkspaceProvisioningService
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
-    private static ManagedWorkspaceGit.Failure topologyChanged(String internalMessage)
+    private Workspace requireLinkedWorkspace(String workspaceId)
+    {
+        return store.findById(workspaceId)
+                .orElseThrow(() -> routingChanged("Linked upstream workspace is no longer watched"));
+    }
+
+    private static ManagedWorkspaceGit.Failure routingChanged(String internalMessage)
     {
         return new ManagedWorkspaceGit.Failure(
-                "Repository topology changed. Remove and watch the repository again.",
+                "Workspace repository routing changed. Review the upstream link and retry.",
                 internalMessage);
     }
 }

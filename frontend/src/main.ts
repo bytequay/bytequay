@@ -581,6 +581,15 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',
     }));
+  ipcMain.handle('workspaces:upstream', (
+    _event,
+    workspaceId: string,
+    upstreamWorkspaceId: string | null,
+  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ upstreamWorkspaceId }),
+  }));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',

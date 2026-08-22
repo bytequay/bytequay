@@ -42,7 +42,7 @@ describe('watched repository workspace UI', () => {
     }
   });
 
-  it('shows fork routing and independent readiness on Workspace Home', () => {
+  it('shows linked routing and independent readiness on Workspace Home', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={{ ...workspace('FORK'), metadataState: 'FAILED', metadataError: 'Metadata refresh failed.' }}
       onSelectTab={() => {}}
@@ -88,18 +88,21 @@ describe('watched repository workspace UI', () => {
 });
 
 function workspace(topology: Workspace['topology']): Workspace {
+  const linked = topology === 'FORK';
   return {
     id: 'workspace-id',
     name: 'contributor/project',
     path: '/managed/workspace-id/repository',
     defaultBranch: 'main',
+    upstreamDefaultBranch: linked ? 'main' : null,
     originRemote: 'origin',
-    upstreamRemote: topology === 'FORK' ? 'upstream' : null,
+    upstreamRemote: linked ? 'upstream' : null,
     selectedOwner: 'contributor',
     selectedRepo: 'project',
-    upstreamOwner: topology === 'FORK' ? 'upstream' : null,
-    upstreamRepo: topology === 'FORK' ? 'project' : null,
-    monitoredOwner: topology === 'FORK' ? 'upstream' : 'contributor',
+    upstreamWorkspaceId: linked ? 'upstream-workspace' : null,
+    upstreamOwner: linked ? 'upstream' : null,
+    upstreamRepo: linked ? 'project' : null,
+    monitoredOwner: linked ? 'upstream' : 'contributor',
     monitoredRepo: 'project',
     topology,
     codeState: 'PENDING',

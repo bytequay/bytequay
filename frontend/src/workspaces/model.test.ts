@@ -21,7 +21,7 @@ import {
 } from './model';
 
 describe('workspaceFromDto', () => {
-  it('preserves the backend identity and maps fork remotes', () => {
+  it('preserves the backend identity and maps an explicit upstream link', () => {
     const workspace = workspaceFromDto(dto('FORK'));
 
     expect(workspace.id).toBe('workspace-id');
@@ -35,6 +35,10 @@ describe('workspaceFromDto', () => {
 
   it('does not invent an upstream for a direct workspace', () => {
     expect(workspaceFromDto(dto('DIRECT')).upstreamRemote).toBeNull();
+  });
+
+  it('does not infer an upstream from GitHub fork topology', () => {
+    expect(workspaceFromDto(dto('FORK', false)).upstreamRemote).toBeNull();
   });
 
   it('uses one status rule for every workspace list', () => {
@@ -52,21 +56,23 @@ describe('workspaceFromDto', () => {
   });
 });
 
-function dto(topology: WorkspaceDto['topology']): WorkspaceDto {
+function dto(topology: WorkspaceDto['topology'], linked = topology === 'FORK'): WorkspaceDto {
   return {
     id: 'workspace-id',
     name: 'contributor/project',
     selectedRepositoryId: 100,
     selectedOwner: 'contributor',
     selectedRepo: 'project',
-    upstreamRepositoryId: topology === 'FORK' ? 200 : null,
-    upstreamOwner: topology === 'FORK' ? 'upstream' : null,
-    upstreamRepo: topology === 'FORK' ? 'project' : null,
-    monitoredRepositoryId: topology === 'FORK' ? 200 : 100,
-    monitoredOwner: topology === 'FORK' ? 'upstream' : 'contributor',
+    upstreamWorkspaceId: linked ? 'upstream-workspace' : null,
+    upstreamRepositoryId: linked ? 200 : null,
+    upstreamOwner: linked ? 'upstream' : null,
+    upstreamRepo: linked ? 'project' : null,
+    monitoredRepositoryId: linked ? 200 : 100,
+    monitoredOwner: linked ? 'upstream' : 'contributor',
     monitoredRepo: 'project',
     topology,
     defaultBranch: 'main',
+    upstreamDefaultBranch: linked ? 'main' : null,
     localRepositoryPath: '/managed/workspace-id/repository',
     codeState: 'PENDING',
     metadataState: 'PENDING',

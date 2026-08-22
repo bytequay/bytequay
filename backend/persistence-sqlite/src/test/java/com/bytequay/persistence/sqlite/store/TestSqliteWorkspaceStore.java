@@ -79,13 +79,14 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
-    void roundTripsDirectAndForkRouting()
+    void roundTripsUnlinkedAndLinkedRouting()
     {
         Workspace direct = store.createOrGet(direct("direct", 100, 0));
         Workspace fork = store.createOrGet(fork("fork", 200, 300, 1));
 
         assertThat(store.findById(direct.id())).contains(direct);
         assertThat(store.findById(fork.id())).contains(fork);
+        assertThat(fork.upstreamWorkspaceId()).contains("upstream-workspace");
         assertThat(fork.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
         assertThat(fork.monitoredRepositoryId()).isEqualTo(300);
         assertThat(fork.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
@@ -126,7 +127,7 @@ class TestSqliteWorkspaceStore
     {
         RepoRef repository = RepoRef.of("owner", "project");
         return workspace(
-                id, selectedId, repository, Optional.empty(), Optional.empty(), selectedId,
+                id, selectedId, repository, Optional.empty(), Optional.empty(), Optional.empty(), selectedId,
                 repository, Topology.DIRECT, Optional.empty(), displayOrder);
     }
 
@@ -158,7 +159,7 @@ class TestSqliteWorkspaceStore
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef upstream = RepoRef.of("upstream", "project");
         return workspace(
-                id, selectedId, selected, Optional.of(upstreamId), Optional.of(upstream), upstreamId,
+                id, selectedId, selected, Optional.of("upstream-workspace"), Optional.of(upstreamId), Optional.of(upstream), upstreamId,
                 upstream, Topology.FORK, Optional.of("https://github.com/upstream/project.git"), displayOrder);
     }
 
@@ -166,6 +167,7 @@ class TestSqliteWorkspaceStore
             String id,
             long selectedId,
             RepoRef selected,
+            Optional<String> upstreamWorkspaceId,
             Optional<Long> upstreamId,
             Optional<RepoRef> upstream,
             long monitoredId,
@@ -179,6 +181,7 @@ class TestSqliteWorkspaceStore
                 selected.fullName(),
                 selectedId,
                 selected,
+                upstreamWorkspaceId,
                 upstreamId,
                 upstream,
                 monitoredId,
@@ -186,6 +189,7 @@ class TestSqliteWorkspaceStore
                 topology,
                 "main",
                 "https://github.com/" + selected.fullName() + ".git",
+                upstreamWorkspaceId.map(ignored -> "main"),
                 upstreamCloneUrl,
                 "/tmp/workspaces/" + id + "/repository",
                 CodeState.PENDING,

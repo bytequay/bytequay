@@ -45,6 +45,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
+  const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const title = detail.title ?? pr.title;
   const state = detail.state ?? pr.state;
   const displayState = state === 'merged'
@@ -89,15 +90,18 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       )}
 
       <section className="pr-timeline" aria-label="Pull request activity">
-        <DescriptionCard detail={detail} fallbackAuthor={pr.author} />
+        <DescriptionCard detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
+          onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
           <TimelineItem activities={activities} key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
-            pr={pr} onRefresh={onRefresh} />
+            pr={pr} onRefresh={onRefresh}
+            onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         ))}
         <ChecksCard detail={detail} />
       </section>
       <DiscussionComposer
         candidates={mentionCandidates(detail)}
+        quotedReply={quotedReply}
         onSubmit={async body => {
           await window.bridge.commentPr(pr.repo, pr.number, body);
           await onRefresh();
@@ -406,25 +410,30 @@ export function peoplePickerCandidates(
   return result;
 }
 
-function DescriptionCard({ detail, fallbackAuthor }: {
+function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onQuote }: {
   detail: PullRequestDetailDto;
   fallbackAuthor: string | null;
+  fallbackUrl: string;
+  onQuote: (body: string) => void;
 }) {
   const actor = detail.author ?? fallbackAuthor ?? 'Unknown author';
+  const body = detail.body || 'No description provided.';
   const reactions = detail.recentActivity.find(activity => activity.eventType === 'description_reactions')?.payload.reactions ?? [];
   return (
     <article className="pr-card pr-description">
-      <CardHeader actor={actor} avatarUrl={detail.authorAvatarUrl} timestamp={detail.createdAt} />
-      <MarkdownBody body={detail.body || 'No description provided.'} />
+      <CardHeader actor={actor} avatarUrl={detail.authorAvatarUrl} timestamp={detail.createdAt}
+        actions={{ link: detail.htmlUrl ?? fallbackUrl, markdown: body, onQuote: () => onQuote(body) }} />
+      <MarkdownBody body={body} />
       <Reactions reactions={reactions} alwaysShowPicker />
     </article>
   );
 }
 
-function TimelineItem({ activities, pr, onRefresh }: {
+function TimelineItem({ activities, pr, onRefresh, onQuote }: {
   activities: Activity[];
   pr: PullRequestDto;
   onRefresh: () => Promise<void>;
+  onQuote: (body: string) => void;
 }) {
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
@@ -434,7 +443,7 @@ function TimelineItem({ activities, pr, onRefresh }: {
     return <ReviewThread activity={activity} pr={pr} onRefresh={onRefresh} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
-    return <CommentCard activity={activity} />;
+    return <CommentCard activity={activity} fallbackUrl={pr.htmlUrl} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
   return <CompactEvent activities={activities} />;
@@ -515,9 +524,14 @@ function CommitEvent({ activity }: { activity: Activity }) {
   );
 }
 
-function CommentCard({ activity }: { activity: Activity }) {
+function CommentCard({ activity, fallbackUrl, onQuote }: {
+  activity: Activity;
+  fallbackUrl: string;
+  onQuote: (body: string) => void;
+}) {
   const state = activity.payload.state?.toUpperCase();
   const actor = displayActor(activity.actor || 'github');
+  const body = activity.body?.trim() ? activity.body : null;
   const header = (
     <CardHeader
       actor={actor}
@@ -525,15 +539,20 @@ function CommentCard({ activity }: { activity: Activity }) {
       bot={activity.payload.actorBot}
       timestamp={activity.timestamp}
       badge={reviewBadge(state)}
+      actions={body ? {
+        link: activity.payload.htmlUrl ?? fallbackUrl,
+        markdown: body,
+        onQuote: () => onQuote(body),
+      } : undefined}
     />
   );
-  if (!activity.body?.trim()) {
+  if (!body) {
     return <article className="pr-card pr-review-event">{header}</article>;
   }
   return (
     <article className="pr-card pr-comment-card">
       {header}
-      <MarkdownBody body={activity.body} />
+      <MarkdownBody body={body} />
       <Reactions reactions={activity.payload.reactions} />
     </article>
   );
@@ -576,6 +595,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [error, setError] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
   const submit = async () => {
@@ -608,9 +628,18 @@ function ReviewThread({ activity, pr, onRefresh }: {
     }
     setChangingResolution(false);
   };
+  const quoteReply = (quotedBody: string) => {
+    setBody(current => appendQuotedReply(current, quotedBody));
+    setError('');
+    setReplying(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
   const controls = replying ? (
     <footer className="pr-thread-reply">
-      <textarea autoFocus aria-label="Reply to review thread" value={body} rows={4}
+      <textarea ref={textareaRef} autoFocus aria-label="Reply to review thread" value={body} rows={4}
         placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
         onKeyDown={event => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -647,7 +676,8 @@ function ReviewThread({ activity, pr, onRefresh }: {
           <span className="pr-thread-row__resolved"><ResolvedIcon /> Resolved</span>
         </summary>
         <div className="pr-thread-row__comments">
-          {payload.comments.map(comment => <ThreadComment comment={comment} key={comment.githubId ?? comment.timestamp} />)}
+          {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
+            onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
           {controls}
         </div>
       </details>
@@ -657,13 +687,18 @@ function ReviewThread({ activity, pr, onRefresh }: {
     <article className="pr-inline-thread">
       <header><code>{threadLocation(payload.path, payload.line ?? payload.originalLine)}</code></header>
       {payload.diffHunk && <DiffHunk text={payload.diffHunk} />}
-      {payload.comments.map(comment => <ThreadComment comment={comment} key={comment.githubId ?? comment.timestamp} />)}
+      {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
+        onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
     </article>
   );
 }
 
-function ThreadComment({ comment }: { comment: PullTimelineCommentDto }) {
+function ThreadComment({ comment, fallbackUrl, onQuote }: {
+  comment: PullTimelineCommentDto;
+  fallbackUrl: string;
+  onQuote: (body: string) => void;
+}) {
   return (
     <div className="pr-thread-comment">
       <div className="pr-thread-comment__author">
@@ -671,7 +706,11 @@ function ThreadComment({ comment }: { comment: PullTimelineCommentDto }) {
         <strong>{comment.actor ?? 'github'}</strong>
         {comment.actorBot && <span className="pr-bot">Bot</span>}
         <time>{relativeTime(comment.timestamp)}</time>
-        <div className="pr-thread-comment__menu"><ReactionPicker /><span aria-hidden="true"><KebabIcon /></span></div>
+        <div className="pr-thread-comment__menu"><ReactionPicker />{comment.body && <CardActionsMenu actions={{
+          link: comment.htmlUrl ?? fallbackUrl,
+          markdown: comment.body,
+          onQuote: () => onQuote(comment.body ?? ''),
+        }} />}</div>
       </div>
       {comment.body && <MarkdownBody body={comment.body} />}
       <Reactions reactions={comment.reactions} />
@@ -750,13 +789,19 @@ function eventText(activity: Activity) {
   }
 }
 
-export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, menu = true }: {
+type CardActions = {
+  link: string;
+  markdown: string;
+  onQuote: () => void;
+};
+
+export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, actions }: {
   actor: string;
   avatarUrl?: string | null;
   bot?: boolean;
   timestamp: string | null;
   badge?: { text: string; className: string } | null;
-  menu?: boolean;
+  actions?: CardActions;
 }) {
   return (
     <header className="pr-card__header">
@@ -765,8 +810,46 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, me
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
-      {menu && <div className="pr-card__menu"><ReactionPicker /><span aria-hidden="true"><KebabIcon /></span></div>}
+      <div className="pr-card__menu"><ReactionPicker />{actions && <CardActionsMenu actions={actions} />}</div>
     </header>
+  );
+}
+
+function CardActionsMenu({ actions }: { actions: CardActions }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
+
+  const copy = async (value: string) => {
+    await navigator.clipboard.writeText(value);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={root} className={`pr-card-actions${open ? ' is-open' : ''}`}>
+      <button type="button" className="pr-card-actions__trigger" aria-label="More actions"
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}><KebabIcon /></button>
+      <div className="pr-card-actions__menu" role="menu" aria-label="Comment actions">
+        <button type="button" role="menuitem" onClick={() => { void copy(actions.link); }}><LinkIcon />Copy link</button>
+        <button type="button" role="menuitem" onClick={() => { void copy(actions.markdown); }}><CopyIcon />Copy Markdown</button>
+        <button type="button" role="menuitem" onClick={() => { actions.onQuote(); setOpen(false); }}><QuoteIcon />Quote reply</button>
+      </div>
+    </div>
   );
 }
 
@@ -805,9 +888,11 @@ function ChecksCard({ detail }: { detail: PullRequestDetailDto }) {
 
 export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
+export type QuoteRequest = { id: number; body: string };
 
-export function DiscussionComposer({ candidates, onSubmit }: {
+export function DiscussionComposer({ candidates, quotedReply, onSubmit }: {
   candidates: MentionCandidate[];
+  quotedReply?: QuoteRequest;
   onSubmit: (body: string) => Promise<void>;
 }) {
   const [body, setBody] = useState('');
@@ -819,6 +904,16 @@ export function DiscussionComposer({ candidates, onSubmit }: {
   const visibleCandidates = mention
     ? candidates.filter(candidate => candidate.login.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 8)
     : [];
+  useEffect(() => {
+    if (!quotedReply) return;
+    setBody(current => appendQuotedReply(current, quotedReply.body));
+    setPreview(false);
+    setMention(null);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [quotedReply]);
   const chooseMention = (candidate: MentionCandidate) => {
     if (!mention) return;
     const replacement = replaceMention(body, mention, candidate.login);
@@ -932,6 +1027,13 @@ export function replaceMention(value: string, mention: ActiveMention, login: str
     value: value.slice(0, mention.start) + inserted + value.slice(end),
     caret: mention.start + inserted.length,
   };
+}
+
+export function appendQuotedReply(draft: string, body: string) {
+  const normalized = body.replaceAll('\r\n', '\n').replace(/^\n+|\n+$/g, '');
+  const quote = normalized.split('\n').map(line => `> ${line}`).join('\n');
+  const existing = draft.trimEnd();
+  return `${existing}${existing ? '\n\n' : ''}${quote}\n\n`;
 }
 
 function Reactions({ reactions, alwaysShowPicker = false }: { reactions: PullReactionDto[]; alwaysShowPicker?: boolean }) {
@@ -1100,7 +1202,7 @@ function ReactionMenuIcon() {
 }
 
 function KebabIcon() {
-  return <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor"><circle cx="3" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="13" cy="8" r="1.2" /></svg>;
+  return <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="13" cy="8" r="1.2" /></svg>;
 }
 
 function CheckIcon({ size = 12 }: { size?: number }) {

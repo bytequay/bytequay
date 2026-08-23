@@ -29,6 +29,7 @@ import {
   remoteErrorMessage,
   toggleSelection,
   type MentionCandidate,
+  type QuoteRequest,
 } from '../pulls/PullOverview';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
@@ -417,6 +418,7 @@ export function IssueOverview({
   const [updating, setUpdating] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const colors = Object.fromEntries((metadata?.labels ?? []).map(label => [label.name, label.color]));
   const participants = issueParticipants(issue, timeline);
   const visibleTimeline = timeline.filter(event => !HIDDEN_EVENTS.has(event.event));
@@ -571,27 +573,46 @@ export function IssueOverview({
       <main className="issue-conversation">
         <section className="pr-timeline" aria-label="Issue conversation and activity">
           <article className="pr-card pr-description">
-            <CardHeader actor={issue.author} avatarUrl={issue.authorAvatarUrl} timestamp={issue.createdAt} />
+            <CardHeader actor={issue.author} avatarUrl={issue.authorAvatarUrl} timestamp={issue.createdAt}
+              actions={{
+                link: issue.htmlUrl,
+                markdown: issue.body || 'No description provided.',
+                onQuote: () => setQuotedReply(current => ({
+                  id: (current?.id ?? 0) + 1,
+                  body: issue.body || 'No description provided.',
+                })),
+              }} />
             <MarkdownBody body={issue.body || 'No description provided.'} />
           </article>
           {visibleTimeline.map((event, index) => event.event === 'commented'
-            ? <IssueComment event={event} key={event.githubId ?? `comment-${index}`} />
+            ? <IssueComment event={event} fallbackUrl={issue.htmlUrl}
+              onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))}
+              key={event.githubId ?? `comment-${index}`} />
             : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
           {timelineLoading && <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>}
         </section>
-        <DiscussionComposer candidates={candidates} onSubmit={onComment} />
+        <DiscussionComposer candidates={candidates} quotedReply={quotedReply} onSubmit={onComment} />
       </main>
     </div>
   );
 }
 
-function IssueComment({ event }: { event: WorkspaceIssueTimelineEventDto }) {
+function IssueComment({ event, fallbackUrl, onQuote }: {
+  event: WorkspaceIssueTimelineEventDto;
+  fallbackUrl: string;
+  onQuote: (body: string) => void;
+}) {
   const actor = event.actor ?? 'github';
+  const body = event.body || 'No comment provided.';
   return (
     <article className="pr-card issue-comment">
       <CardHeader actor={actor} avatarUrl={event.payload.actorAvatarUrl} bot={event.payload.actorBot}
-        timestamp={event.timestamp} />
-      <MarkdownBody body={event.body || 'No comment provided.'} />
+        timestamp={event.timestamp} actions={{
+          link: event.payload.htmlUrl ?? fallbackUrl,
+          markdown: body,
+          onQuote: () => onQuote(body),
+        }} />
+      <MarkdownBody body={body} />
       <ReactionCounts reactions={event.payload.reactions} />
     </article>
   );

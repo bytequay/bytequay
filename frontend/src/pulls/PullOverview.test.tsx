@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -115,6 +115,10 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-reaction-picker is-compact"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="Add thumbs up reaction"');
+    expect(html).toContain('aria-label="More actions"');
+    expect(html).toContain('>Copy link</button>');
+    expect(html).toContain('>Copy Markdown</button>');
+    expect(html).toContain('>Quote reply</button>');
     expect(html).toContain('M10.5 7.75a2.75 2.75');
   });
 
@@ -430,6 +434,11 @@ describe('PullOverview', () => {
     if (!mention) throw new Error('Expected an active mention');
     expect(replaceMention('Thanks @ca!', mention, 'carol')).toEqual({ value: 'Thanks @carol !', caret: 14 });
     expect(activeMention('mail@example.com', 16)).toBeNull();
+  });
+
+  it('appends a GitHub-style quote without replacing a draft', () => {
+    expect(appendQuotedReply('', 'First line\n\nLast line')).toBe('> First line\n> \n> Last line\n\n');
+    expect(appendQuotedReply('Already writing  \n', 'Quoted text')).toBe('Already writing\n\n> Quoted text\n\n');
   });
 
   it('selects the merge action and counts unresolved review threads', () => {

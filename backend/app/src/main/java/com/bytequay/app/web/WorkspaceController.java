@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
@@ -62,7 +62,7 @@ public class WorkspaceController
 {
     private final WorkspaceRepositoryService workspaces;
     private final PullRequestService pullRequests;
-    private final PullRequestSyncJob pullRequestSync;
+    private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
     private final WorkspaceRemoteSourceService remoteSources;
@@ -72,7 +72,7 @@ public class WorkspaceController
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
             PullRequestService pullRequests,
-            PullRequestSyncJob pullRequestSync,
+            PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
             WorkspaceRemoteSourceService remoteSources,
@@ -81,7 +81,7 @@ public class WorkspaceController
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
+        this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
@@ -135,7 +135,7 @@ public class WorkspaceController
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequestSync.requestRepositorySync(repository);
+        pullRequestRefresh.requestRefresh(repository);
     }
 
     @GetMapping("/{workspaceId}/metadata")

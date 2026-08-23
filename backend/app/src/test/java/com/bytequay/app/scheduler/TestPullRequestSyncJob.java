@@ -13,141 +13,38 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
-import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 
-import java.time.Instant;
-import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestPullRequestSyncJob
 {
     @Test
-    void scheduledSyncRefreshesGlobalAndDistinctWorkspaceRepositories()
+    void refreshesPullRequestsOnSchedule()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        CredentialService credentials = configuredCredentials();
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        RepoRef shared = RepoRef.of("upstream", "shared");
-        RepoRef other = RepoRef.of("owner", "other");
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(
-                workspace("first", 1, shared), workspace("second", 2, shared), workspace("other", 3, other)));
-        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, mock(AppSettingsService.class), workspaces, Runnable::run);
+        PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, mock(AppSettingsService.class));
 
         job.tick();
 
-        InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).syncFromGitHub();
-        order.verify(pullRequests).syncRepository(shared);
-        order.verify(pullRequests).syncRepository(other);
-        verify(pullRequests, times(1)).syncRepository(shared);
+        verify(refreshService).requestRefresh();
     }
 
     @Test
-    void manualRepositorySyncUsesThePeriodicOverlapGuard()
-            throws Exception
+    void skipsRefreshDuringQuietHours()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        CredentialService credentials = configuredCredentials();
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of());
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        doAnswer(invocation -> {
-            entered.countDown();
-            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
-            return null;
-        }).when(pullRequests).syncFromGitHub();
-        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, mock(AppSettingsService.class), workspaces, Runnable::run);
-        RepoRef repository = RepoRef.of("owner", "repo");
+        PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        AppSettingsService appSettings = mock(AppSettingsService.class);
+        when(appSettings.inQuietHours()).thenReturn(true);
+        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, appSettings);
 
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var scheduled = executor.submit(job::tick);
-            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            job.requestRepositorySync(repository);
-            release.countDown();
-            scheduled.get();
-        }
+        job.tick();
 
-        verify(pullRequests, times(1)).syncFromGitHub();
-        verify(pullRequests, never()).syncRepository(repository);
-    }
-
-    @Test
-    void workspaceRefreshIsQueued()
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        AtomicReference<Runnable> submitted = new AtomicReference<>();
-        PullRequestSyncJob job = new PullRequestSyncJob(
-                pullRequests,
-                configuredCredentials(),
-                mock(AppSettingsService.class),
-                mock(WorkspaceStore.class),
-                submitted::set);
-        RepoRef repository = RepoRef.of("owner", "repo");
-
-        job.requestRepositorySync(repository);
-
-        verify(pullRequests, never()).syncRepository(repository);
-        submitted.get().run();
-        verify(pullRequests).syncRepository(repository);
-    }
-
-    private static CredentialService configuredCredentials()
-    {
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        return credentials;
-    }
-
-    private static Workspace workspace(String id, long repositoryId, RepoRef repository)
-    {
-        Instant now = Instant.parse("2026-08-22T00:00:00Z");
-        return new Workspace(
-                id,
-                id,
-                repositoryId,
-                repository,
-                Optional.empty(),
-                Optional.empty(),
-                repositoryId,
-                repository,
-                Topology.DIRECT,
-                "main",
-                "https://github.com/" + repository.fullName() + ".git",
-                Optional.empty(),
-                Optional.empty(),
-                "/tmp/bytequay-pr-sync/" + id,
-                CodeState.READY,
-                MetadataState.READY,
-                Optional.of(now),
-                Optional.of(now),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                now,
-                now);
+        verify(refreshService, never()).requestRefresh();
     }
 }

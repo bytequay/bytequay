@@ -192,7 +192,12 @@ public class CommitHistoryRefreshWorker
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         Set<RepoRef> repositories = new LinkedHashSet<>();
         for (ResolvedCommitHistoryRef ref : resolved) {
-            repositories.add(ref.repository());
+            if (ref.repository().isEmpty()) {
+                // Extra remote sources have no provider identity: the fetch in
+                // synchronizeCode is their whole refresh.
+                continue;
+            }
+            repositories.add(ref.repository().orElseThrow());
             enrich(context, ref, token, now).forEach(value -> updates.merge(
                     new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefreshWorker::merge));
         }
@@ -210,13 +215,15 @@ public class CommitHistoryRefreshWorker
             String token,
             Instant now)
     {
+        long repositoryId = ref.repositoryId().orElseThrow();
+        RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
         Map<String, CommitEnrichment> existing = store.findEnrichment(
-                        ref.repositoryId(), commits.stream().map(Commit::sha).toList())
+                        repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(
-                token, ref.repository(), ref.providerRef(), MAX_COMMITS);
+                token, repository, ref.providerRef(), MAX_COMMITS);
         if (!avatarSnapshot.succeeded()) {
             throw new IllegalStateException("commit avatar synchronization failed");
         }
@@ -227,7 +234,7 @@ public class CommitHistoryRefreshWorker
                 .map(Commit::sha)
                 .toList();
         PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(
-                ref.repository(), dueAssociations, ref.providerRef(), new ArrayList<>());
+                repository, dueAssociations, ref.providerRef(), new ArrayList<>());
         if (!associationSnapshot.failedShas().isEmpty()) {
             throw new IllegalStateException("commit pull-request synchronization failed");
         }
@@ -237,7 +244,7 @@ public class CommitHistoryRefreshWorker
                         PullRequestLookupResult.Association::pullRequest));
         return commits.stream()
                 .map(commit -> enrichment(
-                        ref.repositoryId(),
+                        repositoryId,
                         commit,
                         Optional.ofNullable(existing.get(commit.sha())),
                         Optional.ofNullable(avatarSources.get(commit.sha())),

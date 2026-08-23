@@ -61,20 +61,44 @@ public class CherryPickPreviewController
     {
         requireNonNull(request, "request is null");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
-        if (context.sourceRemote().equals(context.targetRemote())) {
-            throw WorkspaceException.invalidUpstream(
-                    "Select an upstream repository before starting a cherry-pick.");
+        boolean explicitSource = request.sourceRemote() != null && !request.sourceRemote().isBlank();
+        if (!explicitSource && context.sourceRemote().equals(context.targetRemote())) {
+            throw WorkspaceException.invalidRemoteSource(
+                    "Add a remote source before starting a cherry-pick.");
+        }
+        String sourceRemote = explicitSource ? request.sourceRemote() : context.sourceRemote();
+        if (!context.knownRemote(sourceRemote)) {
+            throw WorkspaceException.invalidRemoteSource(
+                    "The remote source is not configured for this workspace.");
         }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),
                 Optional.of(workspaceId),
-                OptionalLong.of(context.upstreamRepositoryId().orElseThrow()),
-                context.sourceRemote(),
+                sourceRepositoryId(context, sourceRemote),
+                sourceRemote,
                 request.sourceBaseRef(),
                 request.sourceTipRef(),
+                // The target branch tracks the workspace's development base:
+                // the linked upstream when one exists, otherwise origin.
                 context.sourceRemote(),
                 request.targetBranch()));
         return CherryPickPreviewResponse.of(preview);
+    }
+
+    /**
+     * Provider identity of the source range, used for pull-request grouping.
+     * Only origin and the linked upstream have persisted identities; other
+     * remote sources preview without grouping.
+     */
+    private static OptionalLong sourceRepositoryId(WorkspaceRepositoryContext context, String sourceRemote)
+    {
+        if (sourceRemote.equals(context.targetRemote())) {
+            return OptionalLong.of(context.selectedRepositoryId());
+        }
+        if (sourceRemote.equals(context.sourceRemote())) {
+            return context.upstreamRepositoryId();
+        }
+        return OptionalLong.empty();
     }
 
     @GetMapping("/api/cherry-pick-ranges/previews/{previewId}")

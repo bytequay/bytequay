@@ -298,7 +298,8 @@ class TestCommitHistoryRefreshWorker
                 SELECTED,
                 "origin",
                 "origin",
-                "main"));
+                "main",
+                List.of()));
     }
 
     private static Commit commit(String sha, Instant authoredAt)

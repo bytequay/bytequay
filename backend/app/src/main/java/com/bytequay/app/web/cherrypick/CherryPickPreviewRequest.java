@@ -18,10 +18,12 @@ import static java.util.Objects.requireNonNull;
 /**
  * Preview request body.
  *
- * <p>The repository path, remotes, local target branch, and work branch are
- * derived by the backend, so the renderer cannot name them.
+ * <p>The repository path, local target branch, and work branch are derived by
+ * the backend. The optional source remote must name one of the workspace's
+ * configured remotes; when absent the linked upstream is used.
  */
 public record CherryPickPreviewRequest(
+        String sourceRemote,
         String sourceBaseRef,
         String sourceTipRef,
         String targetBranch)

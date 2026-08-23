@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.credentials;
 
+import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,12 +32,20 @@ public class CredentialService
     static final String GITHUB_CLI_SOURCE = "{\"source\":\"gh-cli\"}";
 
     private final CredentialStore credentialStore;
+    private final WorkspaceCredentialStore workspaceCredentials;
     private final GhCliService ghCli;
+    private final GitHubAccountClient gitHubAccount;
 
-    public CredentialService(CredentialStore credentialStore, GhCliService ghCli)
+    public CredentialService(
+            CredentialStore credentialStore,
+            WorkspaceCredentialStore workspaceCredentials,
+            GhCliService ghCli,
+            GitHubAccountClient gitHubAccount)
     {
         this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
+        this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
+        this.gitHubAccount = requireNonNull(gitHubAccount, "gitHubAccount is null");
     }
 
     public void saveGitHubToken(String token)
@@ -61,6 +71,75 @@ public class CredentialService
                         HttpStatusCode.valueOf(401),
                         "GitHub PAT not configured. Add it in Settings → GitHub token."));
     }
+
+    /**
+     * Returns the token used for one workspace's Git and GitHub traffic: the
+     * workspace override when one is stored, otherwise the global account token.
+     */
+    // ponytail: the override authenticates git transport (clone/fetch/push);
+    // GitHub API clients still resolve the global token until they carry a
+    // workspace scope.
+    public String resolveGitHubToken(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        return workspaceCredentials.getSecret(workspaceId)
+                .filter(value -> isNotBlank(value))
+                .orElseGet(this::resolveGitHubToken);
+    }
+
+    /** Masked display form of the stored account token; never the full value. */
+    public Optional<String> maskedGitHubToken()
+    {
+        return storedGitHubToken().map(SecretMasker::mask);
+    }
+
+    /** The full stored account token for clipboard copy; the UI never renders it. */
+    public Optional<String> gitHubTokenValue()
+    {
+        return credentialStore.exists() ? Optional.of(resolveGitHubToken()) : Optional.empty();
+    }
+
+    public void deleteGitHubToken()
+    {
+        credentialStore.delete();
+    }
+
+    /**
+     * Validates the token against GitHub, records the account it authenticates
+     * as, and stores it as this workspace's override.
+     *
+     * @return the login the token authenticates as
+     */
+    public String saveWorkspaceGitHubToken(String workspaceId, String token)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        if (!isNotBlank(token)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
+        }
+        String login = gitHubAccount.fetchUserProfile(token.trim()).login();
+        workspaceCredentials.save(workspaceId, token.trim(), login);
+        return login;
+    }
+
+    public Optional<WorkspaceToken> workspaceGitHubToken(String workspaceId)
+    {
+        return workspaceCredentials.getSecret(workspaceId)
+                .map(secret -> new WorkspaceToken(
+                        SecretMasker.mask(secret),
+                        workspaceCredentials.getLogin(workspaceId).orElse("")));
+    }
+
+    public Optional<String> workspaceGitHubTokenValue(String workspaceId)
+    {
+        return workspaceCredentials.getSecret(workspaceId);
+    }
+
+    public void deleteWorkspaceGitHubToken(String workspaceId)
+    {
+        workspaceCredentials.delete(workspaceId);
+    }
+
+    public record WorkspaceToken(String maskedToken, String login) {}
 
     public String importGitHubCliToken()
     {

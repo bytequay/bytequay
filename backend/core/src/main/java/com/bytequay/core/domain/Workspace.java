@@ -112,6 +112,16 @@ public record Workspace(
                 Optional.empty(), Optional.empty(), displayOrder, createdAt, now);
     }
 
+    public Workspace withName(String nextName, Instant now)
+    {
+        return new Workspace(
+                id, nextName, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
+                defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
+                codeState, metadataState, lastCodeSyncAt, lastMetadataSyncAt,
+                codeError, metadataError, displayOrder, createdAt, now);
+    }
+
     public Workspace withCodeState(
             CodeState nextCodeState,
             Optional<Instant> nextLastCodeSyncAt,

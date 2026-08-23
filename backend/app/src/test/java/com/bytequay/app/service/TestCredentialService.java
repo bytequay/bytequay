@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.store.CredentialStore;
@@ -38,7 +39,7 @@ class TestCredentialService
         when(store.source()).thenReturn(Optional.of(GH_CLI_SOURCE));
         when(ghCli.currentToken()).thenReturn(Optional.of("gho_rotated"));
 
-        assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("gho_rotated");
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class)).resolveGitHubToken()).isEqualTo("gho_rotated");
         verify(store, never()).getSecret();
     }
 
@@ -50,7 +51,7 @@ class TestCredentialService
         when(store.source()).thenReturn(Optional.empty());
         when(store.getSecret()).thenReturn(Optional.of("ghp_pasted"));
 
-        assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("ghp_pasted");
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class)).resolveGitHubToken()).isEqualTo("ghp_pasted");
         verify(ghCli, never()).currentToken();
     }
 
@@ -63,7 +64,7 @@ class TestCredentialService
         when(ghCli.currentToken()).thenReturn(Optional.empty());
         when(store.getSecret()).thenReturn(Optional.of("gho_imported"));
 
-        assertThat(new CredentialService(store, ghCli).resolveGitHubToken()).isEqualTo("gho_imported");
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class)).resolveGitHubToken()).isEqualTo("gho_imported");
     }
 
     @Test
@@ -73,7 +74,7 @@ class TestCredentialService
         GhCliService ghCli = mock(GhCliService.class);
         when(ghCli.readCredential()).thenReturn(new GhCliService.CliCredential("gho_secret", "octocat"));
 
-        var result = new CredentialService(store, ghCli).importGitHubCliToken();
+        var result = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class)).importGitHubCliToken();
 
         assertThat(result).isEqualTo("octocat");
         verify(store).save("gho_secret", GH_CLI_SOURCE);

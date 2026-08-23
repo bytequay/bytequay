@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.git.CommitHistoryRef;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
@@ -56,6 +57,7 @@ class TestCommitHistorySyncJob
         job = new CommitHistorySyncJob(
                 workspaces,
                 commits,
+                mock(AppSettingsService.class),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

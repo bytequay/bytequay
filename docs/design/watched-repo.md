@@ -680,7 +680,8 @@ Settings. Existing commit cards retain their pull-request association and avatar
 - Save `None` to unlink or a stable GitHub repository ID to link.
 - Exclude the workspace's selected repository and show the current upstream even when it is not
   otherwise watched by ByteQuay.
-- Never list raw Git remotes or infer the selection from GitHub topology.
+- Never list raw Git remotes or infer the selection from GitHub topology. User-managed
+  extra remote sources are a separate Workspace Settings card and never become the upstream.
 - Show safe validation errors for the selected repository, inaccessible repositories, unsafe
   routing, and active work.
 

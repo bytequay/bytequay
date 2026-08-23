@@ -35,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -80,9 +81,13 @@ public class GitBrowseController
             @PathVariable String workspaceId,
             @RequestParam Source source,
             @RequestParam String branch,
+            @RequestParam(required = false) String remote,
             @RequestParam(defaultValue = "200") int limit)
     {
-        return commits.listHistory(workspaceId, new CommitHistoryRef(source, branch), limit);
+        return commits.listHistory(
+                workspaceId,
+                new CommitHistoryRef(source, branch, Optional.ofNullable(remote)),
+                limit);
     }
 
     @GetMapping("/diff")
@@ -162,7 +167,7 @@ public class GitBrowseController
     private static String allowedRemote(WorkspaceRepositoryContext context, String remote)
     {
         checkArgument(
-                remote != null && (remote.equals(context.sourceRemote()) || remote.equals(context.targetRemote())),
+                remote != null && context.knownRemote(remote),
                 "remote is not configured for this workspace");
         return remote;
     }

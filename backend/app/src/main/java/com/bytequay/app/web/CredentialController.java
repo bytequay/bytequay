@@ -15,10 +15,13 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -49,6 +52,31 @@ public class CredentialController
         requireNotBlank(req.value(), "value must not be blank");
         credentialService.saveGitHubToken(req.value());
     }
+
+    @GetMapping("/api/auth/github/account")
+    public AccountResponse account()
+    {
+        return new AccountResponse(
+                credentialService.isGitHubAccountConfigured(),
+                credentialService.maskedGitHubToken().orElse(null));
+    }
+
+    /** Full stored token for main-process clipboard copy; the renderer never displays it. */
+    @GetMapping("/api/auth/github/token/value")
+    public Map<String, String> tokenValue()
+    {
+        return ImmutableMap.of("value", credentialService.gitHubTokenValue()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "No GitHub token is stored.")));
+    }
+
+    @DeleteMapping("/api/auth/github/token")
+    public void deleteToken()
+    {
+        credentialService.deleteGitHubToken();
+    }
+
+    public record AccountResponse(boolean configured, String maskedToken) {}
 
     @GetMapping("/api/auth/github/cli")
     public Map<String, Boolean> ghCliAvailable()

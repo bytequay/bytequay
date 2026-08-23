@@ -15,6 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -47,6 +48,7 @@ public class PullRequestSyncJob
 
     private final PullRequestService pullRequestService;
     private final CredentialService credentialService;
+    private final AppSettingsService appSettings;
     private final WorkspaceStore workspaceStore;
     private final Executor executor;
 
@@ -56,11 +58,13 @@ public class PullRequestSyncJob
     public PullRequestSyncJob(
             PullRequestService pullRequestService,
             CredentialService credentialService,
+            AppSettingsService appSettings,
             WorkspaceStore workspaceStore,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
@@ -91,6 +95,11 @@ public class PullRequestSyncJob
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
+        // Manual sync paths call doSync directly and are never paused.
+        if (appSettings.inQuietHours()) {
+            log.debug("Sync skipped: GitHub quiet hours");
+            return;
+        }
         doSync();
     }
 

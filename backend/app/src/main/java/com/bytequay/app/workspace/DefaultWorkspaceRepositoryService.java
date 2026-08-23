@@ -18,6 +18,7 @@ import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.WatchedRepo;
@@ -25,7 +26,9 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WatchedRepoStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -61,6 +64,8 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceStore store;
     private final WatchedRepoStore legacyStore;
     private final CherryPickExecutionStore executions;
+    private final RemoteSourceStore remoteSources;
+    private final WorkspaceCredentialStore workspaceCredentials;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
     private final Clock clock;
@@ -74,6 +79,8 @@ public class DefaultWorkspaceRepositoryService
             WorkspaceStore store,
             WatchedRepoStore legacyStore,
             CherryPickExecutionStore executions,
+            RemoteSourceStore remoteSources,
+            WorkspaceCredentialStore workspaceCredentials,
             GitHubAccountClient gitHub,
             CredentialService credentials,
             Clock clock,
@@ -86,6 +93,8 @@ public class DefaultWorkspaceRepositoryService
         this.store = requireNonNull(store, "store is null");
         this.legacyStore = requireNonNull(legacyStore, "legacyStore is null");
         this.executions = requireNonNull(executions, "executions is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
+        this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -187,7 +196,10 @@ public class DefaultWorkspaceRepositoryService
                 workspace.monitoredRepository(),
                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                 "origin",
-                workspace.defaultBranch());
+                workspace.defaultBranch(),
+                remoteSources.findByWorkspace(workspace.id()).stream()
+                        .map(RemoteSource::name)
+                        .collect(toImmutableList()));
     }
 
     @Override
@@ -268,6 +280,20 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
+    public Workspace rename(String workspaceId, String name)
+    {
+        String trimmed = requireNonNull(name, "name is null").trim();
+        if (trimmed.isEmpty() || trimmed.length() > 200) {
+            throw WorkspaceException.invalidRepository("Workspace name must be 1 to 200 characters.");
+        }
+        Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.name().equals(trimmed)) {
+            return workspace;
+        }
+        return store.save(workspace.withName(trimmed, clock.instant()));
+    }
+
+    @Override
     public void unwatch(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
@@ -280,6 +306,8 @@ public class DefaultWorkspaceRepositoryService
             throw WorkspaceException.busy();
         }
         store.delete(workspace.id());
+        remoteSources.deleteByWorkspace(workspace.id());
+        workspaceCredentials.delete(workspace.id());
     }
 
     private boolean hasActiveExecution(Workspace workspace)

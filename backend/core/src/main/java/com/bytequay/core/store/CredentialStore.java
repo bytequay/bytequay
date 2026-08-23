@@ -24,4 +24,6 @@ public interface CredentialStore
     Optional<String> source();
 
     void save(String token, String source);
+
+    void delete();
 }

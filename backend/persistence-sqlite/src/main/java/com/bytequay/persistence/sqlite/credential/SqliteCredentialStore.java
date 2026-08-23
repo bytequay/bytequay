@@ -74,4 +74,12 @@ public class SqliteCredentialStore
         jpaRepository.save(entity);
         cachedSecret = null;
     }
+
+    @Override
+    @Transactional
+    public void delete()
+    {
+        jpaRepository.deleteAll();
+        cachedSecret = null;
+    }
 }

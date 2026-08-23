@@ -13,11 +13,17 @@
  */
 package com.bytequay.app.git;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A backend-routed commit-history branch selector. */
-public record CommitHistoryRef(Source source, String branch)
+/**
+ * One validated commit-history selector. {@code WORKSPACE} reads a local
+ * branch and {@code UPSTREAM} the linked upstream remote; {@code REMOTE}
+ * names one of the workspace's configured extra remote sources.
+ */
+public record CommitHistoryRef(Source source, String branch, Optional<String> remote)
 {
     public CommitHistoryRef
     {
@@ -26,11 +32,25 @@ public record CommitHistoryRef(Source source, String branch)
         checkArgument(!branch.isBlank(), "branch is blank");
         checkArgument(!branch.startsWith("-"), "branch must not be a Git option");
         checkArgument(branch.length() <= 512, "branch is too long");
+        requireNonNull(remote, "remote is null");
+        checkArgument((source == Source.REMOTE) == remote.isPresent(),
+                "remote is required for REMOTE and forbidden otherwise");
+        remote.ifPresent(name -> {
+            checkArgument(!name.isBlank(), "remote is blank");
+            checkArgument(!name.startsWith("-"), "remote must not be a Git option");
+            checkArgument(name.length() <= 128, "remote is too long");
+        });
+    }
+
+    public CommitHistoryRef(Source source, String branch)
+    {
+        this(source, branch, Optional.empty());
     }
 
     public enum Source
     {
         WORKSPACE,
-        UPSTREAM
+        UPSTREAM,
+        REMOTE
     }
 }

@@ -131,8 +131,8 @@ const bridge: Bridge = {
 
   gitOverview: workspaceId => ipcRenderer.invoke('git:overview', workspaceId),
   gitRemoteBranches: (workspaceId, remote) => ipcRenderer.invoke('git:branches', workspaceId, remote),
-  gitLog: (workspaceId, source, branch, limit) =>
-    ipcRenderer.invoke('git:log', workspaceId, source, branch, limit),
+  gitLog: (workspaceId, source, branch, limit, remote) =>
+    ipcRenderer.invoke('git:log', workspaceId, source, branch, limit, remote),
   gitDiff: (workspaceId, base, head) => ipcRenderer.invoke('git:diff', workspaceId, base, head),
   gitDiffFileContent: (workspaceId, base, head, path) =>
     ipcRenderer.invoke('git:diff-content', workspaceId, base, head, path),
@@ -145,6 +145,36 @@ const bridge: Bridge = {
     ipcRenderer.invoke('git:reword', workspaceId, branch, sha, message),
   gitSquash: (workspaceId, branch, baseSha, tipSha, message) =>
     ipcRenderer.invoke('git:squash', workspaceId, branch, baseSha, tipSha, message),
+
+  getModelSettings: () => ipcRenderer.invoke('settings:models'),
+  updateModelSelection: (configId, model, effort) =>
+    ipcRenderer.invoke('settings:models:select', configId, model, effort),
+  setMainModel: configId => ipcRenderer.invoke('settings:models:main', configId),
+  addModelApiKey: (provider, alias, key) =>
+    ipcRenderer.invoke('settings:api-keys:add', provider, alias, key),
+  removeModelApiKey: alias => ipcRenderer.invoke('settings:api-keys:remove', alias),
+  getQuietHours: () => ipcRenderer.invoke('settings:quiet-hours'),
+  saveQuietHours: quietHours => ipcRenderer.invoke('settings:quiet-hours:save', quietHours),
+  getGitHubAccount: () => ipcRenderer.invoke('pat:account'),
+  copyGitHubToken: () => ipcRenderer.invoke('pat:copy'),
+  deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),
+
+  getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
+  renameWorkspace: (workspaceId, name) => ipcRenderer.invoke('workspaces:rename', workspaceId, name),
+  addWorkspaceRemote: (workspaceId, name, url) =>
+    ipcRenderer.invoke('workspaces:remotes:add', workspaceId, name, url),
+  removeWorkspaceRemote: (workspaceId, name) =>
+    ipcRenderer.invoke('workspaces:remotes:remove', workspaceId, name),
+  setWorkspaceAgentModel: (workspaceId, configId, model, effort) =>
+    ipcRenderer.invoke('workspaces:agent-model:set', workspaceId, configId, model, effort),
+  clearWorkspaceAgentModel: workspaceId =>
+    ipcRenderer.invoke('workspaces:agent-model:clear', workspaceId),
+  saveWorkspaceGitHubToken: (workspaceId, value) =>
+    ipcRenderer.invoke('workspaces:token:save', workspaceId, value),
+  deleteWorkspaceGitHubToken: workspaceId =>
+    ipcRenderer.invoke('workspaces:token:delete', workspaceId),
+  copyWorkspaceGitHubToken: workspaceId =>
+    ipcRenderer.invoke('workspaces:token:copy', workspaceId),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

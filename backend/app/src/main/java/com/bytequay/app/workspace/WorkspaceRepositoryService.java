@@ -95,6 +95,15 @@ public interface WorkspaceRepositoryService
     Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId);
 
     /**
+     * Renames the workspace's display name without changing any routing.
+     *
+     * @param workspaceId watched workspace ID
+     * @param name new non-blank display name
+     * @return renamed workspace
+     */
+    Workspace rename(String workspaceId, String name);
+
+    /**
      * Stops watching a workspace after verifying that no active cherry-pick references it.
      *
      * @param workspaceId ByteQuay workspace identifier

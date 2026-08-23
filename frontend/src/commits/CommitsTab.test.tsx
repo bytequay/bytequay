@@ -22,16 +22,16 @@ import CommitsTab, {
 } from './CommitsTab';
 
 describe('workspace commits tab', () => {
-  it('shows the Settings control when no upstream repository is linked', () => {
+  it('always shows the remote source switcher, defaulting to origin', () => {
     const html = renderToStaticMarkup(<CommitsTab
       workspace={workspace()}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('No upstream linked');
-    expect(html).toContain('Select an upstream repository');
-    expect(html).toContain('cmt-readonly">Settings');
+    expect(html).toContain('Source: origin');
+    expect(html).toContain('Remote source — history and cherry-pick read from here');
+    expect(html).not.toContain('No upstream linked');
   });
 
   it('opens on the upstream browser when asked to start there', () => {
@@ -51,17 +51,26 @@ describe('workspace commits tab', () => {
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('cmt-repo-chip is-active" title="Remote source');
+    expect(html).toContain('cmt-split-chip is-active');
+    expect(html).toContain('title="Remote source');
     expect(html).toContain('cmt-repo-chip" title="This workspace');
+    expect(html).toContain('Source: upstream');
+    expect(html).toContain('title="Branch of the selected source"');
+    expect(html).toContain('read-only');
   });
 
-  it('refreshes the workspace and only an explicitly linked upstream', () => {
+  it('refreshes the workspace, a linked upstream, and the browsed remote source', () => {
     expect(commitRefreshRefs('feature', 'main', false)).toEqual([
       { source: 'WORKSPACE', branch: 'feature' },
     ]);
     expect(commitRefreshRefs('feature', 'release', true)).toEqual([
       { source: 'WORKSPACE', branch: 'feature' },
       { source: 'UPSTREAM', branch: 'release' },
+    ]);
+    expect(commitRefreshRefs('feature', 'release', true, { name: 'oss', branch: 'master' })).toEqual([
+      { source: 'WORKSPACE', branch: 'feature' },
+      { source: 'UPSTREAM', branch: 'release' },
+      { source: 'REMOTE', branch: 'master', remote: 'oss' },
     ]);
   });
 

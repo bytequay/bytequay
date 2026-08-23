@@ -34,6 +34,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -776,9 +777,13 @@ class TestCiAutofixEndToEnd
 
         @Bean
         @Primary
-        CredentialService e2eCredentialService(CredentialStore store, GhCliService ghCli)
+        CredentialService e2eCredentialService(
+                CredentialStore store,
+                WorkspaceCredentialStore workspaceCredentials,
+                GhCliService ghCli,
+                GitHubAccountClient gitHubAccount)
         {
-            return new CredentialService(store, ghCli)
+            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount)
             {
                 @Override
                 public String resolveGitHubToken()

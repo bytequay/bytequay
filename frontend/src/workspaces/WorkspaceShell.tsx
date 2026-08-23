@@ -12,12 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import Avatar from '../Avatar';
 import CommitsTab from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import PullsScreen from '../pulls/PullsScreen';
 import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, RepositorySearchResultDto } from '../types';
+import WorkspaceSettings from './WorkspaceSettings';
+import type { CherryPickExecution } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
   workspaceFromDto,
@@ -110,7 +112,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           }}
           onNewCherryPick={() => {
             setOpenExecutionId(null);
-            onSelectTab(workspace.upstreamRepositoryId ? 'commits' : 'settings');
+            setInitialCommitsRepo('upstream');
+            onSelectTab('commits');
           }}
         />
       </div>
@@ -241,6 +244,7 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstr
         <div className="ws-hero-tile">⑂</div>
         <h1>What should we do?</h1>
         <div className="ws-hero-status">
+          <Avatar login={workspace.selectedOwner} size={18} />
           <span className="ws-hero-dot" style={{ background: workspacePhaseColor(workspace) }} aria-hidden="true" />
           {status}
         </div>
@@ -300,167 +304,3 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstr
   );
 }
 
-export function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
-  workspace: Workspace;
-  onWorkspaceChanged: (workspace: Workspace) => void;
-  onRemoved: () => void;
-}) {
-  const draft = workspace;
-  const [query, setQuery] = useState('');
-  const [candidates, setCandidates] = useState<RepositorySearchResultDto[]>([]);
-  const [upstreamRepositoryId, setUpstreamRepositoryId] = useState<number | null>(workspace.upstreamRepositoryId);
-  const [searching, setSearching] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      window.bridge.searchRepositories(query.trim(), 30)
-      .then(values => {
-        if (!cancelled) {
-          setCandidates(values.filter(value => value.id !== workspace.selectedRepositoryId));
-        }
-      })
-      .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
-      })
-      .finally(() => { if (!cancelled) setSearching(false); });
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [query, workspace.selectedRepositoryId]);
-
-  useEffect(() => {
-    setUpstreamRepositoryId(workspace.upstreamRepositoryId);
-  }, [workspace.upstreamRepositoryId]);
-
-  const saveUpstream = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const changed = await window.bridge.setWorkspaceUpstream(
-        workspace.id,
-        upstreamRepositoryId,
-      );
-      onWorkspaceChanged(workspaceFromDto(changed));
-    }
-    catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-    finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!window.confirm(`Remove ${draft.name} from ByteQuay?`)) return;
-    setError(null);
-    try {
-      await window.bridge.removeWorkspace(draft.id);
-      onRemoved();
-    }
-    catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-  };
-
-  return (
-    <div className="ws-tab-page">
-      <h1>Workspace settings</h1>
-      <div className="ws-settings">
-        {error && <div className="ws-error" role="alert">{error}</div>}
-        <label>
-          Workspace name
-          <input
-            value={draft.name}
-            readOnly
-          />
-        </label>
-        <label>
-          Local path
-          <input value={draft.path} readOnly className="ws-mono" />
-        </label>
-        <label>
-          Default branch
-          <input
-            value={draft.defaultBranch}
-            className="ws-mono ws-narrow"
-            readOnly
-          />
-        </label>
-
-        <div className="ws-upstream-card">
-          <div className="ws-upstream-head">Upstream repository</div>
-          <div className="ws-upstream-body">
-            <div className="ws-upstream-main">
-              <div className="ws-upstream-name">
-                {draft.upstreamOwner && draft.upstreamRepo
-                  ? `${draft.upstreamOwner}/${draft.upstreamRepo}`
-                  : 'None'}
-                {draft.upstreamRepositoryId && <span className="ws-card-upstream">read-only</span>}
-              </div>
-              <div className="ws-upstream-sub">
-                Choose any repository readable by your connected GitHub account. ByteQuay uses it
-                for commits, pull requests, issues, and cherry-pick source branches.
-              </div>
-            </div>
-            <input
-              value={query}
-              disabled={saving}
-              placeholder="Search GitHub repositories…"
-              aria-label="Search upstream repositories"
-              onChange={event => setQuery(event.target.value)}
-            />
-            <select
-              value={upstreamRepositoryId ?? ''}
-              disabled={saving}
-              aria-label="Upstream repository"
-              onChange={event => setUpstreamRepositoryId(event.target.value ? Number(event.target.value) : null)}
-            >
-              <option value="">None</option>
-              {workspace.upstreamRepositoryId !== null
-                && !candidates.some(candidate => candidate.id === workspace.upstreamRepositoryId) && (
-                <option value={workspace.upstreamRepositoryId}>
-                  {workspace.upstreamOwner}/{workspace.upstreamRepo} — current
-                </option>
-              )}
-              {candidates.map(candidate => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.fullName} — {candidate.visibility}
-                </option>
-              ))}
-            </select>
-            {searching && <div className="ws-upstream-sub">Searching…</div>}
-            <button
-              type="button"
-              disabled={saving || upstreamRepositoryId === workspace.upstreamRepositoryId}
-              onClick={() => { void saveUpstream(); }}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </div>
-
-        <div className="ws-danger-card">
-          <div className="ws-upstream-main">
-            <div className="ws-upstream-name">Remove workspace</div>
-            <div className="ws-upstream-sub">
-              Stops watching this repository and removes its workspace record.
-            </div>
-          </div>
-          <button
-            type="button"
-            className="ws-btn-danger"
-            onClick={() => { void remove(); }}
-          >
-            Remove…
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

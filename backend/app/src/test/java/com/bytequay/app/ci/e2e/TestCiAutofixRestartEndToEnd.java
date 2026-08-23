@@ -47,6 +47,7 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -320,7 +321,9 @@ class TestCiAutofixRestartEndToEnd
                     CredentialService.class,
                     () -> new CredentialService(
                             context.getBean(CredentialStore.class),
-                            context.getBean(GhCliService.class))
+                            context.getBean(WorkspaceCredentialStore.class),
+                            context.getBean(GhCliService.class),
+                            context.getBean(GitHubAccountClient.class))
                     {
                         @Override
                         public String resolveGitHubToken()

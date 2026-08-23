@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
+import Avatar from './Avatar';
 import { useResizablePane } from './useResizablePane';
 import type { WorkspaceTab } from './workspaces/WorkspaceShell';
 import { workspacePhaseColor, type Workspace } from './workspaces/model';
@@ -147,6 +148,7 @@ export default function AppSidebar({
       ) : (
         <>
           <div className="app-sidebar__ws-head" title={workspace.path}>
+            <Avatar login={workspace.selectedOwner} size={18} />
             <span
               className="app-sidebar__ws-dot"
               style={{ background: workspacePhaseColor(workspace) }}
@@ -159,7 +161,7 @@ export default function AppSidebar({
           </nav>
           <div className="app-sidebar__spacer" />
           <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Workspace settings">
-            {workspaceItem({ tab: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
+            {workspaceItem({ tab: 'settings', label: 'Workspace settings', icon: <SettingsIcon /> })}
           </nav>
         </>
       )}

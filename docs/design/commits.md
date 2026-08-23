@@ -396,7 +396,9 @@ branch or writes to GitHub.
 
 The Electron bridge replaces `gitFetch(workspaceId, remotes)` in the Commits
 toolbar with `refreshCommitHistory(workspaceId, refs)`. The renderer never
-passes filesystem paths, repository IDs, or arbitrary remote names.
+passes filesystem paths, repository IDs, or arbitrary remote names; a `REMOTE`
+ref may name one of the workspace's configured remote sources, which the
+backend validates against its persisted remote-source rows.
 
 ## 9. Call flows
 

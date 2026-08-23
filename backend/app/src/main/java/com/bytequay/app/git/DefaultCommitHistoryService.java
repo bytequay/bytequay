@@ -103,8 +103,10 @@ public class DefaultCommitHistoryService
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, ref);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichment = store.findEnrichment(
-                        resolved.repositoryId(),
+        Map<String, CommitEnrichment> enrichment = resolved.repositoryId().isEmpty()
+                ? Map.of()
+                : store.findEnrichment(
+                        resolved.repositoryId().orElseThrow(),
                         commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));

@@ -14,6 +14,7 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -47,7 +48,7 @@ class TestIssueSyncJob
                 workspace("second", 1),
                 workspace("third", 2)));
 
-        new IssueSyncJob(issues, workspaces, credentials).tick();
+        new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
 
         verify(issues).synchronize("first");
         verify(issues, never()).synchronize("second");

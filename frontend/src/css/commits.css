@@ -1501,3 +1501,40 @@
 }
 
 .cmt-pr-empty small { font-size: 12px; color: #8c959f; }
+
+/* Remote source switcher (design: Turn 2 — remote sources) */
+.cmt-menu-divider { border-top: 1px solid #f0f0f2; margin: 5px 0; }
+.cmt-source-item { display: flex; flex-direction: column; align-items: stretch; gap: 1px; }
+.cmt-source-name { font-size: 13px; font-weight: 600; }
+.cmt-source-desc { font-size: 11.5px; color: #8c959f; }
+
+/* Split source chip: left = source, right = its branch */
+.cmt-split-chip {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #57606a;
+  overflow: hidden;
+  max-width: min(560px, 46vw);
+}
+.cmt-split-chip__seg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cmt-split-chip__seg + .cmt-split-chip__seg { border-left: 1px solid #d0d7de; }
+.cmt-split-chip__seg:hover { background: rgba(9, 105, 218, 0.06); }
+.cmt-split-chip.is-active { background: #0969da; border-color: #0969da; color: #ffffff; }
+.cmt-split-chip.is-active .cmt-split-chip__seg + .cmt-split-chip__seg { border-left-color: rgba(255, 255, 255, 0.35); }
+.cmt-split-chip.is-active .cmt-split-chip__seg:hover { background: rgba(255, 255, 255, 0.12); }

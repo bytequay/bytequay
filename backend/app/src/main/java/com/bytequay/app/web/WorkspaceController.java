@@ -14,12 +14,18 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.scheduler.PullRequestSyncJob;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
+import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -41,6 +47,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -57,19 +64,28 @@ public class WorkspaceController
     private final PullRequestSyncJob pullRequestSync;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
+    private final WorkspaceRemoteSourceService remoteSources;
+    private final ModelSettingsService models;
+    private final CredentialService credentials;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
             PullRequestService pullRequests,
             PullRequestSyncJob pullRequestSync,
             WorkspaceMetadataService metadata,
-            WorkspaceIssueService issues)
+            WorkspaceIssueService issues,
+            WorkspaceRemoteSourceService remoteSources,
+            ModelSettingsService models,
+            CredentialService credentials)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
+        this.models = requireNonNull(models, "models is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     @PostMapping
@@ -215,6 +231,81 @@ public class WorkspaceController
         return ImmutableMap.of("result", "removed");
     }
 
+    @PatchMapping("/{workspaceId}")
+    public WorkspaceSummary rename(@PathVariable String workspaceId, @RequestBody RenameRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return WorkspaceSummary.of(workspaces.rename(workspaceId, request.name()));
+    }
+
+    @GetMapping("/{workspaceId}/settings")
+    public WorkspaceSettingsResponse settings(@PathVariable String workspaceId)
+    {
+        return new WorkspaceSettingsResponse(
+                remoteSources.list(workspaceId),
+                models.workspaceOverride(workspaceId).orElse(null),
+                models.mainModel(),
+                credentials.workspaceGitHubToken(workspaceId).orElse(null));
+    }
+
+    @PostMapping("/{workspaceId}/remotes")
+    public List<WorkspaceRemote> addRemote(@PathVariable String workspaceId, @RequestBody RemoteRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return remoteSources.add(workspaceId, request.name(), request.url());
+    }
+
+    @DeleteMapping("/{workspaceId}/remotes/{name}")
+    public List<WorkspaceRemote> removeRemote(@PathVariable String workspaceId, @PathVariable String name)
+    {
+        return remoteSources.remove(workspaceId, name);
+    }
+
+    @PutMapping("/{workspaceId}/agent-model")
+    public WorkspaceAgentModel setAgentModel(
+            @PathVariable String workspaceId,
+            @RequestBody AgentModelRequest request)
+    {
+        requireNonNull(request, "body is required");
+        workspaces.getWorkspace(workspaceId);
+        return models.setWorkspaceOverride(
+                workspaceId,
+                request.configId(),
+                request.model(),
+                Optional.ofNullable(request.effort()));
+    }
+
+    @DeleteMapping("/{workspaceId}/agent-model")
+    public void clearAgentModel(@PathVariable String workspaceId)
+    {
+        models.clearWorkspaceOverride(workspaceId);
+    }
+
+    @PutMapping("/{workspaceId}/github-token")
+    public Map<String, String> saveGitHubToken(
+            @PathVariable String workspaceId,
+            @RequestBody TokenRequest request)
+    {
+        requireNonNull(request, "body is required");
+        workspaces.getWorkspace(workspaceId);
+        return ImmutableMap.of("login", credentials.saveWorkspaceGitHubToken(workspaceId, request.value()));
+    }
+
+    @DeleteMapping("/{workspaceId}/github-token")
+    public void deleteGitHubToken(@PathVariable String workspaceId)
+    {
+        credentials.deleteWorkspaceGitHubToken(workspaceId);
+    }
+
+    /** Full workspace token for main-process clipboard copy; the renderer never displays it. */
+    @GetMapping("/{workspaceId}/github-token/value")
+    public Map<String, String> gitHubTokenValue(@PathVariable String workspaceId)
+    {
+        return ImmutableMap.of("value", credentials.workspaceGitHubTokenValue(workspaceId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "No workspace token is stored.")));
+    }
+
     public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}
 
     public record WatchPreviewRequest(long selectedRepositoryId) {}
@@ -226,4 +317,18 @@ public class WorkspaceController
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 
     public record UpstreamRequest(Long upstreamRepositoryId) {}
+
+    public record RenameRequest(String name) {}
+
+    public record RemoteRequest(String name, String url) {}
+
+    public record AgentModelRequest(String configId, String model, String effort) {}
+
+    public record TokenRequest(String value) {}
+
+    public record WorkspaceSettingsResponse(
+            List<WorkspaceRemote> remotes,
+            WorkspaceAgentModel agentModelOverride,
+            MainModel mainModel,
+            CredentialService.WorkspaceToken githubToken) {}
 }

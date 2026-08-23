@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
@@ -355,7 +355,13 @@ function registerIpc(): void {
     source: CommitHistorySourceDto,
     branch: string,
     limit: number,
-  ) => gitGet(workspaceId, 'commits', { source, branch, limit: String(limit) }));
+    remote?: string,
+  ) => gitGet(workspaceId, 'commits', {
+    source,
+    branch,
+    limit: String(limit),
+    ...(remote ? { remote } : {}),
+  }));
   ipcMain.handle('git:diff', (_event, workspaceId: string, base: string, head: string) =>
     gitGet(workspaceId, 'diff', { base, head }));
   ipcMain.handle('git:diff-content', (
@@ -406,6 +412,114 @@ function registerIpc(): void {
     catch {
       return false;
     }
+  });
+  ipcMain.handle('pat:account', async () => {
+    if (!await waitForBackendReady()) return { configured: false, maskedToken: null };
+    try {
+      return await backendJson(`${BACKEND_BASE}/api/auth/github/account`);
+    }
+    catch {
+      return { configured: false, maskedToken: null };
+    }
+  });
+  // The token value only ever transits main-process memory on its way to the
+  // clipboard; the renderer sees a boolean.
+  ipcMain.handle('pat:copy', async () => {
+    const result = await backendJson<{ value: string }>(
+      `${BACKEND_BASE}/api/auth/github/token/value`,
+    );
+    clipboard.writeText(result.value);
+    return true;
+  });
+  ipcMain.handle('pat:delete', () =>
+    backendVoid(`${BACKEND_BASE}/api/auth/github/token`, { method: 'DELETE' }));
+
+  ipcMain.handle('settings:models', () => backendJson(`${BACKEND_BASE}/api/settings/models`));
+  ipcMain.handle('settings:models:select', (
+    _event,
+    configId: string,
+    model: string,
+    effort: string | null,
+  ) => backendJson(`${BACKEND_BASE}/api/settings/models/${encodeURIComponent(configId)}/selection`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, effort }),
+  }));
+  ipcMain.handle('settings:models:main', (_event, configId: string) =>
+    backendJson(`${BACKEND_BASE}/api/settings/models/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ configId }),
+    }));
+  ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
+    backendJson(`${BACKEND_BASE}/api/settings/api-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, alias, key }),
+    }));
+  ipcMain.handle('settings:api-keys:remove', (_event, alias: string) =>
+    backendJson(`${BACKEND_BASE}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
+      method: 'DELETE',
+    }));
+  ipcMain.handle('settings:quiet-hours', () =>
+    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`));
+  ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>
+    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quietHours),
+    }));
+
+  ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
+  ipcMain.handle('workspaces:rename', (_event, workspaceId: string, name: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }));
+  ipcMain.handle('workspaces:remotes:add', (_event, workspaceId: string, name: string, url: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url }),
+    }));
+  ipcMain.handle('workspaces:remotes:remove', (_event, workspaceId: string, name: string) =>
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ));
+  ipcMain.handle('workspaces:agent-model:set', (
+    _event,
+    workspaceId: string,
+    configId: string,
+    model: string,
+    effort: string | null,
+  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ configId, model, effort }),
+  }));
+  ipcMain.handle('workspaces:agent-model:clear', (_event, workspaceId: string) =>
+    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
+      method: 'DELETE',
+    }));
+  ipcMain.handle('workspaces:token:save', (_event, workspaceId: string, value: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    }));
+  ipcMain.handle('workspaces:token:delete', (_event, workspaceId: string) =>
+    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
+      method: 'DELETE',
+    }));
+  ipcMain.handle('workspaces:token:copy', async (_event, workspaceId: string) => {
+    const result = await backendJson<{ value: string }>(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token/value`,
+    );
+    clipboard.writeText(result.value);
+    return true;
   });
 
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {

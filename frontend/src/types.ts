@@ -432,6 +432,8 @@ export type CherryPickPreview = {
 
 export type CherryPickPreviewRequest = {
   workspaceId: string;
+  /** Configured remote to read the range from; the linked upstream when absent. */
+  sourceRemote?: string;
   sourceBaseRef: string;
   sourceTipRef: string;
   targetBranch: string;
@@ -540,11 +542,13 @@ export type GitCommitDto = {
   pullRequestTitle?: string | null;
 };
 
-export type CommitHistorySourceDto = 'WORKSPACE' | 'UPSTREAM';
+export type CommitHistorySourceDto = 'WORKSPACE' | 'UPSTREAM' | 'REMOTE';
 
 export type CommitHistoryRefDto = {
   source: CommitHistorySourceDto;
   branch: string;
+  /** Extra remote-source name; present exactly when source is REMOTE. */
+  remote?: string;
 };
 
 export type CommitRefreshStatusDto = {
@@ -558,6 +562,76 @@ export type CommitRefreshStatusDto = {
 export type CommitHistorySnapshotDto = {
   commits: GitCommitDto[];
   refresh: CommitRefreshStatusDto;
+};
+
+export type WorkspaceRemoteDto = {
+  name: string;
+  url: string;
+  role: 'ORIGIN' | 'UPSTREAM' | 'CUSTOM';
+};
+
+export type WorkspaceAgentModelDto = {
+  configId: string;
+  label: string;
+  model: string;
+  effort?: string | null;
+};
+
+export type WorkspaceTokenDto = {
+  maskedToken: string;
+  login: string;
+};
+
+export type WorkspaceSettingsDto = {
+  remotes: WorkspaceRemoteDto[];
+  agentModelOverride?: WorkspaceAgentModelDto | null;
+  mainModel: WorkspaceAgentModelDto;
+  githubToken?: WorkspaceTokenDto | null;
+};
+
+export type ModelOptionDto = { name: string; description: string };
+
+export type ModelProviderDto = {
+  id: string;
+  label: string;
+  /** AVAILABLE | DEGRADED | UNAVAILABLE */
+  health: string;
+  version?: string | null;
+  diagnostic: string;
+  models: ModelOptionDto[];
+  efforts: string[];
+  selectedModel: string;
+  selectedEffort: string;
+  main: boolean;
+};
+
+export type ModelApiKeyDto = {
+  id: string;
+  alias: string;
+  provider: string;
+  maskedKey: string;
+  createdAt: string;
+  models: string[];
+  selectedModel: string;
+  main: boolean;
+};
+
+export type ModelSettingsDto = {
+  mainId: string;
+  providers: ModelProviderDto[];
+  apiKeys: ModelApiKeyDto[];
+  keyProviders: Array<{ name: string; models: string[] }>;
+};
+
+export type QuietHoursDto = {
+  enabled: boolean;
+  startMinute: number;
+  endMinute: number;
+};
+
+export type GitHubAccountDto = {
+  configured: boolean;
+  maskedToken?: string | null;
 };
 
 export type GitDiffFileDto = {
@@ -706,6 +780,7 @@ export type Bridge = {
     source: CommitHistorySourceDto,
     branch: string,
     limit: number,
+    remote?: string,
   ) => Promise<CommitHistorySnapshotDto>;
   gitDiff: (workspaceId: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
   gitDiffFileContent: (
@@ -728,6 +803,33 @@ export type Bridge = {
     tipSha: string,
     message: string,
   ) => Promise<{ sha: string }>;
+
+  getModelSettings: () => Promise<ModelSettingsDto>;
+  updateModelSelection: (configId: string, model: string, effort: string | null) => Promise<ModelSettingsDto>;
+  setMainModel: (configId: string) => Promise<ModelSettingsDto>;
+  addModelApiKey: (provider: string, alias: string, key: string) => Promise<ModelSettingsDto>;
+  removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;
+  getQuietHours: () => Promise<QuietHoursDto>;
+  saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
+  getGitHubAccount: () => Promise<GitHubAccountDto>;
+  /** Copies the stored token to the clipboard in the main process; the renderer never sees it. */
+  copyGitHubToken: () => Promise<boolean>;
+  deleteGitHubToken: () => Promise<void>;
+
+  getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
+  renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
+  addWorkspaceRemote: (workspaceId: string, name: string, url: string) => Promise<WorkspaceRemoteDto[]>;
+  removeWorkspaceRemote: (workspaceId: string, name: string) => Promise<WorkspaceRemoteDto[]>;
+  setWorkspaceAgentModel: (
+    workspaceId: string,
+    configId: string,
+    model: string,
+    effort: string | null,
+  ) => Promise<WorkspaceAgentModelDto>;
+  clearWorkspaceAgentModel: (workspaceId: string) => Promise<void>;
+  saveWorkspaceGitHubToken: (workspaceId: string, value: string) => Promise<{ login: string }>;
+  deleteWorkspaceGitHubToken: (workspaceId: string) => Promise<void>;
+  copyWorkspaceGitHubToken: (workspaceId: string) => Promise<boolean>;
 };
 
 export type WorkspaceIssueMetadataDto = {

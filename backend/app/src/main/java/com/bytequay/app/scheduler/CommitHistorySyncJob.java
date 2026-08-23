@@ -17,6 +17,7 @@ import com.bytequay.app.git.CommitHistoryRef;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryService;
 import com.bytequay.app.git.CommitRefreshCause;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
@@ -49,15 +50,18 @@ public class CommitHistorySyncJob
 
     private final WorkspaceRepositoryService workspaces;
     private final CommitHistoryService commits;
+    private final AppSettingsService appSettings;
     private final Clock clock;
 
     public CommitHistorySyncJob(
             WorkspaceRepositoryService workspaces,
             CommitHistoryService commits,
+            AppSettingsService appSettings,
             Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.commits = requireNonNull(commits, "commits is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -70,6 +74,10 @@ public class CommitHistorySyncJob
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
+        // Startup and manual refreshes are never paused; only the periodic tick is.
+        if (appSettings.inQuietHours()) {
+            return;
+        }
         requestDueRefreshes(SCHEDULED);
     }
 

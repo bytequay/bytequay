@@ -44,6 +44,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -89,7 +90,8 @@ class TestCherryPickExecutionHttpApi
                 RepoRef.of("trinodb", "trino"),
                 "upstream",
                 "origin",
-                "master"));
+                "master",
+                List.of()));
         paths = new WorkspacePaths("/managed");
         service = mock(CherryPickExecutionService.class);
         AgentProperties properties = new AgentProperties(

@@ -178,6 +178,7 @@ class TestGitBrowseController
                 RepoRef.of("upstream", "project"),
                 "upstream",
                 "origin",
-                "main");
+                "main",
+                List.of());
     }
 }

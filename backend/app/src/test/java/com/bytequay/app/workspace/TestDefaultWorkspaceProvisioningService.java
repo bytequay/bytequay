@@ -295,10 +295,11 @@ class TestDefaultWorkspaceProvisioningService
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
+        when(credentials.resolveGitHubToken(org.mockito.ArgumentMatchers.anyString())).thenReturn("token");
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         return new DefaultWorkspaceProvisioningService(
                 store,
-                new ManagedWorkspaceGit(paths, git, credentials),
+                new ManagedWorkspaceGit(paths, git, credentials, new InMemoryRemoteSourceStore()),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC));

@@ -15,7 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import { WorkspaceCards } from './WorkspacesPage';
-import WorkspaceShell, { WorkspaceHome, WorkspaceSettings } from './WorkspaceShell';
+import WorkspaceSettings from './WorkspaceSettings';
+import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
 import type { Workspace } from './model';
 
 describe('watched repository workspace UI', () => {
@@ -91,17 +92,18 @@ describe('watched repository workspace UI', () => {
     expect(issues).toContain('upstream/project');
   });
 
-  it('lets Settings search any readable GitHub repository for upstream', () => {
+  it('shows workspace fields and remote sources without a linked-upstream selector', () => {
     const html = renderToStaticMarkup(<WorkspaceSettings
       workspace={workspace('FORK')}
       onWorkspaceChanged={() => {}}
       onRemoved={() => {}}
     />);
 
-    expect(html).toContain('Upstream repository');
-    expect(html).toContain('Search GitHub repositories…');
-    expect(html).toContain('any repository readable by your connected GitHub account');
-    expect(html).toContain('upstream/project — current');
+    expect(html).toContain('Workspace settings');
+    expect(html).toContain('overrides your global settings');
+    expect(html).toContain('Remote sources');
+    expect(html).toContain('Remove workspace');
+    expect(html).not.toContain('Linked upstream');
   });
 });
 

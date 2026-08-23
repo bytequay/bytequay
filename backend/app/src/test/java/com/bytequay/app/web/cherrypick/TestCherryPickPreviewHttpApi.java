@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -54,8 +55,16 @@ class TestCherryPickPreviewHttpApi
 {
     private static final String SESSION = "desktop-session";
     private static final String BODY = """
-            {"repository":"/tmp/injected","sourceRemote":"injected","worktreeParent":"/tmp/injected",
+            {"repository":"/tmp/injected","worktreeParent":"/tmp/injected",
             "sourceBaseRef":"477","sourceTipRef":"478","targetRemote":"injected","targetBranch":"master"}
+            """;
+
+    private static final String INJECTED_SOURCE_BODY = """
+            {"sourceRemote":"injected","sourceBaseRef":"477","sourceTipRef":"478","targetBranch":"master"}
+            """;
+
+    private static final String EXTRA_SOURCE_BODY = """
+            {"sourceRemote":"oss","sourceBaseRef":"477","sourceTipRef":"478","targetBranch":"master"}
             """;
 
     private WorkspaceRepositoryService workspaces;
@@ -155,7 +164,7 @@ class TestCherryPickPreviewHttpApi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("WORKSPACE_UPSTREAM_INVALID"));
+                .andExpect(jsonPath("$.code").value("WORKSPACE_REMOTE_SOURCE_INVALID"));
 
         ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
                 ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
@@ -169,11 +178,45 @@ class TestCherryPickPreviewHttpApi
         });
     }
 
+    @Test
+    void rejectsAnUnconfiguredSourceRemoteAndAcceptsAConfiguredOne()
+            throws Exception
+    {
+        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
+                "direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin", "oss"));
+        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+                .when(previewService).preview(any());
+
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(INJECTED_SOURCE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("WORKSPACE_REMOTE_SOURCE_INVALID"));
+        verify(previewService, never()).preview(any());
+
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(EXTRA_SOURCE_BODY))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
+                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        verify(previewService).preview(commands.capture());
+        assertThat(commands.getValue()).satisfies(command -> {
+            assertThat(command.sourceRemote()).isEqualTo("oss");
+            assertThat(command.sourceRepositoryId()).isEmpty();
+            assertThat(command.targetRemote()).isEqualTo("origin");
+        });
+    }
+
     private static WorkspaceRepositoryContext context(
             String workspaceId,
             Path repository,
             Topology topology,
-            String sourceRemote)
+            String sourceRemote,
+            String... extraRemotes)
     {
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;
@@ -186,6 +229,7 @@ class TestCherryPickPreviewHttpApi
                 monitored,
                 sourceRemote,
                 "origin",
-                "main");
+                "main",
+                List.of(extraRemotes));
     }
 }

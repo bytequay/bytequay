@@ -79,6 +79,13 @@ public final class WorkspaceException
                 message, false);
     }
 
+    public static WorkspaceException invalidRemoteSource(String message)
+    {
+        return new WorkspaceException(
+                "WORKSPACE_REMOTE_SOURCE_INVALID", HttpStatus.UNPROCESSABLE_ENTITY,
+                message, false);
+    }
+
     public static WorkspaceException invalidRepository(String message)
     {
         return new WorkspaceException(

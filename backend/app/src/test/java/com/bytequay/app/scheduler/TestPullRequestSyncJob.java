@@ -15,6 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
@@ -53,7 +54,7 @@ class TestPullRequestSyncJob
         RepoRef other = RepoRef.of("owner", "other");
         when(workspaces.findAll()).thenReturn(ImmutableList.of(
                 workspace("first", 1, shared), workspace("second", 2, shared), workspace("other", 3, other)));
-        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, workspaces, Runnable::run);
+        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, mock(AppSettingsService.class), workspaces, Runnable::run);
 
         job.tick();
 
@@ -79,7 +80,7 @@ class TestPullRequestSyncJob
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
         }).when(pullRequests).syncFromGitHub();
-        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, workspaces, Runnable::run);
+        PullRequestSyncJob job = new PullRequestSyncJob(pullRequests, credentials, mock(AppSettingsService.class), workspaces, Runnable::run);
         RepoRef repository = RepoRef.of("owner", "repo");
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -102,6 +103,7 @@ class TestPullRequestSyncJob
         PullRequestSyncJob job = new PullRequestSyncJob(
                 pullRequests,
                 configuredCredentials(),
+                mock(AppSettingsService.class),
                 mock(WorkspaceStore.class),
                 submitted::set);
         RepoRef repository = RepoRef.of("owner", "repo");

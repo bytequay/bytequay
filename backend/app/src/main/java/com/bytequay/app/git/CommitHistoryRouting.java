@@ -16,7 +16,9 @@ package com.bytequay.app.git;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.RepoRef;
 
-import static com.bytequay.app.git.CommitHistoryRef.Source.UPSTREAM;
+import java.util.Optional;
+import java.util.OptionalLong;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -30,29 +32,53 @@ final class CommitHistoryRouting
     {
         requireNonNull(context, "context is null");
         requireNonNull(ref, "ref is null");
-        if (ref.source() != UPSTREAM) {
-            return new ResolvedCommitHistoryRef(
-                    context.selectedRepositoryId(), context.selectedRepository(), ref.branch(), ref.branch());
+        switch (ref.source()) {
+            case WORKSPACE -> {
+                return new ResolvedCommitHistoryRef(
+                        OptionalLong.of(context.selectedRepositoryId()),
+                        Optional.of(context.selectedRepository()),
+                        ref.branch(),
+                        ref.branch());
+            }
+            case UPSTREAM -> {
+                checkArgument(context.upstreamRepositoryId().isPresent(), "no upstream repository is linked");
+                checkArgument(!context.sourceRemote().equals(context.targetRemote()),
+                        "linked upstream remote is missing");
+                return new ResolvedCommitHistoryRef(
+                        OptionalLong.of(context.upstreamRepositoryId().orElseThrow()),
+                        Optional.of(context.monitoredRepository()),
+                        context.sourceRemote() + "/" + ref.branch(),
+                        ref.branch());
+            }
+            case REMOTE -> {
+                String remote = ref.remote().orElseThrow();
+                checkArgument(context.extraRemotes().contains(remote),
+                        "remote is not configured for this workspace");
+                // Extra remotes have no persisted provider identity, so their
+                // commits render without avatar or pull-request enrichment.
+                return new ResolvedCommitHistoryRef(
+                        OptionalLong.empty(),
+                        Optional.empty(),
+                        remote + "/" + ref.branch(),
+                        ref.branch());
+            }
         }
-        checkArgument(context.upstreamRepositoryId().isPresent(), "no upstream repository is linked");
-        checkArgument(!context.sourceRemote().equals(context.targetRemote()), "linked upstream remote is missing");
-        return new ResolvedCommitHistoryRef(
-                context.upstreamRepositoryId().orElseThrow(),
-                context.monitoredRepository(),
-                context.sourceRemote() + "/" + ref.branch(),
-                ref.branch());
+        throw new IllegalArgumentException("unsupported source: " + ref.source());
     }
 
     record ResolvedCommitHistoryRef(
-            long repositoryId,
-            RepoRef repository,
+            OptionalLong repositoryId,
+            Optional<RepoRef> repository,
             String gitRef,
             String providerRef)
     {
         ResolvedCommitHistoryRef
         {
-            checkArgument(repositoryId > 0, "repositoryId must be positive");
+            requireNonNull(repositoryId, "repositoryId is null");
             requireNonNull(repository, "repository is null");
+            checkArgument(repositoryId.isPresent() == repository.isPresent(),
+                    "repositoryId and repository must be present together");
+            repositoryId.ifPresent(value -> checkArgument(value > 0, "repositoryId must be positive"));
             requireNonNull(gitRef, "gitRef is null");
             requireNonNull(providerRef, "providerRef is null");
         }

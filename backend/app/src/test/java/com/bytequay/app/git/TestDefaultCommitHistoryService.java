@@ -189,7 +189,8 @@ class TestDefaultCommitHistoryService
                 summary.upstreamRepositoryId() == null ? SELECTED : UPSTREAM,
                 summary.upstreamRepositoryId() == null ? "origin" : "upstream",
                 "origin",
-                "main"));
+                "main",
+                List.of()));
     }
 
     private static WorkspaceSummary linkedSummary()

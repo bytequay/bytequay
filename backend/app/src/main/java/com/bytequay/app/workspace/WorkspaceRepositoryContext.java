@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.core.domain.RepoRef;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.OptionalLong;
 
 /** Backend-resolved repository path and routing used by trusted Git operations. */
@@ -28,5 +29,13 @@ public record WorkspaceRepositoryContext(
         RepoRef monitoredRepository,
         String sourceRemote,
         String targetRemote,
-        String defaultBranch)
-{}
+        String defaultBranch,
+        List<String> extraRemotes)
+{
+    public boolean knownRemote(String remote)
+    {
+        return sourceRemote.equals(remote)
+                || targetRemote.equals(remote)
+                || extraRemotes.contains(remote);
+    }
+}

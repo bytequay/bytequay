@@ -16,9 +16,13 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -41,24 +45,29 @@ import static java.util.Objects.requireNonNull;
 
 /** Performs filesystem and Git operations inside a ByteQuay-owned workspace checkout. */
 @Component
-final class ManagedWorkspaceGit
+class ManagedWorkspaceGit
         implements WorkspaceBranchPusher
 {
+    private static final Logger log = LoggerFactory.getLogger(ManagedWorkspaceGit.class);
     private static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(30);
     private static final String OWNERSHIP_FILE = ".bytequay-workspace";
 
     private final WorkspacePaths paths;
     private final GitCommandRunner git;
     private final CredentialService credentials;
+    private final RemoteSourceStore remoteSources;
 
     ManagedWorkspaceGit(
             WorkspacePaths paths,
             GitCommandRunner git,
-            CredentialService credentials)
+            CredentialService credentials,
+            RemoteSourceStore remoteSources)
     {
         this.paths = requireNonNull(paths, "paths is null");
         this.git = requireNonNull(git, "git is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
     }
 
     void provision(Workspace previous, Workspace current)
@@ -245,6 +254,7 @@ final class ManagedWorkspaceGit
                 "origin",
                 previous.originCloneUrl(),
                 current.originCloneUrl());
+        reconcileRemoteSources(current, repository);
         Optional<String> actualUpstream = remoteUrl(repository, "upstream");
         if (current.upstreamRepositoryId().isEmpty()) {
             if (actualUpstream.isPresent()) {
@@ -258,6 +268,50 @@ final class ManagedWorkspaceGit
         }
         else if (!actualUpstream.orElseThrow().equals(currentUrl)) {
             requireGitSuccess(git.run(repository, "remote", "set-url", "upstream", currentUrl), "update upstream");
+        }
+    }
+
+    /** Makes the checkout's extra remotes match the persisted remote sources exactly. */
+    private void reconcileRemoteSources(Workspace workspace, Path repository)
+    {
+        Map<String, String> persisted = remoteSources.findByWorkspace(workspace.id()).stream()
+                .collect(ImmutableMap.toImmutableMap(RemoteSource::name, RemoteSource::url));
+        Result listed = git.run(repository, "remote");
+        requireGitSuccess(listed, "list remotes");
+        Set<String> configured = new LinkedHashSet<>(listed.output().lines()
+                .map(String::strip)
+                .filter(value -> !value.isEmpty())
+                .toList());
+        for (String name : configured) {
+            if (name.equals("origin") || name.equals("upstream") || persisted.containsKey(name)) {
+                continue;
+            }
+            requireGitSuccess(git.run(repository, "remote", "remove", name), "remove remote source " + name);
+        }
+        persisted.forEach((name, url) -> {
+            cloneUri(url);
+            if (!configured.contains(name)) {
+                requireGitSuccess(git.run(repository, "remote", "add", name, url), "add remote source " + name);
+            }
+            else if (!remoteUrl(repository, name).filter(url::equals).isPresent()) {
+                requireGitSuccess(git.run(repository, "remote", "set-url", name, url), "update remote source " + name);
+            }
+        });
+    }
+
+    /** Verifies that a remote URL is reachable with the workspace's credential. */
+    void probeRemoteSource(Workspace workspace, String url)
+    {
+        cloneUri(url);
+        Result result = git.run(
+                paths.repository(workspace),
+                PROBE_TIMEOUT,
+                authenticationEnvironment(workspace),
+                ImmutableList.of("ls-remote", "--", url, "HEAD"));
+        if (!result.successful()) {
+            throw new Failure(
+                    "The remote repository could not be reached. Check the URL and access.",
+                    "Remote source probe failed: " + result.output().strip());
         }
     }
 
@@ -306,6 +360,17 @@ final class ManagedWorkspaceGit
         if (workspace.upstreamRepositoryId().isPresent()) {
             fetch(repository, "upstream", environment);
         }
+        // Extra remote sources are best-effort: a later-broken user remote must
+        // not fail workspace synchronization the way origin/upstream do.
+        for (RemoteSource source : remoteSources.findByWorkspace(workspace.id())) {
+            try {
+                fetch(repository, source.name(), environment);
+            }
+            catch (Failure failure) {
+                log.warn("Fetch skipped for remote source {} of workspace {}: {}",
+                        source.name(), workspace.id(), failure.getMessage());
+            }
+        }
     }
 
     private void fetch(Path repository, String remote, Map<String, String> environment)
@@ -325,7 +390,10 @@ final class ManagedWorkspaceGit
         workspace.upstreamCloneUrl()
                 .map(ManagedWorkspaceGit::authenticationBase)
                 .ifPresent(bases::add);
-        String token = credentials.resolveGitHubToken();
+        for (RemoteSource source : remoteSources.findByWorkspace(workspace.id())) {
+            bases.add(authenticationBase(source.url()));
+        }
+        String token = credentials.resolveGitHubToken(workspace.id());
         String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(
                 ("x-access-token:" + token).getBytes(StandardCharsets.UTF_8));
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();

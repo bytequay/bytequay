@@ -14,6 +14,7 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -36,15 +37,18 @@ public class IssueSyncJob
     private final WorkspaceIssueService issues;
     private final WorkspaceStore workspaces;
     private final CredentialService credentials;
+    private final AppSettingsService appSettings;
 
     public IssueSyncJob(
             WorkspaceIssueService issues,
             WorkspaceStore workspaces,
-            CredentialService credentials)
+            CredentialService credentials,
+            AppSettingsService appSettings)
     {
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
     @Scheduled(
@@ -52,7 +56,7 @@ public class IssueSyncJob
             fixedDelayString = "${bytequay.issues.sync-interval:PT15M}")
     public void tick()
     {
-        if (!credentials.isGitHubAccountConfigured()) {
+        if (!credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {
             return;
         }
         Set<Long> synchronizedRepositories = new HashSet<>();

@@ -444,3 +444,24 @@
   color: #cf222e;
   cursor: pointer;
 }
+
+/* Workspace settings (design: Settings & Workspace Settings state board) */
+.wss-cards { max-width: 780px; margin-top: 4px; }
+.wss-grid { display: grid; grid-template-columns: 170px 1fr; row-gap: 12px; column-gap: 12px; padding: 14px; align-items: center; }
+.wss-label { font-size: 12.5px; color: #57606a; }
+.wss-input { width: 360px; box-sizing: border-box; padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 12.5px; }
+.wss-input.is-wide { width: 100%; max-width: 540px; color: #57606a; font-size: 12px; }
+.wss-input.is-narrow { width: 200px; }
+.wss-input[readonly] { background: #fafbfc; }
+.wss-upstream { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wss-upstream-menu { left: 0; right: auto; width: 340px; max-height: 320px; overflow-y: auto; }
+.wss-menu-search { padding: 6px 10px 8px; }
+.wss-menu-search input { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 12.5px; }
+.wss-remote-form { display: flex; align-items: flex-end; gap: 10px; padding: 11px 14px; border-top: 1px solid #f0f0f2; }
+.wss-remote-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: #57606a; }
+.wss-remote-form label:first-child { width: 150px; }
+.wss-remote-form input { box-sizing: border-box; padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 12.5px; }
+.wss-override { color: #0969da !important; background: #ddf4ff !important; }
+.wss-model-menu { max-height: 360px; overflow-y: auto; }
+.wss-token-row { padding: 0 14px 12px; }
+.wss-danger { border-color: rgba(207, 34, 46, 0.35); }

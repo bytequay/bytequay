@@ -14,7 +14,7 @@
 import { useState, type ReactNode } from 'react';
 import { useResizablePane } from './useResizablePane';
 import type { WorkspaceTab } from './workspaces/WorkspaceShell';
-import type { Workspace } from './workspaces/model';
+import { workspacePhaseColor, type Workspace } from './workspaces/model';
 
 export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
 
@@ -24,11 +24,12 @@ const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
   { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
 ];
 
-const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
+// ponytail: dummy badge counts until real workspace stats are wired
+const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode; badge?: string }> = [
   { tab: 'home', label: 'Home', icon: <HomeIcon /> },
-  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
-  { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
-  { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
+  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon />, badge: '2' },
+  { tab: 'prs', label: 'Pull requests', icon: <PullsIcon />, badge: '4' },
+  { tab: 'issues', label: 'Issues', icon: <IssuesIcon />, badge: '7' },
   { tab: 'commits', label: 'Commits', icon: <CommitsIcon /> },
   { tab: 'memory', label: 'Memory', icon: <MemoryIcon /> },
 ];
@@ -39,14 +40,12 @@ export default function AppSidebar({
   workspace,
   workspaceTab,
   onWorkspaceTab,
-  onExitWorkspace,
 }: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
   workspace: Workspace | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
-  onExitWorkspace: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const sidebar = useResizablePane(222, 180, 420);
@@ -73,7 +72,7 @@ export default function AppSidebar({
     return null;
   };
 
-  const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
+  const workspaceItem = ({ tab, label, icon, badge }: typeof WORKSPACE_TABS[number]) => {
     const reason = disabledReason(tab);
     return (
       <button
@@ -87,6 +86,7 @@ export default function AppSidebar({
       >
         <span aria-hidden="true">{icon}</span>
         <span className="app-sidebar__label">{label}</span>
+        {badge && <span className="app-sidebar__badge app-sidebar__label">{badge}</span>}
       </button>
     );
   };
@@ -111,9 +111,33 @@ export default function AppSidebar({
         >
           <PanelIcon />
         </button>
+        {workspace !== null && (
+          <>
+            <div className="app-sidebar__spacer" />
+            <button
+              type="button"
+              className="app-sidebar__traffic-btn"
+              aria-label="App home"
+              title="App home"
+              onClick={() => onNavigate('home')}
+            >
+              <HomeIcon />
+            </button>
+            <button
+              type="button"
+              className="app-sidebar__traffic-btn"
+              aria-label="All workspaces"
+              title="All workspaces"
+              onClick={() => onNavigate('workspaces')}
+            >
+              ▦
+            </button>
+          </>
+        )}
       </div>
       {workspace === null ? (
         <>
+          <div className="app-sidebar__brand app-sidebar__label">BYTEQUAY</div>
           <nav className="app-sidebar__nav" aria-label="Main navigation">
             {NAV_ITEMS.map(navItem)}
           </nav>
@@ -124,15 +148,13 @@ export default function AppSidebar({
         </>
       ) : (
         <>
-          <button
-            type="button"
-            className="app-sidebar__back"
-            onClick={onExitWorkspace}
-          >
-            ‹ <span className="app-sidebar__label">Workspaces</span>
-          </button>
-          <div className="app-sidebar__ws-name app-sidebar__label" title={workspace.path}>
-            {workspace.name}
+          <div className="app-sidebar__ws-head" title={workspace.path}>
+            <span
+              className="app-sidebar__ws-dot"
+              style={{ background: workspacePhaseColor(workspace) }}
+              aria-hidden="true"
+            />
+            <span className="app-sidebar__ws-name app-sidebar__label">{workspace.name}</span>
           </div>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}

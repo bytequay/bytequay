@@ -42,31 +42,30 @@ describe('watched repository workspace UI', () => {
     }
   });
 
-  it('shows linked routing and independent readiness on Workspace Home', () => {
+  it('shows the hero, action cards, and quick links on Workspace Home', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={{ ...workspace('FORK'), metadataState: 'FAILED', metadataError: 'Metadata refresh failed.' }}
-      onSelectTab={() => {}}
       onWorkspaceChanged={() => {}}
     />);
 
-    expect(html).toContain('contributor/project · origin');
-    expect(html).toContain('upstream/project · upstream');
-    expect(html).toContain('Followed for updates');
-    expect(html).toContain('upstream/main');
-    expect(html).toContain('Repository code');
-    expect(html).toContain('Repository metadata');
-    expect(html).toContain('Metadata refresh failed.');
+    expect(html).toContain('What should we do?');
+    expect(html).toContain('contributor/project');
+    expect(html).toContain('upstream upstream/project linked');
+    expect(html).toContain('Explore and understand code');
+    expect(html).toContain('Review a pull request');
+    expect(html).toContain('4 open pull requests');
+    expect(html).toContain('Do anything in this workspace…');
+    expect(html).toContain('Retry preparation');
   });
 
-  it('uses origin as the development base for a direct repository', () => {
+  it('omits the upstream note for a direct repository', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={workspace('DIRECT')}
-      onSelectTab={() => {}}
       onWorkspaceChanged={() => {}}
     />);
 
-    expect(html).toContain('origin/main');
-    expect(html).not.toContain('upstream/project · upstream');
+    expect(html).not.toContain('linked');
+    expect(html).not.toContain('Retry preparation');
   });
 
   it('keeps repository-scoped PRs and Issues available when reference metadata failed', () => {

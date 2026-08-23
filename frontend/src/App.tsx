@@ -116,7 +116,6 @@ export default function App() {
         workspace={inWorkspace ? workspace : null}
         workspaceTab={workspaceTab}
         onWorkspaceTab={setWorkspaceTab}
-        onExitWorkspace={() => { window.location.hash = '#/workspaces'; }}
       />
       <main className="app-content">
         {page === 'home' && (

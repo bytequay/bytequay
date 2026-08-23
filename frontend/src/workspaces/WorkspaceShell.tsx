@@ -14,15 +14,15 @@
 import { useEffect, useState } from 'react';
 import CommitsTab from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
-import { isOpenTask } from '../commits/model';
 import PullsScreen from '../pulls/PullsScreen';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, RepositoryMetadataDto, WorkspaceDto } from '../types';
+import type { CherryPickExecution, WorkspaceDto } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
   workspaceFromDto,
   workspaceIsUpdating,
-  workspaceStateLabel,
+  workspacePhaseColor,
+  workspacePhaseLabel,
   type Workspace,
 } from './model';
 import '../css/workspaces.css';
@@ -129,7 +129,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   return (
     <WorkspaceHome
       workspace={workspace}
-      onSelectTab={onSelectTab}
       onWorkspaceChanged={onWorkspaceChanged}
     />
   );
@@ -153,40 +152,29 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
   );
 }
 
-export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
+const HOME_CARDS = [
+  { icon: '⌕', color: '#0969da', title: 'Explore and understand code' },
+  { icon: '⇢', color: '#8250df', title: 'Cherry-pick from upstream' },
+  { icon: '⑃', color: '#1a7f37', title: 'Review a pull request' },
+  { icon: '◉', color: '#bc4c00', title: 'Fix issues and failures' },
+];
+
+// ponytail: dummy counts until real workspace stats are wired
+const HOME_LINKS = [
+  '4 open pull requests',
+  '2 active tasks',
+  '7 open issues',
+  '12 commits ahead of upstream',
+];
+
+export function WorkspaceHome({ workspace, onWorkspaceChanged }: {
   workspace: Workspace;
-  onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: Workspace) => void;
 }) {
-  const [tasks, setTasks] = useState<CherryPickExecution[]>([]);
-  const [openPrs, setOpenPrs] = useState<number | null>(null);
-  const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
+  const [wip, setWip] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void window.bridge.listCherryPickExecutions(200)
-      .then(executions => { if (!cancelled) setTasks(executions); })
-      .catch(() => {});
-    void window.bridge.fetchPrs(workspace.id, 0, 50)
-      .then(page => {
-        if (cancelled) return;
-        setOpenPrs(page.openPullRequests);
-      })
-      .catch(() => {});
-    void window.bridge.getWorkspaceMetadata(workspace.id)
-      .then(value => { if (!cancelled) setMetadata(value); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [workspace.id]);
-
-  const workspaceTasks = tasks.filter(task => task.workspaceId === workspace.id);
-  const activeTasks = workspaceTasks.filter(isOpenTask);
-  const codeReady = workspace.codeState === 'READY';
-  const developmentBase = workspace.upstreamWorkspaceId
-    ? `upstream/${workspace.upstreamDefaultBranch}`
-    : `origin/${workspace.defaultBranch}`;
   const retryable = workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED';
 
   const retry = async () => {
@@ -203,128 +191,85 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
     }
   };
 
+  if (wip !== null) {
+    return (
+      <div className="ws-home">
+        <div className="ws-wip">
+          <div className="ws-hero-tile">…</div>
+          <h1>{wip}</h1>
+          <div className="ws-wip-note">Still work in progress.</div>
+          <button type="button" className="ws-add-btn" onClick={() => setWip(null)}>
+            ‹ Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const status = [
+    `${workspace.name} ${workspacePhaseLabel(workspace).toLowerCase()}`,
+    workspace.lastCodeSyncAt ? `synced ${relativeTime(workspace.lastCodeSyncAt)}` : 'not synced yet',
+    ...(workspace.upstreamOwner && workspace.upstreamRepo
+      ? [`upstream ${workspace.upstreamOwner}/${workspace.upstreamRepo} linked`]
+      : []),
+  ].join(' · ');
+
   return (
-    <div className="ws-tab-page">
-      <div className="ws-home-title">
-        <div>
-          <h1>{workspace.name}</h1>
-          <div className="ws-home-sub">{workspace.path}</div>
+    <div className="ws-home">
+      <div className="ws-home-col">
+        <div className="ws-hero-tile">⑂</div>
+        <h1>What should we do?</h1>
+        <div className="ws-hero-status">
+          <span className="ws-hero-dot" style={{ background: workspacePhaseColor(workspace) }} aria-hidden="true" />
+          {status}
         </div>
         {retryable && (
           <button
             type="button"
-            className="ws-retry-btn"
+            className="ws-retry-btn ws-hero-retry"
             disabled={retrying}
             onClick={() => { void retry(); }}
           >
             {retrying ? 'Retrying…' : 'Retry preparation'}
           </button>
         )}
-      </div>
-      {retryError && <div className="ws-error" role="alert">{retryError}</div>}
-
-      <div className="ws-home-grid">
-        <section className="ws-home-card">
-          <h2>Repository routing</h2>
-          <div className="ws-routing-list">
-            <div><span>Selected repository</span><b>{workspace.selectedOwner}/{workspace.selectedRepo} · origin</b></div>
-            {workspace.upstreamOwner && workspace.upstreamRepo && (
-              <div><span>Linked upstream workspace</span><b>{workspace.upstreamOwner}/{workspace.upstreamRepo} · upstream</b></div>
-            )}
-            <div><span>Followed for updates</span><b>{workspace.monitoredOwner}/{workspace.monitoredRepo}</b></div>
-            <div><span>Default branch</span><b>{workspace.defaultBranch}</b></div>
-            <div><span>Development base</span><b>{developmentBase}</b></div>
+        {retryError && <div className="ws-error" role="alert">{retryError}</div>}
+        <div className="ws-action-cards">
+          {HOME_CARDS.map(card => (
+            <button
+              key={card.title}
+              type="button"
+              className="ws-action-card"
+              onClick={() => setWip(card.title)}
+            >
+              <div className="ws-action-icon" style={{ color: card.color }} aria-hidden="true">{card.icon}</div>
+              <div className="ws-action-title">{card.title}</div>
+            </button>
+          ))}
+        </div>
+        <div className="ws-home-flex" />
+        <div className="ws-composer-wrap">
+          <div className="ws-composer-branch">⑂ {workspace.defaultBranch}</div>
+          <div className="ws-composer">
+            <input
+              placeholder="Do anything in this workspace…"
+              onKeyDown={event => { if (event.key === 'Enter') setWip('Agent composer'); }}
+            />
+            <div className="ws-composer-row">
+              <button type="button" className="ws-composer-add" title="Attach"
+                onClick={() => setWip('Agent composer')}>+</button>
+              <div className="ws-spacer" />
+              <button type="button" className="ws-composer-send" title="Send"
+                onClick={() => setWip('Agent composer')}>↑</button>
+            </div>
           </div>
-        </section>
-        <section className="ws-home-card">
-          <h2>Readiness</h2>
-          <WorkspaceReadiness
-            label="Repository code"
-            state={workspace.codeState}
-            lastSyncAt={workspace.lastCodeSyncAt}
-            error={workspace.codeError}
-          />
-          <WorkspaceReadiness
-            label="Repository metadata"
-            state={workspace.metadataState}
-            lastSyncAt={workspace.lastMetadataSyncAt}
-            error={workspace.metadataError}
-            detail={metadata && (
-              `${metadata.contributors.length} contributors (${metadata.contributorsSyncedAt
-                ? relativeTime(metadata.contributorsSyncedAt)
-                : 'not synced'}) · ${metadata.labels.length} labels and ${metadata.topics.length} topics (${metadata.labelsTopicsSyncedAt
-                ? relativeTime(metadata.labelsTopicsSyncedAt)
-                : 'not synced'})`
-            )}
-          />
-        </section>
-      </div>
-      <div className="ws-stat-row">
-        <button
-          type="button"
-          className="ws-stat-card"
-          title={`Open pull requests for ${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-          onClick={() => onSelectTab('prs')}
-        >
-          <div className="ws-stat-value">{openPrs ?? '—'}</div>
-          <div className="ws-stat-label">Open pull requests</div>
-        </button>
-        <button type="button" className="ws-stat-card" title="Open workspace tasks"
-          onClick={() => onSelectTab('tasks')}>
-          <div className="ws-stat-value">{activeTasks.length}</div>
-          <div className="ws-stat-label">Active tasks</div>
-        </button>
-        <button type="button" className="ws-stat-card" title="Open workspace tasks"
-          onClick={() => onSelectTab('tasks')}>
-          <div className="ws-stat-value">{workspaceTasks.length - activeTasks.length}</div>
-          <div className="ws-stat-label">Finished tasks</div>
-        </button>
-        <button type="button" className="ws-stat-card" disabled={!codeReady}
-          title={codeReady ? 'Browse commits' : 'Available when repository code is ready.'}
-          onClick={() => onSelectTab('commits')}>
-          <div className="ws-stat-value">⑂</div>
-          <div className="ws-stat-label">Browse commits</div>
-        </button>
-      </div>
-      {activeTasks.length > 0 && (
-        <>
-          <div className="ws-section-label">RECENT ACTIVITY</div>
-          <div className="ws-activity-card">
-            {activeTasks.slice(0, 5).map(task => (
-              <div key={task.executionId} className="ws-activity-row">
-                <span className="ws-activity-icon">⑂</span>
-                <span className="ws-activity-text">
-                  Cherry-pick {task.executionId.slice(0, 8)} — {task.status === 'PAUSED'
-                    ? 'paused, needs your input'
-                    : `item ${task.currentPosition ?? '?'} of ${task.items.length}`}
-                </span>
-              </div>
+          <div className="ws-quick-links">
+            {HOME_LINKS.map(link => (
+              <button key={link} type="button" onClick={() => setWip(link)}>{link}</button>
             ))}
           </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function WorkspaceReadiness({ label, state, lastSyncAt, error, detail }: {
-  label: string;
-  state: Workspace['codeState'] | Workspace['metadataState'];
-  lastSyncAt: string | null;
-  error: string | null;
-  detail?: string | null;
-}) {
-  return (
-    <div className="ws-readiness">
-      <div className="ws-readiness-head">
-        <b>{label}</b>
-        <span className={`ws-state is-${state.toLowerCase()}`}>{workspaceStateLabel(state)}</span>
+        </div>
       </div>
-      <div className="ws-readiness-meta">
-        {lastSyncAt ? `Last synchronized ${relativeTime(lastSyncAt)}` : 'Not synchronized yet'}
-      </div>
-      {detail && <div className="ws-readiness-meta">{detail}</div>}
-      {error && <div className="ws-readiness-error">{error}</div>}
     </div>
   );
 }

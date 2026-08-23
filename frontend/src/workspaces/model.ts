@@ -90,6 +90,15 @@ export function workspacePhaseLabel(workspace: Workspace): string {
   }[workspacePhase(workspace)];
 }
 
+export function workspacePhaseColor(workspace: Workspace): string {
+  return {
+    preparing: '#9a6700',
+    ready: '#1a7f37',
+    syncing: '#0969da',
+    'needs-attention': '#cf222e',
+  }[workspacePhase(workspace)];
+}
+
 export function workspaceStateLabel(state: Workspace['codeState'] | Workspace['metadataState']): string {
   return {
     PENDING: 'Preparing',

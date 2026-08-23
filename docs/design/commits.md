@@ -258,10 +258,12 @@ interface. It uses existing components:
   avatar result;
 - `CherryPickPullRequestLookup.lookUpResult(...)` only for associations that
   are due;
-- `PullRequestSyncJob.synchronizeRepository(...)` for the existing full PR
-  projection under its shared overlap guard;
 - `CommitHistoryStore` for durable enrichment and status; and
 - a concrete `AvatarCache` for local image files.
+
+Commit refresh never synchronizes the full pull-request projection. Commit-to-PR
+association is commit enrichment; the pull-request refresh service owns PR rows
+and details independently.
 
 `CherryPickPullRequestLookup` stops being a display dependency. Its in-memory
 cache may remain as a within-run optimization, but SQLite is the durable
@@ -285,11 +287,9 @@ For one accepted workspace request, the worker:
    avatar keys. A provider failure leaves old keys unchanged.
 7. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
-8. Calls the existing guarded PR synchronization once for each distinct
-   monitored repository involved in the request.
-9. Upserts enrichment and marks the workspace `IDLE` with a new
+8. Upserts enrichment and marks the workspace `IDLE` with a new
    `lastSucceededAt` only after the required steps complete.
-10. On failure, marks `FAILED`, keeps the last successful timestamp and all
+9. On failure, marks `FAILED`, keeps the last successful timestamp and all
     prior rows, and logs a correlation reference.
 
 The worker owns one pending set and one `AtomicBoolean` drain guard. A request
@@ -335,11 +335,8 @@ more often than the five-minute freshness interval. A fresh manual success
 therefore suppresses the next scheduled refresh. App startup invokes the same
 due-work method after persisted workspaces are restored.
 
-The existing `PullRequestSyncJob` remains responsible for the global
-account-centric PR dashboard. The commit worker invokes its concrete
-`synchronizeRepository(...)` helper, so periodic and commit-history PR work use
-the same overlap guard. There is no second PR store, scheduler, or overlap
-policy.
+Pull-request scheduling and overlap policy remain independent. A running or
+failed PR refresh cannot block or fail commit refresh.
 
 ## 8. HTTP and Electron bridge
 
@@ -433,7 +430,6 @@ sequenceDiagram
     participant Worker as CommitHistoryRefreshWorker
     participant Git as WorkspaceProvisioningService
     participant GitHub as GitHub clients
-    participant PR as PullRequestSyncJob
     participant Store as CommitHistoryStore
 
     UI->>API: POST commits/refresh(current refs)
@@ -447,7 +443,6 @@ sequenceDiagram
     Worker->>Worker: GitBrowseService.log(refs)
     Worker->>Store: findEnrichment(repositoryId, shas)
     Worker->>GitHub: fetch avatars and due PR associations
-    Worker->>PR: synchronizeRepository(monitoredRepository)
     Worker->>Store: upsertEnrichment + save IDLE/succeededAt
     loop only while QUEUED or RUNNING
         UI->>API: GET commits(...)
@@ -548,6 +543,8 @@ upstream ref.
   the backend-owned timestamp after all required work succeeds.
 - Scheduled and manual refresh requests never overlap for the same workspace
   and a request arriving during a run is eventually processed.
+- Commit refresh succeeds independently while pull-request refresh is running
+  or failing.
 - Two workspaces that see the same repository SHA reuse one enrichment row and
   one avatar file.
 - A GitHub failure shows stale local data and a retryable error; it does not

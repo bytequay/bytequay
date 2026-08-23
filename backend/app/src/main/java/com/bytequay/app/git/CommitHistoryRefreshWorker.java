@@ -22,7 +22,6 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -79,7 +78,6 @@ public class CommitHistoryRefreshWorker
     private final CredentialService credentials;
     private final GitHubRepoClient gitHub;
     private final CherryPickPullRequestLookup pullRequests;
-    private final PullRequestSyncJob pullRequestSync;
     private final AvatarCache avatars;
     private final Clock clock;
     private final Executor executor;
@@ -95,7 +93,6 @@ public class CommitHistoryRefreshWorker
             CredentialService credentials,
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
-            PullRequestSyncJob pullRequestSync,
             AvatarCache avatars,
             Clock clock,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
@@ -107,7 +104,6 @@ public class CommitHistoryRefreshWorker
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
         this.avatars = requireNonNull(avatars, "avatars is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -180,11 +176,27 @@ public class CommitHistoryRefreshWorker
 
     private void synchronize(Batch batch)
     {
-        WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(batch.workspaceId());
+        WorkspaceCodeSyncResult synchronization = refreshCode(batch.workspaceId());
+        validateRemoteSources(batch.refs(), synchronization);
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(batch.workspaceId());
+        List<ResolvedCommitHistoryRef> refs = resolveRefs(context, batch.refs());
+        store.upsertEnrichment(enrichRefs(context, refs));
+    }
+
+    private WorkspaceCodeSyncResult refreshCode(String workspaceId)
+    {
+        WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(workspaceId);
         if (synchronization.codeState() != CodeState.READY) {
             throw new IllegalStateException("managed repository synchronization failed");
         }
-        batch.refs().stream()
+        return synchronization;
+    }
+
+    private static void validateRemoteSources(
+            Collection<CommitHistoryRef> refs,
+            WorkspaceCodeSyncResult synchronization)
+    {
+        refs.stream()
                 .filter(ref -> ref.source() == Source.REMOTE)
                 .map(ref -> ref.remote().orElseThrow())
                 .filter(synchronization.failedRemoteSources()::contains)
@@ -192,31 +204,35 @@ public class CommitHistoryRefreshWorker
                 .ifPresent(remote -> {
                     throw new IllegalStateException("selected remote source synchronization failed: " + remote);
                 });
-        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(batch.workspaceId());
-        List<ResolvedCommitHistoryRef> resolved = batch.refs().stream()
+    }
+
+    private static List<ResolvedCommitHistoryRef> resolveRefs(
+            WorkspaceRepositoryContext context,
+            Collection<CommitHistoryRef> refs)
+    {
+        return refs.stream()
                 .map(ref -> CommitHistoryRouting.resolve(context, ref))
                 .toList();
+    }
+
+    private Collection<CommitEnrichment> enrichRefs(
+            WorkspaceRepositoryContext context,
+            Collection<ResolvedCommitHistoryRef> refs)
+    {
         String token = credentials.resolveGitHubToken();
         Instant now = clock.instant();
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
-        Set<RepoRef> repositories = new LinkedHashSet<>();
-        for (ResolvedCommitHistoryRef ref : resolved) {
+        for (ResolvedCommitHistoryRef ref : refs) {
             if (ref.repository().isEmpty()) {
                 // Extra remote sources have no provider identity, but reading
                 // the requested ref proves the synchronized branch exists.
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            repositories.add(ref.repository().orElseThrow());
             enrich(context, ref, token, now).forEach(value -> updates.merge(
                     new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefreshWorker::merge));
         }
-        for (RepoRef repository : repositories) {
-            if (!pullRequestSync.synchronizeRepository(repository)) {
-                throw new IllegalStateException("pull-request synchronization did not complete");
-            }
-        }
-        store.upsertEnrichment(updates.values());
+        return updates.values();
     }
 
     private List<CommitEnrichment> enrich(

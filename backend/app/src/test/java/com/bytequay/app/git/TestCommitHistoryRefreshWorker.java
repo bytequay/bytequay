@@ -22,7 +22,6 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -89,7 +88,6 @@ class TestCommitHistoryRefreshWorker
     private CredentialService credentials;
     private GitHubRepoClient gitHub;
     private CherryPickPullRequestLookup pullRequests;
-    private PullRequestSyncJob pullRequestSync;
     private AvatarCache avatars;
     private ControlledExecutor executor;
     private DefaultCommitHistoryService service;
@@ -104,7 +102,6 @@ class TestCommitHistoryRefreshWorker
         credentials = mock(CredentialService.class);
         gitHub = mock(GitHubRepoClient.class);
         pullRequests = mock(CherryPickPullRequestLookup.class);
-        pullRequestSync = mock(PullRequestSyncJob.class);
         avatars = mock(AvatarCache.class);
         executor = new ControlledExecutor();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -116,7 +113,6 @@ class TestCommitHistoryRefreshWorker
                 credentials,
                 gitHub,
                 pullRequests,
-                pullRequestSync,
                 avatars,
                 clock,
                 executor);
@@ -126,7 +122,6 @@ class TestCommitHistoryRefreshWorker
         when(provisioning.synchronizeCode(WORKSPACE_ID))
                 .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, CodeState.READY, Optional.of(NOW)));
         when(credentials.resolveGitHubToken()).thenReturn("test-token");
-        when(pullRequestSync.synchronizeRepository(SELECTED)).thenReturn(true);
     }
 
     @Test
@@ -162,12 +157,11 @@ class TestCommitHistoryRefreshWorker
             assertThat(value.pullRequestNumber()).contains(42);
             assertThat(value.pullRequestTitle()).contains("Example pull request");
         });
-        InOrder order = inOrder(provisioning, git, gitHub, pullRequests, pullRequestSync);
+        InOrder order = inOrder(provisioning, git, gitHub, pullRequests);
         order.verify(provisioning).synchronizeCode(WORKSPACE_ID);
         order.verify(git).log(REPOSITORY, "main", 300);
         order.verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300);
         order.verify(pullRequests).lookUpResult(eq(SELECTED), eq(List.of(commit.sha())), eq("main"), anyList());
-        order.verify(pullRequestSync).synchronizeRepository(SELECTED);
     }
 
     @Test
@@ -233,7 +227,6 @@ class TestCommitHistoryRefreshWorker
         assertThat(store.findRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
         assertThat(store.findRefreshStatus(WORKSPACE_ID).lastSucceededAt()).contains(previousSuccess);
         assertThat(store.values()).containsExactly(previous);
-        verify(pullRequestSync, never()).synchronizeRepository(SELECTED);
     }
 
     @Test
@@ -288,7 +281,7 @@ class TestCommitHistoryRefreshWorker
 
         assertThat(store.findRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
         verify(git).log(REPOSITORY, "oss/main", 300);
-        verifyNoInteractions(gitHub, pullRequests, pullRequestSync);
+        verifyNoInteractions(gitHub, pullRequests);
     }
 
     @Test

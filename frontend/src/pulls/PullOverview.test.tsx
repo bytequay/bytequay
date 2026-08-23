@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine } from './PullOverview';
-import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
+import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -510,6 +510,17 @@ describe('PullOverview', () => {
 
     expect(html).toContain('<strong>ravi-moreau</strong> requested your review on this pull request.');
     expect(html).toContain('>Add your review</button>');
+  });
+
+  it('shows the review banner only while the signed-in user is requested', () => {
+    const value = detail();
+
+    expect(isReviewRequestedForViewer(value, 'bob')).toBe(true);
+    expect(isReviewRequestedForViewer(value, 'carol')).toBe(false);
+    expect(isReviewRequestedForViewer({
+      ...value,
+      reviewers: [{ login: 'bob', avatarUrl: null, state: 'APPROVED' }],
+    }, 'bob')).toBe(false);
   });
 });
 

@@ -419,7 +419,9 @@ function PullDetailHeader({
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [viewerLogin, setViewerLogin] = useState<string | null>(null);
   const canReview = canSubmitReview(pr, detail);
+  const reviewRequested = isReviewRequestedForViewer(detail, viewerLogin);
   const canMerge = canReview
     && detail !== null
     && detail.state?.toLowerCase() === 'open'
@@ -455,6 +457,14 @@ function PullDetailHeader({
     return () => { cancelled = true; };
   }, [canMerge, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void window.bridge.getUserProfile()
+      .then(profile => { if (!cancelled) setViewerLogin(profile.login); })
+      .catch(() => { if (!cancelled) setViewerLogin(null); });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <header className="pull-detail__header">
       <div className="pull-detail__title-row">
@@ -481,7 +491,7 @@ function PullDetailHeader({
           )}
         </div>
       </div>
-      {canReview && detail && (
+      {reviewRequested && detail && (
         <ReviewRequestNotice pr={pr} detail={detail} onReview={() => onTab('changes')} />
       )}
       <nav className="pull-detail__tabs" aria-label="Pull request detail">
@@ -529,6 +539,12 @@ export function ReviewRequestNotice({ pr, detail, onReview }: {
 
 export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
   return pr.origin === 'REVIEW_REQUESTED' && detail?.state?.toLowerCase() === 'open';
+}
+
+export function isReviewRequestedForViewer(detail: PullRequestDetailDto | null, viewerLogin: string | null) {
+  return detail?.state?.toLowerCase() === 'open'
+    && Boolean(viewerLogin && detail.reviewers.some(reviewer =>
+      reviewer.login.toLowerCase() === viewerLogin.toLowerCase() && reviewer.state.toLowerCase() === 'pending'));
 }
 
 export function hasMergeConflicts(detail: PullRequestDetailDto | null) {

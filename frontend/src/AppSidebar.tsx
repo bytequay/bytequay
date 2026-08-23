@@ -24,12 +24,11 @@ const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
   { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
 ];
 
-// ponytail: dummy badge counts until real workspace stats are wired
-const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode; badge?: string }> = [
+const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
   { tab: 'home', label: 'Home', icon: <HomeIcon /> },
-  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon />, badge: '2' },
-  { tab: 'prs', label: 'Pull requests', icon: <PullsIcon />, badge: '4' },
-  { tab: 'issues', label: 'Issues', icon: <IssuesIcon />, badge: '7' },
+  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
+  { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
+  { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
   { tab: 'commits', label: 'Commits', icon: <CommitsIcon /> },
   { tab: 'memory', label: 'Memory', icon: <MemoryIcon /> },
 ];
@@ -72,7 +71,7 @@ export default function AppSidebar({
     return null;
   };
 
-  const workspaceItem = ({ tab, label, icon, badge }: typeof WORKSPACE_TABS[number]) => {
+  const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
     const reason = disabledReason(tab);
     return (
       <button
@@ -86,7 +85,6 @@ export default function AppSidebar({
       >
         <span aria-hidden="true">{icon}</span>
         <span className="app-sidebar__label">{label}</span>
-        {badge && <span className="app-sidebar__badge app-sidebar__label">{badge}</span>}
       </button>
     );
   };

@@ -663,16 +663,6 @@ samp {
   text-overflow: ellipsis;
 }
 
-.app-sidebar__badge {
-  margin-left: auto;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--left-nav-active-bg);
-  color: var(--text-2);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .app-sidebar.is-collapsed .app-sidebar__lights,
 .app-sidebar.is-collapsed .app-sidebar__traffic-btn,
 .app-sidebar.is-collapsed .app-sidebar__traffic .app-sidebar__spacer,

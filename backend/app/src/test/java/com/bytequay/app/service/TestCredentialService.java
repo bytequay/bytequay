@@ -17,8 +17,13 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.store.CredentialStore;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,5 +83,36 @@ class TestCredentialService
 
         assertThat(result).isEqualTo("octocat");
         verify(store).save("gho_secret", GH_CLI_SOURCE);
+    }
+
+    @Test
+    void gitAuthenticationUsesTheWorkspaceTokenForEveryRemoteHost()
+    {
+        CredentialStore store = mock(CredentialStore.class);
+        InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
+        workspaceStore.save("workspace-id", "workspace-token", "octocat");
+        CredentialService service = new CredentialService(
+                store,
+                workspaceStore,
+                mock(GhCliService.class),
+                mock(GitHubAccountClient.class));
+
+        Map<String, String> environment = service.gitAuthenticationEnvironment(
+                "workspace-id",
+                ImmutableList.of(
+                        "https://github.com/example/source.git",
+                        "https://github.com/example/target.git",
+                        "https://git.example.com/example/other.git"));
+
+        String expectedHeader = "Authorization: Basic " + Base64.getEncoder().encodeToString(
+                "x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
+        assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.<String, String>builder()
+                .put("GIT_CONFIG_COUNT", "2")
+                .put("GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader")
+                .put("GIT_CONFIG_VALUE_0", expectedHeader)
+                .put("GIT_CONFIG_KEY_1", "http.https://git.example.com/.extraHeader")
+                .put("GIT_CONFIG_VALUE_1", expectedHeader)
+                .buildOrThrow());
+        verify(store, never()).getSecret();
     }
 }

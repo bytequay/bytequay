@@ -21,6 +21,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -33,7 +34,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -90,13 +90,13 @@ class ManagedWorkspaceGit
         reconcileRemotes(previous, current, repository);
     }
 
-    void synchronize(Workspace previous, Workspace current)
+    Set<String> synchronize(Workspace previous, Workspace current)
     {
         validateRouting(current);
         Path repository = requireOwnedCheckout(current);
         Map<String, String> environment = authenticationEnvironment(current);
         reconcileRemotes(previous, current, repository);
-        fetchConfiguredRemotes(current, repository, environment);
+        return fetchConfiguredRemotes(current, repository, environment);
     }
 
     /** Pushes one ByteQuay-owned worktree branch to the persisted {@code origin} without force. */
@@ -351,7 +351,7 @@ class ManagedWorkspaceGit
         return Optional.of(urls.getFirst());
     }
 
-    private void fetchConfiguredRemotes(
+    private Set<String> fetchConfiguredRemotes(
             Workspace workspace,
             Path repository,
             Map<String, String> environment)
@@ -360,6 +360,7 @@ class ManagedWorkspaceGit
         if (workspace.upstreamRepositoryId().isPresent()) {
             fetch(repository, "upstream", environment);
         }
+        ImmutableSet.Builder<String> failed = ImmutableSet.builder();
         // Extra remote sources are best-effort: a later-broken user remote must
         // not fail workspace synchronization the way origin/upstream do.
         for (RemoteSource source : remoteSources.findByWorkspace(workspace.id())) {
@@ -367,10 +368,12 @@ class ManagedWorkspaceGit
                 fetch(repository, source.name(), environment);
             }
             catch (Failure failure) {
+                failed.add(source.name());
                 log.warn("Fetch skipped for remote source {} of workspace {}: {}",
                         source.name(), workspace.id(), failure.getMessage());
             }
         }
+        return failed.build();
     }
 
     private void fetch(Path repository, String remote, Map<String, String> environment)
@@ -385,26 +388,13 @@ class ManagedWorkspaceGit
 
     private Map<String, String> authenticationEnvironment(Workspace workspace)
     {
-        Set<String> bases = new LinkedHashSet<>();
-        bases.add(authenticationBase(workspace.originCloneUrl()));
-        workspace.upstreamCloneUrl()
-                .map(ManagedWorkspaceGit::authenticationBase)
-                .ifPresent(bases::add);
+        ImmutableList.Builder<String> urls = ImmutableList.builder();
+        urls.add(workspace.originCloneUrl());
+        workspace.upstreamCloneUrl().ifPresent(urls::add);
         for (RemoteSource source : remoteSources.findByWorkspace(workspace.id())) {
-            bases.add(authenticationBase(source.url()));
+            urls.add(source.url());
         }
-        String token = credentials.resolveGitHubToken(workspace.id());
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(
-                ("x-access-token:" + token).getBytes(StandardCharsets.UTF_8));
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        environment.put("GIT_CONFIG_COUNT", Integer.toString(bases.size()));
-        int index = 0;
-        for (String base : bases) {
-            environment.put("GIT_CONFIG_KEY_" + index, "http." + base + ".extraHeader");
-            environment.put("GIT_CONFIG_VALUE_" + index, header);
-            index++;
-        }
-        return environment.buildOrThrow();
+        return credentials.gitAuthenticationEnvironment(workspace.id(), urls.build());
     }
 
     private static void validateRouting(Workspace workspace)
@@ -416,12 +406,6 @@ class ManagedWorkspaceGit
     private static String ownership(Workspace workspace)
     {
         return workspace.id() + "\n" + workspace.selectedRepositoryId() + "\n";
-    }
-
-    private static String authenticationBase(String cloneUrl)
-    {
-        URI uri = cloneUri(cloneUrl);
-        return uri.getScheme().toLowerCase() + "://" + uri.getAuthority().toLowerCase() + "/";
     }
 
     private static URI cloneUri(String cloneUrl)

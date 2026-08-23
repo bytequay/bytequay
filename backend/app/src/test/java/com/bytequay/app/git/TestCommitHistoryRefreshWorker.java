@@ -35,6 +35,8 @@ import com.bytequay.core.domain.CommitRefreshStatus.State;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.CommitHistoryStore;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -69,6 +71,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestCommitHistoryRefreshWorker
@@ -252,6 +255,43 @@ class TestCommitHistoryRefreshWorker
     }
 
     @Test
+    void selectedCustomRemoteFetchFailureMarksRefreshFailed()
+    {
+        readyWorkspace("oss");
+        when(provisioning.synchronizeCode(WORKSPACE_ID)).thenReturn(new WorkspaceCodeSyncResult(
+                WORKSPACE_ID,
+                CodeState.READY,
+                Optional.of(NOW),
+                ImmutableSet.of("oss")));
+
+        service.requestRefresh(
+                WORKSPACE_ID,
+                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))),
+                MANUAL);
+        executor.runNext();
+
+        assertThat(store.findRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
+        verify(git, never()).log(REPOSITORY, "oss/main", 300);
+    }
+
+    @Test
+    void customRemoteRefreshReadsTheFetchedBranchWithoutProviderEnrichment()
+    {
+        readyWorkspace("oss");
+        when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of());
+
+        service.requestRefresh(
+                WORKSPACE_ID,
+                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))),
+                MANUAL);
+        executor.runNext();
+
+        assertThat(store.findRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
+        verify(git).log(REPOSITORY, "oss/main", 300);
+        verifyNoInteractions(gitHub, pullRequests, pullRequestSync);
+    }
+
+    @Test
     void reusesPositiveAndFreshNegativeAssociationsAndRetriesOnlyDueRecentNegatives()
     {
         Commit positive = commit("positive", NOW.minusSeconds(60));
@@ -287,7 +327,7 @@ class TestCommitHistoryRefreshWorker
                 .thenReturn(new PullRequestLookupResult(List.of(), java.util.Set.of()));
     }
 
-    private void readyWorkspace()
+    private void readyWorkspace(String... extraRemotes)
     {
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
@@ -299,7 +339,7 @@ class TestCommitHistoryRefreshWorker
                 "origin",
                 "origin",
                 "main",
-                List.of()));
+                ImmutableList.copyOf(extraRemotes)));
     }
 
     private static Commit commit(String sha, Instant authoredAt)

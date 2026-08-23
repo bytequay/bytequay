@@ -15,9 +15,11 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -25,18 +27,35 @@ import static java.util.Objects.requireNonNull;
 public record WorkspaceCodeSyncResult(
         String workspaceId,
         CodeState codeState,
-        Optional<Instant> lastCodeSyncAt)
+        Optional<Instant> lastCodeSyncAt,
+        Set<String> failedRemoteSources)
 {
     public WorkspaceCodeSyncResult
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(codeState, "codeState is null");
         requireNonNull(lastCodeSyncAt, "lastCodeSyncAt is null");
+        failedRemoteSources = ImmutableSet.copyOf(requireNonNull(
+                failedRemoteSources, "failedRemoteSources is null"));
+    }
+
+    public WorkspaceCodeSyncResult(
+            String workspaceId,
+            CodeState codeState,
+            Optional<Instant> lastCodeSyncAt)
+    {
+        this(workspaceId, codeState, lastCodeSyncAt, ImmutableSet.of());
     }
 
     public static WorkspaceCodeSyncResult of(Workspace workspace)
     {
         return new WorkspaceCodeSyncResult(
-                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt());
+                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt(), ImmutableSet.of());
+    }
+
+    public static WorkspaceCodeSyncResult of(Workspace workspace, Set<String> failedRemoteSources)
+    {
+        return new WorkspaceCodeSyncResult(
+                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt(), failedRemoteSources);
     }
 }

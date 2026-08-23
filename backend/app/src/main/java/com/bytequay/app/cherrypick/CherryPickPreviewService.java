@@ -16,6 +16,9 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.CommitEnrichment;
@@ -73,6 +76,8 @@ public class CherryPickPreviewService
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
     private final CommitHistoryStore commitHistory;
+    private final CredentialService credentials;
+    private final WorkspaceRemoteSourceService remoteSources;
     private final Clock clock;
     private final Cache<String, CherryPickPreview> cache;
 
@@ -80,11 +85,15 @@ public class CherryPickPreviewService
             GitCommandRunner git,
             CherryPickConflictScout conflictScout,
             CommitHistoryStore commitHistory,
+            CredentialService credentials,
+            WorkspaceRemoteSourceService remoteSources,
             Clock clock)
     {
         this.git = requireNonNull(git, "git is null");
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
         this.commitHistory = requireNonNull(commitHistory, "commitHistory is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.clock = requireNonNull(clock, "clock is null");
         // One time source drives both the stored expiry and the cache's own, so
         // a preview cannot read as live in one and expired in the other.
@@ -114,7 +123,11 @@ public class CherryPickPreviewService
         Path repository = command.repository();
         requireRepository(repository);
         requireFullClone(repository);
-        synchronizeTarget(repository, command);
+        Map<String, String> environment = authenticationEnvironment(
+                repository,
+                command.workspaceId(),
+                ImmutableList.of(command.sourceRemote(), command.targetRemote()));
+        synchronizeTarget(repository, command, environment);
 
         String targetSha = resolve(repository, command.localTargetBranch());
         String baseSha = resolve(repository, command.sourceBaseRef());
@@ -244,12 +257,17 @@ public class CherryPickPreviewService
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(preview, "preview is null");
+        Map<String, String> environment = authenticationEnvironment(
+                repository,
+                preview.workspaceId(),
+                ImmutableList.of(preview.targetRemote()));
         synchronizeTarget(
                 repository,
                 preview.targetRemote(),
                 preview.targetBranch(),
                 preview.localTargetBranch(),
-                "refs/remotes/" + preview.targetRemote() + "/" + preview.targetBranch());
+                "refs/remotes/" + preview.targetRemote() + "/" + preview.targetBranch(),
+                environment);
         if (!resolve(repository, preview.localTargetBranch()).equals(preview.targetSha())) {
             throw new CherryPickInvalidRequestException(
                     "Preview is stale; the synchronized target moved, so review a refreshed preview");
@@ -285,10 +303,16 @@ public class CherryPickPreviewService
         }
     }
 
-    private void synchronizeTarget(Path repository, PreviewCherryPickRangeCommand command)
+    private void synchronizeTarget(
+            Path repository,
+            PreviewCherryPickRangeCommand command,
+            Map<String, String> environment)
     {
         Result source = git.run(
-                repository, FETCH_TIMEOUT, ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
+                repository,
+                FETCH_TIMEOUT,
+                environment,
+                ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
         if (!source.successful()) {
             throw new CherryPickConflictException(
                     "Cannot fetch source remote " + command.sourceRemote() + ": " + source.output().strip());
@@ -298,7 +322,8 @@ public class CherryPickPreviewService
                 command.targetRemote(),
                 command.targetBranch(),
                 command.localTargetBranch(),
-                command.remoteTrackingRef());
+                command.remoteTrackingRef(),
+                environment);
     }
 
     private void synchronizeTarget(
@@ -306,7 +331,8 @@ public class CherryPickPreviewService
             String targetRemote,
             String targetBranch,
             String localBranch,
-            String remoteTrackingRef)
+            String remoteTrackingRef,
+            Map<String, String> environment)
     {
         Optional<String> holder = checkedOutAt(repository, localBranch);
         if (holder.isPresent()) {
@@ -315,8 +341,11 @@ public class CherryPickPreviewService
                             + "; Git cannot synchronize a checked-out branch");
         }
 
-        Result target = git.run(repository, FETCH_TIMEOUT, ImmutableList.of(
-                "fetch", "--quiet", targetRemote, targetBranch + ":" + localBranch));
+        Result target = git.run(
+                repository,
+                FETCH_TIMEOUT,
+                environment,
+                ImmutableList.of("fetch", "--quiet", targetRemote, targetBranch + ":" + localBranch));
 
         // Neither the exit code nor the message decides this. A rejected
         // non-fast-forward still advances the remote-tracking ref, and --quiet
@@ -496,11 +525,7 @@ public class CherryPickPreviewService
 
     private RepoRef readRepository(Path repository, String remote)
     {
-        Result result = git.run(repository, "config", "--get", "remote." + remote + ".url");
-        if (!result.successful()) {
-            throw new CherryPickInvalidRequestException("Remote " + remote + " has no configured URL");
-        }
-        String path = result.output().strip();
+        String path = remoteUrl(repository, remote);
         int scheme = path.indexOf("//");
         if (scheme >= 0) {
             int slash = path.indexOf('/', scheme + 2);
@@ -515,6 +540,43 @@ public class CherryPickPreviewService
             throw new CherryPickInvalidRequestException("Remote " + remote + " does not name an owner and repository");
         }
         return RepoRef.of(path.substring(0, separator), path.substring(separator + 1));
+    }
+
+    private Map<String, String> authenticationEnvironment(
+            Path repository,
+            Optional<String> workspaceId,
+            List<String> remotes)
+    {
+        if (workspaceId.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        String id = workspaceId.orElseThrow();
+        Map<String, String> configured = remoteSources.list(id).stream()
+                .collect(ImmutableMap.toImmutableMap(WorkspaceRemote::name, WorkspaceRemote::url));
+        List<String> urls = remotes.stream()
+                .map(remote -> {
+                    String expected = Optional.ofNullable(configured.get(remote))
+                            .orElseThrow(() -> new CherryPickInvalidRequestException(
+                                    "Remote " + remote + " is not persisted for this workspace"));
+                    if (!remoteUrl(repository, remote).equals(expected)) {
+                        throw new CherryPickInvalidRequestException(
+                                "Remote " + remote + " does not match persisted workspace routing");
+                    }
+                    return expected;
+                })
+                .collect(toImmutableList());
+        return credentials.gitAuthenticationEnvironment(
+                id,
+                urls);
+    }
+
+    private String remoteUrl(Path repository, String remote)
+    {
+        Result result = git.run(repository, "config", "--get", "remote." + remote + ".url");
+        if (!result.successful()) {
+            throw new CherryPickInvalidRequestException("Remote " + remote + " has no configured URL");
+        }
+        return result.output().strip();
     }
 
     private boolean isAncestor(Path repository, String ancestor, String descendant)

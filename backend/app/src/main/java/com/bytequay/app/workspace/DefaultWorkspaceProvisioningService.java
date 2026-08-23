@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
@@ -120,7 +121,7 @@ public final class DefaultWorkspaceProvisioningService
                         Optional.empty(),
                         clock.instant()));
                 Workspace currentRouting = refreshRouting(workspace);
-                managedGit.synchronize(previousRouting, currentRouting);
+                Set<String> failedRemoteSources = managedGit.synchronize(previousRouting, currentRouting);
                 Instant now = clock.instant();
                 Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
                 Workspace ready = store.save(latest.withCodeState(
@@ -128,7 +129,7 @@ public final class DefaultWorkspaceProvisioningService
                         Optional.of(now),
                         Optional.empty(),
                         now));
-                return WorkspaceCodeSyncResult.of(ready);
+                return WorkspaceCodeSyncResult.of(ready, failedRemoteSources);
             }
             catch (RuntimeException failure) {
                 return WorkspaceCodeSyncResult.of(fail(workspace, failure));

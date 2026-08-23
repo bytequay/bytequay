@@ -17,11 +17,19 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
 import static java.util.Objects.requireNonNull;
@@ -85,6 +93,31 @@ public class CredentialService
         return workspaceCredentials.getSecret(workspaceId)
                 .filter(value -> isNotBlank(value))
                 .orElseGet(this::resolveGitHubToken);
+    }
+
+    /** Git environment that authenticates HTTPS remotes with one workspace's token. */
+    public Map<String, String> gitAuthenticationEnvironment(
+            String workspaceId,
+            Collection<String> remoteUrls)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        requireNonNull(remoteUrls, "remoteUrls is null");
+        Set<String> bases = new LinkedHashSet<>();
+        remoteUrls.forEach(url -> bases.add(authenticationBase(url)));
+        if (bases.isEmpty()) {
+            throw new IllegalArgumentException("remoteUrls is empty");
+        }
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(
+                ("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
+        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
+        environment.put("GIT_CONFIG_COUNT", Integer.toString(bases.size()));
+        int index = 0;
+        for (String base : bases) {
+            environment.put("GIT_CONFIG_KEY_" + index, "http." + base + ".extraHeader");
+            environment.put("GIT_CONFIG_VALUE_" + index, header);
+            index++;
+        }
+        return environment.buildOrThrow();
     }
 
     /** Masked display form of the stored account token; never the full value. */
@@ -165,5 +198,19 @@ public class CredentialService
     {
         return credentialStore.getSecret()
                 .filter(value -> isNotBlank(value));
+    }
+
+    private static String authenticationBase(String remoteUrl)
+    {
+        URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
+        if (!"https".equalsIgnoreCase(uri.getScheme())
+                || uri.getHost() == null
+                || uri.getHost().isBlank()
+                || uri.getUserInfo() != null
+                || uri.getQuery() != null
+                || uri.getFragment() != null) {
+            throw new IllegalArgumentException("unsafe remote URL");
+        }
+        return uri.getScheme().toLowerCase() + "://" + uri.getAuthority().toLowerCase() + "/";
     }
 }

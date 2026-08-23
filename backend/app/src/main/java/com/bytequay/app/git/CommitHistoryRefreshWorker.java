@@ -16,6 +16,7 @@ package com.bytequay.app.git;
 import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
 import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.bytequay.app.cherrypick.PullRequestLookupResult;
+import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
@@ -183,6 +184,14 @@ public class CommitHistoryRefreshWorker
         if (synchronization.codeState() != CodeState.READY) {
             throw new IllegalStateException("managed repository synchronization failed");
         }
+        batch.refs().stream()
+                .filter(ref -> ref.source() == Source.REMOTE)
+                .map(ref -> ref.remote().orElseThrow())
+                .filter(synchronization.failedRemoteSources()::contains)
+                .findFirst()
+                .ifPresent(remote -> {
+                    throw new IllegalStateException("selected remote source synchronization failed: " + remote);
+                });
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(batch.workspaceId());
         List<ResolvedCommitHistoryRef> resolved = batch.refs().stream()
                 .map(ref -> CommitHistoryRouting.resolve(context, ref))
@@ -193,8 +202,9 @@ public class CommitHistoryRefreshWorker
         Set<RepoRef> repositories = new LinkedHashSet<>();
         for (ResolvedCommitHistoryRef ref : resolved) {
             if (ref.repository().isEmpty()) {
-                // Extra remote sources have no provider identity: the fetch in
-                // synchronizeCode is their whole refresh.
+                // Extra remote sources have no provider identity, but reading
+                // the requested ref proves the synchronized branch exists.
+                git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
             repositories.add(ref.repository().orElseThrow());

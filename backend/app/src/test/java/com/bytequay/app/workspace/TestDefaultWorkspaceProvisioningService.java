@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
@@ -46,6 +47,8 @@ import java.util.concurrent.Executors;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -55,6 +58,7 @@ class TestDefaultWorkspaceProvisioningService
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final String ORIGIN_URL = "https://github.test/contributor/project.git";
     private static final String UPSTREAM_URL = "https://github.test/upstream/project.git";
+    private static final String CUSTOM_URL = "https://github.test/other/project.git";
 
     @TempDir
     private Path temporary;
@@ -215,6 +219,33 @@ class TestDefaultWorkspaceProvisioningService
     }
 
     @Test
+    void reportsBrokenCustomRemoteWithoutFailingTheWorkspace()
+            throws IOException
+    {
+        Remote origin = remote("origin");
+        GitCommandRunner git = routedGit(
+                ImmutableMap.of(
+                        ORIGIN_URL, origin.bare(),
+                        CUSTOM_URL, temporary.resolve("missing-custom.git")),
+                temporary.resolve("git-commands.log"));
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
+        Workspace workspace = store.createOrGet(workspace("broken-custom", false));
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L))
+                .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
+        DefaultWorkspaceProvisioningService service = service(store, git, gitHub, remoteSources);
+        assertThat(service.provision(workspace.id()).codeState()).isEqualTo(CodeState.READY);
+        remoteSources.save(new RemoteSource(workspace.id(), "oss", CUSTOM_URL));
+
+        WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
+
+        assertThat(result.codeState()).isEqualTo(CodeState.READY);
+        assertThat(result.failedRemoteSources()).containsExactly("oss");
+        assertThat(git(directPath(workspace), "remote").lines()).containsExactly("origin", "oss");
+    }
+
+    @Test
     void reconcilesRepositoryRenameByStableId()
             throws IOException
     {
@@ -293,13 +324,23 @@ class TestDefaultWorkspaceProvisioningService
             GitCommandRunner git,
             GitHubAccountClient gitHub)
     {
+        return service(store, git, gitHub, new InMemoryRemoteSourceStore());
+    }
+
+    private DefaultWorkspaceProvisioningService service(
+            WorkspaceStore store,
+            GitCommandRunner git,
+            GitHubAccountClient gitHub,
+            InMemoryRemoteSourceStore remoteSources)
+    {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubToken(org.mockito.ArgumentMatchers.anyString())).thenReturn("token");
+        when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
+        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenCallRealMethod();
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         return new DefaultWorkspaceProvisioningService(
                 store,
-                new ManagedWorkspaceGit(paths, git, credentials, new InMemoryRemoteSourceStore()),
+                new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC));

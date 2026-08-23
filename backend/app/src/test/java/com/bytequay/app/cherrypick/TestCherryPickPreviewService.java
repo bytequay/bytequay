@@ -15,11 +15,17 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
+import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.store.CommitHistoryStore;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,7 +46,11 @@ import java.util.stream.IntStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestCherryPickPreviewService
@@ -56,6 +66,7 @@ class TestCherryPickPreviewService
     private Path clone;
     private MutableClock clock;
     private CommitHistoryStore commitHistory;
+    private CredentialService credentials;
     private CherryPickPreviewService service;
 
     @BeforeEach
@@ -76,10 +87,19 @@ class TestCherryPickPreviewService
         git(clone, "remote", "add", "fork", fork.toString());
         clock = new MutableClock(NOW);
         commitHistory = mock(CommitHistoryStore.class);
+        credentials = mock(CredentialService.class);
+        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
+                .thenReturn(ImmutableMap.of());
+        WorkspaceRemoteSourceService remoteSources = mock(WorkspaceRemoteSourceService.class);
+        when(remoteSources.list("workspace-id")).thenReturn(ImmutableList.of(
+                new WorkspaceRemote("origin", upstream.toString(), Role.ORIGIN),
+                new WorkspaceRemote("fork", fork.toString(), Role.CUSTOM)));
         service = new CherryPickPreviewService(
                 GIT,
                 new CherryPickConflictScout(GIT),
                 commitHistory,
+                credentials,
+                remoteSources,
                 clock);
     }
 
@@ -117,6 +137,27 @@ class TestCherryPickPreviewService
             assertThat(value.pullRequest().orElseThrow().number()).isEqualTo(42);
             assertThat(value.pullRequest().orElseThrow().title()).isEqualTo("Example pull request");
         });
+        verify(credentials).gitAuthenticationEnvironment(
+                "workspace-id", ImmutableList.of(upstream.toString(), fork.toString()));
+    }
+
+    @Test
+    void rejectsRemoteRoutingDriftBeforeAddingTheWorkspaceCredential()
+    {
+        git(clone, "remote", "set-url", "origin", temporaryDirectory.resolve("unexpected.git").toString());
+
+        assertThatThrownBy(() -> service.preview(new PreviewCherryPickRangeCommand(
+                clone,
+                Optional.of("workspace-id"),
+                OptionalLong.empty(),
+                "origin",
+                "origin/main",
+                "origin/main",
+                "fork",
+                "main")))
+                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .hasMessageContaining("does not match persisted workspace routing");
+        verifyNoInteractions(credentials);
     }
 
     @Test

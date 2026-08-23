@@ -19,19 +19,32 @@ import CommitsTab, {
   commitRefreshRefs,
   commitSyncLabel,
   isCommitRefreshActive,
+  selectableCommitSources,
 } from './CommitsTab';
 
 describe('workspace commits tab', () => {
-  it('always shows the remote source switcher, defaulting to origin', () => {
+  it('keeps the workspace branch separate from the remote source switcher', () => {
     const html = renderToStaticMarkup(<CommitsTab
       workspace={workspace()}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('Source: origin');
-    expect(html).toContain('Remote source — history and cherry-pick read from here');
+    expect(html).toContain('Source: Select source');
+    expect(html).toContain('Choose a remote source for history and cherry-pick');
+    expect(html).not.toContain('Source: origin');
     expect(html).not.toContain('No upstream linked');
+  });
+
+  it('excludes origin from cherry-pick sources', () => {
+    expect(selectableCommitSources([
+      { name: 'origin', url: 'https://github.com/example/project.git' },
+      { name: 'upstream', url: 'https://github.com/upstream/project.git' },
+      { name: 'oss', url: 'https://github.com/example/project-oss.git' },
+    ], 'origin')).toEqual([
+      { name: 'upstream', url: 'https://github.com/upstream/project.git' },
+      { name: 'oss', url: 'https://github.com/example/project-oss.git' },
+    ]);
   });
 
   it('opens on the upstream browser when asked to start there', () => {
@@ -52,7 +65,7 @@ describe('workspace commits tab', () => {
     />);
 
     expect(html).toContain('cmt-split-chip is-active');
-    expect(html).toContain('title="Remote source');
+    expect(html).toContain('title="View the selected remote source"');
     expect(html).toContain('cmt-repo-chip" title="This workspace');
     expect(html).toContain('Source: upstream');
     expect(html).toContain('title="Branch of the selected source"');

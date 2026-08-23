@@ -71,6 +71,10 @@ public class CherryPickPreviewController
             throw WorkspaceException.invalidRemoteSource(
                     "The remote source is not configured for this workspace.");
         }
+        if (sourceRemote.equals(context.targetRemote())) {
+            throw WorkspaceException.invalidRemoteSource(
+                    "Choose a remote source other than origin.");
+        }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),
                 Optional.of(workspaceId),
@@ -87,14 +91,11 @@ public class CherryPickPreviewController
 
     /**
      * Provider identity of the source range, used for pull-request grouping.
-     * Only origin and the linked upstream have persisted identities; other
-     * remote sources preview without grouping.
+     * Only the linked upstream has a persisted identity; other remote sources
+     * preview without grouping.
      */
     private static OptionalLong sourceRepositoryId(WorkspaceRepositoryContext context, String sourceRemote)
     {
-        if (sourceRemote.equals(context.targetRemote())) {
-            return OptionalLong.of(context.selectedRepositoryId());
-        }
         if (sourceRemote.equals(context.sourceRemote())) {
             return context.upstreamRepositoryId();
         }

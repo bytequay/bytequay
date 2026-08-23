@@ -64,6 +64,13 @@ export function commitSyncLabel(status: CommitRefreshStatusDto | null): string {
     : 'not synced yet';
 }
 
+export function selectableCommitSources(
+  remotes: GitOverviewDto['remotes'],
+  originRemote: string,
+): GitOverviewDto['remotes'] {
+  return remotes.filter(remote => remote.name !== originRemote);
+}
+
 export default function CommitsTab({ workspace, initialExecutionId, initialRepo, onOpenPullRequest, onOpenSettings }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
@@ -76,8 +83,8 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
-  /** 'workspace' (the local checkout, listed as origin) or the name of a configured remote. */
-  const [source, setSource] = useState<string>(initialRepo ?? 'workspace');
+  const [source, setSource] = useState<string | null>(initialRepo === 'upstream' ? 'upstream' : null);
+  const [viewingSource, setViewingSource] = useState(initialRepo === 'upstream');
   const [branch, setBranch] = useState(workspace.defaultBranch);
   const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
   const [branchMenu, setBranchMenu] = useState(false);
@@ -99,8 +106,9 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [logVersion, setLogVersion] = useState(0);
 
   const hasUpstream = workspace.upstreamRepositoryId !== null;
+  const remoteSources = selectableCommitSources(overview?.remotes ?? [], workspace.originRemote);
   /** A non-origin remote being browsed read-only, or null for the local checkout. */
-  const activeRemote = source === 'workspace' || source === workspace.originRemote ? null : source;
+  const activeRemote = viewingSource ? source : null;
   const isRemote = activeRemote !== null;
   const isUpstream = activeRemote === 'upstream' && hasUpstream;
   const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
@@ -108,8 +116,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     : null;
   const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url ?? null;
   const originSlug = originUrl ? githubSlug(originUrl) : null;
-  const firstExtraRemote = overview?.remotes
-    .find(remote => remote.name !== workspace.originRemote && remote.name !== 'upstream')?.name ?? null;
+  const firstExtraRemote = remoteSources.find(remote => remote.name !== 'upstream')?.name ?? null;
   const activeRemoteUrl = activeRemote === null
     ? null
     : overview?.remotes.find(remote => remote.name === activeRemote)?.url ?? null;
@@ -130,7 +137,11 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
 
   useEffect(() => {
-    if (!hasUpstream && source === 'upstream') setSource(firstExtraRemote ?? 'workspace');
+    if (!hasUpstream && source === 'upstream') {
+      setSource(firstExtraRemote);
+      setViewingSource(firstExtraRemote !== null);
+      return;
+    }
     setUpBranch(source === 'upstream'
       ? workspace.upstreamDefaultBranch ?? workspace.defaultBranch
       : workspace.defaultBranch);
@@ -293,7 +304,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const wsChipClick = () => {
     if (screen !== 'commits' || isRemote) {
       setScreen('commits');
-      setSource('workspace');
+      setViewingSource(false);
       setBranchMenu(false);
       setSourceMenu(false);
       setSourceBranchMenu(false);
@@ -304,6 +315,19 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     setSourceBranchMenu(false);
   };
 
+  const activateSource = () => {
+    if (source === null) {
+      setSourceMenu(true);
+    }
+    else {
+      setScreen('commits');
+      setCommitsView('history');
+      setViewingSource(true);
+    }
+    setBranchMenu(false);
+    setSourceBranchMenu(false);
+  };
+
   const sourceChipClick = () => {
     setSourceMenu(open => !open);
     setBranchMenu(false);
@@ -311,6 +335,9 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   };
 
   const sourceBranchChipClick = () => {
+    setScreen('commits');
+    setCommitsView('history');
+    setViewingSource(true);
     setSourceBranchMenu(open => !open);
     setBranchMenu(false);
     setSourceMenu(false);
@@ -321,11 +348,8 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     setScreen('commits');
     setSourceMenu(false);
     setSourceBranchMenu(true);
-    if (name === workspace.originRemote) {
-      setSource('workspace');
-      return;
-    }
     setSource(name);
+    setViewingSource(true);
     setCommitsView('history');
   };
 
@@ -339,17 +363,17 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     }
     setScreen('commits');
     setSource(cherryPickSource);
+    setViewingSource(true);
     setCommitsView('history');
   };
 
   const remoteDescription = (name: string, url: string) => {
     const slug = githubSlug(url);
-    if (name === workspace.originRemote) return `${slug ?? url} · your fork, pushes go here`;
     if (name === 'upstream' && hasUpstream) return `${slug ?? url} · linked upstream`;
     return slug ?? url;
   };
 
-  const sourceLabel = activeRemote ?? workspace.originRemote;
+  const sourceLabel = source ?? 'Select source';
   const showTabBar = screen !== 'progress';
   const filteredUpBranches = upBranches.filter(name =>
     name.toLowerCase().includes(upBranchQuery.trim().toLowerCase()));
@@ -363,6 +387,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
               type="button"
               className={`cmt-repo-chip${!isRemote ? ' is-active' : ''}`}
               title="This workspace's branch — click again to switch branch"
+              aria-pressed={!isRemote}
               onClick={wsChipClick}
             >
               <span className="cmt-mono">⑂</span>
@@ -396,45 +421,61 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
               <button
                 type="button"
                 className="cmt-split-chip__seg"
-                title="Remote source — history and cherry-pick read from here"
-                onClick={sourceChipClick}
+                title={source === null
+                  ? 'Choose a remote source for history and cherry-pick'
+                  : 'View the selected remote source'}
+                aria-pressed={isRemote}
+                onClick={activateSource}
               >
                 <span className="cmt-mono">⇅</span>
                 <span className="cmt-repo-chip__label">Source: {sourceLabel}</span>
                 {isRemote && <span className="cmt-readonly">read-only</span>}
-                <span className="cmt-caret">▾</span>
               </button>
               <button
                 type="button"
-                className="cmt-split-chip__seg"
-                title="Branch of the selected source"
-                onClick={sourceBranchChipClick}
+                className="cmt-split-chip__seg cmt-split-chip__caret"
+                title="Choose remote source"
+                aria-label="Choose remote source"
+                onClick={sourceChipClick}
               >
-                <span className="cmt-mono">⑂</span>
-                <span className="cmt-repo-chip__label">{isRemote ? upBranch : branch}</span>
                 <span className="cmt-caret">▾</span>
               </button>
+              {source !== null && (
+                <button
+                  type="button"
+                  className="cmt-split-chip__seg"
+                  title="Branch of the selected source"
+                  onClick={sourceBranchChipClick}
+                >
+                  <span className="cmt-mono">⑂</span>
+                  <span className="cmt-repo-chip__label">{upBranch}</span>
+                  <span className="cmt-caret">▾</span>
+                </button>
+              )}
             </div>
             {sourceMenu && (
               <div className="cmt-menu is-wide">
                 <div className="cmt-menu-label">
                   REMOTE SOURCE — HISTORY &amp; CHERRY-PICK READ FROM HERE
                 </div>
-                {(overview?.remotes ?? []).map(remote => (
+                {remoteSources.map(remote => (
                   <button
                     type="button"
                     key={remote.name}
                     title={remote.url}
-                    className={`cmt-menu-item cmt-source-item${sourceLabel === remote.name ? ' is-current' : ''}`}
+                    className={`cmt-menu-item cmt-source-item${source === remote.name ? ' is-current' : ''}`}
                     onClick={() => pickSource(remote.name)}
                   >
                     <span className="cmt-source-name cmt-mono">
-                      {sourceLabel === remote.name ? '✓ ' : ''}{remote.name}
+                      {source === remote.name ? '✓ ' : ''}{remote.name}
                     </span>
                     <span className="cmt-source-desc">{remoteDescription(remote.name, remote.url)}</span>
                   </button>
                 ))}
                 {overview === null && <div className="cmt-menu-label">Loading remotes…</div>}
+                {overview !== null && remoteSources.length === 0 && (
+                  <div className="cmt-menu-label">No remote sources configured</div>
+                )}
                 <div className="cmt-menu-divider" />
                 <button
                   type="button"
@@ -452,50 +493,30 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
             {sourceBranchMenu && (
               <div className="cmt-menu is-wide">
                 <div className="cmt-menu-label">SWITCH BRANCH — {sourceLabel}</div>
-                {isRemote ? (
-                  <>
-                    <div className="cmt-menu-search">
-                      <input
-                        value={upBranchQuery}
-                        placeholder="⌕ Find a branch…"
-                        onChange={event => setUpBranchQuery(event.target.value)}
-                      />
-                    </div>
-                    {filteredUpBranches.slice(0, 30).map(name => (
-                      <button
-                        type="button"
-                        key={name}
-                        title={name}
-                        className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
-                        onClick={() => {
-                          setUpBranch(name);
-                          setSourceBranchMenu(false);
-                          setUpBranchQuery('');
-                          setCheckedUp(new Set());
-                        }}
-                      >
-                        {name === upBranch ? '✓' : ' '} {name}
-                      </button>
-                    ))}
-                    {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
-                  </>
-                ) : (
-                  (overview?.branches ?? []).map(name => (
-                    <button
-                      type="button"
-                      key={name}
-                      title={name}
-                      className={`cmt-menu-item${name === branch ? ' is-current' : ''}`}
-                      onClick={() => {
-                        setBranch(name);
-                        setSourceBranchMenu(false);
-                        setCheckedWs(new Set());
-                      }}
-                    >
-                      {name === branch ? '✓' : ' '} {name}
-                    </button>
-                  ))
-                )}
+                <div className="cmt-menu-search">
+                  <input
+                    value={upBranchQuery}
+                    placeholder="⌕ Find a branch…"
+                    onChange={event => setUpBranchQuery(event.target.value)}
+                  />
+                </div>
+                {filteredUpBranches.slice(0, 30).map(name => (
+                  <button
+                    type="button"
+                    key={name}
+                    title={name}
+                    className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
+                    onClick={() => {
+                      setUpBranch(name);
+                      setSourceBranchMenu(false);
+                      setUpBranchQuery('');
+                      setCheckedUp(new Set());
+                    }}
+                  >
+                    {name === upBranch ? '✓' : ' '} {name}
+                  </button>
+                ))}
+                {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
               </div>
             )}
           </div>

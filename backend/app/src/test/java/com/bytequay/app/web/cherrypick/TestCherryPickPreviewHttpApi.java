@@ -67,6 +67,10 @@ class TestCherryPickPreviewHttpApi
             {"sourceRemote":"oss","sourceBaseRef":"477","sourceTipRef":"478","targetBranch":"master"}
             """;
 
+    private static final String ORIGIN_SOURCE_BODY = """
+            {"sourceRemote":"origin","sourceBaseRef":"477","sourceTipRef":"478","targetBranch":"master"}
+            """;
+
     private WorkspaceRepositoryService workspaces;
     private CherryPickPreviewService previewService;
     private MockMvc mvc;
@@ -193,6 +197,12 @@ class TestCherryPickPreviewHttpApi
                         .content(INJECTED_SOURCE_BODY))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("WORKSPACE_REMOTE_SOURCE_INVALID"));
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ORIGIN_SOURCE_BODY))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value("Choose a remote source other than origin."));
         verify(previewService, never()).preview(any());
 
         mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")

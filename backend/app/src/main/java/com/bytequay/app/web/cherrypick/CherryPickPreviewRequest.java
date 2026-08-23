@@ -19,8 +19,8 @@ import static java.util.Objects.requireNonNull;
  * Preview request body.
  *
  * <p>The repository path, local target branch, and work branch are derived by
- * the backend. The optional source remote must name one of the workspace's
- * configured remotes; when absent the linked upstream is used.
+ * the backend. The optional source remote must name a configured remote other
+ * than origin; when absent the linked upstream is used.
  */
 public record CherryPickPreviewRequest(
         String sourceRemote,

@@ -466,11 +466,6 @@ function PullDetailHeader({
           <button className="pull-detail__open-github" type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
             Open on GitHub <span aria-hidden="true">↗</span>
           </button>
-          {canReview && (
-            <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
-              Submit review
-            </button>
-          )}
           {canMerge && (
             <button
               className={`pull-detail__merge-action${conflicts || mergeBlocked ? ' is-conflicts' : mergeLoading ? ' is-loading' : ''}`}
@@ -486,6 +481,9 @@ function PullDetailHeader({
           )}
         </div>
       </div>
+      {canReview && detail && (
+        <ReviewRequestNotice pr={pr} detail={detail} onReview={() => onTab('changes')} />
+      )}
       <nav className="pull-detail__tabs" aria-label="Pull request detail">
         <button className={tab === 'overview' ? 'is-active' : ''} type="button" onClick={() => onTab('overview')}>
           <CommentIcon /> Overview
@@ -508,6 +506,24 @@ function PullDetailHeader({
           onClose={() => setMergeOpen(false)} onRefresh={onRefresh} />
       )}
     </header>
+  );
+}
+
+export function ReviewRequestNotice({ pr, detail, onReview }: {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  onReview: () => void;
+}) {
+  const requester = detail.recentActivity.findLast(activity =>
+    activity.eventType === 'review_requested' && activity.actor?.trim())?.actor
+    ?? pr.author
+    ?? 'Someone';
+  return (
+    <aside className="pull-detail__review-request" aria-label="Review requested">
+      <ReviewRequestIcon />
+      <span><strong>{requester}</strong> requested your review on this pull request.</span>
+      <button type="button" onClick={onReview}>Add your review</button>
+    </aside>
   );
 }
 
@@ -789,6 +805,13 @@ function MergeSuccessIcon() {
 
 function ConflictIcon() {
   return <span className="pr-merge-conflict-icon" aria-hidden="true">×</span>;
+}
+
+function ReviewRequestIcon() {
+  return <svg className="pull-detail__review-request-icon" viewBox="0 0 16 16" width="16" height="16"
+    fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" aria-hidden="true">
+    <path d="M8 1.8 15 14H1L8 1.8Z" /><path d="M8 5.5v4" /><circle cx="8" cy="12" r=".7" fill="currentColor" stroke="none" />
+  </svg>;
 }
 
 function DetailBody({

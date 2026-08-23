@@ -196,6 +196,11 @@
   font-weight: 600;
 }
 .pull-detail__header-actions button.pull-detail__review-action:hover { background: #1a7f37; }
+.pull-detail__review-request { display: flex; min-height: 48px; align-items: center; gap: 10px; margin-top: 12px; border: 1px solid #d4a72c; border-radius: 8px; background: #fff8c5; padding: 8px 10px; color: #24292f; font-size: 13px; }
+.pull-detail__review-request-icon { flex: 0 0 auto; color: #9a6700; }
+.pull-detail__review-request strong { font-weight: 600; }
+.pull-detail__review-request button { min-height: 30px; flex: 0 0 auto; margin-left: auto; border: 1px solid #1a7f37; border-radius: 7px; background: #1f883d; color: #fff; padding: 4px 10px; font: inherit; font-weight: 600; }
+.pull-detail__review-request button:hover { background: #1a7f37; }
 .pull-detail__header-actions button.pull-detail__merge-action:disabled {
   cursor: default;
   opacity: 1;

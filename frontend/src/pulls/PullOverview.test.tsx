@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention } from './PullOverview';
-import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
+import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -466,6 +466,18 @@ describe('PullOverview', () => {
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'dirty' })).toBe(true);
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'blocked' })).toBe(false);
     expect(remotePullRequest(value, 'bob').origin).toBe('REVIEW_REQUESTED');
+  });
+
+  it('shows who requested the current user\'s review', () => {
+    const value = detail();
+    value.recentActivity.push({
+      actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-08-20T10:00:00Z', body: null, githubId: 30, payload: emptyPayload,
+    });
+
+    const html = renderToStaticMarkup(<ReviewRequestNotice pr={pullRequest()} detail={value} onReview={() => {}} />);
+
+    expect(html).toContain('<strong>ravi-moreau</strong> requested your review on this pull request.');
+    expect(html).toContain('>Add your review</button>');
   });
 });
 

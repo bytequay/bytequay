@@ -16,6 +16,7 @@ package com.bytequay.app.web.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickPreview;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -59,9 +61,14 @@ public class CherryPickPreviewController
     {
         requireNonNull(request, "request is null");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
+        if (context.sourceRemote().equals(context.targetRemote())) {
+            throw WorkspaceException.invalidUpstream(
+                    "Link another watched workspace before starting a cherry-pick.");
+        }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),
                 Optional.of(workspaceId),
+                OptionalLong.of(context.upstreamRepositoryId().orElseThrow()),
                 context.sourceRemote(),
                 request.sourceBaseRef(),
                 request.sourceTipRef(),

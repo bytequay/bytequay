@@ -20,12 +20,14 @@ export type Workspace = {
   name: string;
   path: string;
   defaultBranch: string;
+  upstreamDefaultBranch: string | null;
   /** Remote the workspace pushes to; the cherry-pick target. */
   originRemote: string;
   /** Read-only cherry-pick source, or null when nothing is linked. */
   upstreamRemote: string | null;
   selectedOwner: string;
   selectedRepo: string;
+  upstreamWorkspaceId: string | null;
   upstreamOwner: string | null;
   upstreamRepo: string | null;
   monitoredOwner: string;
@@ -48,10 +50,12 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
     name: dto.name,
     path: dto.localRepositoryPath,
     defaultBranch: dto.defaultBranch,
+    upstreamDefaultBranch: dto.upstreamDefaultBranch,
     originRemote: 'origin',
-    upstreamRemote: dto.topology === 'FORK' ? 'upstream' : null,
+    upstreamRemote: dto.upstreamWorkspaceId === null ? null : 'upstream',
     selectedOwner: dto.selectedOwner,
     selectedRepo: dto.selectedRepo,
+    upstreamWorkspaceId: dto.upstreamWorkspaceId,
     upstreamOwner: dto.upstreamOwner,
     upstreamRepo: dto.upstreamRepo,
     monitoredOwner: dto.monitoredOwner,

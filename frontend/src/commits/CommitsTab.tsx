@@ -13,7 +13,14 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import type { CherryPickPreview, GitCommitDto, GitOverviewDto, PullRequestDto } from '../types';
+import type {
+  CherryPickPreview,
+  CommitHistoryRefDto,
+  CommitHistorySourceDto,
+  CommitRefreshStatusDto,
+  GitCommitDto,
+  GitOverviewDto,
+} from '../types';
 import { githubSlug, type Workspace } from '../workspaces/model';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';
@@ -26,48 +33,77 @@ import '../css/commits.css';
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
 
-export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest }: {
+export function commitRefreshRefs(
+  branch: string,
+  upBranch: string,
+  hasUpstream: boolean,
+): CommitHistoryRefDto[] {
+  return [
+    { source: 'WORKSPACE', branch },
+    ...(hasUpstream ? [{ source: 'UPSTREAM' as const, branch: upBranch }] : []),
+  ];
+}
+
+export function isCommitRefreshActive(status: CommitRefreshStatusDto | null): boolean {
+  return status?.state === 'QUEUED' || status?.state === 'RUNNING';
+}
+
+export function commitSyncLabel(status: CommitRefreshStatusDto | null): string {
+  if (isCommitRefreshActive(status)) return 'syncing…';
+  if (status?.state === 'FAILED') {
+    return status.lastSucceededAt
+      ? `sync failed · last synced ${relativeTime(status.lastSucceededAt)}`
+      : 'sync failed';
+  }
+  return status?.lastSucceededAt
+    ? `synced ${relativeTime(status.lastSucceededAt)}`
+    : 'not synced yet';
+}
+
+export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest, onOpenSettings }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
   onOpenPullRequest: (number: number) => void;
+  onOpenSettings: () => void;
 }) {
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
   const [repo, setRepo] = useState<'workspace' | 'upstream'>('workspace');
   const [branch, setBranch] = useState(workspace.defaultBranch);
-  const [upBranch, setUpBranch] = useState(workspace.defaultBranch);
+  const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
   const [branchMenu, setBranchMenu] = useState(false);
   const [upMenu, setUpMenu] = useState(false);
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
   const [commits, setCommits] = useState<GitCommitDto[]>([]);
-  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [logLoading, setLogLoading] = useState(true);
   const [checkedWs, setCheckedWs] = useState<Set<string>>(new Set());
   const [checkedUp, setCheckedUp] = useState<Set<string>>(new Set());
   const [changesCount, setChangesCount] = useState<number | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncedAt, setSyncedAt] = useState<number | null>(() => {
-    const value = localStorage.getItem(`bytequay.lastSync.${workspace.id}`);
-    return value ? Number(value) : null;
-  });
+  const [refreshStatus, setRefreshStatus] = useState<CommitRefreshStatusDto | null>(null);
+  const [manualPolling, setManualPolling] = useState(false);
   const [preview, setPreview] = useState<CherryPickPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(initialExecutionId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
 
-  const isUpstream = repo === 'upstream';
+  const hasUpstream = workspace.upstreamWorkspaceId !== null;
+  const isUpstream = repo === 'upstream' && hasUpstream;
   const upstreamRemote = workspace.upstreamRemote;
   const sourceRemote = upstreamRemote ?? workspace.originRemote;
-  const upstreamUrl = overview?.remotes.find(remote => remote.name === sourceRemote)?.url ?? null;
-  const upstreamSlug = upstreamUrl ? githubSlug(upstreamUrl) : null;
+  const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
+    ? `${workspace.upstreamOwner}/${workspace.upstreamRepo}`
+    : null;
   const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url ?? null;
   const originSlug = originUrl ? githubSlug(originUrl) : null;
   const logRef = isUpstream ? `${sourceRemote}/${upBranch}` : branch;
+  const historySource: CommitHistorySourceDto = isUpstream ? 'UPSTREAM' : 'WORKSPACE';
+  const historyBranch = isUpstream ? upBranch : branch;
   const checked = isUpstream ? checkedUp : checkedWs;
+  const syncing = isCommitRefreshActive(refreshStatus);
 
   const refreshOverview = useCallback(() => {
     window.bridge.gitOverview(workspace.id)
@@ -78,12 +114,11 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
 
   useEffect(() => {
-    let cancelled = false;
-    window.bridge.fetchPrs(workspace.id, 0, 50)
-      .then(value => { if (!cancelled) setPullRequests(value.pullRequests); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [workspace.id]);
+    if (!hasUpstream) setRepo('workspace');
+    setUpBranch(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
+    setUpBranches([]);
+    setCheckedUp(new Set());
+  }, [hasUpstream, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
 
   // Menus close on any outside press; the chip wrappers stop propagation.
   useEffect(() => {
@@ -99,22 +134,65 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   useEffect(() => {
     let cancelled = false;
     setLogLoading(true);
-    window.bridge.gitLog(workspace.id, logRef, 300)
-      .then(value => {
+    window.bridge.gitLog(workspace.id, historySource, historyBranch, 300)
+      .then(snapshot => {
         if (cancelled) return;
-        setCommits(value);
+        setCommits(snapshot.commits);
+        setRefreshStatus(snapshot.refresh);
         setError(null);
       })
       .catch(failure => {
         if (cancelled) return;
-        setCommits([]);
         setError(failure instanceof Error ? failure.message : String(failure));
       })
       .finally(() => {
         if (!cancelled) setLogLoading(false);
-      });
+    });
     return () => { cancelled = true; };
-  }, [workspace.id, logRef, logVersion]);
+  }, [workspace.id, historySource, historyBranch, logVersion]);
+
+  useEffect(() => {
+    setManualPolling(false);
+  }, [workspace.id, historySource, historyBranch]);
+
+  useEffect(() => {
+    if (!manualPolling || !isCommitRefreshActive(refreshStatus)) return;
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      window.bridge.gitLog(workspace.id, historySource, historyBranch, 300)
+        .then(snapshot => {
+          if (cancelled) return;
+          setCommits(snapshot.commits);
+          setRefreshStatus(snapshot.refresh);
+          if (!isCommitRefreshActive(snapshot.refresh)) {
+            setManualPolling(false);
+            if (snapshot.refresh.state === 'FAILED') {
+              setError(snapshot.refresh.error ?? 'Commit history refresh failed');
+            }
+            else {
+              setError(null);
+              refreshOverview();
+            }
+          }
+        })
+        .catch(failure => {
+          if (cancelled) return;
+          setManualPolling(false);
+          setError(failure instanceof Error ? failure.message : String(failure));
+        });
+    }, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    manualPolling,
+    refreshStatus,
+    workspace.id,
+    historySource,
+    historyBranch,
+    refreshOverview,
+  ]);
 
   useEffect(() => {
     if (isUpstream) return;
@@ -126,35 +204,44 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   }, [workspace.id, isUpstream, logVersion, commitsView]);
 
   useEffect(() => {
-    if (!upMenu || upBranches.length > 0) return;
+    if (!hasUpstream || !upMenu || upBranches.length > 0) return;
     let cancelled = false;
     window.bridge.gitRemoteBranches(workspace.id, sourceRemote)
       .then(value => { if (!cancelled) setUpBranches(value); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [upMenu, sourceRemote, upBranches.length, workspace.id]);
+  }, [hasUpstream, upMenu, sourceRemote, upBranches.length, workspace.id]);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
 
   const sync = async () => {
     if (syncing) return;
-    setSyncing(true);
+    setError(null);
     try {
-      const remotes = [workspace.originRemote, ...(upstreamRemote ? [upstreamRemote] : [])];
-      await window.bridge.gitFetch(workspace.id, remotes);
-      const now = Date.now();
-      setSyncedAt(now);
-      localStorage.setItem(`bytequay.lastSync.${workspace.id}`, String(now));
-      setLogVersion(version => version + 1);
-      refreshOverview();
+      const status = await window.bridge.refreshCommitHistory(
+        workspace.id,
+        commitRefreshRefs(branch, upBranch, hasUpstream),
+      );
+      setRefreshStatus(status);
+      if (isCommitRefreshActive(status)) {
+        setManualPolling(true);
+      }
+      else {
+        setLogVersion(version => version + 1);
+        if (status.state === 'FAILED') {
+          setError(status.error ?? 'Commit history refresh failed');
+        }
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setSyncing(false);
     }
   };
 
   const openFlow = async () => {
+    if (!hasUpstream) {
+      onOpenSettings();
+      return;
+    }
     if (!span) return;
     setPreviewBusy(true);
     setError(null);
@@ -189,6 +276,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
   };
 
   const upChipClick = () => {
+    if (!hasUpstream) {
+      onOpenSettings();
+      return;
+    }
     if (screen !== 'commits' || !isUpstream) {
       setScreen('commits');
       setRepo('upstream');
@@ -244,7 +335,8 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
             )}
           </div>
 
-          <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
+          {hasUpstream ? (
+            <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
               <button
                 type="button"
                 className={`cmt-repo-chip${isUpstream ? ' is-active' : ''}`}
@@ -286,19 +378,32 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
                   {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
                 </div>
               )}
-          </div>
+            </div>
+          ) : (
+            <div className="cmt-chip-wrap">
+              <button
+                type="button"
+                className="cmt-repo-chip"
+                title="Link another watched workspace"
+                onClick={onOpenSettings}
+              >
+                <span className="cmt-mono">↞</span>
+                <span className="cmt-repo-chip__label">No upstream linked</span>
+                <span className="cmt-readonly">Settings</span>
+              </button>
+            </div>
+          )}
 
           <div className="cmt-sync">
             <button
               type="button"
               title="Fetch latest for this branch and the read-only upstream branch"
+              disabled={syncing}
               onClick={() => { void sync(); }}
             >
               <span className={syncing ? 'is-spinning' : ''}>⟳</span>
             </button>
-            <span>
-              {syncing ? 'syncing…' : syncedAt ? `synced ${relativeTime(syncedAt)}` : 'not synced yet'}
-            </span>
+            <span title={refreshStatus?.error ?? undefined}>{commitSyncLabel(refreshStatus)}</span>
           </div>
 
           <div className="cmt-tab-divider" />
@@ -357,7 +462,6 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
           commits={commits}
           loading={logLoading}
           checked={checked}
-          pullRequests={pullRequests}
           onChangeChecked={next => (isUpstream ? setCheckedUp(next) : setCheckedWs(next))}
           onHistoryRewritten={() => setLogVersion(version => version + 1)}
           onOpenPullRequest={onOpenPullRequest}
@@ -371,6 +475,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
             setScreen('progress');
           }}
           onNewCherryPick={() => {
+            if (!hasUpstream) {
+              onOpenSettings();
+              return;
+            }
             setScreen('commits');
             setRepo('upstream');
             setCommitsView('history');
@@ -397,6 +505,10 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
           upstreamSlug={upstreamSlug}
           onBackToTasks={() => setScreen('tasks')}
           onStartAnotherRange={() => {
+            if (!hasUpstream) {
+              onOpenSettings();
+              return;
+            }
             setScreen('commits');
             setRepo('upstream');
             setCommitsView('history');

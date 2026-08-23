@@ -20,18 +20,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -52,7 +48,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class CherryPickPullRequestLookup
 {
-    private static final Logger log = LoggerFactory.getLogger(CherryPickPullRequestLookup.class);
     /** Bounded so a 300-commit range cannot open 300 simultaneous requests. */
     private static final int CONCURRENCY = 8;
     private static final int MAX_CACHED = 2000;
@@ -76,16 +71,8 @@ public class CherryPickPullRequestLookup
         this.tokenSupplier = requireNonNull(tokenSupplier, "tokenSupplier is null");
     }
 
-    /**
-     * Associates each commit with the merged pull request that introduced it.
-     *
-     * @param repository repository the commits belong to
-     * @param sourceShas commits to look up
-     * @param sourceBranch branch the range was taken from, used to break ties
-     * @param warnings collects anything the user should know; never throws
-     * @return association per commit, absent where none is unambiguous
-     */
-    public Map<String, PullRequestAssociation> lookUp(
+    /** Looks up only the requested SHAs and reports provider failures separately from checked negatives. */
+    public PullRequestLookupResult lookUpResult(
             RepoRef repository,
             List<String> sourceShas,
             String sourceBranch,
@@ -95,7 +82,7 @@ public class CherryPickPullRequestLookup
         requireNonNull(sourceShas, "sourceShas is null");
         requireNonNull(warnings, "warnings is null");
         if (sourceShas.isEmpty()) {
-            return ImmutableMap.of();
+            return new PullRequestLookupResult(ImmutableList.of(), Set.of());
         }
         String token;
         try {
@@ -104,42 +91,43 @@ public class CherryPickPullRequestLookup
         catch (RuntimeException e) {
             warnings.add("Pull-request grouping is unavailable without GitHub credentials. "
                     + "Every commit is listed individually and stays selectable.");
-            return ImmutableMap.of();
+            return new PullRequestLookupResult(ImmutableList.of(), Set.copyOf(sourceShas));
         }
 
-        Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
+        List<PullRequestLookupResult.Association> associations = new ArrayList<>();
+        Set<String> failedShas = new java.util.LinkedHashSet<>();
         int ambiguous = 0;
-        int failed = 0;
         try (ExecutorService pool = Executors.newFixedThreadPool(CONCURRENCY)) {
-            List<Future<Lookup>> futures = new ArrayList<>(sourceShas.size());
+            List<PendingLookup> futures = new ArrayList<>(sourceShas.size());
             for (String sha : sourceShas) {
                 Callable<Lookup> task = () -> new Lookup(sha, associate(repository, sha, sourceBranch, token));
-                futures.add(pool.submit(task));
+                futures.add(new PendingLookup(sha, pool.submit(task)));
             }
-            for (Future<Lookup> future : futures) {
+            for (PendingLookup pending : futures) {
                 try {
-                    Lookup lookup = future.get();
-                    lookup.association().ifPresent(association -> associations.put(lookup.sha(), association));
+                    Lookup lookup = pending.future().get();
+                    lookup.association().ifPresent(association -> associations.add(
+                            new PullRequestLookupResult.Association(lookup.sha(), association)));
                 }
                 catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    failed++;
+                    failedShas.add(pending.sha());
                 }
                 catch (ExecutionException e) {
-                    failed++;
+                    failedShas.add(pending.sha());
                 }
             }
         }
-        ambiguous = sourceShas.size() - associations.size() - failed;
-        if (failed > 0) {
-            warnings.add(failed + " commit(s) could not be checked against GitHub. "
+        ambiguous = sourceShas.size() - associations.size() - failedShas.size();
+        if (!failedShas.isEmpty()) {
+            warnings.add(failedShas.size() + " commit(s) could not be checked against GitHub. "
                     + "They are listed individually and stay selectable.");
         }
         if (ambiguous > 0) {
             warnings.add(ambiguous + " commit(s) have no single merged pull request. "
                     + "They are listed individually rather than grouped under a guess.");
         }
-        return ImmutableMap.copyOf(associations);
+        return new PullRequestLookupResult(associations, failedShas);
     }
 
     private Optional<PullRequestAssociation> associate(
@@ -209,6 +197,8 @@ public class CherryPickPullRequestLookup
             requireNonNull(association, "association is null");
         }
     }
+
+    private record PendingLookup(String sha, Future<Lookup> future) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record AssociatedPullRequest(

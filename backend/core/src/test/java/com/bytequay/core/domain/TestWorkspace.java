@@ -28,13 +28,14 @@ class TestWorkspace
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
     @Test
-    void forkMustMonitorItsSingleUpstream()
+    void linkedWorkspaceMustMonitorItsSingleUpstream()
     {
         assertThatThrownBy(() -> new Workspace(
                 "workspace",
                 "contributor/project",
                 100,
                 RepoRef.of("contributor", "project"),
+                Optional.of("upstream-workspace"),
                 Optional.of(200L),
                 Optional.of(RepoRef.of("upstream", "project")),
                 300,
@@ -42,6 +43,7 @@ class TestWorkspace
                 Topology.FORK,
                 "main",
                 "https://github.com/contributor/project.git",
+                Optional.of("main"),
                 Optional.of("https://github.com/upstream/project.git"),
                 "/tmp/workspace/repository",
                 CodeState.PENDING,

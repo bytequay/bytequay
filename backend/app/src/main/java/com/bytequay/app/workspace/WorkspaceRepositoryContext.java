@@ -14,17 +14,18 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.Topology;
 
 import java.nio.file.Path;
+import java.util.OptionalLong;
 
 /** Backend-resolved repository path and routing used by trusted Git operations. */
 public record WorkspaceRepositoryContext(
         String workspaceId,
         Path repository,
+        long selectedRepositoryId,
         RepoRef selectedRepository,
+        OptionalLong upstreamRepositoryId,
         RepoRef monitoredRepository,
-        Topology topology,
         String sourceRemote,
         String targetRemote,
         String defaultBranch)

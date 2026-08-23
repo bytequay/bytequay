@@ -58,6 +58,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -227,7 +228,7 @@ class TestDefaultAgentCompletionService
             return events.stream()
                     .filter(event -> event.sequence() > afterSequence)
                     .limit(limit)
-                    .collect(ImmutableList.toImmutableList());
+                    .collect(toImmutableList());
         }
 
         @Override

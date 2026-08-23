@@ -33,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +45,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -83,9 +83,10 @@ class TestCherryPickExecutionHttpApi
         when(workspaces.requireReadyRepository("workspace-id")).thenReturn(new WorkspaceRepositoryContext(
                 "workspace-id",
                 Path.of("/managed/workspace-id/repository"),
+                101,
                 RepoRef.of("contributor", "trino"),
+                OptionalLong.of(202),
                 RepoRef.of("trinodb", "trino"),
-                Topology.FORK,
                 "upstream",
                 "origin",
                 "master"));

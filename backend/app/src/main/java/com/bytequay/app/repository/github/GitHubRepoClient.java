@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.core.domain.RepoMeta;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
@@ -74,14 +75,14 @@ public class GitHubRepoClient
                 .collect(toImmutableList());
     }
 
-    /** Returns GitHub avatar URLs keyed by commit SHA for the requested branch history. */
-    public Map<String, String> fetchCommitAvatars(String pat, RepoRef repo, String ref, int limit)
+    /** Returns a named avatar scan so synchronization can distinguish an empty branch from provider failure. */
+    public CommitAvatarSnapshot fetchCommitAvatarSnapshot(String pat, RepoRef repo, String ref, int limit)
     {
         requireNonNull(repo, "repo is null");
         requireNonNull(ref, "ref is null");
         checkArgument(!ref.isBlank(), "ref is blank");
         checkArgument(limit > 0, "limit is not positive");
-        ImmutableMap.Builder<String, String> avatars = ImmutableMap.builder();
+        ImmutableList.Builder<CommitAvatar> avatars = ImmutableList.builder();
         int remaining = limit;
         try {
             for (int page = 1; remaining > 0; page++) {
@@ -102,16 +103,16 @@ public class GitHubRepoClient
                 commits.stream()
                         .filter(commit -> commit.sha() != null && commit.author() != null)
                         .filter(commit -> commit.author().avatarUrl() != null && !commit.author().avatarUrl().isBlank())
-                        .forEach(commit -> avatars.put(commit.sha(), commit.author().avatarUrl()));
+                        .forEach(commit -> avatars.add(new CommitAvatar(commit.sha(), commit.author().avatarUrl())));
                 remaining -= commits.size();
                 if (commits.size() < pageSize) {
                     break;
                 }
             }
-            return avatars.buildKeepingLast();
+            return new CommitAvatarSnapshot(avatars.build(), true);
         }
         catch (RestClientException ignored) {
-            return ImmutableMap.of();
+            return new CommitAvatarSnapshot(ImmutableList.of(), false);
         }
     }
 

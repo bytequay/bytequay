@@ -18,7 +18,9 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -69,19 +72,19 @@ public class CherryPickPreviewService
 
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
-    private final CherryPickPullRequestLookup pullRequests;
+    private final CommitHistoryStore commitHistory;
     private final Clock clock;
     private final Cache<String, CherryPickPreview> cache;
 
     public CherryPickPreviewService(
             GitCommandRunner git,
             CherryPickConflictScout conflictScout,
-            CherryPickPullRequestLookup pullRequests,
+            CommitHistoryStore commitHistory,
             Clock clock)
     {
         this.git = requireNonNull(git, "git is null");
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.commitHistory = requireNonNull(commitHistory, "commitHistory is null");
         this.clock = requireNonNull(clock, "clock is null");
         // One time source drives both the stored expiry and the cache's own, so
         // a preview cannot read as live in one and expired in the other.
@@ -137,12 +140,7 @@ public class CherryPickPreviewService
                 .filter(sha -> evidence(sha, targetAncestors, originLines).isEmpty())
                 .collect(toImmutableList());
         Map<String, ConflictPreview> conflicts = conflictScout.scout(repository, targetSha, planned);
-        RepoRef sourceRepository = readRepository(repository, command.sourceRemote());
-        Map<String, PullRequestAssociation> associations = pullRequests.lookUp(
-                sourceRepository,
-                range.stream().map(RangeCommit::sha).collect(toImmutableList()),
-                branchName(command.sourceTipRef(), command.sourceRemote()),
-                warnings);
+        Map<String, PullRequestAssociation> associations = persistedAssociations(command, range, warnings);
 
         ImmutableList.Builder<CherryPickCommitPreview> commits = ImmutableList.builderWithExpectedSize(range.size());
         int position = 1;
@@ -187,6 +185,43 @@ public class CherryPickPreviewService
                 now.plus(PREVIEW_LIFETIME));
         cache.put(preview.previewId(), preview);
         return preview;
+    }
+
+    private Map<String, PullRequestAssociation> persistedAssociations(
+            PreviewCherryPickRangeCommand command,
+            List<RangeCommit> range,
+            List<String> warnings)
+    {
+        OptionalLong repositoryId = command.sourceRepositoryId();
+        if (repositoryId.isEmpty()) {
+            warnings.add("Pull-request grouping is unavailable until commit history has been synchronized. "
+                    + "Every commit is listed individually and stays selectable.");
+            return ImmutableMap.of();
+        }
+        Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
+        commitHistory.findEnrichment(
+                        repositoryId.orElseThrow(),
+                        range.stream().map(RangeCommit::sha).collect(toImmutableList()))
+                .commits().stream()
+                .filter(value -> value.pullRequestNumber().isPresent())
+                .forEach(value -> associations.put(value.sha(), association(value)));
+        int missing = range.size() - associations.size();
+        if (missing > 0) {
+            warnings.add(missing + " commit(s) have no stored pull-request association. "
+                    + "They are listed individually and stay selectable.");
+        }
+        return ImmutableMap.copyOf(associations);
+    }
+
+    private static PullRequestAssociation association(CommitEnrichment enrichment)
+    {
+        int number = enrichment.pullRequestNumber().orElseThrow();
+        return new PullRequestAssociation(
+                number,
+                enrichment.pullRequestTitle().orElse("PR #" + number),
+                enrichment.pullRequestUrl().orElse(""),
+                "",
+                "");
     }
 
     /**
@@ -523,13 +558,6 @@ public class CherryPickPreviewService
             throw new CherryPickInvalidRequestException("git " + arguments[0] + " produced too much output");
         }
         return result.output();
-    }
-
-    /** Strips a remote prefix so "origin/master" ties to a pull request's base ref. */
-    private static String branchName(String ref, String remote)
-    {
-        String prefix = remote + "/";
-        return ref.startsWith(prefix) ? ref.substring(prefix.length()) : ref;
     }
 
     private static String shortSha(String sha)

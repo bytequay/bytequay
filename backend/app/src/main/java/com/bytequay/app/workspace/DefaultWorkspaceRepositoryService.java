@@ -39,10 +39,13 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
@@ -178,10 +181,13 @@ public class DefaultWorkspaceRepositoryService
         return new WorkspaceRepositoryContext(
                 workspace.id(),
                 repository,
+                workspace.selectedRepositoryId(),
                 workspace.selectedRepository(),
+                workspace.upstreamRepositoryId().isPresent()
+                        ? OptionalLong.of(workspace.upstreamRepositoryId().orElseThrow())
+                        : OptionalLong.empty(),
                 workspace.monitoredRepository(),
-                workspace.topology(),
-                workspace.topology() == Topology.FORK ? "upstream" : "origin",
+                workspace.upstreamWorkspaceId().isPresent() ? "upstream" : "origin",
                 "origin",
                 workspace.defaultBranch());
     }
@@ -221,6 +227,51 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
+    public Workspace setUpstream(String workspaceId, Optional<String> upstreamWorkspaceId)
+    {
+        requireNonNull(upstreamWorkspaceId, "upstreamWorkspaceId is null");
+        Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.upstreamWorkspaceId().equals(upstreamWorkspaceId)) {
+            return workspace;
+        }
+        if (workspace.codeState() == CodeState.PENDING
+                || workspace.codeState() == CodeState.CLONING
+                || workspace.codeState() == CodeState.SYNCING
+                || hasActiveExecution(workspace)) {
+            throw WorkspaceException.busy();
+        }
+        Optional<Workspace> upstream = upstreamWorkspaceId.map(id -> requireUpstream(workspace, id));
+        Instant now = clock.instant();
+        Workspace linked = upstream
+                .map(value -> workspace.withRepositoryRouting(
+                        workspace.selectedRepository(),
+                        Optional.of(value.id()),
+                        Optional.of(value.selectedRepositoryId()),
+                        Optional.of(value.selectedRepository()),
+                        value.selectedRepositoryId(),
+                        value.selectedRepository(),
+                        workspace.defaultBranch(),
+                        workspace.originCloneUrl(),
+                        Optional.of(value.defaultBranch()),
+                        Optional.of(value.originCloneUrl()),
+                        now))
+                .orElseGet(() -> workspace.withRepositoryRouting(
+                        workspace.selectedRepository(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        workspace.selectedRepositoryId(),
+                        workspace.selectedRepository(),
+                        workspace.defaultBranch(),
+                        workspace.originCloneUrl(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        now));
+        store.save(linked);
+        return requestSync(workspace.id());
+    }
+
+    @Override
     public void unwatch(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
@@ -229,17 +280,26 @@ public class DefaultWorkspaceRepositoryService
                 || workspace.codeState() == CodeState.SYNCING) {
             throw WorkspaceException.busy();
         }
-        boolean active = executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
+        boolean referenced = store.findAll().stream()
+                .anyMatch(candidate -> candidate.upstreamWorkspaceId().filter(workspace.id()::equals).isPresent());
+        if (referenced) {
+            throw WorkspaceException.upstreamInUse();
+        }
+        if (hasActiveExecution(workspace)) {
+            throw WorkspaceException.busy();
+        }
+        store.delete(workspace.id());
+    }
+
+    private boolean hasActiveExecution(Workspace workspace)
+    {
+        return executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
                 .filter(execution -> execution.terminalAt().isEmpty())
                 .map(CherryPickExecution::workspace)
                 .anyMatch(executionWorkspace -> executionWorkspace.workspaceId()
                         .map(workspace.id()::equals)
                         .orElseGet(() -> executionWorkspace.repository().equals(workspace.selectedRepository())
                                 || executionWorkspace.repository().equals(workspace.monitoredRepository())));
-        if (active) {
-            throw WorkspaceException.busy();
-        }
-        store.delete(workspace.id());
     }
 
     private Workspace createWorkspace(
@@ -261,28 +321,22 @@ public class DefaultWorkspaceRepositoryService
         String id = UUID.randomUUID().toString();
         Instant now = clock.instant();
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Optional<UserRepo.Upstream> upstream = selected.upstream();
-        Optional<Long> upstreamId = upstream.map(UserRepo.Upstream::id);
-        Optional<RepoRef> upstreamRef = upstream.map(repository ->
-                RepoRef.of(repository.owner(), repository.name()));
         Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
-        long monitoredId = upstreamId.orElse(selected.id());
-        RepoRef monitoredRef = upstreamRef.orElse(selectedRef);
-        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch)
-                .orElse(selected.defaultBranch());
         Workspace proposed = new Workspace(
                 id,
                 name.orElse(selected.fullName()),
                 selected.id(),
                 selectedRef,
-                upstreamId,
-                upstreamRef,
-                monitoredId,
-                monitoredRef,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                selected.id(),
+                selectedRef,
                 topology,
-                defaultBranch,
+                selected.defaultBranch(),
                 selected.cloneUrl(),
-                upstream.map(UserRepo.Upstream::cloneUrl),
+                Optional.empty(),
+                Optional.empty(),
                 paths.workspace(id).resolve("repository").toString(),
                 CodeState.PENDING,
                 MetadataState.PENDING,
@@ -305,6 +359,32 @@ public class DefaultWorkspaceRepositoryService
         }
         return store.findById(workspaceId)
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
+    }
+
+    private Workspace requireUpstream(Workspace workspace, String upstreamWorkspaceId)
+    {
+        if (upstreamWorkspaceId == null || upstreamWorkspaceId.isBlank()) {
+            throw WorkspaceException.invalidUpstream("Choose a watched workspace to link.");
+        }
+        if (workspace.id().equals(upstreamWorkspaceId)) {
+            throw WorkspaceException.invalidUpstream("A workspace cannot link to itself.");
+        }
+        Workspace upstream = store.findById(upstreamWorkspaceId)
+                .orElseThrow(() -> WorkspaceException.invalidUpstream("The upstream workspace is not watched."));
+        Set<String> visited = new HashSet<>();
+        visited.add(workspace.id());
+        Workspace cursor = upstream;
+        while (true) {
+            if (!visited.add(cursor.id())) {
+                throw WorkspaceException.invalidUpstream("That link would create an upstream cycle.");
+            }
+            Optional<String> next = cursor.upstreamWorkspaceId();
+            if (next.isEmpty()) {
+                return upstream;
+            }
+            cursor = store.findById(next.orElseThrow())
+                    .orElseThrow(() -> WorkspaceException.invalidUpstream("The upstream workspace is not watched."));
+        }
     }
 
     private void migrateLegacyRows()
@@ -350,14 +430,11 @@ public class DefaultWorkspaceRepositoryService
     private WatchRepositoryPreview toPreview(UserRepo selected)
     {
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Optional<UserRepo.Upstream> upstream = selected.upstream();
+        Optional<UserRepo.Upstream> upstream = selected.upstream()
+                .filter(DefaultWorkspaceRepositoryService::validUpstream);
         Optional<Long> upstreamId = upstream.map(UserRepo.Upstream::id);
         Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
         Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
-        long monitoredId = upstreamId.orElse(selected.id());
-        RepoRef monitored = upstreamRef.orElse(selectedRef);
-        String defaultBranch = upstream.map(UserRepo.Upstream::defaultBranch).orElse(selected.defaultBranch());
-        String developmentRemote = topology == Topology.FORK ? "upstream" : "origin";
         return new WatchRepositoryPreview(
                 selected.id(),
                 selectedRef,
@@ -365,13 +442,13 @@ public class DefaultWorkspaceRepositoryService
                 topology,
                 upstreamId,
                 upstreamRef,
-                monitoredId,
-                monitored,
-                defaultBranch,
-                developmentRemote + "/" + defaultBranch,
+                selected.id(),
+                selectedRef,
+                selected.defaultBranch(),
+                "origin/" + selected.defaultBranch(),
                 "origin",
                 selected.viewerCanPush(),
-                monitored,
+                selectedRef,
                 fingerprint(selected),
                 store.findBySelectedRepositoryId(selected.id()).map(Workspace::id));
     }
@@ -424,19 +501,15 @@ public class DefaultWorkspaceRepositoryService
                 || !safeCloneUrl(repository.cloneUrl())) {
             throw WorkspaceException.invalidRepository("GitHub returned incomplete repository routing.");
         }
-        boolean validUpstream = repository.upstream()
-                .filter(upstream -> upstream.id() > 0)
-                .filter(upstream -> !isBlank(upstream.owner()))
-                .filter(upstream -> !isBlank(upstream.name()))
-                .filter(upstream -> !isBlank(upstream.defaultBranch()))
-                .filter(upstream -> safeCloneUrl(upstream.cloneUrl()))
-                .isPresent();
-        if (repository.fork() && !validUpstream) {
-            throw WorkspaceException.invalidRepository("Fork upstream routing is unavailable.");
-        }
-        if (!repository.fork() && repository.upstream().isPresent()) {
-            throw WorkspaceException.invalidRepository("Direct repository unexpectedly has upstream routing.");
-        }
+    }
+
+    private static boolean validUpstream(UserRepo.Upstream upstream)
+    {
+        return upstream.id() > 0
+                && !isBlank(upstream.owner())
+                && !isBlank(upstream.name())
+                && !isBlank(upstream.defaultBranch())
+                && safeCloneUrl(upstream.cloneUrl());
     }
 
     private static boolean safeCloneUrl(String value)

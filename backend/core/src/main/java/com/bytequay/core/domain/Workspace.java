@@ -22,15 +22,17 @@ import static java.util.Objects.requireNonNull;
 /**
  * Durable identity and routing for one watched GitHub repository.
  *
- * <p>A workspace always clones the selected repository as {@code origin}. A fork has exactly one
- * canonical {@code upstream}; that repository is also the monitored repository used for pull
- * requests, issues, and reference metadata.</p>
+ * <p>A workspace always clones the selected repository as {@code origin}. An optional user-managed
+ * link to another watched workspace supplies the read-only {@code upstream}; that repository is
+ * also monitored for pull requests, issues, and reference metadata. GitHub fork topology is only
+ * descriptive and never establishes this link.</p>
  */
 public record Workspace(
         String id,
         String name,
         long selectedRepositoryId,
         RepoRef selectedRepository,
+        Optional<String> upstreamWorkspaceId,
         Optional<Long> upstreamRepositoryId,
         Optional<RepoRef> upstreamRepository,
         long monitoredRepositoryId,
@@ -38,6 +40,7 @@ public record Workspace(
         Topology topology,
         String defaultBranch,
         String originCloneUrl,
+        Optional<String> upstreamDefaultBranch,
         Optional<String> upstreamCloneUrl,
         String localRepositoryPath,
         CodeState codeState,
@@ -56,6 +59,7 @@ public record Workspace(
         checkText(name, "name");
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
         requireNonNull(selectedRepository, "selectedRepository is null");
+        requireNonNull(upstreamWorkspaceId, "upstreamWorkspaceId is null");
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
         requireNonNull(upstreamRepository, "upstreamRepository is null");
         checkArgument(monitoredRepositoryId > 0, "monitoredRepositoryId must be positive");
@@ -63,6 +67,7 @@ public record Workspace(
         requireNonNull(topology, "topology is null");
         checkText(defaultBranch, "defaultBranch");
         checkText(originCloneUrl, "originCloneUrl");
+        requireNonNull(upstreamDefaultBranch, "upstreamDefaultBranch is null");
         requireNonNull(upstreamCloneUrl, "upstreamCloneUrl is null");
         checkText(localRepositoryPath, "localRepositoryPath");
         requireNonNull(codeState, "codeState is null");
@@ -75,33 +80,39 @@ public record Workspace(
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
         checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
+        upstreamWorkspaceId.ifPresent(value -> checkText(value, "upstreamWorkspaceId"));
+        upstreamDefaultBranch.ifPresent(value -> checkText(value, "upstreamDefaultBranch"));
+        upstreamCloneUrl.ifPresent(value -> checkText(value, "upstreamCloneUrl"));
 
-        if (topology == Topology.DIRECT) {
-            checkArgument(upstreamRepositoryId.isEmpty(), "direct workspace has an upstream ID");
-            checkArgument(upstreamRepository.isEmpty(), "direct workspace has an upstream repository");
-            checkArgument(upstreamCloneUrl.isEmpty(), "direct workspace has an upstream clone URL");
-            checkArgument(monitoredRepositoryId == selectedRepositoryId,
-                    "direct workspace does not monitor the selected repository");
+        if (upstreamWorkspaceId.isEmpty()) {
+            checkArgument(upstreamRepositoryId.isEmpty(), "unlinked workspace has an upstream ID");
+            checkArgument(upstreamRepository.isEmpty(), "unlinked workspace has an upstream repository");
+            checkArgument(upstreamDefaultBranch.isEmpty(), "unlinked workspace has an upstream default branch");
+            checkArgument(upstreamCloneUrl.isEmpty(), "unlinked workspace has an upstream clone URL");
+            checkArgument(monitoredRepositoryId == selectedRepositoryId, "unlinked workspace does not monitor itself");
             checkArgument(monitoredRepository.equals(selectedRepository),
-                    "direct workspace monitored coordinates differ from selected coordinates");
+                    "unlinked workspace monitored coordinates differ from selected coordinates");
         }
         else {
-            checkArgument(upstreamRepositoryId.isPresent(), "fork workspace has no upstream ID");
-            checkArgument(upstreamRepository.isPresent(), "fork workspace has no upstream repository");
-            checkArgument(upstreamCloneUrl.isPresent(), "fork workspace has no upstream clone URL");
+            checkArgument(!upstreamWorkspaceId.orElseThrow().equals(id), "workspace links to itself");
+            checkArgument(upstreamRepositoryId.isPresent(), "linked workspace has no upstream ID");
+            checkArgument(upstreamRepositoryId.orElseThrow() > 0, "linked workspace upstream ID is not positive");
+            checkArgument(upstreamRepository.isPresent(), "linked workspace has no upstream repository");
+            checkArgument(upstreamDefaultBranch.isPresent(), "linked workspace has no upstream default branch");
+            checkArgument(upstreamCloneUrl.isPresent(), "linked workspace has no upstream clone URL");
             checkArgument(monitoredRepositoryId == upstreamRepositoryId.orElseThrow(),
-                    "fork workspace does not monitor its upstream ID");
+                    "linked workspace does not monitor its upstream ID");
             checkArgument(monitoredRepository.equals(upstreamRepository.orElseThrow()),
-                    "fork workspace monitored coordinates differ from upstream coordinates");
+                    "linked workspace monitored coordinates differ from upstream coordinates");
         }
     }
 
     public Workspace withStates(CodeState nextCodeState, MetadataState nextMetadataState, Instant now)
     {
         return new Workspace(
-                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                id, name, selectedRepositoryId, selectedRepository, upstreamWorkspaceId, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
-                defaultBranch, originCloneUrl, upstreamCloneUrl, localRepositoryPath,
+                defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
                 nextCodeState, nextMetadataState, lastCodeSyncAt, lastMetadataSyncAt,
                 Optional.empty(), Optional.empty(), displayOrder, createdAt, now);
     }
@@ -113,9 +124,9 @@ public record Workspace(
             Instant now)
     {
         return new Workspace(
-                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                id, name, selectedRepositoryId, selectedRepository, upstreamWorkspaceId, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
-                defaultBranch, originCloneUrl, upstreamCloneUrl, localRepositoryPath,
+                defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
                 nextCodeState, metadataState, nextLastCodeSyncAt, lastMetadataSyncAt,
                 nextCodeError, metadataError, displayOrder, createdAt, now);
     }
@@ -127,26 +138,31 @@ public record Workspace(
             Instant now)
     {
         return new Workspace(
-                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
+                id, name, selectedRepositoryId, selectedRepository, upstreamWorkspaceId, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
-                defaultBranch, originCloneUrl, upstreamCloneUrl, localRepositoryPath,
+                defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
                 codeState, nextMetadataState, lastCodeSyncAt, nextLastMetadataSyncAt,
                 codeError, nextMetadataError, displayOrder, createdAt, now);
     }
 
     public Workspace withRepositoryRouting(
             RepoRef nextSelectedRepository,
+            Optional<String> nextUpstreamWorkspaceId,
+            Optional<Long> nextUpstreamRepositoryId,
             Optional<RepoRef> nextUpstreamRepository,
+            long nextMonitoredRepositoryId,
             RepoRef nextMonitoredRepository,
             String nextDefaultBranch,
             String nextOriginCloneUrl,
+            Optional<String> nextUpstreamDefaultBranch,
             Optional<String> nextUpstreamCloneUrl,
             Instant now)
     {
         return new Workspace(
-                id, name, selectedRepositoryId, nextSelectedRepository, upstreamRepositoryId,
-                nextUpstreamRepository, monitoredRepositoryId, nextMonitoredRepository, topology,
-                nextDefaultBranch, nextOriginCloneUrl, nextUpstreamCloneUrl, localRepositoryPath,
+                id, name, selectedRepositoryId, nextSelectedRepository, nextUpstreamWorkspaceId,
+                nextUpstreamRepositoryId, nextUpstreamRepository, nextMonitoredRepositoryId,
+                nextMonitoredRepository, topology, nextDefaultBranch, nextOriginCloneUrl,
+                nextUpstreamDefaultBranch, nextUpstreamCloneUrl, localRepositoryPath,
                 codeState, metadataState, lastCodeSyncAt, lastMetadataSyncAt,
                 codeError, metadataError, displayOrder, createdAt, now);
     }

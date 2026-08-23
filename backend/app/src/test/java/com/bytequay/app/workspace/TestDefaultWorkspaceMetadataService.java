@@ -192,6 +192,7 @@ class TestDefaultWorkspaceMetadataService
                 id,
                 topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
                 selected,
+                topology == Topology.FORK ? Optional.of("upstream-workspace") : Optional.empty(),
                 upstreamId,
                 upstream,
                 monitoredId,
@@ -199,6 +200,7 @@ class TestDefaultWorkspaceMetadataService
                 topology,
                 "main",
                 "https://github.com/" + selected.fullName() + ".git",
+                topology == Topology.FORK ? Optional.of("main") : Optional.empty(),
                 topology == Topology.FORK
                         ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
                         : Optional.empty(),

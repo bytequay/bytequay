@@ -17,6 +17,7 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -28,6 +29,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param repository local clone to read
  * @param workspaceId durable workspace that owns the managed clone, when applicable
+ * @param sourceRepositoryId stable provider ID resolved from the linked watched upstream
  * @param sourceRemote remote holding the source range
  * @param sourceBaseRef exclusive start of the range
  * @param sourceTipRef inclusive end of the range
@@ -37,6 +39,7 @@ import static java.util.Objects.requireNonNull;
 public record PreviewCherryPickRangeCommand(
         Path repository,
         Optional<String> workspaceId,
+        OptionalLong sourceRepositoryId,
         String sourceRemote,
         String sourceBaseRef,
         String sourceTipRef,
@@ -53,7 +56,11 @@ public record PreviewCherryPickRangeCommand(
         }
         repository = repository.normalize();
         requireNonNull(workspaceId, "workspaceId is null");
+        requireNonNull(sourceRepositoryId, "sourceRepositoryId is null");
         workspaceId.ifPresent(value -> checkRef(value, "workspaceId"));
+        if (sourceRepositoryId.isPresent() && sourceRepositoryId.orElseThrow() <= 0) {
+            throw new CherryPickInvalidRequestException("sourceRepositoryId is not positive");
+        }
         checkRef(sourceRemote, "sourceRemote");
         checkRef(sourceBaseRef, "sourceBaseRef");
         checkRef(sourceTipRef, "sourceTipRef");

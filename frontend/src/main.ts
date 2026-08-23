@@ -14,7 +14,12 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CherryPickExecutionRequest, CherryPickPreviewRequest } from './types';
+import type {
+  CherryPickExecutionRequest,
+  CherryPickPreviewRequest,
+  CommitHistoryRefDto,
+  CommitHistorySourceDto,
+} from './types';
 import {
   BACKEND_BASE,
   killBackend,
@@ -344,8 +349,13 @@ function registerIpc(): void {
     gitGet(workspaceId, 'overview', {}));
   ipcMain.handle('git:branches', (_event, workspaceId: string, remote: string) =>
     gitGet(workspaceId, 'branches', { remote }));
-  ipcMain.handle('git:log', (_event, workspaceId: string, ref: string, limit: number) =>
-    gitGet(workspaceId, 'commits', { ref, limit: String(limit) }));
+  ipcMain.handle('git:log', (
+    _event,
+    workspaceId: string,
+    source: CommitHistorySourceDto,
+    branch: string,
+    limit: number,
+  ) => gitGet(workspaceId, 'commits', { source, branch, limit: String(limit) }));
   ipcMain.handle('git:diff', (_event, workspaceId: string, base: string, head: string) =>
     gitGet(workspaceId, 'diff', { base, head }));
   ipcMain.handle('git:diff-content', (
@@ -357,8 +367,11 @@ function registerIpc(): void {
   ) => gitGet(workspaceId, 'diff-content', { base, head, path }));
   ipcMain.handle('git:status', (_event, workspaceId: string) =>
     gitGet(workspaceId, 'status', {}));
-  ipcMain.handle('git:fetch', (_event, workspaceId: string, remotes: string[]) =>
-    gitPost(workspaceId, 'fetch', { remotes }, 5 * 60_000));
+  ipcMain.handle('git:refresh-history', (
+    _event,
+    workspaceId: string,
+    refs: CommitHistoryRefDto[],
+  ) => gitPost(workspaceId, 'commits/refresh', { refs }));
   ipcMain.handle('git:commit', (_event, workspaceId: string, summary: string, description: string) =>
     gitPost(workspaceId, 'commit', { summary, description }));
   ipcMain.handle('git:reword', (_event, workspaceId: string, branch: string, sha: string, message: string) =>
@@ -642,6 +655,15 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',
     }));
+  ipcMain.handle('workspaces:upstream', (
+    _event,
+    workspaceId: string,
+    upstreamWorkspaceId: string | null,
+  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ upstreamWorkspaceId }),
+  }));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',

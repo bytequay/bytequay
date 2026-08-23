@@ -17,7 +17,6 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
@@ -245,37 +244,32 @@ final class ManagedWorkspaceGit
                 repository,
                 "origin",
                 previous.originCloneUrl(),
-                current.originCloneUrl(),
-                false);
+                current.originCloneUrl());
         Optional<String> actualUpstream = remoteUrl(repository, "upstream");
-        if (current.topology() == Topology.DIRECT) {
+        if (current.upstreamWorkspaceId().isEmpty()) {
             if (actualUpstream.isPresent()) {
-                throw remoteMismatch("Direct checkout unexpectedly has an upstream remote");
+                requireGitSuccess(git.run(repository, "remote", "remove", "upstream"), "remove upstream");
             }
             return;
         }
-        reconcileRemote(
-                repository,
-                "upstream",
-                previous.upstreamCloneUrl().orElseThrow(),
-                current.upstreamCloneUrl().orElseThrow(),
-                true);
+        String currentUrl = current.upstreamCloneUrl().orElseThrow();
+        if (actualUpstream.isEmpty()) {
+            requireGitSuccess(git.run(repository, "remote", "add", "upstream", currentUrl), "add upstream");
+        }
+        else if (!actualUpstream.orElseThrow().equals(currentUrl)) {
+            requireGitSuccess(git.run(repository, "remote", "set-url", "upstream", currentUrl), "update upstream");
+        }
     }
 
     private void reconcileRemote(
             Path repository,
             String name,
             String previousUrl,
-            String currentUrl,
-            boolean mayAdd)
+            String currentUrl)
     {
         Optional<String> actual = remoteUrl(repository, name);
         if (actual.isEmpty()) {
-            if (!mayAdd) {
-                throw remoteMismatch("Missing " + name + " remote");
-            }
-            requireGitSuccess(git.run(repository, "remote", "add", name, currentUrl), "add " + name);
-            return;
+            throw remoteMismatch("Missing " + name + " remote");
         }
         if (actual.orElseThrow().equals(currentUrl)) {
             return;
@@ -309,7 +303,7 @@ final class ManagedWorkspaceGit
             Map<String, String> environment)
     {
         fetch(repository, "origin", environment);
-        if (workspace.topology() == Topology.FORK) {
+        if (workspace.upstreamWorkspaceId().isPresent()) {
             fetch(repository, "upstream", environment);
         }
     }

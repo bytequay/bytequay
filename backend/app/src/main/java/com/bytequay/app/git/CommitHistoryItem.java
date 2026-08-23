@@ -11,15 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web.git;
+package com.bytequay.app.git;
 
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Commit history data rendered by the workspace Commits tab. */
-public record GitCommitResponse(
+/** Complete local display model for one commit-history card. */
+public record CommitHistoryItem(
         String sha,
         String title,
         String body,
@@ -29,7 +29,7 @@ public record GitCommitResponse(
         Optional<Integer> pullRequestNumber,
         Optional<String> pullRequestTitle)
 {
-    public GitCommitResponse
+    public CommitHistoryItem
     {
         requireNonNull(sha, "sha is null");
         requireNonNull(title, "title is null");

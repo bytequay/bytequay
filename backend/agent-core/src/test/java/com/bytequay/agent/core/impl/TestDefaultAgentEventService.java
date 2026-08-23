@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Flow;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -228,7 +229,7 @@ class TestDefaultAgentEventService
                     .filter(event -> event.taskId().equals(taskId))
                     .filter(event -> event.sequence() > afterSequence)
                     .limit(limit)
-                    .collect(ImmutableList.toImmutableList());
+                    .collect(toImmutableList());
         }
 
         @Override
@@ -283,7 +284,7 @@ class TestDefaultAgentEventService
         {
             return tasks.values().stream()
                     .filter(task -> !task.state().terminal())
-                    .collect(ImmutableList.toImmutableList());
+                    .collect(toImmutableList());
         }
 
         @Override

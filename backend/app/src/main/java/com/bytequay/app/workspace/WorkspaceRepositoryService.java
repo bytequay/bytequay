@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.core.domain.Workspace;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Application boundary for the durable watched-repository workspace lifecycle. */
 public interface WorkspaceRepositoryService
@@ -30,7 +31,7 @@ public interface WorkspaceRepositoryService
     List<RepositorySearchResult> searchRepositories(String query, int limit);
 
     /**
-     * Resolves the exact direct/fork routing that the user must confirm before watching.
+     * Resolves the selected repository routing and provider topology hint that the user confirms before watching.
      *
      * @param selectedRepositoryId stable GitHub repository identifier
      * @return current routing, permission state, and confirmation fingerprint
@@ -85,7 +86,16 @@ public interface WorkspaceRepositoryService
     Workspace requestSync(String workspaceId);
 
     /**
-     * Stops watching a workspace after verifying that no active cherry-pick references its repo.
+     * Links this workspace to another watched workspace, or unlinks it when empty.
+     *
+     * @param workspaceId workspace whose upstream changes
+     * @param upstreamWorkspaceId another watched workspace, or empty to unlink
+     * @return the updated workspace after synchronization is accepted
+     */
+    Workspace setUpstream(String workspaceId, Optional<String> upstreamWorkspaceId);
+
+    /**
+     * Stops watching a workspace after verifying that no active cherry-pick or workspace link references it.
      *
      * @param workspaceId ByteQuay workspace identifier
      * @throws WorkspaceException when the workspace is missing or busy

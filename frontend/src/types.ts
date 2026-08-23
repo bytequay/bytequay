@@ -238,6 +238,7 @@ export type WorkspaceDto = {
   selectedRepositoryId: number;
   selectedOwner: string;
   selectedRepo: string;
+  upstreamWorkspaceId: string | null;
   upstreamRepositoryId: number | null;
   upstreamOwner: string | null;
   upstreamRepo: string | null;
@@ -246,6 +247,7 @@ export type WorkspaceDto = {
   monitoredRepo: string;
   topology: 'DIRECT' | 'FORK';
   defaultBranch: string;
+  upstreamDefaultBranch: string | null;
   localRepositoryPath: string;
   codeState: 'PENDING' | 'CLONING' | 'READY' | 'SYNCING' | 'FAILED';
   metadataState: 'PENDING' | 'SYNCING' | 'READY' | 'FAILED';
@@ -539,6 +541,26 @@ export type GitCommitDto = {
   pullRequestTitle?: string | null;
 };
 
+export type CommitHistorySourceDto = 'WORKSPACE' | 'UPSTREAM';
+
+export type CommitHistoryRefDto = {
+  source: CommitHistorySourceDto;
+  branch: string;
+};
+
+export type CommitRefreshStatusDto = {
+  workspaceId: string;
+  state: 'IDLE' | 'QUEUED' | 'RUNNING' | 'FAILED';
+  lastAttemptAt?: string | null;
+  lastSucceededAt?: string | null;
+  error?: string | null;
+};
+
+export type CommitHistorySnapshotDto = {
+  commits: GitCommitDto[];
+  refresh: CommitRefreshStatusDto;
+};
+
 export type GitDiffFileDto = {
   path: string;
   /** M | A | D | R */
@@ -619,6 +641,10 @@ export type Bridge = {
     labels: string[],
   ) => Promise<WorkspaceIssueMetadataDto>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
+  setWorkspaceUpstream: (
+    workspaceId: string,
+    upstreamWorkspaceId: string | null,
+  ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
@@ -676,7 +702,12 @@ export type Bridge = {
 
   gitOverview: (workspaceId: string) => Promise<GitOverviewDto>;
   gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;
-  gitLog: (workspaceId: string, ref: string, limit: number) => Promise<GitCommitDto[]>;
+  gitLog: (
+    workspaceId: string,
+    source: CommitHistorySourceDto,
+    branch: string,
+    limit: number,
+  ) => Promise<CommitHistorySnapshotDto>;
   gitDiff: (workspaceId: string, base: string, head: string) => Promise<GitDiffFileDto[]>;
   gitDiffFileContent: (
     workspaceId: string,
@@ -685,7 +716,10 @@ export type Bridge = {
     path: string,
   ) => Promise<DiffFileContentDto>;
   gitStatus: (workspaceId: string) => Promise<GitWorktreeStatusDto>;
-  gitFetch: (workspaceId: string, remotes: string[]) => Promise<{ fetched: boolean }>;
+  refreshCommitHistory: (
+    workspaceId: string,
+    refs: CommitHistoryRefDto[],
+  ) => Promise<CommitRefreshStatusDto>;
   gitCommit: (workspaceId: string, summary: string, description: string) => Promise<{ sha: string }>;
   gitReword: (workspaceId: string, branch: string, sha: string, message: string) => Promise<{ sha: string }>;
   gitSquash: (

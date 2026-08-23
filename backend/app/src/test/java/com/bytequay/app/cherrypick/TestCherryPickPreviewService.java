@@ -17,6 +17,9 @@ import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.domain.CommitEnrichment;
+import com.bytequay.core.domain.CommitEnrichmentSnapshot;
+import com.bytequay.core.store.CommitHistoryStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,12 +32,16 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestCherryPickPreviewService
 {
@@ -48,6 +55,7 @@ class TestCherryPickPreviewService
     private Path fork;
     private Path clone;
     private MutableClock clock;
+    private CommitHistoryStore commitHistory;
     private CherryPickPreviewService service;
 
     @BeforeEach
@@ -67,15 +75,48 @@ class TestCherryPickPreviewService
         git(clone, "remote", "add", "origin", upstream.toString());
         git(clone, "remote", "add", "fork", fork.toString());
         clock = new MutableClock(NOW);
+        commitHistory = mock(CommitHistoryStore.class);
         service = new CherryPickPreviewService(
                 GIT,
                 new CherryPickConflictScout(GIT),
-                new CherryPickPullRequestLookup(
-                        TestCherryPickPullRequestLookup.offlineClient(),
-                        () -> {
-                            throw new IllegalStateException("preview tests use no GitHub credential");
-                        }),
+                commitHistory,
                 clock);
+    }
+
+    @Test
+    void readsStoredPullRequestAssociationsWithoutProviderAccess()
+    {
+        String base = head(upstream);
+        write(upstream, "associated.txt", "associated\n");
+        commit(upstream, "Associated change");
+        String sha = head(upstream);
+        when(commitHistory.findEnrichment(202, List.of(sha))).thenReturn(new CommitEnrichmentSnapshot(List.of(
+                new CommitEnrichment(
+                        202,
+                        sha,
+                        Optional.empty(),
+                        Optional.of(42),
+                        Optional.of("Example pull request"),
+                        Optional.of("https://example.invalid/pull/42"),
+                        Optional.empty(),
+                        Optional.of(NOW),
+                        NOW))));
+
+        CherryPickPreview preview = service.preview(new PreviewCherryPickRangeCommand(
+                clone,
+                Optional.of("workspace-id"),
+                OptionalLong.of(202),
+                "origin",
+                base,
+                "origin/main",
+                "fork",
+                "main"));
+
+        assertThat(preview.commits()).singleElement().satisfies(value -> {
+            assertThat(value.pullRequest()).isPresent();
+            assertThat(value.pullRequest().orElseThrow().number()).isEqualTo(42);
+            assertThat(value.pullRequest().orElseThrow().title()).isEqualTo("Example pull request");
+        });
     }
 
     @Test
@@ -298,17 +339,17 @@ class TestCherryPickPreviewService
     void rejectsControlCharactersAndOptionLikeRefs()
     {
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
+                clone, Optional.empty(), OptionalLong.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("control character");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
+                clone, Optional.empty(), OptionalLong.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("command-line option");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                Path.of("relative"), Optional.empty(), "origin", "main", "main", "fork", "main"))
+                Path.of("relative"), Optional.empty(), OptionalLong.empty(), "origin", "main", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("not absolute");
     }
@@ -316,7 +357,7 @@ class TestCherryPickPreviewService
     private PreviewCherryPickRangeCommand command(String baseRef, String targetBranch)
     {
         return new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), "origin", baseRef, "origin/main", "fork", targetBranch);
+                clone, Optional.empty(), OptionalLong.empty(), "origin", baseRef, "origin/main", "fork", targetBranch);
     }
 
     private static Optional<TargetMatch> match(CherryPickPreview preview, String sourceSha)

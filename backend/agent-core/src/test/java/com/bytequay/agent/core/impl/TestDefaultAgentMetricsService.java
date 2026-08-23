@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestDefaultAgentMetricsService
@@ -284,7 +285,7 @@ class TestDefaultAgentMetricsService
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
                     .sorted(Comparator.comparing(AgentTurn::createdAt))
-                    .collect(ImmutableList.toImmutableList());
+                    .collect(toImmutableList());
         }
 
         @Override
@@ -292,7 +293,7 @@ class TestDefaultAgentMetricsService
         {
             return turns.values().stream()
                     .filter(turn -> turn.state().active())
-                    .collect(ImmutableList.toImmutableList());
+                    .collect(toImmutableList());
         }
     }
 

@@ -68,6 +68,8 @@ const bridge: Bridge = {
   updateWorkspaceIssueMetadata: (workspaceId, issueNumber, assignees, labels) =>
     ipcRenderer.invoke('workspaces:issues:metadata:update', workspaceId, issueNumber, assignees, labels),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
+  setWorkspaceUpstream: (workspaceId, upstreamWorkspaceId) =>
+    ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamWorkspaceId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),
@@ -129,12 +131,14 @@ const bridge: Bridge = {
 
   gitOverview: workspaceId => ipcRenderer.invoke('git:overview', workspaceId),
   gitRemoteBranches: (workspaceId, remote) => ipcRenderer.invoke('git:branches', workspaceId, remote),
-  gitLog: (workspaceId, ref, limit) => ipcRenderer.invoke('git:log', workspaceId, ref, limit),
+  gitLog: (workspaceId, source, branch, limit) =>
+    ipcRenderer.invoke('git:log', workspaceId, source, branch, limit),
   gitDiff: (workspaceId, base, head) => ipcRenderer.invoke('git:diff', workspaceId, base, head),
   gitDiffFileContent: (workspaceId, base, head, path) =>
     ipcRenderer.invoke('git:diff-content', workspaceId, base, head, path),
   gitStatus: workspaceId => ipcRenderer.invoke('git:status', workspaceId),
-  gitFetch: (workspaceId, remotes) => ipcRenderer.invoke('git:fetch', workspaceId, remotes),
+  refreshCommitHistory: (workspaceId, refs) =>
+    ipcRenderer.invoke('git:refresh-history', workspaceId, refs),
   gitCommit: (workspaceId, summary, description) =>
     ipcRenderer.invoke('git:commit', workspaceId, summary, description),
   gitReword: (workspaceId, branch, sha, message) =>

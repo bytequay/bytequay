@@ -30,7 +30,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Service;
@@ -205,23 +204,27 @@ public final class DefaultWorkspacePullRequestService
         return selected;
     }
 
-    private static boolean routingMatches(Workspace workspace, UserRepo selected)
+    private boolean routingMatches(Workspace workspace, UserRepo selected)
     {
         if (selected.id() != workspace.selectedRepositoryId()
                 || !RepoRef.of(selected.owner(), selected.name()).equals(workspace.selectedRepository())
-                || !selected.cloneUrl().equals(workspace.originCloneUrl())
-                || selected.fork() != (workspace.topology() == Topology.FORK)) {
+                || !selected.cloneUrl().equals(workspace.originCloneUrl())) {
             return false;
         }
-        if (workspace.topology() == Topology.DIRECT) {
-            return selected.upstream().isEmpty()
+        if (workspace.upstreamWorkspaceId().isEmpty()) {
+            return workspace.upstreamRepositoryId().isEmpty()
+                    && workspace.upstreamRepository().isEmpty()
+                    && workspace.upstreamCloneUrl().isEmpty()
+                    && workspace.monitoredRepositoryId() == workspace.selectedRepositoryId()
                     && workspace.monitoredRepository().equals(workspace.selectedRepository());
         }
-        return selected.upstream()
-                .filter(upstream -> workspace.upstreamRepositoryId().filter(id -> id == upstream.id()).isPresent())
-                .filter(upstream -> RepoRef.of(upstream.owner(), upstream.name())
-                        .equals(workspace.upstreamRepository().orElseThrow()))
-                .filter(upstream -> upstream.cloneUrl().equals(workspace.upstreamCloneUrl().orElseThrow()))
+        return workspaces.findById(workspace.upstreamWorkspaceId().orElseThrow())
+                .filter(upstream -> workspace.upstreamRepositoryId()
+                        .filter(id -> id == upstream.selectedRepositoryId()).isPresent())
+                .filter(upstream -> workspace.upstreamRepository()
+                        .filter(upstream.selectedRepository()::equals).isPresent())
+                .filter(upstream -> workspace.upstreamCloneUrl()
+                        .filter(upstream.originCloneUrl()::equals).isPresent())
                 .isPresent();
     }
 
@@ -292,7 +295,7 @@ public final class DefaultWorkspacePullRequestService
 
     private static String head(Workspace workspace, CherryPickExecution execution)
     {
-        return workspace.topology() == Topology.FORK
+        return workspace.upstreamWorkspaceId().isPresent()
                 ? workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch()
                 : execution.workspace().workBranch();
     }

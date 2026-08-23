@@ -35,13 +35,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -137,7 +137,7 @@ class TestCherryPickPreviewHttpApi
     }
 
     @Test
-    void derivesDirectAndForkRoutingWithoutAcceptingRendererPaths()
+    void derivesLinkedRoutingAndRejectsCherryPickWithoutAnUpstream()
             throws Exception
     {
         when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
@@ -154,22 +154,18 @@ class TestCherryPickPreviewHttpApi
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("WORKSPACE_UPSTREAM_INVALID"));
 
         ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
                 ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
-        verify(previewService, times(2)).preview(commands.capture());
-        assertThat(commands.getAllValues().get(0)).satisfies(command -> {
+        verify(previewService).preview(commands.capture());
+        assertThat(commands.getValue()).satisfies(command -> {
             assertThat(command.repository()).isEqualTo(Path.of("/managed/workspace-id/repository"));
             assertThat(command.workspaceId()).contains("workspace-id");
+            assertThat(command.sourceRepositoryId()).hasValue(202);
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.targetRemote()).isEqualTo("upstream");
-        });
-        assertThat(commands.getAllValues().get(1)).satisfies(command -> {
-            assertThat(command.repository()).isEqualTo(Path.of("/managed/direct-id/repository"));
-            assertThat(command.workspaceId()).contains("direct-id");
-            assertThat(command.sourceRemote()).isEqualTo("origin");
-            assertThat(command.targetRemote()).isEqualTo("origin");
         });
     }
 
@@ -182,6 +178,14 @@ class TestCherryPickPreviewHttpApi
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;
         return new WorkspaceRepositoryContext(
-                workspaceId, repository, selected, monitored, topology, sourceRemote, "origin", "main");
+                workspaceId,
+                repository,
+                101,
+                selected,
+                topology == Topology.FORK ? OptionalLong.of(202) : OptionalLong.empty(),
+                monitored,
+                sourceRemote,
+                "origin",
+                "main");
     }
 }

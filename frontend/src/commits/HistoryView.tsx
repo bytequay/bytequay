@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import type { DiffFileDto, GitCommitDto, GitDiffFileDto, PullRequestDto } from '../types';
+import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
 import { useResizablePane } from '../useResizablePane';
@@ -28,7 +28,6 @@ export default function HistoryView({
   commits,
   loading,
   checked,
-  pullRequests,
   onChangeChecked,
   onHistoryRewritten,
   onOpenPullRequest,
@@ -43,7 +42,6 @@ export default function HistoryView({
   commits: GitCommitDto[];
   loading: boolean;
   checked: ReadonlySet<string>;
-  pullRequests: PullRequestDto[];
   onChangeChecked: (next: Set<string>) => void;
   onHistoryRewritten: () => void;
   onOpenPullRequest: (number: number) => void;
@@ -70,10 +68,6 @@ export default function HistoryView({
   const single = !isUpstream && spanCommits.length === 1 ? spanCommits[0] : null;
   const multi = !isUpstream && spanCommits.length > 1;
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
-  const pullRequestsByNumber = useMemo(
-    () => new Map(pullRequests.map(pullRequest => [pullRequest.number, pullRequest])),
-    [pullRequests],
-  );
   const viewerFiles = useMemo<DiffFileDto[]>(() => diffFiles.map(file => ({
     filename: file.path,
     status: file.status,
@@ -239,10 +233,7 @@ export default function HistoryView({
                 const inRange = span !== null && index >= span.lo && index <= span.hi;
                 const isViewed = viewed?.sha === commit.sha;
                 const pullRequestNumber = commit.pullRequestNumber ?? null;
-                const pullRequest = pullRequestNumber === null
-                  ? null
-                  : pullRequestsByNumber.get(pullRequestNumber) ?? null;
-                const pullRequestTitle = commit.pullRequestTitle ?? pullRequest?.title ?? null;
+                const pullRequestTitle = commit.pullRequestTitle ?? null;
                 return (
                   <div key={commit.sha}>
                     <div
@@ -279,7 +270,12 @@ export default function HistoryView({
                           </button>
                         )}
                         <div className="cmt-commit-meta">
-                          <Avatar login={commit.author} avatarUrl={commit.authorAvatarUrl} size={14} />
+                          <Avatar
+                            login={commit.author}
+                            avatarUrl={commit.authorAvatarUrl}
+                            size={14}
+                            allowGitHubFallback={false}
+                          />
                           <span>
                             <strong>{commit.author}</strong>
                             {' committed '}

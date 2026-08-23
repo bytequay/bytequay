@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import { WorkspaceCards } from './WorkspacesPage';
-import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
+import WorkspaceShell, { WorkspaceHome, WorkspaceSettings } from './WorkspaceShell';
 import type { Workspace } from './model';
 
 describe('watched repository workspace UI', () => {
@@ -90,6 +90,19 @@ describe('watched repository workspace UI', () => {
     expect(issues).toContain('Open issues');
     expect(issues).toContain('upstream/project');
   });
+
+  it('lets Settings search any readable GitHub repository for upstream', () => {
+    const html = renderToStaticMarkup(<WorkspaceSettings
+      workspace={workspace('FORK')}
+      onWorkspaceChanged={() => {}}
+      onRemoved={() => {}}
+    />);
+
+    expect(html).toContain('Upstream repository');
+    expect(html).toContain('Search GitHub repositories…');
+    expect(html).toContain('any repository readable by your connected GitHub account');
+    expect(html).toContain('upstream/project — current');
+  });
 });
 
 function workspace(topology: Workspace['topology']): Workspace {
@@ -102,9 +115,10 @@ function workspace(topology: Workspace['topology']): Workspace {
     upstreamDefaultBranch: linked ? 'main' : null,
     originRemote: 'origin',
     upstreamRemote: linked ? 'upstream' : null,
+    selectedRepositoryId: 100,
     selectedOwner: 'contributor',
     selectedRepo: 'project',
-    upstreamWorkspaceId: linked ? 'upstream-workspace' : null,
+    upstreamRepositoryId: linked ? 200 : null,
     upstreamOwner: linked ? 'upstream' : null,
     upstreamRepo: linked ? 'project' : null,
     monitoredOwner: linked ? 'upstream' : 'contributor',

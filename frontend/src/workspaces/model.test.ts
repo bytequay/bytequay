@@ -63,7 +63,6 @@ function dto(topology: WorkspaceDto['topology'], linked = topology === 'FORK'): 
     selectedRepositoryId: 100,
     selectedOwner: 'contributor',
     selectedRepo: 'project',
-    upstreamWorkspaceId: linked ? 'upstream-workspace' : null,
     upstreamRepositoryId: linked ? 200 : null,
     upstreamOwner: linked ? 'upstream' : null,
     upstreamRepo: linked ? 'project' : null,

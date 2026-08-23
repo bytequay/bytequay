@@ -80,7 +80,6 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(direct.monitoredRepositoryId()).isEqualTo(100);
         assertThat(direct.upstreamRepositoryId()).isEmpty();
         assertThat(fork.topology()).isEqualTo(Topology.FORK);
-        assertThat(fork.upstreamWorkspaceId()).isEmpty();
         assertThat(fork.upstreamRepositoryId()).isEmpty();
         assertThat(fork.monitoredRepository()).isEqualTo(RepoRef.of("contributor", "project"));
         assertThat(fork.defaultBranch()).isEqualTo("feature-default");
@@ -260,7 +259,7 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
-    void linksAndUnlinksOnlyAnotherWatchedWorkspace()
+    void linksAndUnlinksAnyReadableRepository()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
@@ -268,39 +267,36 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
         Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
-        Workspace upstream = store.save(watch(service, 300).withStates(CodeState.READY, MetadataState.READY, NOW));
 
-        Workspace linked = service.setUpstream(selected.id(), Optional.of(upstream.id()));
+        Workspace linked = service.setUpstream(selected.id(), Optional.of(300L));
 
-        assertThat(linked.upstreamWorkspaceId()).contains(upstream.id());
-        assertThat(linked.upstreamRepository()).contains(upstream.selectedRepository());
-        assertThat(linked.monitoredRepository()).isEqualTo(upstream.selectedRepository());
-        assertThat(linked.upstreamDefaultBranch()).contains(upstream.defaultBranch());
-        assertThatThrownBy(() -> service.unwatch(upstream.id()))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_IN_USE"));
+        assertThat(store.findAll()).hasSize(1);
+        assertThat(linked.upstreamRepositoryId()).contains(300L);
+        assertThat(linked.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
+        assertThat(linked.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThat(linked.upstreamDefaultBranch()).contains("main");
 
         store.save(linked.withStates(CodeState.READY, MetadataState.READY, NOW));
         Workspace unlinked = service.setUpstream(selected.id(), Optional.empty());
 
-        assertThat(unlinked.upstreamWorkspaceId()).isEmpty();
         assertThat(unlinked.upstreamRepository()).isEmpty();
         assertThat(unlinked.monitoredRepository()).isEqualTo(selected.selectedRepository());
     }
 
     @Test
-    void rejectsSelfAndUnwatchedUpstreamLinks()
+    void rejectsSelectedAndUnreadableUpstreamRepositories()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
         Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
 
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(selected.id())))
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(100L)))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of("not-watched")))
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(999L)))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
     }

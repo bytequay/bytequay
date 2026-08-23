@@ -22,7 +22,7 @@ import CommitsTab, {
 } from './CommitsTab';
 
 describe('workspace commits tab', () => {
-  it('shows the Settings control when no upstream workspace is linked', () => {
+  it('shows the Settings control when no upstream repository is linked', () => {
     const html = renderToStaticMarkup(<CommitsTab
       workspace={workspace()}
       onOpenPullRequest={() => {}}
@@ -30,7 +30,7 @@ describe('workspace commits tab', () => {
     />);
 
     expect(html).toContain('No upstream linked');
-    expect(html).toContain('Link another watched workspace');
+    expect(html).toContain('Select an upstream repository');
     expect(html).toContain('cmt-readonly">Settings');
   });
 
@@ -39,7 +39,7 @@ describe('workspace commits tab', () => {
       ...workspace(),
       upstreamDefaultBranch: 'main',
       upstreamRemote: 'upstream',
-      upstreamWorkspaceId: 'upstream-workspace',
+      upstreamRepositoryId: 200,
       upstreamOwner: 'upstream',
       upstreamRepo: 'project',
       topology: 'FORK',
@@ -94,9 +94,10 @@ function workspace(): Workspace {
     upstreamDefaultBranch: null,
     originRemote: 'origin',
     upstreamRemote: null,
+    selectedRepositoryId: 100,
     selectedOwner: 'example',
     selectedRepo: 'project',
-    upstreamWorkspaceId: null,
+    upstreamRepositoryId: null,
     upstreamOwner: null,
     upstreamRepo: null,
     monitoredOwner: 'example',

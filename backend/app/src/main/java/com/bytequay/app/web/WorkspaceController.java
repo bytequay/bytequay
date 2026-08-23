@@ -205,7 +205,7 @@ public class WorkspaceController
         requireNonNull(request, "body is required");
         return WorkspaceSummary.of(workspaces.setUpstream(
                 workspaceId,
-                Optional.ofNullable(request.upstreamWorkspaceId())));
+                Optional.ofNullable(request.upstreamRepositoryId())));
     }
 
     @DeleteMapping("/{workspaceId}")
@@ -225,5 +225,5 @@ public class WorkspaceController
 
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 
-    public record UpstreamRequest(String upstreamWorkspaceId) {}
+    public record UpstreamRequest(Long upstreamRepositoryId) {}
 }

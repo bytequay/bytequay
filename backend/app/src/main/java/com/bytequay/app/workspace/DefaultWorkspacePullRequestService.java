@@ -211,20 +211,24 @@ public final class DefaultWorkspacePullRequestService
                 || !selected.cloneUrl().equals(workspace.originCloneUrl())) {
             return false;
         }
-        if (workspace.upstreamWorkspaceId().isEmpty()) {
-            return workspace.upstreamRepositoryId().isEmpty()
-                    && workspace.upstreamRepository().isEmpty()
+        if (workspace.upstreamRepositoryId().isEmpty()) {
+            return workspace.upstreamRepository().isEmpty()
+                    && workspace.upstreamDefaultBranch().isEmpty()
                     && workspace.upstreamCloneUrl().isEmpty()
                     && workspace.monitoredRepositoryId() == workspace.selectedRepositoryId()
                     && workspace.monitoredRepository().equals(workspace.selectedRepository());
         }
-        return workspaces.findById(workspace.upstreamWorkspaceId().orElseThrow())
-                .filter(upstream -> workspace.upstreamRepositoryId()
-                        .filter(id -> id == upstream.selectedRepositoryId()).isPresent())
+        long upstreamId = workspace.upstreamRepositoryId().orElseThrow();
+        return repositories.fetchRepository(credentials.resolveGitHubToken(), upstreamId)
+                .filter(upstream -> upstream.id() == upstreamId)
                 .filter(upstream -> workspace.upstreamRepository()
-                        .filter(upstream.selectedRepository()::equals).isPresent())
+                        .filter(RepoRef.of(upstream.owner(), upstream.name())::equals).isPresent())
+                .filter(upstream -> workspace.upstreamDefaultBranch()
+                        .filter(upstream.defaultBranch()::equals).isPresent())
                 .filter(upstream -> workspace.upstreamCloneUrl()
-                        .filter(upstream.originCloneUrl()::equals).isPresent())
+                        .filter(upstream.cloneUrl()::equals).isPresent())
+                .filter(upstream -> workspace.monitoredRepositoryId() == upstream.id())
+                .filter(upstream -> workspace.monitoredRepository().equals(RepoRef.of(upstream.owner(), upstream.name())))
                 .isPresent();
     }
 
@@ -295,7 +299,7 @@ public final class DefaultWorkspacePullRequestService
 
     private static String head(Workspace workspace, CherryPickExecution execution)
     {
-        return workspace.upstreamWorkspaceId().isPresent()
+        return workspace.upstreamRepositoryId().isPresent()
                 ? workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch()
                 : execution.workspace().workBranch();
     }

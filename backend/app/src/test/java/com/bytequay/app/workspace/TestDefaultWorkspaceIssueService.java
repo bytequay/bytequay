@@ -255,7 +255,6 @@ class TestDefaultWorkspaceIssueService
                 id,
                 topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
                 selected,
-                topology == Topology.FORK ? Optional.of("upstream-workspace") : Optional.empty(),
                 topology == Topology.FORK ? Optional.of(monitoredId) : Optional.empty(),
                 topology == Topology.FORK ? Optional.of(monitored) : Optional.empty(),
                 monitoredId,

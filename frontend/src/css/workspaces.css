@@ -394,7 +394,12 @@
   color: #1f2328;
 }
 
-.ws-upstream-body { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.ws-upstream-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; }
+
+.ws-upstream-body > input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
 
 .ws-upstream-body select {
   padding: 6px 10px;
@@ -406,7 +411,7 @@
   max-width: 220px;
 }
 
-.ws-upstream-main { flex: 1; min-width: 0; }
+.ws-upstream-main { flex: 1 0 100%; min-width: 0; }
 
 .ws-upstream-name {
   display: flex;

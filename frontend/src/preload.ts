@@ -68,8 +68,8 @@ const bridge: Bridge = {
   updateWorkspaceIssueMetadata: (workspaceId, issueNumber, assignees, labels) =>
     ipcRenderer.invoke('workspaces:issues:metadata:update', workspaceId, issueNumber, assignees, labels),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
-  setWorkspaceUpstream: (workspaceId, upstreamWorkspaceId) =>
-    ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamWorkspaceId),
+  setWorkspaceUpstream: (workspaceId, upstreamRepositoryId) =>
+    ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamRepositoryId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),

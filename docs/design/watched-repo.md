@@ -88,15 +88,17 @@ These are persistence invariants, not UI conventions:
 
 - A GitHub repository can be watched only once. `selectedRepositoryId` has a database unique
   constraint. A repeated watch returns the existing workspace instead of creating another one.
-- A workspace has zero or one user-managed upstream workspace link.
-- An upstream candidate must already be watched and cannot be the current workspace.
-- One watched workspace can be linked by any number of other workspaces; links must not form cycles.
+- A workspace has zero or one user-managed upstream GitHub repository.
+- An upstream candidate can be any repository readable through the connected GitHub account and
+  cannot be the workspace's selected repository.
+- The upstream is identified by its stable GitHub repository ID. Any number of workspaces may use
+  the same upstream repository without requiring a separate watched workspace.
 - GitHub's fork/parent relationship is descriptive metadata and a useful watch hint. It never
-  creates, changes, or removes a ByteQuay upstream link.
-- Removing a workspace is blocked while another workspace links to it.
+  creates, changes, or removes the user-selected upstream.
 
-For example, watched workspaces A, B, and C may all link to watched workspace X, but A cannot
-simultaneously link to X and Y. The repositories do not need a GitHub fork relationship.
+For example, watched workspaces A, B, and C may all use repository X as upstream even when X is
+not watched. A cannot simultaneously use X and Y. The repositories do not need a GitHub fork
+relationship.
 
 ## User flow
 
@@ -138,7 +140,7 @@ watch action succeeded. Failed background work remains visible and retryable.
 3. The backend resolves the trusted local path and remote routing from the workspace.
 4. The existing commits History view displays branches and commits.
 5. The user selects an ordered commit range and starts the existing Flow view.
-6. Cherry-pick requires an upstream workspace link and is computed against
+6. Cherry-pick requires an upstream repository and is computed against
    `upstream/<target-branch>`.
 7. On confirmation, the existing execution service creates its worktree and applies the
    cherry-pick plan.
@@ -147,20 +149,21 @@ watch action succeeded. Failed background work remains visible and retryable.
 ## Repository topology and routing
 
 GitHub topology and ByteQuay routing are separate concepts. Every watched repository is cloned as
-`origin`. The user may then link one other watched workspace as `upstream` from Workspace Settings.
+`origin`. The user may then select any GitHub-readable repository as `upstream` from Workspace
+Settings.
 
-| Purpose | No upstream linked | Upstream workspace linked |
+| Purpose | No upstream linked | Upstream repository linked |
 | --- | --- | --- |
 | Selected repository | workspace repository | workspace repository |
 | `origin` remote | selected repository | selected repository |
-| `upstream` remote | absent | linked workspace's selected repository |
-| Monitored issues/PRs | selected repository | linked workspace's selected repository |
-| Contributors | selected repository | linked workspace's selected repository |
-| Development base | `origin/<branch>` | `upstream/<linked-default-branch>` |
+| `upstream` remote | absent | selected upstream repository |
+| Monitored issues/PRs | selected repository | selected upstream repository |
+| Contributors | selected repository | selected upstream repository |
+| Development base | `origin/<branch>` | `upstream/<upstream-default-branch>` |
 | Work branch push | `origin` when writable | `origin` when writable |
-| Pull-request base | selected repository | linked workspace's selected repository |
+| Pull-request base | selected repository | selected upstream repository |
 
-Linking configures and fetches the linked repository as the read-only `upstream` remote. Unlinking
+Linking configures and fetches the selected repository as the read-only `upstream` remote. Unlinking
 removes that remote and returns monitoring to the selected repository. GitHub parent/source data
 may be displayed while watching a fork, but it never establishes this routing.
 
@@ -168,9 +171,10 @@ If the configured push destination is not writable, browsing, local worktrees, a
 cherry-pick execution remain available. Push and pull-request actions are disabled with an
 actionable permission message. ByteQuay must not silently push to another remote.
 
-The linked upstream workspace is resolved by ByteQuay workspace ID. Its selected repository ID,
-coordinates, default branch, and clone URL are copied into the dependent workspace's routing
-snapshot and refreshed from the linked workspace during synchronization.
+The upstream is resolved by stable GitHub repository ID. ByteQuay re-fetches it with the connected
+credential when the user saves the selection and during synchronization. Its coordinates, default
+branch, and clone URL are stored in the workspace routing snapshot so local reads remain available
+between refreshes.
 
 ## Durable model
 
@@ -183,8 +187,7 @@ Workspace
   name                       user-facing name
   selectedRepositoryId       stable GitHub repository ID
   selectedOwner/name         selected repository coordinates
-  upstreamWorkspaceId        nullable; explicit link to another watched workspace
-  upstreamRepositoryId       nullable; selected repository of linked workspace
+  upstreamRepositoryId       nullable; stable ID of the selected upstream repository
   upstreamOwner/name          nullable when unlinked
   monitoredRepositoryId      repository used for issues/PRs/contributors
   monitoredOwner/name
@@ -215,10 +218,10 @@ The database enforces the important cardinality rather than relying only on serv
 ```text
 UNIQUE(workspace.selected_repository_id)
 workspace.upstream_repository_id is a stable GitHub ID, nullable and not unique
-upstream_workspace_id is null => all upstream fields are null
-upstream_workspace_id is null => monitored_repository_id = selected_repository_id
-upstream_workspace_id is present => monitored_repository_id = upstream_repository_id
-upstream_workspace_id is present => linked workspace exists and no link cycle is formed
+upstream_repository_id is null => all upstream fields are null
+upstream_repository_id is null => monitored_repository_id = selected_repository_id
+upstream_repository_id is present => monitored_repository_id = upstream_repository_id
+upstream_repository_id is present => upstream_repository_id != selected_repository_id
 ```
 
 Repository-scoped cached data is keyed by the stable monitored repository ID, not by workspace.
@@ -340,19 +343,21 @@ public interface WorkspaceRepositoryService
     Workspace requestSync(String workspaceId);
 
     /**
-     * Links or unlinks another watched workspace as the read-only upstream.
+     * Links or unlinks a GitHub-readable repository as the read-only upstream.
+     *
+     * <p>The service re-fetches a supplied stable repository ID with the connected
+     * credential before saving its routing snapshot.</p>
      *
      * @param workspaceId workspace whose routing changes
-     * @param upstreamWorkspaceId watched workspace to link, or empty to unlink
+     * @param upstreamRepositoryId stable GitHub repository ID, or empty to unlink
      * @return accepted workspace state while routing synchronization begins
      */
-    Workspace setUpstream(String workspaceId, Optional<String> upstreamWorkspaceId);
+    Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId);
 
     /**
      * Stops watching and removes a workspace from ByteQuay.
      *
-     * <p>The first version refuses removal while a cherry-pick execution is active
-     * or another workspace links to this workspace.
+     * <p>The first version refuses removal while a cherry-pick execution is active.
      * Managed repository and worktree directories are removed only after ownership
      * and path checks succeed.</p>
      *
@@ -376,8 +381,8 @@ public interface WorkspaceProvisioningService
     /**
      * Creates or recovers the managed checkout for a saved workspace.
      *
-     * <p>The operation clones the selected repository as {@code origin}; when a watched
-     * workspace is linked it also configures and fetches {@code upstream}. It records state transitions
+     * <p>The operation clones the selected repository as {@code origin}; when an upstream
+     * repository is selected it also configures and fetches {@code upstream}. It records state transitions
      * and a sanitized failure without deleting an unknown directory.</p>
      *
      * @param workspaceId saved workspace to provision
@@ -413,7 +418,7 @@ public interface WorkspaceMetadataService
      * workspace's monitored repository.
      *
      * <p>For an unlinked workspace the monitored repository is the selected repository.
-     * For a linked workspace it is the linked workspace's selected repository. Contributors,
+     * For a linked workspace it is the selected upstream repository. Contributors,
      * labels, and repository topics/tags are stored locally by stable repository ID.
      * A normal call refreshes only projections whose fixed freshness interval has
      * expired and records a sanitized sync error.</p>
@@ -583,6 +588,11 @@ POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/push
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/pull-request
 ```
 
+The upstream request body is `{"upstreamRepositoryId": 123}` or
+`{"upstreamRepositoryId": null}` to unlink. The backend re-fetches a non-null ID through the
+connected GitHub credential before persisting it; renderer-provided coordinates, branches, and
+clone URLs are never trusted.
+
 Existing Git browse and cherry-pick endpoints may be retained temporarily for compatibility, but
 the workspace UI must use workspace-scoped endpoints. New renderer requests must not contain
 `repositoryPath` or `worktreeParent`.
@@ -631,7 +641,7 @@ contain tokens, authenticated clone URLs, or arbitrary command output with secre
 Show:
 
 - selected repository and topology;
-- linked upstream workspace, when present;
+- selected upstream repository, when present;
 - default branch and development base ref;
 - code and metadata state independently;
 - last successful sync times;
@@ -666,11 +676,13 @@ Settings. Existing commit cards retain their pull-request association and avatar
 
 ### Workspace Settings
 
-- List every other watched workspace as an upstream candidate.
-- Save `None` to unlink or a workspace ID to link.
+- Reuse repository search to list repositories readable by the connected GitHub account.
+- Save `None` to unlink or a stable GitHub repository ID to link.
+- Exclude the workspace's selected repository and show the current upstream even when it is not
+  otherwise watched by ByteQuay.
 - Never list raw Git remotes or infer the selection from GitHub topology.
-- Show safe validation errors for self-links, cycles, missing candidates, active work, and attempts
-  to remove a workspace still used as an upstream.
+- Show safe validation errors for the selected repository, inaccessible repositories, unsafe
+  routing, and active work.
 
 ## UI implementation and mockup status
 
@@ -687,7 +699,7 @@ scratch:
 | Commits and cherry-pick | Implemented | Workspace-ID data source and managed-base messaging |
 | Workspace Pull Requests | Global `PullsScreen` is already mounted | Repository-scoped header/list, empty/stale/error states; reuse all detail UI |
 | Workspace Tasks | Implemented for cherry-pick executions | Replace path-derived scope with workspace ID |
-| Workspace Settings | Implemented | Watched-workspace upstream selector and guarded unwatch |
+| Workspace Settings | Implemented | Searchable GitHub-repository upstream selector and guarded unwatch |
 | Workspace Issues | Placeholder only | Complete list/detail/filter interaction design and implementation |
 | Workspace Memory | Placeholder only | Future design; not required for watched-repo/commits delivery |
 | Contributor/label/tag picker | Not implemented as a workspace surface | Design when an issue/PR assignment or creation flow consumes the local cache |
@@ -736,7 +748,8 @@ sequenceDiagram
     API-->>Workspaces: Same saved workspace
     User->>Workspaces: Click workspace
     Workspaces->>API: Load Workspace Home
-    User->>API: Link another watched workspace as upstream
+    User->>API: Select any readable GitHub repository as upstream
+    API->>API: Re-fetch repository by stable GitHub ID
     API->>Provision: Reconcile and fetch upstream remote
     User->>Commits: Click Commits
     Commits->>API: Browse Git by workspaceId
@@ -754,8 +767,8 @@ sequenceDiagram
 - Clone recovery validates the repository identity and configured remotes before reuse.
 - Fetch never resets, rebases, cleans, or discards user work.
 - Metadata sync uses stable provider IDs and records the last successful snapshot.
-- Reference metadata is cached by monitored repository ID, so many linked workspaces sharing one
-  upstream share one contributors/labels/topics snapshot.
+- Reference metadata is cached by monitored repository ID, so many workspaces sharing one upstream
+  repository share one contributors/labels/topics snapshot.
 - Contributor refresh is no more frequent than weekly and label/topic refresh is no more frequent
   than monthly unless a future explicit force-refresh requirement is approved.
 - A metadata failure does not downgrade ready code.
@@ -763,7 +776,7 @@ sequenceDiagram
 - Repository renames are reconciled by stable GitHub ID and update displayed coordinates/remotes
   only through an explicit, validated sync path.
 - Deleted or inaccessible repositories remain visible with a recoverable/authentication state.
-- Unwatch is blocked while an active execution or another workspace depends on the workspace.
+- Unwatch is blocked while an active execution depends on the workspace.
 
 ## Security and write policy
 
@@ -796,17 +809,19 @@ delivery as a separate explicit gate.
 - Repeating watch for the same stable repository returns that workspace; it never creates a second
   workspace or clone.
 - GitHub fork metadata never establishes an upstream link.
-- Upstream candidates are other watched workspaces; users can link and unlink them in Settings.
-- Self-links, missing workspace links, and link cycles are rejected.
-- One watched workspace can serve as upstream for any number of linked workspaces and cannot be
-  removed while referenced.
+- Upstream candidates are repositories readable through the connected GitHub account, whether or
+  not they are watched; users can search, link, change, and unlink them in Settings.
+- Selecting the workspace repository itself, an inaccessible repository, or unsafe repository
+  routing is rejected.
+- Any number of workspaces can share the same upstream repository without depending on another
+  ByteQuay workspace.
 - Home and Workspaces display the same saved workspace and provisioning state.
 - Clicking the workspace opens Workspace Home even while preparation is in progress or failed.
 - Commits becomes available when code is ready and uses no renderer-supplied repository path.
-- Unlinked history resolves from `origin`, and cherry-pick creation directs the user to link an
-  upstream workspace.
+- Unlinked history resolves from `origin`, and cherry-pick creation directs the user to select an
+  upstream repository.
 - Linked history and cherry-pick bases resolve from `upstream`; push resolves to writable `origin`,
-  and the pull request resolves back to the linked workspace's repository.
+  and the pull request resolves against the selected upstream repository.
 - The existing commit range selection, preview, worktree execution, Tasks, Progress, and conflict
   flow continue to work.
 - Issues, pull requests, and contributors are read from the linked upstream when present and the

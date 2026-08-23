@@ -66,7 +66,6 @@ class TestIssueSyncJob
                 repository,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty(),
                 repositoryId,
                 repository,
                 Topology.DIRECT,

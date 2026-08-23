@@ -7,7 +7,7 @@ failed refresh must never blank commit history that was already available.
 
 This document refines the Commits section of
 [Watched Repository / Workspace](watched-repo.md). The explicit upstream is a
-linked watched workspace; GitHub fork topology does not select it.
+user-selected GitHub-readable repository; GitHub fork topology does not select it.
 
 ## 1. Pre-refactor behavior and the problem
 
@@ -48,9 +48,9 @@ of commit enrichment and PR synchronization.
   synchronization code, and persisted status.
 - Existing commits remain visible while refresh is queued, running, or failed.
 - The backend owns `lastSucceededAt`; the renderer does not persist sync state.
-- A linked upstream is resolved from `upstreamWorkspaceId` and must still be a
-  watched workspace. An unlinked workspace never infers an upstream from
-  GitHub relationships.
+- A linked upstream is resolved from its stable GitHub repository ID and
+  persisted routing snapshot. It does not need to be a watched workspace. An
+  unlinked workspace never infers an upstream from GitHub relationships.
 - Commit cards retain both the PR chip/title and author avatar presentation.
 
 ## 3. Sources of truth
@@ -201,7 +201,7 @@ public interface CommitHistoryService
 `CommitHistoryRef` is not a raw repository path or remote name. It is a value
 such as `WORKSPACE + branch` or `UPSTREAM + branch`. The service resolves it
 through `WorkspaceRepositoryService.requireReadyRepository(...)`, rejects an
-upstream selector when no watched upstream workspace is linked, validates the
+upstream selector when no upstream repository is selected, validates the
 branch as a Git revision, and derives the provider repository ID internally.
 
 The persistence port belongs in `core`; SQLite implements it:
@@ -499,7 +499,7 @@ the next local read observes the newer snapshot.
 - current selection/viewed-row behavior.
 
 The refresh ref list contains the currently selected workspace branch and,
-only when `upstreamWorkspaceId` is present, the currently selected upstream
+only when `upstreamRepositoryId` is present, the currently selected upstream
 branch. “No upstream linked” continues to open Settings and does not send an
 upstream ref.
 
@@ -550,8 +550,8 @@ upstream ref.
   one avatar file.
 - A GitHub failure shows stale local data and a retryable error; it does not
   clear PR chips or avatars that were previously stored.
-- A linked upstream is refreshed and displayed only through the linked watched
-  workspace routing. Unlinking immediately removes it from refresh requests.
+- A linked upstream is refreshed and displayed only through its persisted
+  repository routing. Unlinking immediately removes it from refresh requests.
 - Commit-card regression tests assert both the PR chip/title and an avatar
   `<img>` when a local avatar key exists, plus the fixed-size initial fallback
   when it does not.

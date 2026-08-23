@@ -71,7 +71,6 @@ class TestDefaultWorkspaceProvisioningService
                 commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace direct = store.createOrGet(workspace("direct", false));
-        store.createOrGet(upstreamWorkspace());
         Workspace fork = store.createOrGet(workspace("fork", true));
         DefaultWorkspaceProvisioningService service = service(store, git);
 
@@ -87,7 +86,6 @@ class TestDefaultWorkspaceProvisioningService
         Workspace linked = store.findById(fork.id()).orElseThrow();
         store.save(linked.withRepositoryRouting(
                 linked.selectedRepository(),
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 linked.selectedRepositoryId(),
@@ -286,6 +284,7 @@ class TestDefaultWorkspaceProvisioningService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork()));
+        when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream()));
         return service(store, git, gitHub);
     }
 
@@ -313,7 +312,6 @@ class TestDefaultWorkspaceProvisioningService
                 id,
                 fork ? 200 : 100,
                 RepoRef.of("contributor", "project"),
-                fork ? Optional.of("upstream-workspace") : Optional.empty(),
                 fork ? Optional.of(300L) : Optional.empty(),
                 fork ? Optional.of(RepoRef.of("upstream", "project")) : Optional.empty(),
                 fork ? 300 : 100,
@@ -328,36 +326,6 @@ class TestDefaultWorkspaceProvisioningService
                 MetadataState.PENDING,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW);
-    }
-
-    private Workspace upstreamWorkspace()
-    {
-        WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
-        return new Workspace(
-                "upstream-workspace",
-                "upstream/project",
-                300,
-                RepoRef.of("upstream", "project"),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                300,
-                RepoRef.of("upstream", "project"),
-                Topology.DIRECT,
-                "main",
-                UPSTREAM_URL,
-                Optional.empty(),
-                Optional.empty(),
-                paths.workspace("upstream-workspace").resolve("repository").toString(),
-                CodeState.READY,
-                MetadataState.READY,
-                Optional.of(NOW),
-                Optional.of(NOW),
                 Optional.empty(),
                 Optional.empty(),
                 0,
@@ -400,6 +368,22 @@ class TestDefaultWorkspaceProvisioningService
                         "project",
                         "main",
                         UPSTREAM_URL)));
+    }
+
+    private static UserRepo upstream()
+    {
+        return new UserRepo(
+                300,
+                "upstream",
+                "project",
+                "upstream/project",
+                Optional.empty(),
+                false,
+                "public",
+                false,
+                "main",
+                UPSTREAM_URL,
+                Optional.empty());
     }
 
     private Remote remote(String name)

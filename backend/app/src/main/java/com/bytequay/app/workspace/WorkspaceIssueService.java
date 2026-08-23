@@ -32,7 +32,7 @@ public interface WorkspaceIssueService
     /**
      * Refreshes open issues independently from low-volatility reference metadata.
      *
-     * <p>Direct workspaces target the selected repository; forks target their persisted upstream.
+     * <p>Unlinked workspaces target the selected repository; linked workspaces target their persisted upstream.
      * A provider failure leaves the previous local snapshot intact.</p>
      *
      * @param workspaceId workspace used to resolve the monitored repository

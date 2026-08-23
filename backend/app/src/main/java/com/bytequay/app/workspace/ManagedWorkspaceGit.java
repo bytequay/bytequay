@@ -246,7 +246,7 @@ final class ManagedWorkspaceGit
                 previous.originCloneUrl(),
                 current.originCloneUrl());
         Optional<String> actualUpstream = remoteUrl(repository, "upstream");
-        if (current.upstreamWorkspaceId().isEmpty()) {
+        if (current.upstreamRepositoryId().isEmpty()) {
             if (actualUpstream.isPresent()) {
                 requireGitSuccess(git.run(repository, "remote", "remove", "upstream"), "remove upstream");
             }
@@ -303,7 +303,7 @@ final class ManagedWorkspaceGit
             Map<String, String> environment)
     {
         fetch(repository, "origin", environment);
-        if (workspace.upstreamWorkspaceId().isPresent()) {
+        if (workspace.upstreamRepositoryId().isPresent()) {
             fetch(repository, "upstream", environment);
         }
     }

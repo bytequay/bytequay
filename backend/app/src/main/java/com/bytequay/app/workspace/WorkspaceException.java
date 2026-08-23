@@ -79,13 +79,6 @@ public final class WorkspaceException
                 message, false);
     }
 
-    public static WorkspaceException upstreamInUse()
-    {
-        return new WorkspaceException(
-                "WORKSPACE_UPSTREAM_IN_USE", HttpStatus.CONFLICT,
-                "Another workspace uses this workspace as its upstream. Unlink it first.", false);
-    }
-
     public static WorkspaceException invalidRepository(String message)
     {
         return new WorkspaceException(

@@ -34,7 +34,7 @@ final class CommitHistoryRouting
             return new ResolvedCommitHistoryRef(
                     context.selectedRepositoryId(), context.selectedRepository(), ref.branch(), ref.branch());
         }
-        checkArgument(context.upstreamRepositoryId().isPresent(), "no watched upstream workspace is linked");
+        checkArgument(context.upstreamRepositoryId().isPresent(), "no upstream repository is linked");
         checkArgument(!context.sourceRemote().equals(context.targetRemote()), "linked upstream remote is missing");
         return new ResolvedCommitHistoryRef(
                 context.upstreamRepositoryId().orElseThrow(),

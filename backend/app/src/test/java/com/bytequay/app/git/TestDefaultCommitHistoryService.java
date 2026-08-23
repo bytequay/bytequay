@@ -129,7 +129,7 @@ class TestDefaultCommitHistoryService
         assertThatThrownBy(() -> service.listHistory(
                 WORKSPACE_ID, new CommitHistoryRef(Source.UPSTREAM, "main"), 25))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("no watched upstream workspace");
+                .hasMessageContaining("no upstream repository");
         verify(git, never()).log(REPOSITORY, "upstream/main", 25);
     }
 
@@ -186,24 +186,23 @@ class TestDefaultCommitHistoryService
                 summary.upstreamRepositoryId() == null
                         ? OptionalLong.empty()
                         : OptionalLong.of(summary.upstreamRepositoryId()),
-                summary.upstreamWorkspaceId() == null ? SELECTED : UPSTREAM,
-                summary.upstreamWorkspaceId() == null ? "origin" : "upstream",
+                summary.upstreamRepositoryId() == null ? SELECTED : UPSTREAM,
+                summary.upstreamRepositoryId() == null ? "origin" : "upstream",
                 "origin",
                 "main"));
     }
 
     private static WorkspaceSummary linkedSummary()
     {
-        return summary("upstream-workspace", 202L, "example-upstream", "example-repo");
+        return summary(202L, "example-upstream", "example-repo");
     }
 
     private static WorkspaceSummary unlinkedSummary()
     {
-        return summary(null, null, null, null);
+        return summary(null, null, null);
     }
 
     private static WorkspaceSummary summary(
-            String upstreamWorkspaceId,
             Long upstreamRepositoryId,
             String upstreamOwner,
             String upstreamRepo)
@@ -214,7 +213,6 @@ class TestDefaultCommitHistoryService
                 101,
                 SELECTED.owner(),
                 SELECTED.repo(),
-                upstreamWorkspaceId,
                 upstreamRepositoryId,
                 upstreamOwner,
                 upstreamRepo,

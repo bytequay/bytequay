@@ -63,7 +63,7 @@ public class CherryPickPreviewController
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         if (context.sourceRemote().equals(context.targetRemote())) {
             throw WorkspaceException.invalidUpstream(
-                    "Link another watched workspace before starting a cherry-pick.");
+                    "Select an upstream repository before starting a cherry-pick.");
         }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),

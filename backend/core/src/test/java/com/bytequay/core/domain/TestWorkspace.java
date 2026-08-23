@@ -28,14 +28,13 @@ class TestWorkspace
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
     @Test
-    void linkedWorkspaceMustMonitorItsSingleUpstream()
+    void linkedRepositoryMustBeTheSingleMonitoredUpstream()
     {
         assertThatThrownBy(() -> new Workspace(
                 "workspace",
                 "contributor/project",
                 100,
                 RepoRef.of("contributor", "project"),
-                Optional.of("upstream-workspace"),
                 Optional.of(200L),
                 Optional.of(RepoRef.of("upstream", "project")),
                 300,

@@ -192,7 +192,6 @@ class TestDefaultWorkspaceMetadataService
                 id,
                 topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
                 selected,
-                topology == Topology.FORK ? Optional.of("upstream-workspace") : Optional.empty(),
                 upstreamId,
                 upstream,
                 monitoredId,

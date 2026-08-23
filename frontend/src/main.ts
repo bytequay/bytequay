@@ -658,11 +658,11 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:upstream', (
     _event,
     workspaceId: string,
-    upstreamWorkspaceId: string | null,
+    upstreamRepositoryId: number | null,
   ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ upstreamWorkspaceId }),
+    body: JSON.stringify({ upstreamRepositoryId }),
   }));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {

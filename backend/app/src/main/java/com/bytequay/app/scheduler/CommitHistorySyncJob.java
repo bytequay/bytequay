@@ -108,7 +108,7 @@ public class CommitHistorySyncJob
     {
         List<CommitHistoryRef> refs = new ArrayList<>();
         refs.add(new CommitHistoryRef(Source.WORKSPACE, workspace.defaultBranch()));
-        if (workspace.upstreamWorkspaceId() != null) {
+        if (workspace.upstreamRepositoryId() != null) {
             refs.add(new CommitHistoryRef(Source.UPSTREAM, requireNonNull(
                     workspace.upstreamDefaultBranch(), "linked upstream default branch is null")));
         }

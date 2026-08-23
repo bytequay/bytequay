@@ -134,7 +134,6 @@ class TestCommitHistorySyncJob
                 repositoryId,
                 "example-owner",
                 "example-repository",
-                linked ? "upstream-workspace" : null,
                 linked ? 100L : null,
                 linked ? "example-upstream" : null,
                 linked ? "example-source" : null,

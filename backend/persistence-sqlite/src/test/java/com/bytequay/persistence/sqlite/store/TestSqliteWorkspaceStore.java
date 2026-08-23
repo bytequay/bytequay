@@ -86,7 +86,7 @@ class TestSqliteWorkspaceStore
 
         assertThat(store.findById(direct.id())).contains(direct);
         assertThat(store.findById(fork.id())).contains(fork);
-        assertThat(fork.upstreamWorkspaceId()).contains("upstream-workspace");
+        assertThat(fork.upstreamRepositoryId()).contains(300L);
         assertThat(fork.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
         assertThat(fork.monitoredRepositoryId()).isEqualTo(300);
         assertThat(fork.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
@@ -113,7 +113,7 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
-    void multipleForksCanShareOneNonUniqueUpstream()
+    void multipleWorkspacesCanShareOneNonUniqueUpstream()
     {
         Workspace first = store.createOrGet(fork("first", 200, 300, 0));
         Workspace second = store.createOrGet(fork("second", 201, 300, 1));
@@ -127,7 +127,7 @@ class TestSqliteWorkspaceStore
     {
         RepoRef repository = RepoRef.of("owner", "project");
         return workspace(
-                id, selectedId, repository, Optional.empty(), Optional.empty(), Optional.empty(), selectedId,
+                id, selectedId, repository, Optional.empty(), Optional.empty(), selectedId,
                 repository, Topology.DIRECT, Optional.empty(), displayOrder);
     }
 
@@ -159,7 +159,7 @@ class TestSqliteWorkspaceStore
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef upstream = RepoRef.of("upstream", "project");
         return workspace(
-                id, selectedId, selected, Optional.of("upstream-workspace"), Optional.of(upstreamId), Optional.of(upstream), upstreamId,
+                id, selectedId, selected, Optional.of(upstreamId), Optional.of(upstream), upstreamId,
                 upstream, Topology.FORK, Optional.of("https://github.com/upstream/project.git"), displayOrder);
     }
 
@@ -167,7 +167,6 @@ class TestSqliteWorkspaceStore
             String id,
             long selectedId,
             RepoRef selected,
-            Optional<String> upstreamWorkspaceId,
             Optional<Long> upstreamId,
             Optional<RepoRef> upstream,
             long monitoredId,
@@ -181,7 +180,6 @@ class TestSqliteWorkspaceStore
                 selected.fullName(),
                 selectedId,
                 selected,
-                upstreamWorkspaceId,
                 upstreamId,
                 upstream,
                 monitoredId,
@@ -189,7 +187,7 @@ class TestSqliteWorkspaceStore
                 topology,
                 "main",
                 "https://github.com/" + selected.fullName() + ".git",
-                upstreamWorkspaceId.map(ignored -> "main"),
+                upstreamId.map(ignored -> "main"),
                 upstreamCloneUrl,
                 "/tmp/workspaces/" + id + "/repository",
                 CodeState.PENDING,

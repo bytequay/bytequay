@@ -17,7 +17,7 @@ import TasksView from '../commits/TasksView';
 import PullsScreen from '../pulls/PullsScreen';
 import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, WorkspaceDto } from '../types';
+import type { CherryPickExecution, RepositorySearchResultDto } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
   workspaceFromDto,
@@ -110,7 +110,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           }}
           onNewCherryPick={() => {
             setOpenExecutionId(null);
-            onSelectTab(workspace.upstreamWorkspaceId ? 'commits' : 'settings');
+            onSelectTab(workspace.upstreamRepositoryId ? 'commits' : 'settings');
           }}
         />
       </div>
@@ -300,32 +300,43 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstr
   );
 }
 
-function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
+export function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
   workspace: Workspace;
   onWorkspaceChanged: (workspace: Workspace) => void;
   onRemoved: () => void;
 }) {
   const draft = workspace;
-  const [candidates, setCandidates] = useState<WorkspaceDto[]>([]);
-  const [upstreamWorkspaceId, setUpstreamWorkspaceId] = useState(workspace.upstreamWorkspaceId ?? '');
+  const [query, setQuery] = useState('');
+  const [candidates, setCandidates] = useState<RepositorySearchResultDto[]>([]);
+  const [upstreamRepositoryId, setUpstreamRepositoryId] = useState<number | null>(workspace.upstreamRepositoryId);
+  const [searching, setSearching] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    window.bridge.listWorkspaces()
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      window.bridge.searchRepositories(query.trim(), 30)
       .then(values => {
-        if (!cancelled) setCandidates(values.filter(value => value.id !== workspace.id));
+        if (!cancelled) {
+          setCandidates(values.filter(value => value.id !== workspace.selectedRepositoryId));
+        }
       })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
-      });
-    return () => { cancelled = true; };
-  }, [workspace.id]);
+      })
+      .finally(() => { if (!cancelled) setSearching(false); });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, workspace.selectedRepositoryId]);
 
   useEffect(() => {
-    setUpstreamWorkspaceId(workspace.upstreamWorkspaceId ?? '');
-  }, [workspace.upstreamWorkspaceId]);
+    setUpstreamRepositoryId(workspace.upstreamRepositoryId);
+  }, [workspace.upstreamRepositoryId]);
 
   const saveUpstream = async () => {
     setSaving(true);
@@ -333,7 +344,7 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
     try {
       const changed = await window.bridge.setWorkspaceUpstream(
         workspace.id,
-        upstreamWorkspaceId || null,
+        upstreamRepositoryId,
       );
       onWorkspaceChanged(workspaceFromDto(changed));
     }
@@ -383,35 +394,50 @@ function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
         </label>
 
         <div className="ws-upstream-card">
-          <div className="ws-upstream-head">Linked upstream workspace</div>
+          <div className="ws-upstream-head">Upstream repository</div>
           <div className="ws-upstream-body">
             <div className="ws-upstream-main">
               <div className="ws-upstream-name">
                 {draft.upstreamOwner && draft.upstreamRepo
                   ? `${draft.upstreamOwner}/${draft.upstreamRepo}`
                   : 'None'}
-                {draft.upstreamWorkspaceId && <span className="ws-card-upstream">read-only</span>}
+                {draft.upstreamRepositoryId && <span className="ws-card-upstream">read-only</span>}
               </div>
               <div className="ws-upstream-sub">
-                Choose another watched workspace. Its local checkout supplies commits, pull requests,
-                issues, and cherry-pick source branches.
+                Choose any repository readable by your connected GitHub account. ByteQuay uses it
+                for commits, pull requests, issues, and cherry-pick source branches.
               </div>
             </div>
-            <select
-              value={upstreamWorkspaceId}
+            <input
+              value={query}
               disabled={saving}
-              onChange={event => setUpstreamWorkspaceId(event.target.value)}
+              placeholder="Search GitHub repositories…"
+              aria-label="Search upstream repositories"
+              onChange={event => setQuery(event.target.value)}
+            />
+            <select
+              value={upstreamRepositoryId ?? ''}
+              disabled={saving}
+              aria-label="Upstream repository"
+              onChange={event => setUpstreamRepositoryId(event.target.value ? Number(event.target.value) : null)}
             >
               <option value="">None</option>
+              {workspace.upstreamRepositoryId !== null
+                && !candidates.some(candidate => candidate.id === workspace.upstreamRepositoryId) && (
+                <option value={workspace.upstreamRepositoryId}>
+                  {workspace.upstreamOwner}/{workspace.upstreamRepo} — current
+                </option>
+              )}
               {candidates.map(candidate => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} — {candidate.selectedOwner}/{candidate.selectedRepo}
+                  {candidate.fullName} — {candidate.visibility}
                 </option>
               ))}
             </select>
+            {searching && <div className="ws-upstream-sub">Searching…</div>}
             <button
               type="button"
-              disabled={saving || upstreamWorkspaceId === (workspace.upstreamWorkspaceId ?? '')}
+              disabled={saving || upstreamRepositoryId === workspace.upstreamRepositoryId}
               onClick={() => { void saveUpstream(); }}
             >
               {saving ? 'Saving…' : 'Save'}

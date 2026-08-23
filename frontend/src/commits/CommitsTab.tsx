@@ -92,7 +92,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
 
-  const hasUpstream = workspace.upstreamWorkspaceId !== null;
+  const hasUpstream = workspace.upstreamRepositoryId !== null;
   const isUpstream = repo === 'upstream' && hasUpstream;
   const upstreamRemote = workspace.upstreamRemote;
   const sourceRemote = upstreamRemote ?? workspace.originRemote;
@@ -386,7 +386,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
               <button
                 type="button"
                 className="cmt-repo-chip"
-                title="Link another watched workspace"
+                title="Select an upstream repository"
                 onClick={onOpenSettings}
               >
                 <span className="cmt-mono">↞</span>

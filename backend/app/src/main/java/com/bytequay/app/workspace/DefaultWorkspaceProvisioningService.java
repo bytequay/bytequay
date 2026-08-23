@@ -141,8 +141,9 @@ public final class DefaultWorkspaceProvisioningService
 
     private Workspace refreshRouting(Workspace workspace)
     {
+        String token = credentials.resolveGitHubToken();
         UserRepo selected = gitHub.fetchRepository(
-                        credentials.resolveGitHubToken(), workspace.selectedRepositoryId())
+                        token, workspace.selectedRepositoryId())
                 .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
                         "GitHub repository is no longer accessible. Restore access and retry.",
                         "Repository ID is unavailable: " + workspace.selectedRepositoryId()));
@@ -151,18 +152,25 @@ public final class DefaultWorkspaceProvisioningService
         }
 
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Optional<Workspace> upstream = workspace.upstreamWorkspaceId().map(this::requireLinkedWorkspace);
+        Optional<UserRepo> upstream = workspace.upstreamRepositoryId()
+                .map(repositoryId -> {
+                    UserRepo current = gitHub.fetchRepository(token, repositoryId)
+                            .orElseThrow(() -> routingChanged("Upstream repository is no longer accessible"));
+                    if (current.id() != repositoryId) {
+                        throw routingChanged("Upstream repository identity changed");
+                    }
+                    return current;
+                });
         return workspace.withRepositoryRouting(
                 selectedRef,
-                upstream.map(Workspace::id),
-                upstream.map(Workspace::selectedRepositoryId),
-                upstream.map(Workspace::selectedRepository),
-                upstream.map(Workspace::selectedRepositoryId).orElse(selected.id()),
-                upstream.map(Workspace::selectedRepository).orElse(selectedRef),
+                upstream.map(UserRepo::id),
+                upstream.map(value -> RepoRef.of(value.owner(), value.name())),
+                upstream.map(UserRepo::id).orElse(selected.id()),
+                upstream.map(value -> RepoRef.of(value.owner(), value.name())).orElse(selectedRef),
                 selected.defaultBranch(),
                 selected.cloneUrl(),
-                upstream.map(Workspace::defaultBranch),
-                upstream.map(Workspace::originCloneUrl),
+                upstream.map(UserRepo::defaultBranch),
+                upstream.map(UserRepo::cloneUrl),
                 clock.instant());
     }
 
@@ -186,7 +194,6 @@ public final class DefaultWorkspaceProvisioningService
     {
         return latest.withRepositoryRouting(
                 routing.selectedRepository(),
-                routing.upstreamWorkspaceId(),
                 routing.upstreamRepositoryId(),
                 routing.upstreamRepository(),
                 routing.monitoredRepositoryId(),
@@ -204,16 +211,10 @@ public final class DefaultWorkspaceProvisioningService
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
-    private Workspace requireLinkedWorkspace(String workspaceId)
-    {
-        return store.findById(workspaceId)
-                .orElseThrow(() -> routingChanged("Linked upstream workspace is no longer watched"));
-    }
-
     private static ManagedWorkspaceGit.Failure routingChanged(String internalMessage)
     {
         return new ManagedWorkspaceGit.Failure(
-                "Workspace repository routing changed. Review the upstream link and retry.",
+                "Workspace repository routing changed. Review the upstream repository and retry.",
                 internalMessage);
     }
 }

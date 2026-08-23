@@ -86,16 +86,16 @@ public interface WorkspaceRepositoryService
     Workspace requestSync(String workspaceId);
 
     /**
-     * Links this workspace to another watched workspace, or unlinks it when empty.
+     * Selects a GitHub-readable repository as upstream, or unlinks it when empty.
      *
      * @param workspaceId workspace whose upstream changes
-     * @param upstreamWorkspaceId another watched workspace, or empty to unlink
+     * @param upstreamRepositoryId stable GitHub repository ID, or empty to unlink
      * @return the updated workspace after synchronization is accepted
      */
-    Workspace setUpstream(String workspaceId, Optional<String> upstreamWorkspaceId);
+    Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId);
 
     /**
-     * Stops watching a workspace after verifying that no active cherry-pick or workspace link references it.
+     * Stops watching a workspace after verifying that no active cherry-pick references it.
      *
      * @param workspaceId ByteQuay workspace identifier
      * @throws WorkspaceException when the workspace is missing or busy

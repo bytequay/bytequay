@@ -25,9 +25,10 @@ export type Workspace = {
   originRemote: string;
   /** Read-only cherry-pick source, or null when nothing is linked. */
   upstreamRemote: string | null;
+  selectedRepositoryId: number;
   selectedOwner: string;
   selectedRepo: string;
-  upstreamWorkspaceId: string | null;
+  upstreamRepositoryId: number | null;
   upstreamOwner: string | null;
   upstreamRepo: string | null;
   monitoredOwner: string;
@@ -52,10 +53,11 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
     defaultBranch: dto.defaultBranch,
     upstreamDefaultBranch: dto.upstreamDefaultBranch,
     originRemote: 'origin',
-    upstreamRemote: dto.upstreamWorkspaceId === null ? null : 'upstream',
+    upstreamRemote: dto.upstreamRepositoryId === null ? null : 'upstream',
+    selectedRepositoryId: dto.selectedRepositoryId,
     selectedOwner: dto.selectedOwner,
     selectedRepo: dto.selectedRepo,
-    upstreamWorkspaceId: dto.upstreamWorkspaceId,
+    upstreamRepositoryId: dto.upstreamRepositoryId,
     upstreamOwner: dto.upstreamOwner,
     upstreamRepo: dto.upstreamRepo,
     monitoredOwner: dto.monitoredOwner,

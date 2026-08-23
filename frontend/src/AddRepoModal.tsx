@@ -211,7 +211,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
                 </div>
                 <p className="modal-preview__summary">
                   {preview.topology === 'FORK'
-                    ? `GitHub reports this as a fork${preview.upstreamRepository ? ` of ${fullName(preview.upstreamRepository)}` : ''}. It starts unlinked; watch another repository separately, then link the two workspaces in Settings.`
+                    ? `GitHub reports this as a fork${preview.upstreamRepository ? ` of ${fullName(preview.upstreamRepository)}` : ''}. It starts unlinked; choose any readable GitHub repository as upstream in Settings.`
                     : `Everything uses ${fullName(preview.selectedRepository)} — code, issues, pull requests, and pushes.`}
                 </p>
               </>

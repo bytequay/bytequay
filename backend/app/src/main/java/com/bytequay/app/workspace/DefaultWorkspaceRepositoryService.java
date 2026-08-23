@@ -39,13 +39,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
@@ -187,7 +185,7 @@ public class DefaultWorkspaceRepositoryService
                         ? OptionalLong.of(workspace.upstreamRepositoryId().orElseThrow())
                         : OptionalLong.empty(),
                 workspace.monitoredRepository(),
-                workspace.upstreamWorkspaceId().isPresent() ? "upstream" : "origin",
+                workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                 "origin",
                 workspace.defaultBranch());
     }
@@ -227,11 +225,11 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
-    public Workspace setUpstream(String workspaceId, Optional<String> upstreamWorkspaceId)
+    public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
     {
-        requireNonNull(upstreamWorkspaceId, "upstreamWorkspaceId is null");
+        requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
         Workspace workspace = requireWorkspace(workspaceId);
-        if (workspace.upstreamWorkspaceId().equals(upstreamWorkspaceId)) {
+        if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }
         if (workspace.codeState() == CodeState.PENDING
@@ -240,24 +238,22 @@ public class DefaultWorkspaceRepositoryService
                 || hasActiveExecution(workspace)) {
             throw WorkspaceException.busy();
         }
-        Optional<Workspace> upstream = upstreamWorkspaceId.map(id -> requireUpstream(workspace, id));
+        Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
         Instant now = clock.instant();
         Workspace linked = upstream
                 .map(value -> workspace.withRepositoryRouting(
                         workspace.selectedRepository(),
                         Optional.of(value.id()),
-                        Optional.of(value.selectedRepositoryId()),
-                        Optional.of(value.selectedRepository()),
-                        value.selectedRepositoryId(),
-                        value.selectedRepository(),
+                        Optional.of(RepoRef.of(value.owner(), value.name())),
+                        value.id(),
+                        RepoRef.of(value.owner(), value.name()),
                         workspace.defaultBranch(),
                         workspace.originCloneUrl(),
                         Optional.of(value.defaultBranch()),
-                        Optional.of(value.originCloneUrl()),
+                        Optional.of(value.cloneUrl()),
                         now))
                 .orElseGet(() -> workspace.withRepositoryRouting(
                         workspace.selectedRepository(),
-                        Optional.empty(),
                         Optional.empty(),
                         Optional.empty(),
                         workspace.selectedRepositoryId(),
@@ -279,11 +275,6 @@ public class DefaultWorkspaceRepositoryService
                 || workspace.codeState() == CodeState.CLONING
                 || workspace.codeState() == CodeState.SYNCING) {
             throw WorkspaceException.busy();
-        }
-        boolean referenced = store.findAll().stream()
-                .anyMatch(candidate -> candidate.upstreamWorkspaceId().filter(workspace.id()::equals).isPresent());
-        if (referenced) {
-            throw WorkspaceException.upstreamInUse();
         }
         if (hasActiveExecution(workspace)) {
             throw WorkspaceException.busy();
@@ -329,7 +320,6 @@ public class DefaultWorkspaceRepositoryService
                 selectedRef,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty(),
                 selected.id(),
                 selectedRef,
                 topology,
@@ -361,30 +351,22 @@ public class DefaultWorkspaceRepositoryService
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
-    private Workspace requireUpstream(Workspace workspace, String upstreamWorkspaceId)
+    private UserRepo requireUpstream(Workspace workspace, long upstreamRepositoryId)
     {
-        if (upstreamWorkspaceId == null || upstreamWorkspaceId.isBlank()) {
-            throw WorkspaceException.invalidUpstream("Choose a watched workspace to link.");
+        if (upstreamRepositoryId <= 0) {
+            throw WorkspaceException.invalidUpstream("Choose a GitHub repository to link.");
         }
-        if (workspace.id().equals(upstreamWorkspaceId)) {
-            throw WorkspaceException.invalidUpstream("A workspace cannot link to itself.");
+        if (workspace.selectedRepositoryId() == upstreamRepositoryId) {
+            throw WorkspaceException.invalidUpstream("A workspace cannot use its selected repository as upstream.");
         }
-        Workspace upstream = store.findById(upstreamWorkspaceId)
-                .orElseThrow(() -> WorkspaceException.invalidUpstream("The upstream workspace is not watched."));
-        Set<String> visited = new HashSet<>();
-        visited.add(workspace.id());
-        Workspace cursor = upstream;
-        while (true) {
-            if (!visited.add(cursor.id())) {
-                throw WorkspaceException.invalidUpstream("That link would create an upstream cycle.");
-            }
-            Optional<String> next = cursor.upstreamWorkspaceId();
-            if (next.isEmpty()) {
-                return upstream;
-            }
-            cursor = store.findById(next.orElseThrow())
-                    .orElseThrow(() -> WorkspaceException.invalidUpstream("The upstream workspace is not watched."));
+        UserRepo upstream = gitHub.fetchRepository(credentials.resolveGitHubToken(), upstreamRepositoryId)
+                .orElseThrow(() -> WorkspaceException.invalidUpstream(
+                        "The upstream repository is not readable by the connected GitHub account."));
+        if (upstream.id() != upstreamRepositoryId) {
+            throw WorkspaceException.invalidUpstream("The upstream repository identity changed. Search again.");
         }
+        validate(upstream);
+        return upstream;
     }
 
     private void migrateLegacyRows()

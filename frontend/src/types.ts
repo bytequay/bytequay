@@ -238,7 +238,6 @@ export type WorkspaceDto = {
   selectedRepositoryId: number;
   selectedOwner: string;
   selectedRepo: string;
-  upstreamWorkspaceId: string | null;
   upstreamRepositoryId: number | null;
   upstreamOwner: string | null;
   upstreamRepo: string | null;
@@ -643,7 +642,7 @@ export type Bridge = {
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   setWorkspaceUpstream: (
     workspaceId: string,
-    upstreamWorkspaceId: string | null,
+    upstreamRepositoryId: number | null,
   ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;

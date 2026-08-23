@@ -473,10 +473,17 @@ list.
 `PullRequestRefreshService` is the single synchronization coordinator. It refreshes the
 account-centric dashboard and each distinct monitored workspace repository under one overlap
 guard. The refresh updates PR rows, changed PR details, and the derived local view state through
-the existing `PullRequestService` and stores. `PullRequestSyncJob` owns only the periodic timer
+the existing `PullRequestService` and stores. `PullRequestSnapshotService` owns the local detail
+and diff snapshot boundary, including the remote fetch-and-persist operations used by refresh.
+`PullRequestSyncJob` owns only the periodic timer
 and quiet-hours policy; workspace and frontend actions request refresh directly from the service.
 Requests arriving during a refresh are coalesced and run afterward rather than being discarded.
-Opening `PullsScreen` reads the local projection without triggering another GitHub refresh.
+Opening `PullsScreen`, PR detail, checks, activity, and diff views reads the local projection
+without triggering another GitHub refresh. The default diff snapshot refreshes with changed PR
+detail. A user-selected commit range or expanded full file body is an explicit refresh request;
+the refresh service persists it before the frontend displays it. Viewer write permission is part
+of the stored detail snapshot, so even action availability does not require a display-time GitHub
+call.
 
 `WorkspacePullRequestService` below owns only the delivery routing for a cherry-pick work branch.
 Its implementation delegates to existing pull-request/GitHub write code wherever the operation

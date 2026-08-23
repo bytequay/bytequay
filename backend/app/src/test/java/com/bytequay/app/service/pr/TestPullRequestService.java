@@ -28,13 +28,16 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
@@ -57,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -74,6 +78,7 @@ class TestPullRequestService
     @Mock private GitHubAccountClient accounts;
     @Mock private PullRequestStore store;
     @Mock private PrDetailStore detailStore;
+    @Mock private PrDiffStore diffStore;
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
 
@@ -82,9 +87,11 @@ class TestPullRequestService
     @BeforeEach
     void setUp()
     {
+        PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
+                gitHub, actions, detailStore, diffStore, Runnable::run);
         service = new PullRequestService(
-                gitHub, writes, repositories, merges, actions, accounts, store, detailStore, viewStateStore,
-                credentialService, Runnable::run, Runnable::run);
+                gitHub, writes, repositories, merges, accounts, store, snapshots, viewStateStore,
+                credentialService, Runnable::run);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
     }
 
@@ -152,7 +159,6 @@ class TestPullRequestService
     void readsCachedDetail()
     {
         StoredPrDetail stored = stored();
-        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored));
 
@@ -162,10 +168,11 @@ class TestPullRequestService
         assertThat(result.approvalCount()).isEqualTo(1);
         assertThat(result.viewerCanWrite()).isTrue();
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
+        verify(credentialService, never()).resolveGitHubToken();
     }
 
     @Test
-    void reconcilesCachedMergedDetailIntoTheListRow()
+    void detailReadDoesNotMutateTheStoredListRow()
     {
         Instant updatedAt = Instant.parse("2026-08-21T01:00:00Z");
         Instant mergedAt = Instant.parse("2026-08-21T00:59:00Z");
@@ -174,42 +181,60 @@ class TestPullRequestService
                         "title", "url", "merged", "alice", null, null, updatedAt, mergedAt,
                         "body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, false, "unknown",
                         1, 1, 1, 0, ImmutableList.of(), "head", "feature", "main"),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored));
 
         service.getPullRequestDetail("owner/repo", 7);
 
-        verify(store).updateState(12L, "merged", updatedAt, mergedAt);
+        verify(store, never()).updateState(any(Long.class), any(), any(), any());
     }
 
     @Test
-    void fetchesAndCachesColdDetail()
+    void missingDetailDoesNotFallThroughToGitHub()
     {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.empty());
-        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
-        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of(new PrReviewState("alice", "APPROVED")));
-        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(ImmutableList.of());
 
-        service.getPullRequestDetail("owner/repo", 7);
-
-        verify(detailStore).save(eq(12L), any(StoredPrDetail.class));
+        assertThatThrownBy(() -> service.getPullRequestDetail("owner/repo", 7))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("404 NOT_FOUND");
+        verify(gitHub, never()).fetchPrDetail(anyString(), any());
+        verify(detailStore, never()).save(any(Long.class), any());
     }
 
     @Test
-    void refreshInvalidatesBeforeReading()
+    void explicitDetailRefreshStoresThePullRequestDetailAndDefaultDiff()
     {
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        PullRequest pullRequest = pullRequest();
+        List<DiffFile> files = ImmutableList.of(
+                new DiffFile("a.txt", "modified", 1, 0, "+line"));
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(pullRequest);
+        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
+        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
+                .thenReturn(ImmutableList.of());
+        when(viewStateStore.findByPrIds(ImmutableSet.of(pullRequest.id())))
+                .thenReturn(ImmutableMap.of());
+        when(gitHub.fetchPrDiffFiles("pat", ref)).thenReturn(files);
+        when(gitHub.fetchPrDiffCommits("pat", ref)).thenReturn(ImmutableList.of());
 
-        service.refreshPullRequestDetail("owner/repo", 7);
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(store).saveObserved(any(PullRequest.class));
+        ArgumentCaptor<StoredPrDetail> detail = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(pullRequest.id()), detail.capture());
+        assertThat(detail.getValue().viewerCanWrite()).isTrue();
+        verify(diffStore).save(eq(pullRequest.id()), eq(null), eq(null), any(StoredPrDiff.class));
     }
 
     @Test
@@ -335,11 +360,17 @@ class TestPullRequestService
     }
 
     @Test
-    void returnsDiffFilesFromGitHub()
+    void readsDiffFilesFromLocalStore()
     {
         List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
-        when(gitHub.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(files);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(diffStore.find(12L, null, null))
+                .thenReturn(Optional.of(new StoredPrDiff(files, ImmutableList.of())));
+
         assertThat(service.getPullRequestDiffFiles("owner/repo", 7)).isEqualTo(files);
+
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any());
+        verify(credentialService, never()).resolveGitHubToken();
     }
 
     @Test
@@ -356,7 +387,9 @@ class TestPullRequestService
     {
         return new StoredPrDetail(
                 raw(), ImmutableList.of(new PrReviewState("alice", "APPROVED")), ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")),
+                ImmutableList.of(),
+                true);
     }
 
     private static PrRawDetail raw()
@@ -364,5 +397,39 @@ class TestPullRequestService
         return new PrRawDetail(
                 "body", ImmutableList.of(), false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
                 "head", "feature");
+    }
+
+    private static PullRequest pullRequest()
+    {
+        return new PullRequest(
+                12,
+                "owner/repo",
+                7,
+                "Title",
+                "alice",
+                "https://github.com/owner/repo/pull/7",
+                Instant.parse("2026-08-20T00:00:00Z"),
+                Instant.parse("2026-08-21T00:00:00Z"),
+                PullRequest.Origin.AUTHORED,
+                ImmutableList.of(),
+                ImmutableMap.of(),
+                false,
+                null,
+                null,
+                null,
+                ImmutableList.of(),
+                null,
+                0,
+                0,
+                0,
+                null,
+                "open",
+                null,
+                null,
+                null,
+                null,
+                null,
+                ImmutableMap.of(),
+                "feature");
     }
 }

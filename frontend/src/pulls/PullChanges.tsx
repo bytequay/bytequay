@@ -89,7 +89,7 @@ export default function PullChanges({
         onReviewPosted,
       }}
       loadFileContent={(path, baseSha, headSha) =>
-        window.bridge.fetchPrDiffFileContent(repo, number, path, baseSha, headSha)}
+        window.bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha)}
     />
   );
 }

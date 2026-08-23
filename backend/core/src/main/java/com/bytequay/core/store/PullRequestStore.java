@@ -40,6 +40,9 @@ public interface PullRequestStore
 
     void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker);
 
+    /** Stores a pull request opened directly by the user until normal sync reconciliation runs. */
+    void saveObserved(PullRequest pullRequest);
+
     Set<Long> completeRepositorySync(String repository, String syncMarker);
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);

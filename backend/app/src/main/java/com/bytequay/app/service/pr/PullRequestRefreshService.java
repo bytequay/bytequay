@@ -14,6 +14,9 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -60,6 +63,42 @@ public class PullRequestRefreshService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executor = requireNonNull(executor, "executor is null");
+    }
+
+    /** Refreshes one pull request and returns the newly persisted detail. */
+    public PullRequestDetail refreshDetail(String repo, int number)
+    {
+        pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
+        return pullRequests.getPullRequestDetail(repo, number);
+    }
+
+    /** Refreshes one diff snapshot and returns the newly persisted files. */
+    public List<DiffFile> refreshDiffFiles(
+            String repo,
+            int number,
+            String baseSha,
+            String headSha)
+    {
+        pullRequests.refreshPullRequestDiffFromGitHub(repo, number, baseSha, headSha);
+        return baseSha == null && headSha == null
+                ? pullRequests.getPullRequestDiffFiles(repo, number)
+                : pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
+    }
+
+    /** Refreshes one file body and returns the newly persisted content. */
+    public DiffFileContent refreshDiffFileContent(
+            String repo,
+            int number,
+            String path,
+            String baseSha,
+            String headSha)
+    {
+        pullRequests.refreshPullRequestDiffFileContentFromGitHub(
+                repo, number, path, baseSha, headSha);
+        return baseSha == null && headSha == null
+                ? pullRequests.getPullRequestDiffFileContent(repo, number, path)
+                : pullRequests.getPullRequestDiffFileContent(
+                        repo, number, path, baseSha, headSha);
     }
 
     /** Queues a refresh of the global dashboard and monitored repositories. */

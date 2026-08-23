@@ -236,11 +236,18 @@ child declares only the dependencies it uses.
 
 ### 6.1 Pull-request flow
 
-1. The frontend sends a localhost request to `app`.
-2. An application service calls a GitHub client using the selected credential.
-3. The service maps the response to `core` values.
-4. A storage port writes through `persistence-sqlite`.
-5. The controller returns an application DTO to the frontend.
+Display and refresh are separate paths:
+
+1. A frontend display request reads PR rows, detail, diff metadata, or stored file content through
+   a `core` storage port and returns the local SQLite snapshot. Display GETs never call GitHub.
+2. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
+   response to `core` values, and writes through `persistence-sqlite`.
+3. An explicit refresh returns data by reading the newly persisted snapshot. Scheduled refreshes
+   leave the same snapshot ready for the next display request.
+
+Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
+full file bodies refresh only after the user requests that range or expands that file, and are
+persisted before they are displayed.
 
 GitHub writes remain behind direct comment, approve, or merge actions.
 

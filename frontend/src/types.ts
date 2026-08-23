@@ -666,8 +666,21 @@ export type Bridge = {
     baseSha?: string,
     headSha?: string,
   ) => Promise<DiffFileDto[]>;
+  refreshPrDiffFiles: (
+    repo: string,
+    number: number,
+    baseSha?: string,
+    headSha?: string,
+  ) => Promise<DiffFileDto[]>;
   fetchPrDiffCommits: (repo: string, number: number) => Promise<DiffCommitDto[]>;
   fetchPrDiffFileContent: (
+    repo: string,
+    number: number,
+    path: string,
+    baseSha?: string,
+    headSha?: string,
+  ) => Promise<DiffFileContentDto>;
+  refreshPrDiffFileContent: (
     repo: string,
     number: number,
     path: string,

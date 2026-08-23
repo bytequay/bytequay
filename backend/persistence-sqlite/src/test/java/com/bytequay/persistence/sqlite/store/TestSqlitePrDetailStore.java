@@ -149,7 +149,8 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(),
                 ImmutableList.of(new PrTimelineEvent(10L, "labeled", "bot", NOW, null, payload, Optional.empty())),
                 ImmutableList.of(),
-                ImmutableList.of("checks"));
+                ImmutableList.of("checks"),
+                true);
 
         store.save(PR_ID, detail);
 
@@ -161,6 +162,7 @@ class TestSqlitePrDetailStore
             assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2));
         });
         assertThat(restored.unavailableSections()).containsExactly("checks");
+        assertThat(restored.viewerCanWrite()).isTrue();
     }
 
     private static StoredPrDetail detail(PrTimelineEvent event)

@@ -105,6 +105,17 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(second.hasMore()).isFalse();
     }
 
+    @Test
+    void storesDirectlyOpenedPullRequestInTheLocalDashboard()
+    {
+        PullRequest observed = pullRequest(91, "external/project", 12);
+
+        store.saveObserved(observed);
+
+        assertThat(store.findIdByRepoAndNumber("external/project", 12)).contains(91L);
+        assertThat(store.findPage(0, 50).pullRequests()).containsExactly(observed);
+    }
+
     private static PullRequest pullRequest(long id, String repository, int number)
     {
         return new PullRequest(

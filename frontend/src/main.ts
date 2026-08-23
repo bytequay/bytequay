@@ -591,6 +591,20 @@ function registerIpc(): void {
     }
     return backendJson(url);
   });
+  ipcMain.handle('prs:diff:refresh', (
+    _event,
+    repo: string,
+    number: number,
+    baseSha?: string,
+    headSha?: string,
+  ) => {
+    const url = prUrl('/prs/diffFiles/refresh', repo, number);
+    if (baseSha && headSha) {
+      url.searchParams.set('base', baseSha);
+      url.searchParams.set('head', headSha);
+    }
+    return backendJson(url, { method: 'POST' });
+  });
   ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/diffCommits', repo, number)));
   ipcMain.handle('prs:diff-content', (
@@ -608,6 +622,22 @@ function registerIpc(): void {
       url.searchParams.set('head', headSha);
     }
     return backendJson(url);
+  });
+  ipcMain.handle('prs:diff-content:refresh', (
+    _event,
+    repo: string,
+    number: number,
+    path: string,
+    baseSha?: string,
+    headSha?: string,
+  ) => {
+    const url = prUrl('/prs/diffContent/refresh', repo, number);
+    url.searchParams.set('path', path);
+    if (baseSha && headSha) {
+      url.searchParams.set('base', baseSha);
+      url.searchParams.set('head', headSha);
+    }
+    return backendJson(url, { method: 'POST' });
   });
   ipcMain.handle('prs:review-comment:create', (
     _event,

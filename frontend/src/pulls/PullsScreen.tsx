@@ -126,7 +126,7 @@ export default function PullsScreen({
     }
     let cancelled = false;
     Promise.all([
-      window.bridge.fetchPullRequestDetail(initialPr.repo, initialPr.number),
+      window.bridge.refreshPullRequestDetail(initialPr.repo, initialPr.number),
       window.bridge.getUserProfile().catch((): null => null),
     ]).then(([value, profile]) => {
       if (cancelled) return;
@@ -207,7 +207,10 @@ export default function PullsScreen({
     setPendingReviewComments([]);
     setDiffLoading(true);
     setError(null);
-    window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number, start?.parentSha ?? undefined, end?.sha)
+    const request = range === null
+      ? window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number)
+      : window.bridge.refreshPrDiffFiles(selectedPr.repo, selectedPr.number, start?.parentSha, end?.sha);
+    request
       .then(setDiffs)
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setDiffLoading(false));
@@ -222,6 +225,9 @@ export default function PullsScreen({
       setPrs(current => current.map(pr => pr.id === selectedPr.id
         ? reconcilePullRequestDetail(pr, value)
         : pr));
+      setDiffs(null);
+      setDiffCommits([]);
+      setDiffRange(null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));

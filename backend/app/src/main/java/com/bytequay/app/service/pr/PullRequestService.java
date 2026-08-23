@@ -14,7 +14,6 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -40,7 +39,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
@@ -58,6 +56,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -70,7 +69,6 @@ import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
-import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
@@ -106,10 +104,9 @@ public class PullRequestService
     private final GitHubMergeClient merges;
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
-    private final PrDetailStore detailStore;
+    private final PullRequestSnapshotService snapshots;
     private final PrViewStateStore viewStateStore;
     private final Executor executor;
-    private final PullRequestDetailFetcher detailFetcher;
     private final CredentialService credentialService;
     @Autowired
     public PullRequestService(
@@ -117,31 +114,23 @@ public class PullRequestService
             GitHubPullRequestWriteClient pullRequestWrites,
             GitHubRepoClient repositories,
             GitHubMergeClient merges,
-            GitHubActionsClient actions,
             GitHubAccountClient accounts,
             PullRequestStore store,
-            PrDetailStore detailStore,
+            PullRequestSnapshotService snapshots,
             PrViewStateStore viewStateStore,
             CredentialService credentialService,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.merges = requireNonNull(merges, "merges is null");
-        requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
-        this.detailStore = requireNonNull(detailStore, "detailStore is null");
+        this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.executor = requireNonNull(executor, "executor is null");
-        this.detailFetcher = new PullRequestDetailFetcher(
-                gitHub,
-                actions,
-                detailStore,
-                requireNonNull(ioExecutor, "ioExecutor is null"));
     }
 
     public PullRequestPage listPullRequests(int page, int pageSize)
@@ -236,9 +225,19 @@ public class PullRequestService
 
     private void syncDetails(String pat, String currentLogin, List<PullRequest> pullRequests)
     {
+        Map<String, Boolean> viewerCanWriteByRepo = new HashMap<>();
+        for (PullRequest pullRequest : pullRequests) {
+            viewerCanWriteByRepo.computeIfAbsent(
+                    pullRequest.repo(), repo -> resolveViewerCanWrite(pat, repo));
+        }
         List<CompletableFuture<Void>> details = pullRequests.stream()
                 .map(pullRequest -> CompletableFuture.runAsync(
-                        () -> syncDetailQuietly(pat, pullRequest, currentLogin), executor))
+                        () -> syncDetailQuietly(
+                                pat,
+                                pullRequest,
+                                currentLogin,
+                                viewerCanWriteByRepo.get(pullRequest.repo())),
+                        executor))
                 .collect(toImmutableList());
         CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
     }
@@ -254,84 +253,86 @@ public class PullRequestService
         }
     }
 
-    /**
-     * Returns the full detail for a single PR. Reads from the local cache if available;
-     * falls back to a live GitHub fetch (and stores the result) if the cache is cold.
-     */
+    /** Returns locally persisted detail without contacting GitHub. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
+    {
+        parseRef(repo, number);
+        return snapshots.getDetail(repo, number, storedPullRequestId(repo, number));
+    }
+
+    void refreshPullRequestDetailFromGitHub(String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
-        RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
-        boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, repoRef);
+        String currentLogin = resolveCurrentLogin(pat);
+        PullRequest pullRequest = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
+        store.saveObserved(pullRequest);
 
-        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
-        if (prId.isPresent()) {
-            Optional<StoredPrDetail> stored = detailStore.find(prId.get());
-            if (stored.isPresent()) {
-                log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body", repo, number);
-                updateListState(prId.get(), stored.get());
-                return PullRequestDetailMapper.toPullRequestDetail(repo, number, stored.get(), viewerCanWrite);
-            }
-            log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub", repo, number);
-        }
-        else {
-            log.debug("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub", repo, number);
-        }
-
-        // Cache miss — fetch live, store for next time
-        StoredPrDetail fetched = detailFetcher.fetch(pat, ref);
-        prId.ifPresent(id -> {
-            detailStore.save(id, fetched);
-            // Propagate the aggregate CI status onto the PR row so Home and
-            // the PR list update without waiting for the next bulk sync.
-            store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
-            updateListState(id, fetched);
-        });
-        return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite);
+        StoredPrDetail detail = snapshots.refreshDetail(
+                pat,
+                ref,
+                pullRequest.id(),
+                accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo())));
+        storeDetail(pullRequest, detail, currentLogin);
+        syncDiffQuietly(pat, pullRequest);
     }
 
-    public PullRequestDetail refreshPullRequestDetail(String repo, int number)
-    {
-        invalidatePullRequestDetail(repo, number);
-        return getPullRequestDetail(repo, number);
-    }
-
-    /**
-     * Fetches the list of files changed in a pull request along with their
-     * unified-diff patches. Always served fresh from GitHub — patches are not
-     * cached (too large + rarely re-read).
-     */
+    /** Returns locally persisted diff files without contacting GitHub. */
     public List<DiffFile> getPullRequestDiffFiles(String repo, int number)
     {
-        String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number));
+        parseRef(repo, number);
+        return snapshots.getDiffFiles(storedPullRequestId(repo, number), null, null);
     }
 
     public List<DiffFile> getPullRequestDiffFiles(
             String repo, int number, String baseSha, String headSha)
     {
-        String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number), baseSha, headSha);
+        parseRef(repo, number);
+        return snapshots.getDiffFiles(
+                storedPullRequestId(repo, number), baseSha, headSha);
     }
 
     public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
     {
-        String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchPrDiffCommits(pat, parseRef(repo, number));
+        parseRef(repo, number);
+        return snapshots.getDiffCommits(storedPullRequestId(repo, number));
     }
 
     public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path)
     {
-        String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchPrDiffFileContent(pat, parseRef(repo, number), path);
+        parseRef(repo, number);
+        return snapshots.getFileContent(
+                storedPullRequestId(repo, number), path, null, null);
     }
 
     public DiffFileContent getPullRequestDiffFileContent(
             String repo, int number, String path, String baseSha, String headSha)
     {
+        parseRef(repo, number);
+        return snapshots.getFileContent(
+                storedPullRequestId(repo, number), path, baseSha, headSha);
+    }
+
+    void refreshPullRequestDiffFromGitHub(
+            String repo, int number, String baseSha, String headSha)
+    {
         String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchPrDiffFileContent(pat, parseRef(repo, number), path, baseSha, headSha);
+        PullRequestRef ref = parseRef(repo, number);
+        snapshots.refreshDiff(
+                pat, ref, storedPullRequestId(repo, number), baseSha, headSha);
+    }
+
+    void refreshPullRequestDiffFileContentFromGitHub(
+            String repo,
+            int number,
+            String path,
+            String baseSha,
+            String headSha)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, number);
+        snapshots.refreshFileContent(
+                pat, ref, storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
     public void createReviewComment(String repo, int number, InlineReviewComment comment)
@@ -360,7 +361,8 @@ public class PullRequestService
                         cached.reviews(),
                         ImmutableList.copyOf(timeline),
                         cached.checkRuns(),
-                        cached.unavailableSections());
+                        cached.unavailableSections(),
+                        cached.viewerCanWrite());
             });
         }
     }
@@ -661,16 +663,14 @@ public class PullRequestService
 
     private boolean backfillDue(PullRequest pullRequest, Instant now)
     {
-        return detailStore.findSyncedAt(pullRequest.repo(), pullRequest.number())
+        return snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number())
                 .map(syncedAt -> syncedAt.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL)))
                 .orElse(true);
     }
 
     private void deleteDetails(Set<Long> pullRequestIds)
     {
-        if (!pullRequestIds.isEmpty()) {
-            detailStore.deleteByPrIds(pullRequestIds);
-        }
+        snapshots.delete(pullRequestIds);
     }
 
     private static void checkPage(int page, int pageSize)
@@ -679,38 +679,84 @@ public class PullRequestService
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
     }
 
-    private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)
+    private void syncDetailQuietly(
+            String pat,
+            PullRequest pullRequest,
+            String currentLogin,
+            boolean viewerCanWrite)
     {
         try {
-            PullRequestRef ref = parseRef(pr.repo(), pr.number());
-            StoredPrDetail detail = detailFetcher.fetch(pat, ref);
-            // A full replacement keeps mutable review-thread resolution and
-            // edited comment payloads accurate. Detail syncs only run for a
-            // changed PR (or a throttled backfill), so this remains bounded.
-            detailStore.save(pr.id(), detail);
-            updateListState(pr.id(), detail);
-            // One viewState lookup feeds both reconcile (handledAction) and
-            // the MENTIONED rule (viewedAt anchors which mentions are "new").
-            PrViewState viewState = viewStateStore.findByPrIds(ImmutableSet.of(pr.id())).get(pr.id());
-            reconcileHandledActionFromReviews(pr.id(), detail.reviews(), currentLogin, viewState);
-            Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
-            // Refresh list-level values without reloading the detail blob.
-            store.updateEnrichment(
-                    pr.id(),
-                    PrAttention.aggregateCiStatus(detail),
-                    detail.raw() != null ? detail.raw().additions() : 0,
-                    detail.raw() != null ? detail.raw().deletions() : 0,
-                    PrAttention.countComments(detail),
-                    PrAttention.promoteReason(pr, detail, currentLogin, viewedAt, Instant.now()),
-                    detail.raw() != null ? detail.raw().mergeable() : null,
-                    detail.raw() != null ? detail.raw().mergeableState() : null,
-                    PullRequestDetailMapper.latestPushAt(detail.timeline()),
-                    PullRequestDetailMapper.rolledUpReviewerVerdicts(detail.reviews()),
-                    detail.raw() != null ? detail.raw().headRef() : null);
+            StoredPrDetail detail = snapshots.refreshDetail(
+                    pat,
+                    parseRef(pullRequest.repo(), pullRequest.number()),
+                    pullRequest.id(),
+                    viewerCanWrite);
+            storeDetail(pullRequest, detail, currentLogin);
+            syncDiffQuietly(pat, pullRequest);
         }
         catch (Exception e) {
-            log.warn("Failed to sync detail for PR {}/{}: {}", pr.repo(), pr.number(), e.getMessage());
+            log.warn("Failed to sync detail for PR {}/{}: {}",
+                    pullRequest.repo(), pullRequest.number(), e.getMessage());
         }
+    }
+
+    private void storeDetail(PullRequest pullRequest, StoredPrDetail detail, String currentLogin)
+    {
+        long prId = pullRequest.id();
+        updateListState(prId, detail);
+        PrViewState viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
+        reconcileHandledActionFromReviews(prId, detail.reviews(), currentLogin, viewState);
+        Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
+        store.updateEnrichment(
+                prId,
+                PrAttention.aggregateCiStatus(detail),
+                detail.raw().additions(),
+                detail.raw().deletions(),
+                PrAttention.countComments(detail),
+                PrAttention.promoteReason(pullRequest, detail, currentLogin, viewedAt, Instant.now()),
+                detail.raw().mergeable(),
+                detail.raw().mergeableState(),
+                PullRequestDetailMapper.latestPushAt(detail.timeline()),
+                PullRequestDetailMapper.rolledUpReviewerVerdicts(detail.reviews()),
+                detail.raw().headRef());
+    }
+
+    private void syncDiffQuietly(String pat, PullRequest pullRequest)
+    {
+        try {
+            snapshots.refreshDefaultDiff(
+                    pat,
+                    parseRef(pullRequest.repo(), pullRequest.number()),
+                    pullRequest.id());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Failed to sync diff for PR {}/{}: {}",
+                    pullRequest.repo(), pullRequest.number(), failure.getMessage());
+        }
+    }
+
+    private boolean resolveViewerCanWrite(String pat, String repo)
+    {
+        try {
+            PullRequestRef ref = parseRef(repo, 1);
+            return accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+        }
+        catch (RuntimeException failure) {
+            log.warn("Could not resolve viewer permission for {}: {}", repo, failure.getMessage());
+            return false;
+        }
+    }
+
+    private long storedPullRequestId(String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(repo, number)
+                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+    }
+
+    private static ResponseStatusException localSnapshotMissing(String name)
+    {
+        return new ResponseStatusException(
+                HttpStatus.NOT_FOUND, name + " has not been refreshed");
     }
 
     private void updateListState(long prId, StoredPrDetail detail)
@@ -780,7 +826,7 @@ public class PullRequestService
     private void invalidatePullRequestDetail(String repo, int number)
     {
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(id -> detailStore.deleteByPrIds(ImmutableSet.of(id)));
+                .ifPresent(snapshots::delete);
     }
 
     private void invalidatePullRequestCaches(String repo, int number)
@@ -788,12 +834,12 @@ public class PullRequestService
         invalidatePullRequestDetail(repo, number);
     }
 
-    private void patchCachedDetail(Optional<Long> prId, UnaryOperator<StoredPrDetail> patcher)
+    private void patchCachedDetail(
+            Optional<Long> prId,
+            UnaryOperator<StoredPrDetail> patcher)
     {
         requireNonNull(patcher, "patcher is null");
-        prId.ifPresent(id -> detailStore.find(id)
-                .map(patcher)
-                .ifPresent(patched -> detailStore.save(id, patched)));
+        prId.ifPresent(id -> snapshots.patchDetail(id, patcher));
     }
 
     private static PullRequest withOrigin(PullRequest pr, PullRequest.Origin origin)

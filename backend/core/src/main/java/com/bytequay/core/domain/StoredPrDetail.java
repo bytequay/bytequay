@@ -22,14 +22,25 @@ public record StoredPrDetail(
         List<PrReviewState> reviews,
         List<PrTimelineEvent> timeline,
         List<PrCheckRunState> checkRuns,
-        List<String> unavailableSections)
+        List<String> unavailableSections,
+        boolean viewerCanWrite)
 {
+    public StoredPrDetail(
+            PrRawDetail raw,
+            List<PrReviewState> reviews,
+            List<PrTimelineEvent> timeline,
+            List<PrCheckRunState> checkRuns,
+            List<String> unavailableSections)
+    {
+        this(raw, reviews, timeline, checkRuns, unavailableSections, false);
+    }
+
     public StoredPrDetail(
             PrRawDetail raw,
             List<PrReviewState> reviews,
             List<PrTimelineEvent> timeline,
             List<PrCheckRunState> checkRuns)
     {
-        this(raw, reviews, timeline, checkRuns, ImmutableList.of());
+        this(raw, reviews, timeline, checkRuns, ImmutableList.of(), false);
     }
 }

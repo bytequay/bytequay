@@ -31,9 +31,13 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:detail:refresh', repo, number),
   fetchPrDiffFiles: (repo, number, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff', repo, number, baseSha, headSha),
+  refreshPrDiffFiles: (repo, number, baseSha, headSha) =>
+    ipcRenderer.invoke('prs:diff:refresh', repo, number, baseSha, headSha),
   fetchPrDiffCommits: (repo, number) => ipcRenderer.invoke('prs:diff-commits', repo, number),
   fetchPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff-content', repo, number, path, baseSha, headSha),
+  refreshPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
+    ipcRenderer.invoke('prs:diff-content:refresh', repo, number, path, baseSha, headSha),
   postPrReviewComment: (repo, number, comment) =>
     ipcRenderer.invoke('prs:review-comment:create', repo, number, comment),
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),

@@ -36,7 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -84,14 +83,15 @@ public class SqlitePrDetailStore
                         .map(SqlitePrDetailStore::toTimeline)
                         .collect(toImmutableList()),
                 checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).collect(toImmutableList()),
-                detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of()));
+                detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of(),
+                Boolean.TRUE.equals(detail.getViewerCanWrite())));
     }
 
     @Override
     @Transactional
     public void save(long prId, StoredPrDetail detail)
     {
-        saveHeader(prId, detail.raw(), detail.unavailableSections());
+        saveHeader(prId, detail);
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
@@ -129,7 +129,7 @@ public class SqlitePrDetailStore
     @Transactional
     public void saveIncremental(long prId, StoredPrDetail detail)
     {
-        saveHeader(prId, detail.raw(), detail.unavailableSections());
+        saveHeader(prId, detail);
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
@@ -159,8 +159,9 @@ public class SqlitePrDetailStore
         }
     }
 
-    private void saveHeader(long prId, PrRawDetail raw, List<String> unavailableSections)
+    private void saveHeader(long prId, StoredPrDetail detail)
     {
+        PrRawDetail raw = detail.raw();
         PrDetailEntity entity = detailRepo.findById(prId).orElseGet(PrDetailEntity::new);
         entity.setPrId(prId);
         entity.setTitle(raw.title());
@@ -176,7 +177,8 @@ public class SqlitePrDetailStore
         entity.setLabelColors(raw.labelColors() != null ? raw.labelColors() : ImmutableMap.of());
         entity.setAssignees(raw.assignees() != null ? raw.assignees() : ImmutableList.of());
         entity.setMilestone(raw.milestone());
-        entity.setUnavailableSections(unavailableSections != null ? unavailableSections : ImmutableList.of());
+        entity.setUnavailableSections(
+                detail.unavailableSections() != null ? detail.unavailableSections() : ImmutableList.of());
         entity.setDraft(raw.draft());
         entity.setMergeable(raw.mergeable());
         entity.setMergeableState(raw.mergeableState());
@@ -188,6 +190,7 @@ public class SqlitePrDetailStore
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());
         entity.setBaseRef(raw.baseRef());
+        entity.setViewerCanWrite(detail.viewerCanWrite());
         entity.setSyncedAt(Instant.now());
         detailRepo.save(entity);
     }

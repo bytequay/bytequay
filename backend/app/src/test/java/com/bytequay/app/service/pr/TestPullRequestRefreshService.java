@@ -14,6 +14,7 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
@@ -43,6 +44,40 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestRefreshService
 {
+    @Test
+    void directDetailRefreshPersistsBeforeReading()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService service = service(
+                pullRequests, mock(WorkspaceStore.class), Runnable::run);
+
+        assertThat(service.refreshDetail("owner/repo", 7)).isNull();
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        order.verify(pullRequests).getPullRequestDetail("owner/repo", 7);
+    }
+
+    @Test
+    void directDiffRefreshPersistsBeforeReading()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        DiffFile file = new DiffFile("src/App.java", "modified", 1, 1, "patch");
+        when(pullRequests.getPullRequestDiffFiles("owner/repo", 7, "base", "head"))
+                .thenReturn(ImmutableList.of(file));
+        PullRequestRefreshService service = service(
+                pullRequests, mock(WorkspaceStore.class), Runnable::run);
+
+        assertThat(service.refreshDiffFiles("owner/repo", 7, "base", "head"))
+                .containsExactly(file);
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).refreshPullRequestDiffFromGitHub(
+                "owner/repo", 7, "base", "head");
+        order.verify(pullRequests).getPullRequestDiffFiles(
+                "owner/repo", 7, "base", "head");
+    }
+
     @Test
     void refreshesGlobalAndDistinctWorkspaceRepositories()
     {

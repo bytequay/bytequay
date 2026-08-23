@@ -163,6 +163,23 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
+    public void saveObserved(PullRequest pullRequest)
+    {
+        requireNonNull(pullRequest, "pullRequest is null");
+        PullRequestEntity previous = jpaRepository.findById(pullRequest.id()).orElse(null);
+        PullRequestEntity entity = toEntity(pullRequest, Instant.now());
+        entity.setDashboardVisible(true);
+        entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
+        entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
+        entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+        if (previous != null) {
+            preserveEnrichment(entity, previous);
+        }
+        jpaRepository.save(entity);
+    }
+
+    @Override
+    @Transactional
     public Set<Long> completeRepositorySync(String repository, String syncMarker)
     {
         requireNonNull(repository, "repository is null");

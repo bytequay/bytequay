@@ -92,7 +92,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        return pullRequests.refreshPullRequestDetail(repo, number);
+        return refreshService.refreshDetail(repo, number);
     }
 
     @GetMapping("/prs/diffFiles")
@@ -115,6 +115,16 @@ public class PullRequestController
         return pullRequests.getPullRequestDiffCommits(repo, number);
     }
 
+    @PostMapping("/prs/diffFiles/refresh")
+    public List<DiffFile> refreshDiffFiles(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam(value = "base", required = false) String baseSha,
+            @RequestParam(value = "head", required = false) String headSha)
+    {
+        return refreshService.refreshDiffFiles(repo, number, baseSha, headSha);
+    }
+
     @GetMapping("/prs/diffContent")
     public DiffFileContent diffContent(
             @RequestParam("repo") String repo,
@@ -126,6 +136,18 @@ public class PullRequestController
         return baseSha == null && headSha == null
                 ? pullRequests.getPullRequestDiffFileContent(repo, number, path)
                 : pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
+    }
+
+    @PostMapping("/prs/diffContent/refresh")
+    public DiffFileContent refreshDiffContent(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("path") String path,
+            @RequestParam(value = "base", required = false) String baseSha,
+            @RequestParam(value = "head", required = false) String headSha)
+    {
+        return refreshService.refreshDiffFileContent(
+                repo, number, path, baseSha, headSha);
     }
 
     @GetMapping("/prs/merge-mode")

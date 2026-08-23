@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -182,6 +182,30 @@ describe('PullOverview', () => {
     expect(html).toContain('>Reply</button><button class="pr-thread-resolve"');
     expect(html).toContain('>Resolve</button>');
     expect(html).not.toContain('<strong>Reply</strong>');
+  });
+
+  it('shows only the commented diff line with its number and state', () => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+      payload: {
+        ...emptyPayload,
+        path: 'src/PageSourceProvider.java',
+        diffHunk: '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker',
+        originalLine: 44,
+        side: 'RIGHT',
+        outdated: true,
+      },
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(reviewCommentLine('@@ -7,2 +7 @@\n keep\n-old', 8, 'LEFT')).toEqual({ lineNumber: 8, prefix: '-', text: 'old' });
+    expect(html).toContain('<code>src/PageSourceProvider.java</code><span class="pr-thread-outdated">Outdated</span>');
+    expect(html).toContain('class="pr-commented-code-line is-add"');
+    expect(html).toContain('pr-commented-code-line__number">44</span>');
+    expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
+    expect(html).not.toContain('createTracker');
   });
 
   it('offers reply and unresolve actions inside a resolved review thread', () => {

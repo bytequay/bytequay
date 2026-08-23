@@ -596,6 +596,8 @@ function ReviewThread({ activity, pr, onRefresh }: {
   const [changingResolution, setChangingResolution] = useState(false);
   const [error, setError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const targetLine = payload.line ?? payload.originalLine;
+  const commentedLine = payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
   const submit = async () => {
@@ -685,8 +687,11 @@ function ReviewThread({ activity, pr, onRefresh }: {
   }
   return (
     <article className="pr-inline-thread">
-      <header><code>{threadLocation(payload.path, payload.line ?? payload.originalLine)}</code></header>
-      {payload.diffHunk && <DiffHunk text={payload.diffHunk} />}
+      <header>
+        <code>{threadLocation(payload.path, commentedLine ? null : targetLine)}</code>
+        {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
+      </header>
+      {commentedLine && <CommentedCodeLine line={commentedLine} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
         onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
@@ -718,11 +723,40 @@ function ThreadComment({ comment, fallbackUrl, onQuote }: {
   );
 }
 
-function DiffHunk({ text }: { text: string }) {
+type ReviewCommentLine = {
+  lineNumber: number;
+  prefix: ' ' | '+' | '-';
+  text: string;
+};
+
+export function reviewCommentLine(diffHunk: string, targetLine: number | null, side: string | null): ReviewCommentLine | null {
+  if (!targetLine) return null;
+  const lines = diffHunk.split('\n');
+  const header = lines[0]?.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+  if (!header) return null;
+  let oldLine = Number(header[1]);
+  let newLine = Number(header[2]);
+  for (const value of lines.slice(1)) {
+    const prefix = value[0];
+    if (prefix !== ' ' && prefix !== '+' && prefix !== '-') continue;
+    const onLeft = prefix !== '+';
+    const onRight = prefix !== '-';
+    const lineNumber = side?.toUpperCase() === 'LEFT' ? (onLeft ? oldLine : null) : (onRight ? newLine : null);
+    if (lineNumber === targetLine) return { lineNumber, prefix, text: value.slice(1) };
+    if (onLeft) oldLine++;
+    if (onRight) newLine++;
+  }
+  return null;
+}
+
+function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
+  const className = line.prefix === '+' ? 'is-add' : line.prefix === '-' ? 'is-del' : '';
   return (
-    <pre className="pr-diff-hunk">{text.split('\n').map((line, index) => (
-      <span className={line.startsWith('+') ? 'is-add' : line.startsWith('-') ? 'is-del' : ''} key={index}>{line}{'\n'}</span>
-    ))}</pre>
+    <pre className={`pr-commented-code-line${className ? ` ${className}` : ''}`}>
+      <span className="pr-commented-code-line__number">{line.lineNumber}</span>
+      <span className="pr-commented-code-line__marker" aria-hidden="true">{line.prefix}</span>
+      <code>{line.text}</code>
+    </pre>
   );
 }
 

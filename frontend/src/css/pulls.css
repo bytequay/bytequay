@@ -645,12 +645,15 @@
 .pr-thread-row__resolved svg { color: #8250df; }
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
 .pr-inline-thread { margin-left: 43px; }
-.pr-inline-thread > header { overflow: hidden; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 14px; text-overflow: ellipsis; white-space: nowrap; }
-.pr-inline-thread > header code { font-family: var(--font-mono); font-size: 13px; }
-.pr-diff-hunk { overflow-x: auto; margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 0; font-family: var(--font-mono); font-size: 13px; line-height: 1.55; }
-.pr-diff-hunk span { display: block; min-width: max-content; padding: 0 13px; }
-.pr-diff-hunk .is-add { background: #dafbe1; color: #116329; }
-.pr-diff-hunk .is-del { background: #ffebe9; color: #a40e26; }
+.pr-inline-thread > header { display: flex; overflow: hidden; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 14px; white-space: nowrap; }
+.pr-inline-thread > header code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; }
+.pr-thread-outdated { flex: 0 0 auto; border: 1px solid #d4a72c; border-radius: 999px; background: #fff8c5; color: #7d4e00; padding: 2px 8px; font-size: 11.5px; font-weight: 600; }
+.pr-commented-code-line { display: grid; overflow-x: auto; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
+.pr-commented-code-line.is-add { background: #dafbe1; color: #116329; }
+.pr-commented-code-line.is-del { background: #ffebe9; color: #a40e26; }
+.pr-commented-code-line__number { padding-right: 8px; text-align: right; }
+.pr-commented-code-line__marker { text-align: center; }
+.pr-commented-code-line code { padding-right: 13px; font: inherit; }
 .pr-thread-comment { border-bottom: 1px solid #d8dee4; background: #fff; }
 .pr-thread-comment__author { display: flex; align-items: center; gap: 7px; padding: 12px 16px 0; color: #59636e; font-size: 12px; }
 .pr-thread-comment__author strong { color: #24292f; font-size: 14px; }

@@ -14,8 +14,8 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RemoteSource;
@@ -72,7 +72,7 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspacePaths paths;
     private final WorkspaceProvisioningService provisioning;
     private final WorkspaceMetadataService metadata;
-    private final PullRequestRefreshService pullRequestRefresh;
+    private final PullRequestSyncJob pullRequestSync;
     private final Executor executor;
 
     public DefaultWorkspaceRepositoryService(
@@ -87,7 +87,7 @@ public class DefaultWorkspaceRepositoryService
             WorkspacePaths paths,
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
-            PullRequestRefreshService pullRequestRefresh,
+            PullRequestSyncJob pullRequestSync,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -101,7 +101,7 @@ public class DefaultWorkspaceRepositoryService
         this.paths = requireNonNull(paths, "paths is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
-        this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
+        this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -248,7 +248,7 @@ public class DefaultWorkspaceRepositoryService
         if (!metadataBusy) {
             submit(() -> metadata.synchronize(workspaceId), workspaceId);
         }
-        pullRequestRefresh.requestRefresh(workspace.monitoredRepository());
+        pullRequestSync.requestImmediateSync();
         return accepted;
     }
 
@@ -574,7 +574,7 @@ public class DefaultWorkspaceRepositoryService
                 || workspace.metadataState() == MetadataState.SYNCING) {
             submit(() -> metadata.synchronize(workspace.id()), workspace.id());
         }
-        pullRequestRefresh.requestRefresh(workspace.monitoredRepository());
+        pullRequestSync.requestImmediateSync();
     }
 
     private void submit(Runnable task, String workspaceId)

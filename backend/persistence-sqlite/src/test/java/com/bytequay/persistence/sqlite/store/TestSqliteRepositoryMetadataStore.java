@@ -111,6 +111,8 @@ class TestSqliteRepositoryMetadataStore
 
         var page = issueStore.findPage(100, REPOSITORY, 0, 50);
         assertThat(page.issues()).containsExactly(issue);
+        assertThat(issueStore.find(100, 7)).contains(issue);
+        assertThat(issueStore.find(100, 8)).isEmpty();
         assertThat(page.syncedAt()).contains(NOW);
         assertThat(page.totalIssues()).isEqualTo(1);
     }

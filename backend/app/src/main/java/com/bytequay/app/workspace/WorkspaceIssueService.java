@@ -14,10 +14,12 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface WorkspaceIssueService
 {
@@ -28,6 +30,9 @@ public interface WorkspaceIssueService
      * @return one cached page of open issues and its freshness timestamp
      */
     RepositoryIssuePage list(String workspaceId, int page, int pageSize);
+
+    /** Returns one issue from the local projection without contacting GitHub. */
+    Optional<RepositoryIssue> find(String workspaceId, int issueNumber);
 
     /**
      * Refreshes open issues independently from low-volatility reference metadata.

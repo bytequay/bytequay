@@ -11,7 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  findLocalIssue,
+  openGitHubReference,
+  parseGitHubReference,
+  type GitHubReference,
+} from '../githubReference';
+import { relativeTime } from '../relativeTime';
+import type { PullRequestDetailDto, RepositoryIssueSnapshotDto } from '../types';
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -218,24 +227,171 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
     if (link) {
       const href = link[2].startsWith('/') ? `https://github.com${link[2]}` : link[2];
       const reference = link[1].match(/^(.*) (#\d+)$/);
-      const referenceType = /github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(href)
-        ? 'pull'
-        : /github\.com\/[^/]+\/[^/]+\/issues\/\d+$/.test(href)
-          ? 'issue'
-          : null;
+      const githubReference = parseGitHubReference(href);
+      const label = reference ? <>{reference[1]} <small>{reference[2]}</small></> : link[1];
+      if (githubReference) return (
+        <ReferenceLink key={key} reference={githubReference}>{label}</ReferenceLink>
+      );
       return (
-        <a className={referenceType ? `md-reference is-${referenceType}` : undefined} key={key} href={href} onClick={event => {
+        <a key={key} href={href} onClick={event => {
           event.preventDefault();
           void window.bridge.openInAppBrowser(href);
         }}>
-          {referenceType && <ReferenceIcon pull={referenceType === 'pull'} />}
-          {reference ? <>{reference[1]} <small>{reference[2]}</small></> : link[1]}
+          {label}
         </a>
       );
     }
     if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
     return <Fragment key={key}>{part}</Fragment>;
   });
+}
+
+type ReferencePreview =
+  | { kind: 'pull'; detail: PullRequestDetailDto }
+  | { kind: 'issue'; issue: RepositoryIssueSnapshotDto['issues'][number] };
+
+const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
+
+function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
+  const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
+  const existing = previewRequests.get(key);
+  if (existing) return existing;
+  const request = reference.kind === 'pull'
+    ? window.bridge.fetchPullRequestDetail(`${reference.owner}/${reference.repo}`, reference.number)
+      .then((detail): ReferencePreview => ({ kind: 'pull', detail }))
+      .catch((): null => null)
+    : findLocalIssue(reference)
+      .then((local): ReferencePreview | null => local ? { kind: 'issue', issue: local.issue } : null)
+      .catch((): null => null);
+  previewRequests.set(key, request);
+  return request;
+}
+
+function ReferenceLink({ reference, children }: { reference: GitHubReference; children: ReactNode }) {
+  const previewId = useId();
+  const anchor = useRef<HTMLAnchorElement>(null);
+  const showTimer = useRef<number | null>(null);
+  const hideTimer = useRef<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<CSSProperties>({});
+  const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
+
+  const clearTimer = (timer: typeof showTimer) => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+  };
+  const show = (delay: number) => {
+    clearTimer(hideTimer);
+    clearTimer(showTimer);
+    showTimer.current = window.setTimeout(() => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (!rect) return;
+      const below = window.innerHeight - rect.bottom >= 260 || rect.top < 300;
+      const available = below ? window.innerHeight - rect.bottom - 20 : rect.top - 20;
+      setPosition({
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - 492)),
+        ...(below ? { top: rect.bottom + 8 } : { bottom: window.innerHeight - rect.top + 8 }),
+        maxHeight: Math.max(180, Math.min(440, available)),
+      });
+      setOpen(true);
+      if (preview === undefined) void loadPreview(reference).then(setPreview);
+    }, delay);
+  };
+  const hide = (delay = 140) => {
+    clearTimer(showTimer);
+    clearTimer(hideTimer);
+    hideTimer.current = window.setTimeout(() => setOpen(false), delay);
+  };
+
+  useEffect(() => () => {
+    clearTimer(showTimer);
+    clearTimer(hideTimer);
+  }, []);
+
+  return <>
+    <a
+      ref={anchor}
+      className={`md-reference is-${reference.kind}`}
+      href={reference.href}
+      aria-describedby={open ? previewId : undefined}
+      onMouseEnter={() => show(350)}
+      onMouseLeave={() => hide()}
+      onFocus={() => show(0)}
+      onBlur={() => hide()}
+      onClick={event => {
+        event.preventDefault();
+        hide(0);
+        void openGitHubReference(reference);
+      }}
+    >
+      <ReferenceIcon pull={reference.kind === 'pull'} />
+      {children}
+    </a>
+    {open && createPortal(
+      <ReferencePreviewCard
+        id={previewId}
+        reference={reference}
+        preview={preview}
+        style={position}
+        onEnter={() => clearTimer(hideTimer)}
+        onLeave={() => hide()}
+      />,
+      document.body,
+    )}
+  </>;
+}
+
+function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave }: {
+  id: string;
+  reference: GitHubReference;
+  preview: ReferencePreview | null | undefined;
+  style: CSSProperties;
+  onEnter: () => void;
+  onLeave: () => void;
+}) {
+  const item = preview?.kind === 'pull' ? preview.detail : preview?.kind === 'issue' ? preview.issue : null;
+  const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
+  const labels = preview?.kind === 'pull' ? preview.detail.labels.map(label => label.name) : preview?.kind === 'issue' ? preview.issue.labels : [];
+  const author = preview?.kind === 'pull' ? preview.detail.author : preview?.kind === 'issue' ? preview.issue.author : null;
+  const updatedAt = preview?.kind === 'pull' ? preview.detail.updatedAt : preview?.kind === 'issue' ? preview.issue.updatedAt : null;
+  return (
+    <aside
+      className={`md-reference-preview is-${reference.kind}`}
+      id={id}
+      role="dialog"
+      aria-label={`${reference.kind === 'pull' ? 'Pull request' : 'Issue'} preview`}
+      style={style}
+      tabIndex={0}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      onFocus={onEnter}
+      onBlur={onLeave}
+    >
+      <header>
+        <span><ReferenceIcon pull={reference.kind === 'pull'} /> {reference.kind === 'pull' ? 'Pull request' : 'Issue'}</span>
+        <small>{reference.owner}/{reference.repo} #{reference.number}</small>
+      </header>
+      {preview === undefined && <div className="md-reference-preview__status">Loading local details…</div>}
+      {preview === null && (
+        <div className="md-reference-preview__status">No local details are available. Click to open on GitHub.</div>
+      )}
+      {item && <>
+        <h3>{item.title ?? `${reference.owner}/${reference.repo} #${reference.number}`}</h3>
+        <div className="md-reference-preview__meta">
+          {author && <span>by <strong>{author}</strong></span>}
+          {updatedAt && <span>updated {relativeTime(updatedAt)}</span>}
+          {preview.kind === 'pull' && preview.detail.state && <span>{preview.detail.state.toLowerCase()}</span>}
+          {preview.kind === 'issue' && <span>open</span>}
+        </div>
+        {labels.length > 0 && <div className="md-reference-preview__labels">
+          {labels.map(label => <span key={label}>{label}</span>)}
+        </div>}
+        <div className="md-reference-preview__body">
+          <MarkdownBody body={body || 'No description provided.'} />
+        </div>
+      </>}
+    </aside>
+  );
 }
 
 function ReferenceIcon({ pull }: { pull: boolean }) {

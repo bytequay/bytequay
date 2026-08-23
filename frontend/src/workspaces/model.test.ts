@@ -16,6 +16,8 @@ import type { WorkspaceDto } from '../types';
 import {
   workspaceFromDto,
   workspaceIdFromRoute,
+  workspaceIssueRoute,
+  workspaceLocationFromRoute,
   workspacePhaseLabel,
   workspaceRoute,
 } from './model';
@@ -53,6 +55,14 @@ describe('workspaceFromDto', () => {
     expect(route).toBe('#/workspaces/workspace%2Fid');
     expect(workspaceIdFromRoute(route)).toBe('workspace/id');
     expect(workspaceIdFromRoute('#/workspaces')).toBeNull();
+
+    const issueRoute = workspaceIssueRoute('workspace/id', 42);
+    expect(issueRoute).toBe('#/workspaces/workspace%2Fid/issues/42');
+    expect(workspaceLocationFromRoute(issueRoute)).toEqual({
+      workspaceId: 'workspace/id',
+      tab: 'issues',
+      issueNumber: 42,
+    });
   });
 });
 

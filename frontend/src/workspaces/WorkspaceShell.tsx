@@ -33,11 +33,12 @@ import '../css/workspaces.css';
 export type WorkspaceTab =
   | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'memory' | 'settings';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialIssueNumber, onRemoved }: {
   workspace: Workspace;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: Workspace) => void;
+  initialIssueNumber: number | null;
   onRemoved: () => void;
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return <WorkspaceIssuesScreen
       workspaceId={workspace.id}
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+      initialIssueNumber={initialIssueNumber}
     />;
   }
   if (tab === 'tasks') {
@@ -303,4 +305,3 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstr
     </div>
   );
 }
-

@@ -120,15 +120,31 @@ export function workspaceRoute(workspaceId: string): string {
   return `#/workspaces/${encodeURIComponent(workspaceId)}`;
 }
 
-export function workspaceIdFromRoute(hash: string): string | null {
-  const match = /^#\/workspaces\/([^/]+)$/.exec(hash);
+export function workspaceIssueRoute(workspaceId: string, issueNumber: number): string {
+  return `${workspaceRoute(workspaceId)}/issues/${issueNumber}`;
+}
+
+export function workspaceLocationFromRoute(hash: string): {
+  workspaceId: string;
+  tab: 'issues' | null;
+  issueNumber: number | null;
+} | null {
+  const match = /^#\/workspaces\/([^/]+)(?:\/(issues)(?:\/(\d+))?)?$/.exec(hash);
   if (!match) return null;
   try {
-    return decodeURIComponent(match[1]);
+    return {
+      workspaceId: decodeURIComponent(match[1]),
+      tab: match[2] === 'issues' ? 'issues' : null,
+      issueNumber: match[3] ? Number(match[3]) : null,
+    };
   }
   catch {
     return null;
   }
+}
+
+export function workspaceIdFromRoute(hash: string): string | null {
+  return workspaceLocationFromRoute(hash)?.workspaceId ?? null;
 }
 
 /** "owner/repo" from a GitHub remote URL, or null for non-GitHub remotes. */

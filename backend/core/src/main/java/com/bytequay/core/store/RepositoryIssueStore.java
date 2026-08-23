@@ -19,10 +19,13 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface RepositoryIssueStore
 {
     RepositoryIssuePage findPage(long repositoryId, RepoRef repository, int page, int pageSize);
+
+    Optional<RepositoryIssue> find(long repositoryId, int issueNumber);
 
     void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker);
 

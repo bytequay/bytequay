@@ -14,8 +14,8 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -208,7 +208,7 @@ class TestDefaultWorkspaceRepositoryService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
+        PullRequestSyncJob pullRequestSync = mock(PullRequestSyncJob.class);
         AtomicReference<CodeState> observed = new AtomicReference<>();
         when(provisioning.provision(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
@@ -227,13 +227,13 @@ class TestDefaultWorkspaceRepositoryService
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
                 mock(WorkspaceMetadataService.class),
-                pullRequestRefresh,
+                pullRequestSync,
                 Runnable::run);
 
         watch(service, 100);
 
         assertThat(observed).hasValue(CodeState.PENDING);
-        verify(pullRequestRefresh).requestRefresh(RepoRef.of("owner", "project"));
+        verify(pullRequestSync).requestImmediateSync();
     }
 
     private static DefaultWorkspaceRepositoryService service(
@@ -257,7 +257,7 @@ class TestDefaultWorkspaceRepositoryService
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 mock(WorkspaceProvisioningService.class),
                 mock(WorkspaceMetadataService.class),
-                mock(PullRequestRefreshService.class),
+                mock(PullRequestSyncJob.class),
                 ignored -> {});
     }
 

@@ -591,6 +591,24 @@
 .md-reference svg { margin-right: 4px; color: #59636e; vertical-align: -2px; }
 .md-reference.is-issue svg { color: #1a7f37; }
 .md-reference small { color: #59636e; font-size: inherit; }
+.md-reference-preview { position: fixed; z-index: 300; width: 480px; max-width: calc(100vw - 24px); overflow: auto; border: 1px solid #d0d7de; border-radius: 12px; background: #fff; color: #1f2328; box-shadow: 0 12px 36px rgba(31, 35, 40, 0.24); font-size: 13px; line-height: 1.45; }
+.md-reference-preview:focus { outline: 2px solid #0969da; outline-offset: 2px; }
+.md-reference-preview > header { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e1e7eb; background: #f6f8fa; padding: 9px 12px; }
+.md-reference-preview > header span { display: inline-flex; align-items: center; color: #24292f; font-weight: 600; }
+.md-reference-preview > header svg { margin-right: 5px; color: #59636e; }
+.md-reference-preview.is-issue > header svg { color: #1a7f37; }
+.md-reference-preview > header small { overflow: hidden; color: #59636e; text-overflow: ellipsis; white-space: nowrap; }
+.md-reference-preview > h3 { margin: 0; border: 0; padding: 13px 14px 4px; font-size: 16px; line-height: 1.35; }
+.md-reference-preview__status { padding: 24px 14px; color: #59636e; text-align: center; }
+.md-reference-preview__meta { display: flex; flex-wrap: wrap; gap: 5px 12px; padding: 2px 14px 8px; color: #59636e; }
+.md-reference-preview__meta strong { color: #24292f; font-weight: 500; }
+.md-reference-preview__labels { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 11px; }
+.md-reference-preview__labels span { border-radius: 999px; background: #eff2f4; padding: 2px 7px; color: #59636e; font-size: 11px; }
+.md-reference-preview__body { border-top: 1px solid #e1e7eb; }
+.md-reference-preview__body > .markdown-body { padding: 13px 14px 16px; font-size: 13px; }
+.md-reference-preview__body .markdown-body h1,
+.md-reference-preview__body .markdown-body h2 { margin: 14px 0 10px; padding-bottom: 6px; font-size: 16px; }
+.md-reference-preview__body .markdown-body h3 { font-size: 14px; }
 
 .pr-event { display: grid; min-height: 35px; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 12px; padding-left: 18px; color: #59636e; font-size: 14px; }
 .pr-event > .avatar { background: #fff; box-shadow: 0 0 0 4px #fff; }

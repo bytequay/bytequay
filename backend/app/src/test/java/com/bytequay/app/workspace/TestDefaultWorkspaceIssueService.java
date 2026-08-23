@@ -149,6 +149,18 @@ class TestDefaultWorkspaceIssueService
     }
 
     @Test
+    void findsOneIssueOnlyInTheLocalProjection()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        workspaces.put("direct", direct);
+        when(issueStore.find(100, 7)).thenReturn(Optional.of(issue(7)));
+
+        assertThat(service.find("direct", 7)).contains(issue(7));
+        verify(issueStore).find(100, 7);
+        verifyNoMoreInteractions(credentials, gitHub, issueReads, issueWrites);
+    }
+
+    @Test
     void providerFailureDoesNotFinalizeOrHideThePreviousDatabasePage()
     {
         Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);

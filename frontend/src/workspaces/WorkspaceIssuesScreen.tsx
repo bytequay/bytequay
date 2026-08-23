@@ -52,9 +52,10 @@ const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber }: {
   workspaceId: string;
   repository: string;
+  initialIssueNumber: number | null;
 }) {
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
@@ -73,6 +74,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository }: {
   const timelineRequest = useRef(0);
   const typeRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
+  const openedInitialIssue = useRef<number | null>(null);
 
   const apply = useCallback((value: RepositoryIssueSnapshotDto) => {
     setSnapshot(value);
@@ -188,6 +190,32 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository }: {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [apply, workspaceId]);
+
+  useEffect(() => {
+    if (loading || initialIssueNumber === null || openedInitialIssue.current === initialIssueNumber) return;
+    openedInitialIssue.current = initialIssueNumber;
+    const local = snapshot?.issues.find(issue => issue.number === initialIssueNumber);
+    if (local) {
+      setSelectedId(local.id);
+      setPaneOpen(true);
+      return;
+    }
+    let cancelled = false;
+    void window.bridge.fetchWorkspaceIssue(workspaceId, initialIssueNumber)
+      .then(issue => {
+        if (cancelled) return;
+        setSnapshot(current => current ? {
+          ...current,
+          issues: [issue, ...current.issues.filter(candidate => candidate.id !== issue.id)],
+        } : current);
+        setSelectedId(issue.id);
+        setPaneOpen(true);
+      })
+      .catch(failure => {
+        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+      });
+    return () => { cancelled = true; };
+  }, [initialIssueNumber, loading, snapshot, workspaceId]);
 
   const loadMore = useCallback(async () => {
     if (!snapshot?.hasMore || loadingMoreRequest.current) return;

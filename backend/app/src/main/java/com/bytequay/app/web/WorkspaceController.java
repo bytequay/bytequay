@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
@@ -32,6 +32,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.google.common.collect.ImmutableMap;
@@ -61,7 +62,7 @@ public class WorkspaceController
 {
     private final WorkspaceRepositoryService workspaces;
     private final PullRequestService pullRequests;
-    private final PullRequestRefreshService pullRequestRefresh;
+    private final PullRequestSyncJob pullRequestSync;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
     private final WorkspaceRemoteSourceService remoteSources;
@@ -71,7 +72,7 @@ public class WorkspaceController
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
             PullRequestService pullRequests,
-            PullRequestRefreshService pullRequestRefresh,
+            PullRequestSyncJob pullRequestSync,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
             WorkspaceRemoteSourceService remoteSources,
@@ -80,7 +81,7 @@ public class WorkspaceController
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
+        this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
@@ -134,7 +135,7 @@ public class WorkspaceController
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequestRefresh.requestRefresh(repository);
+        pullRequestSync.requestRepositorySync(repository);
     }
 
     @GetMapping("/{workspaceId}/metadata")
@@ -156,6 +157,13 @@ public class WorkspaceController
             @RequestParam(defaultValue = "50") int size)
     {
         return issues.list(workspaceId, page, size);
+    }
+
+    @GetMapping("/{workspaceId}/issues/{issueNumber}")
+    public RepositoryIssue issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    {
+        return issues.find(workspaceId, issueNumber)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue is not available locally"));
     }
 
     @PostMapping("/{workspaceId}/issues/sync")

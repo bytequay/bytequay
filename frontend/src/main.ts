@@ -733,6 +733,8 @@ function registerIpc(): void {
     url.searchParams.set('size', String(pageSize));
     return backendJson(url);
   });
+  ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
   ipcMain.handle('workspaces:issues:sync', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/sync`, {
       method: 'POST',

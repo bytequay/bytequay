@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -70,6 +71,14 @@ public class SqliteRepositoryIssueStore
                 rows.getTotalElements(),
                 rows.hasNext(),
                 java.util.Optional.ofNullable(sync).map(RepositoryIssueSyncEntity::getSyncedAt));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<RepositoryIssue> find(long repositoryId, int issueNumber)
+    {
+        return issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
+                .map(RepositoryIssueEntity::toDomain);
     }
 
     @Override

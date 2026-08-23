@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import HomePage from './home/HomePage';
+import { pullRequestFromRoute, pullRequestRoute } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
@@ -23,7 +24,7 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell, { type WorkspaceTab } from './workspaces/WorkspaceShell';
 import {
   workspaceFromDto,
-  workspaceIdFromRoute,
+  workspaceLocationFromRoute,
   workspaceRoute,
   type Workspace,
 } from './workspaces/model';
@@ -41,6 +42,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
+  const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
 
@@ -59,18 +61,22 @@ export default function App() {
     if (status !== 'ready') return;
     let request = 0;
     const applyRoute = () => {
-      const workspaceId = workspaceIdFromRoute(window.location.hash);
-      if (!workspaceId) {
+      const workspaceLocation = workspaceLocationFromRoute(window.location.hash);
+      if (!workspaceLocation) {
         request++;
         setWorkspace(null);
-        setPage(pageFromRoute(window.location.hash));
+        setInitialIssueNumber(null);
+        const pullRequest = pullRequestFromRoute(window.location.hash);
+        setInitialPr(pullRequest ?? undefined);
+        setPage(pullRequest ? 'pulls' : pageFromRoute(window.location.hash));
         return;
       }
       const current = ++request;
       setPage('workspaces');
       setWorkspace(null);
-      setWorkspaceTab('home');
-      void window.bridge.getWorkspace(workspaceId)
+      setWorkspaceTab(workspaceLocation.tab ?? 'home');
+      setInitialIssueNumber(workspaceLocation.issueNumber);
+      void window.bridge.getWorkspace(workspaceLocation.workspaceId)
         .then(details => {
           if (request === current) setWorkspace(workspaceFromDto(details.summary));
         })
@@ -95,7 +101,9 @@ export default function App() {
     setInitialPr(number === undefined ? undefined : { repo: `${owner}/${repo}`, number });
     setWorkspace(null);
     setPage('pulls');
-    window.location.hash = '#/pulls';
+    window.location.hash = number === undefined
+      ? '#/pulls'
+      : pullRequestRoute({ owner, repo, number });
   };
 
   const openWorkspace = (workspaceId: string) => {
@@ -103,6 +111,15 @@ export default function App() {
   };
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
+  const selectWorkspaceTab = (next: WorkspaceTab) => {
+    setWorkspaceTab(next);
+    setInitialIssueNumber(null);
+    if (workspace) {
+      window.history.replaceState(null, '', next === 'issues'
+        ? `${workspaceRoute(workspace.id)}/issues`
+        : workspaceRoute(workspace.id));
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -115,7 +132,7 @@ export default function App() {
         }}
         workspace={inWorkspace ? workspace : null}
         workspaceTab={workspaceTab}
-        onWorkspaceTab={setWorkspaceTab}
+        onWorkspaceTab={selectWorkspaceTab}
       />
       <main className="app-content">
         {page === 'home' && (
@@ -140,8 +157,9 @@ export default function App() {
             key={workspace.id}
             workspace={workspace}
             tab={workspaceTab}
-            onSelectTab={setWorkspaceTab}
+            onSelectTab={selectWorkspaceTab}
             onWorkspaceChanged={setWorkspace}
+            initialIssueNumber={initialIssueNumber}
             onRemoved={() => { window.location.hash = '#/workspaces'; }}
           />
         )}

@@ -702,6 +702,7 @@ export type Bridge = {
   getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
+  fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
   syncWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueTimeline: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueTimelineEventDto[]>;
   commentWorkspaceIssue: (workspaceId: string, issueNumber: number, body: string) => Promise<WorkspaceIssueTimelineEventDto>;

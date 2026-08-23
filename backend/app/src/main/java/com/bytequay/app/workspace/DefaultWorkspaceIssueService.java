@@ -19,6 +19,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
@@ -84,6 +86,14 @@ public final class DefaultWorkspaceIssueService
                 workspace.monitoredRepository(),
                 page,
                 pageSize);
+    }
+
+    @Override
+    public Optional<RepositoryIssue> find(String workspaceId, int issueNumber)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return issues.find(workspace.monitoredRepositoryId(), issueNumber);
     }
 
     @Override

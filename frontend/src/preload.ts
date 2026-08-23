@@ -56,6 +56,7 @@ const bridge: Bridge = {
   getWorkspace: workspaceId => ipcRenderer.invoke('workspaces:get', workspaceId),
   getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
   fetchWorkspaceIssues: (workspaceId, page, pageSize) => ipcRenderer.invoke('workspaces:issues', workspaceId, page, pageSize),
+  fetchWorkspaceIssue: (workspaceId, issueNumber) => ipcRenderer.invoke('workspaces:issue', workspaceId, issueNumber),
   syncWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:sync', workspaceId),
   fetchWorkspaceIssueTimeline: (workspaceId, issueNumber) =>
     ipcRenderer.invoke('workspaces:issues:timeline', workspaceId, issueNumber),

@@ -470,13 +470,11 @@ persisted upstream snapshot. The workspace tab must never show PRs from another 
 global Pull Requests page remains unchanged and continues to show its complete account-centric
 list.
 
-`PullRequestRefreshService` is the single synchronization coordinator. It refreshes the
-account-centric dashboard and each distinct monitored workspace repository under one overlap
-guard. The refresh updates PR rows, changed PR details, and the derived local view state through
-the existing `PullRequestService` and stores. `PullRequestSyncJob` owns only the periodic timer
-and quiet-hours policy; workspace and frontend actions request refresh directly from the service.
-Requests arriving during a refresh are coalesced and run afterward rather than being discarded.
-Opening `PullsScreen` reads the local projection without triggering another GitHub refresh.
+The existing pull-request scheduled job is the single synchronization coordinator. Its periodic
+cycle refreshes the account-centric dashboard and then each distinct monitored workspace
+repository under one overlap guard. Watch, application startup, and manual refresh request that
+same coordinator. Opening `PullsScreen` reads the local projection without triggering another
+GitHub refresh.
 
 `WorkspacePullRequestService` below owns only the delivery routing for a cherry-pick work branch.
 Its implementation delegates to existing pull-request/GitHub write code wherever the operation

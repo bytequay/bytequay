@@ -56,6 +56,7 @@ export default function PullsScreen({
   const [error, setError] = useState<string | null>(null);
   const loadingMoreRequest = useRef(false);
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
+  const openedInitialPr = useRef<string | null>(null);
 
   const loadList = useCallback(async () => {
     setError(null);
@@ -114,6 +115,9 @@ export default function PullsScreen({
 
   useEffect(() => {
     if (!initialPr || loading) return;
+    const initialPrKey = `${initialPr.repo.toLowerCase()}#${initialPr.number}`;
+    if (openedInitialPr.current === initialPrKey) return;
+    openedInitialPr.current = initialPrKey;
     const match = prs.find(pr => pr.repo.toLowerCase() === initialPr.repo.toLowerCase()
       && pr.number === initialPr.number);
     if (match) {

@@ -18,6 +18,26 @@ import { DiffViewer } from '../pulls/PullChanges';
 import HistoryView from './HistoryView';
 
 describe('workspace commit history', () => {
+  it('disables an incomplete range and omits the local-history hint', () => {
+    const html = renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[]}
+      loading={false}
+      checked={new Set()}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+
+    expect(html).toContain('<button type="button" disabled="">Select range</button>');
+    expect(html).not.toContain('SHA not on this branch');
+    expect(html).not.toContain('Click a commit to see its diff');
+  });
+
   it('uses the pull-request diff viewer without review controls', () => {
     const html = renderToStaticMarkup(<DiffViewer files={[{
       filename: 'src/App.java',
@@ -63,6 +83,9 @@ describe('workspace commit history', () => {
     expect(html).toContain('Open PR #42');
     expect(html).toContain('class="cmt-commit-pr"');
     expect(html).toContain('src="http://127.0.0.1:48765/api/avatars/abc123"');
+    expect(html).toContain('class="cmt-view-author"');
+    expect(html).toContain('aria-label="Copy full commit SHA 0123456789abcdef"');
+    expect(html).not.toContain('cmt-view-summary');
     expect(html).toContain('cmt-commit-row is-selected is-viewed');
     expect(html).toContain('0123456');
   });

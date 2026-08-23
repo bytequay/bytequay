@@ -61,6 +61,7 @@ export default function HistoryView({
   const commitPane = useResizablePane(460, 340, 800);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
+  const canApplyRange = rangeFrom.trim() !== '' && rangeTo.trim() !== '';
   const spanCommits = useMemo(
     () => (span ? commits.slice(span.lo, span.hi + 1) : []),
     [commits, span],
@@ -123,6 +124,7 @@ export default function HistoryView({
   };
 
   const applyRange = () => {
+    if (!canApplyRange) return;
     const result = spanFromShas(commits, rangeFrom, rangeTo);
     if ('error' in result) {
       setRangeError(true);
@@ -202,19 +204,13 @@ export default function HistoryView({
               placeholder="to SHA"
               onChange={event => { setRangeTo(event.target.value); setRangeError(false); }}
             />
-            <button type="button" onClick={applyRange}>Select range</button>
+            <button type="button" disabled={!canApplyRange} onClick={applyRange}>Select range</button>
             {rangeError && <span className="cmt-range-error">SHA not on this branch</span>}
           </div>
           {isUpstream && (
             <div className="cmt-hint is-upstream">
               <strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs),
               then cherry-pick the range into {branch}.
-            </div>
-          )}
-          {!isUpstream && spanCommits.length === 0 && (
-            <div className="cmt-hint">
-              Click a commit to see its diff on the right · check one to edit its message ·
-              check two to squash a range.
             </div>
           )}
           {!isUpstream && spanCommits.length > 0 && !canRewrite && (
@@ -283,7 +279,18 @@ export default function HistoryView({
                           </span>
                         </div>
                       </div>
-                      <span className="cmt-commit-sha">{shortSha(commit.sha)}</span>
+                      <button
+                        type="button"
+                        className="cmt-commit-sha"
+                        title="Copy full commit SHA"
+                        aria-label={`Copy full commit SHA ${commit.sha}`}
+                        onClick={event => {
+                          event.stopPropagation();
+                          void navigator.clipboard.writeText(commit.sha);
+                        }}
+                      >
+                        {shortSha(commit.sha)}
+                      </button>
                     </div>
 
                     {single !== null && single.sha === commit.sha && canRewrite && (
@@ -369,17 +376,25 @@ export default function HistoryView({
             </div>
             <div className="cmt-view-meta">
               {multi && span
-                ? `${shortSha(commits[span.hi].sha)}…${shortSha(commits[span.lo].sha)} · squash preview`
+                ? <span>{shortSha(commits[span.hi].sha)}…{shortSha(commits[span.lo].sha)} · squash preview</span>
                 : viewed
-                  ? `${shortSha(viewed.sha)} · ${viewed.author} committed ${relativeTime(viewed.authoredAt)}`
-                  : ''}
+                  ? (
+                    <>
+                      <span>{shortSha(viewed.sha)} ·</span>
+                      <span className="cmt-view-author">
+                        <Avatar
+                          login={viewed.author}
+                          avatarUrl={viewed.authorAvatarUrl}
+                          size={14}
+                          allowGitHubFallback={false}
+                        />
+                        {viewed.author} committed {relativeTime(viewed.authoredAt)}
+                      </span>
+                    </>
+                  )
+                  : null}
             </div>
           </div>
-          <span className="cmt-view-summary">
-            {diffFiles.length} changed files ·{' '}
-            +{diffFiles.reduce((sum, file) => sum + file.additions, 0)}{' '}
-            −{diffFiles.reduce((sum, file) => sum + file.deletions, 0)}
-          </span>
         </div>
         <DiffViewer
           files={viewerFiles}

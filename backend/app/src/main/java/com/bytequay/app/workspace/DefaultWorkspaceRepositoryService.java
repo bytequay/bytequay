@@ -184,6 +184,22 @@ public class DefaultWorkspaceRepositoryService
         if (workspace.codeState() != CodeState.READY) {
             throw WorkspaceException.repositoryNotReady();
         }
+        return repositoryContext(workspace);
+    }
+
+    @Override
+    public WorkspaceRepositoryContext requireReadableRepository(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.codeState() != CodeState.READY
+                && (workspace.codeState() != CodeState.SYNCING || workspace.lastCodeSyncAt().isEmpty())) {
+            throw WorkspaceException.repositoryNotReady();
+        }
+        return repositoryContext(workspace);
+    }
+
+    private WorkspaceRepositoryContext repositoryContext(Workspace workspace)
+    {
         var repository = paths.repository(workspace);
         return new WorkspaceRepositoryContext(
                 workspace.id(),

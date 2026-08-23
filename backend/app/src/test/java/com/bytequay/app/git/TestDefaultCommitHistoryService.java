@@ -142,7 +142,7 @@ class TestDefaultCommitHistoryService
                 WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 0))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        when(workspaces.requireReadyRepository(WORKSPACE_ID))
+        when(workspaces.requireReadableRepository(WORKSPACE_ID))
                 .thenThrow(new IllegalStateException("repository is not ready"));
         assertThatThrownBy(() -> service.listHistory(
                 WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
@@ -154,7 +154,7 @@ class TestDefaultCommitHistoryService
     @Test
     void propagatesAMissingWorkspaceBeforeReadingGit()
     {
-        when(workspaces.requireReadyRepository(WORKSPACE_ID))
+        when(workspaces.requireReadableRepository(WORKSPACE_ID))
                 .thenThrow(new IllegalArgumentException("workspace is missing"));
 
         assertThatThrownBy(() -> service.listHistory(
@@ -178,7 +178,7 @@ class TestDefaultCommitHistoryService
 
     private void ready(WorkspaceSummary summary)
     {
-        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
                 REPOSITORY,
                 summary.selectedRepositoryId(),

@@ -29,6 +29,7 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -151,6 +152,30 @@ class TestDefaultWorkspaceRepositoryService
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_NOT_FOUND"));
         assertThatThrownBy(() -> service.requireReadyRepository(pending.id()))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
+        assertThatThrownBy(() -> service.requireReadableRepository(pending.id()))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
+    }
+
+    @Test
+    void keepsAPreviouslyReadyRepositoryReadableDuringSynchronization()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L))
+                .thenReturn(Optional.of(direct(100, "owner")));
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        Workspace syncing = store.save(watch(service, 100).withCodeState(
+                CodeState.SYNCING,
+                Optional.of(NOW),
+                Optional.empty(),
+                NOW));
+
+        assertThat(service.requireReadableRepository(syncing.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", syncing.id(), "repository"));
+        assertThatThrownBy(() -> service.requireReadyRepository(syncing.id()))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
     }

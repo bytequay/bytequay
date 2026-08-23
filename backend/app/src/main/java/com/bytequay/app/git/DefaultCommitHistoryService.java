@@ -100,7 +100,7 @@ public class DefaultCommitHistoryService
     {
         requireNonNull(ref, "ref is null");
         checkArgument(limit > 0, "limit must be positive");
-        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
+        WorkspaceRepositoryContext context = workspaces.requireReadableRepository(workspaceId);
         ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, ref);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichment = resolved.repositoryId().isEmpty()

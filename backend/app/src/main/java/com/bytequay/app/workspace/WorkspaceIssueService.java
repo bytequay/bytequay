@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.core.domain.RepositoryIssueSnapshot;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.RepositoryIssuePage;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 public interface WorkspaceIssueService
 {
@@ -21,9 +25,9 @@ public interface WorkspaceIssueService
      * Reads the latest local issue projection for a workspace's monitored repository.
      *
      * @param workspaceId workspace used to resolve the stable monitored repository ID
-     * @return cached open issues and their freshness timestamp
+     * @return one cached page of open issues and its freshness timestamp
      */
-    RepositoryIssueSnapshot list(String workspaceId);
+    RepositoryIssuePage list(String workspaceId, int page, int pageSize);
 
     /**
      * Refreshes open issues independently from low-volatility reference metadata.
@@ -32,7 +36,48 @@ public interface WorkspaceIssueService
      * A provider failure leaves the previous local snapshot intact.</p>
      *
      * @param workspaceId workspace used to resolve the monitored repository
-     * @return newly persisted issue snapshot
      */
-    RepositoryIssueSnapshot synchronize(String workspaceId);
+    void synchronize(String workspaceId);
+
+    /**
+     * Loads the selected issue's structural activity and comments from GitHub.
+     *
+     * @param workspaceId workspace used to resolve the monitored repository
+     * @param issueNumber GitHub issue number
+     * @return chronological issue activity, including comments
+     */
+    List<PrTimelineEvent> timeline(String workspaceId, int issueNumber);
+
+    /**
+     * Posts a user-authored comment to the selected issue.
+     *
+     * @param workspaceId workspace used to resolve the monitored repository
+     * @param issueNumber GitHub issue number
+     * @param body non-blank Markdown comment body
+     * @return the created comment as a timeline event
+     */
+    PrTimelineEvent comment(String workspaceId, int issueNumber, String body);
+
+    IssueTypeOptions issueType(String workspaceId, int issueNumber);
+
+    IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type);
+
+    IssueMetadata updateMetadata(String workspaceId, int issueNumber, List<String> assignees, List<String> labels);
+
+    record IssueTypeOptions(String current, List<String> available)
+    {
+        public IssueTypeOptions
+        {
+            available = ImmutableList.copyOf(available);
+        }
+    }
+
+    record IssueMetadata(List<String> assignees, List<String> labels)
+    {
+        public IssueMetadata
+        {
+            assignees = ImmutableList.copyOf(assignees);
+            labels = ImmutableList.copyOf(labels);
+        }
+    }
 }

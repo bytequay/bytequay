@@ -38,6 +38,15 @@ export type PullRequestDto = {
   headRef: string | null;
 };
 
+export type PullRequestPageDto = {
+  pullRequests: PullRequestDto[];
+  page: number;
+  pageSize: number;
+  totalPullRequests: number;
+  openPullRequests: number;
+  hasMore: boolean;
+};
+
 export type DiffFileDto = {
   filename: string;
   status: string;
@@ -73,6 +82,12 @@ export type RepoUserDto = {
   login: string;
   avatarUrl: string | null;
   bot: boolean;
+};
+
+export type RepoLabelDto = {
+  id: number;
+  name: string;
+  color: string;
 };
 
 export type MergeModeDto = { mergeQueue: boolean };
@@ -268,7 +283,25 @@ export type RepositoryIssueSnapshotDto = {
     createdAt: string;
     updatedAt: string;
   }>;
+  page: number;
+  pageSize: number;
+  totalIssues: number;
+  hasMore: boolean;
   syncedAt: string | null;
+};
+
+export type WorkspaceIssueTimelineEventDto = {
+  githubId: number | null;
+  event: string;
+  actor: string | null;
+  timestamp: string | null;
+  body: string | null;
+  payload: PullTimelinePayloadDto;
+};
+
+export type WorkspaceIssueTypeDto = {
+  current: string | null;
+  available: string[];
 };
 
 export type RepoMetaDto = {
@@ -523,10 +556,13 @@ export type GitWorktreeStatusDto = {
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
-  fetchPrs: (workspaceId?: string) => Promise<PullRequestDto[]>;
+  fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
   syncPrs: (workspaceId?: string) => Promise<void>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
+  fetchRepoLabels: (repo: string) => Promise<RepoLabelDto[]>;
+  updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[]) => Promise<void>;
+  updatePrReviewer: (repo: string, number: number, login: string, requested: boolean) => Promise<void>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
   refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (
@@ -570,8 +606,18 @@ export type Bridge = {
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
-  fetchWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   syncWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  fetchWorkspaceIssueTimeline: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueTimelineEventDto[]>;
+  commentWorkspaceIssue: (workspaceId: string, issueNumber: number, body: string) => Promise<WorkspaceIssueTimelineEventDto>;
+  fetchWorkspaceIssueType: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueTypeDto>;
+  updateWorkspaceIssueType: (workspaceId: string, issueNumber: number, type: string | null) => Promise<WorkspaceIssueTypeDto>;
+  updateWorkspaceIssueMetadata: (
+    workspaceId: string,
+    issueNumber: number,
+    assignees: string[],
+    labels: string[],
+  ) => Promise<WorkspaceIssueMetadataDto>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
@@ -649,4 +695,9 @@ export type Bridge = {
     tipSha: string,
     message: string,
   ) => Promise<{ sha: string }>;
+};
+
+export type WorkspaceIssueMetadataDto = {
+  assignees: string[];
+  labels: string[];
 };

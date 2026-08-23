@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued } from './PullOverview';
@@ -24,6 +24,7 @@ type DetailTab = 'overview' | 'changes';
 const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
+const PAGE_SIZE = 50;
 
 export default function PullsScreen({
   initialPr,
@@ -45,15 +46,24 @@ export default function PullsScreen({
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadingMoreRequest = useRef(false);
+  const loadMoreMarker = useRef<HTMLDivElement | null>(null);
 
   const loadList = useCallback(async () => {
     setError(null);
     try {
-      const rows = await window.bridge.fetchPrs(repositoryScope?.workspaceId);
-      setPrs(rows);
-      setSelected(current => current ?? rows[0]?.id ?? null);
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE);
+      setPrs(result.pullRequests);
+      setPage(result.page);
+      setHasMore(result.hasMore);
+      setSelected(current => result.pullRequests.some(pr => pr.id === current)
+        ? current
+        : result.pullRequests[0]?.id ?? null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -66,6 +76,38 @@ export default function PullsScreen({
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMoreRequest.current) return;
+    loadingMoreRequest.current = true;
+    setLoadingMore(true);
+    try {
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE);
+      setPrs(current => {
+        const loaded = new Set(current.map(pr => pr.id));
+        return [...current, ...result.pullRequests.filter(pr => !loaded.has(pr.id))];
+      });
+      setPage(result.page);
+      setHasMore(result.hasMore);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      loadingMoreRequest.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, page, repositoryScope?.workspaceId]);
+
+  useEffect(() => {
+    const marker = loadMoreMarker.current;
+    if (!marker || !hasMore) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) void loadMore();
+    }, { root: marker.parentElement, rootMargin: '240px' });
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
 
   useEffect(() => {
     if (!initialPr || loading) return;
@@ -272,6 +314,8 @@ export default function PullsScreen({
               onPick={() => pick(row)}
             />
           ))}
+          <div ref={loadMoreMarker} aria-hidden="true" />
+          {loadingMore && <div className="hp-loading">Loading more…</div>}
         </div>
       </section>
 
@@ -791,7 +835,7 @@ function DetailBody({
   /></div>;
 }
 
-function RefreshIcon() {
+export function RefreshIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -800,7 +844,7 @@ function RefreshIcon() {
   );
 }
 
-function PaneIcon() {
+export function PaneIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -809,7 +853,7 @@ function PaneIcon() {
   );
 }
 
-function CommentIcon() {
+export function CommentIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

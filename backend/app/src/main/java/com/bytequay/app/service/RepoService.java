@@ -30,6 +30,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RepoMetaStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -118,7 +119,9 @@ public class RepoService
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequest fresh = pullRequests.getPullRequest(pat, PullRequestRef.of(owner, repo, number));
-        return overlayViewState(fresh, viewStateStore.findAll().get(fresh.id()));
+        return overlayViewState(
+                fresh,
+                viewStateStore.findByPrIds(ImmutableSet.of(fresh.id())).get(fresh.id()));
     }
 
     public RepoMeta getRepoMeta(String owner, String repo)

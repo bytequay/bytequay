@@ -15,15 +15,18 @@ package com.bytequay.core.store;
 
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.RepositoryIssueSnapshot;
+import com.bytequay.core.domain.RepositoryIssuePage;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 public interface RepositoryIssueStore
 {
-    Optional<RepositoryIssueSnapshot> find(long repositoryId);
+    RepositoryIssuePage findPage(long repositoryId, RepoRef repository, int page, int pageSize);
 
-    void replace(long repositoryId, RepoRef repository, List<RepositoryIssue> issues, Instant syncedAt);
+    void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker);
+
+    void completeSync(long repositoryId, RepoRef repository, String syncMarker, Instant syncedAt);
+
+    void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt);
 }

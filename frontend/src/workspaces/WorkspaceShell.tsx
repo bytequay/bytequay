@@ -169,11 +169,10 @@ export function WorkspaceHome({ workspace, onSelectTab, onWorkspaceChanged }: {
     void window.bridge.listCherryPickExecutions(200)
       .then(executions => { if (!cancelled) setTasks(executions); })
       .catch(() => {});
-    void window.bridge.fetchPrs(workspace.id)
-      .then(prs => {
+    void window.bridge.fetchPrs(workspace.id, 0, 50)
+      .then(page => {
         if (cancelled) return;
-        setOpenPrs(prs.filter(pr =>
-          pr.state?.toLowerCase() !== 'closed').length);
+        setOpenPrs(page.openPullRequests);
       })
       .catch(() => {});
     void window.bridge.getWorkspaceMetadata(workspace.id)

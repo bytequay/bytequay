@@ -16,7 +16,6 @@ import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } fro
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
-import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
@@ -25,15 +24,6 @@ import {
   workspaceIsUpdating,
   type Workspace,
 } from '../workspaces/model';
-
-// The GitHub-sourced flows (profile, recent/following events, orgs) used
-// to be cached client-side via getCached/setCached for instant-paint on
-// tab return. The backend now persists those in SQLite via
-// GithubHomeCacheRefreshJob, so the frontend reads straight from the
-// already-cached backend on every mount and the localStorage layer is gone
-// for those keys. The remaining keys back DB-sourced flows that didn't
-// move — keeping their localStorage cache preserves the instant-paint UX.
-const KEY_PRS = 'prs:list';
 
 type Props = {
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
@@ -115,13 +105,11 @@ function HomePage({
     openUrl(url);
   };
 
-  const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
-
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
+  const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -170,10 +158,8 @@ function HomePage({
         .then(setFollowingEvents)
         .catch(() => {});
     }
-    // The PR list still lives in localStorage (DB-backed on the backend
-    // already, but reads aren't free; the cache makes tab return instant).
-    window.bridge.fetchPrs()
-      .then(v => { setPrs(v); setCached(KEY_PRS, v); })
+    window.bridge.fetchPrs(undefined, 0, 50)
+      .then(page => { setPrs(page.pullRequests); })
       .catch(() => {});
   }
 

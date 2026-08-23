@@ -21,7 +21,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** An open GitHub issue cached for a monitored repository. */
+/** An open GitHub issue stored for a monitored repository. */
 public record RepositoryIssue(
         long id,
         int number,

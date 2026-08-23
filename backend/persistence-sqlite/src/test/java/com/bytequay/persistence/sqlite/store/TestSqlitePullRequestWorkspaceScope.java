@@ -61,24 +61,48 @@ class TestSqlitePullRequestWorkspaceScope
         PullRequest workspaceOnly = pullRequest(3, "owner/project", 3);
         PullRequest otherWorkspace = pullRequest(4, "other/project", 4);
 
-        store.replaceAll(ImmutableList.of(global, shared));
-        store.replaceRepository("owner/project", ImmutableList.of(shared, workspaceOnly));
-        store.replaceRepository("other/project", ImmutableList.of(otherWorkspace));
+        store.saveDashboardSyncPage(ImmutableList.of(global, shared), "global-1");
+        store.completeDashboardSync("global-1");
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(shared, workspaceOnly), "workspace-1");
+        store.completeRepositorySync("owner/project", "workspace-1");
+        store.saveRepositorySyncPage("other/project", ImmutableList.of(otherWorkspace), "workspace-2");
+        store.completeRepositorySync("other/project", "workspace-2");
 
-        assertThat(store.findAll()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L);
-        assertThat(store.findByRepository("OWNER/PROJECT"))
+        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(store.findRepositoryPage("OWNER/PROJECT", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
-        assertThat(store.findByRepository("owner/project"))
+        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .doesNotContain(4L);
 
-        store.replaceAll(ImmutableList.of(global));
+        store.saveDashboardSyncPage(ImmutableList.of(global), "global-2");
+        store.completeDashboardSync("global-2");
 
-        assertThat(store.findAll()).extracting(PullRequest::id).containsExactly(1L);
-        assertThat(store.findByRepository("owner/project"))
+        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactly(1L);
+        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
+    }
+
+    @Test
+    void readsPullRequestsOneDatabasePageAtATime()
+    {
+        ImmutableList.Builder<PullRequest> pullRequests = ImmutableList.builder();
+        for (int index = 1; index <= 55; index++) {
+            pullRequests.add(pullRequest(index, "owner/project", index));
+        }
+        store.saveRepositorySyncPage("owner/project", pullRequests.build(), "workspace-page");
+        store.completeRepositorySync("owner/project", "workspace-page");
+
+        var first = store.findRepositoryPage("owner/project", 0, 50);
+        var second = store.findRepositoryPage("owner/project", 1, 50);
+
+        assertThat(first.pullRequests()).hasSize(50);
+        assertThat(first.totalPullRequests()).isEqualTo(55);
+        assertThat(first.hasMore()).isTrue();
+        assertThat(second.pullRequests()).hasSize(5);
+        assertThat(second.hasMore()).isFalse();
     }
 
     private static PullRequest pullRequest(long id, String repository, int number)

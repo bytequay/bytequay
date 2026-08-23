@@ -17,11 +17,16 @@ import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,160 +63,153 @@ public class SqlitePullRequestStore
     }
 
     @Override
-    public List<PullRequest> findAll()
+    public PullRequestPage findPage(int page, int pageSize)
     {
-        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
-        return jpaRepository.findAll().stream()
-                .filter(SqlitePullRequestStore::dashboardVisible)
-                .map(e -> toDomain(e, stateByPrId.get(e.getId())))
-                .collect(toImmutableList());
+        Page<PullRequestEntity> rows = jpaRepository.findDashboardPage(pageRequest(page, pageSize));
+        return toPage(rows, page, pageSize, jpaRepository.countOpenDashboard());
     }
 
     @Override
-    public List<PullRequest> findByRepository(String repository)
+    public PullRequestPage findRepositoryPage(String repository, int page, int pageSize)
     {
         requireNonNull(repository, "repository is null");
-        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
-        return jpaRepository.findAllByRepoIgnoreCase(repository).stream()
-                .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())))
-                .collect(toImmutableList());
+        Page<PullRequestEntity> rows = jpaRepository.findWorkspacePage(repository, pageRequest(page, pageSize));
+        return toPage(rows, page, pageSize, jpaRepository.countOpenWorkspace(repository));
+    }
+
+    @Override
+    public Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids)
+    {
+        requireNonNull(ids, "ids is null");
+        return jpaRepository.findAllById(ids).stream()
+                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+    }
+
+    @Override
+    public Set<Long> findIdsMissingEnrichment(Set<Long> ids)
+    {
+        requireNonNull(ids, "ids is null");
+        return jpaRepository.findAllById(ids).stream()
+                .filter(e -> {
+                    Map<String, String> verdicts = e.getReviewerVerdicts();
+                    return verdicts == null || verdicts.isEmpty() || e.getHeadRef() == null;
+                })
+                .map(PullRequestEntity::getId)
+                .collect(toImmutableSet());
     }
 
     @Override
     @Transactional
-    public void replaceAll(List<PullRequest> pullRequests)
+    public void saveDashboardSyncPage(List<PullRequest> pullRequests, String syncMarker)
     {
+        requireNonNull(pullRequests, "pullRequests is null");
+        requireNonNull(syncMarker, "syncMarker is null");
         Instant now = Instant.now();
-        Set<Long> protectedIds = handledPrIdsWithinRetention(now);
-
-        Set<Long> freshIds = pullRequests.stream()
-                .map(PullRequest::id)
-                .collect(toImmutableSet());
-
-        // Preserve detail-derived enrichment columns from the previous
-        // sync. The search-API responses fed in here don't include
-        // reviewer_verdicts / mergeable / etc., so toEntity below would
-        // overwrite a populated row with nulls between syncs. The detail-sync pass downstream
-        // only re-runs for PRs whose updatedAt changed (or whose
-        // enrichment is missing) — for unchanged PRs we want their
-        // last-known verdict map to survive this replace.
-        Map<Long, PullRequestEntity> existingById = jpaRepository.findAll().stream()
-                .collect(toImmutableMap(PullRequestEntity::getId, e -> e));
-
-        List<PullRequestEntity> entities = pullRequests.stream()
-                .map(pr -> {
-                    PullRequestEntity entity = toEntity(pr, now);
-                    PullRequestEntity prev = existingById.get(pr.id());
+        Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
+        jpaRepository.saveAll(pullRequests.stream()
+                .map(pullRequest -> {
+                    PullRequestEntity previous = existingById.get(pullRequest.id());
+                    PullRequestEntity entity = toEntity(pullRequest, now);
                     entity.setDashboardVisible(true);
-                    entity.setWorkspaceVisible(prev != null && workspaceVisible(prev));
-                    if (prev != null) {
-                        preserveEnrichment(entity, prev);
+                    entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
+                    entity.setDashboardSyncMarker(syncMarker);
+                    entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+                    if (previous != null) {
+                        if (syncMarker.equals(previous.getDashboardSyncMarker())
+                                && PullRequest.Origin.AUTHORED.name().equals(previous.getOrigin())) {
+                            entity.setOrigin(PullRequest.Origin.AUTHORED.name());
+                        }
+                        preserveEnrichment(entity, previous);
                     }
                     return entity;
                 })
-                .collect(toImmutableList());
-
-        jpaRepository.saveAll(entities);
-        existingById.values().stream()
-                .filter(SqlitePullRequestStore::dashboardVisible)
-                .filter(entity -> !freshIds.contains(entity.getId()))
-                .filter(entity -> !protectedIds.contains(entity.getId()))
-                .forEach(entity -> {
-                    if (workspaceVisible(entity)) {
-                        entity.setDashboardVisible(false);
-                        jpaRepository.save(entity);
-                    }
-                    else {
-                        jpaRepository.delete(entity);
-                    }
-                });
+                .collect(toImmutableList()));
     }
 
     @Override
     @Transactional
-    public void replaceRepository(String repository, List<PullRequest> pullRequests)
+    public Set<Long> completeDashboardSync(String syncMarker)
+    {
+        requireNonNull(syncMarker, "syncMarker is null");
+        jpaRepository.hideStaleDashboardRows(
+                syncMarker, Instant.now().minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS));
+        return deleteInvisibleRows();
+    }
+
+    @Override
+    @Transactional
+    public void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker)
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(pullRequests, "pullRequests is null");
+        requireNonNull(syncMarker, "syncMarker is null");
         Instant now = Instant.now();
-        Map<Long, PullRequestEntity> existingById = jpaRepository.findAllByRepoIgnoreCase(repository).stream()
-                .collect(toImmutableMap(PullRequestEntity::getId, entity -> entity));
-        Set<Long> freshIds = pullRequests.stream()
-                .map(PullRequest::id)
-                .collect(toImmutableSet());
-
-        List<PullRequestEntity> fresh = pullRequests.stream()
+        Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
+        jpaRepository.saveAll(pullRequests.stream()
                 .map(pullRequest -> {
-                    PullRequestEntity entity = toEntity(pullRequest, now);
                     PullRequestEntity previous = existingById.get(pullRequest.id());
-                    entity.setDashboardVisible(previous == null ? false : dashboardVisible(previous));
+                    PullRequestEntity entity = toEntity(pullRequest, now);
+                    entity.setDashboardVisible(previous != null && dashboardVisible(previous));
                     entity.setWorkspaceVisible(true);
+                    entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
+                    entity.setWorkspaceSyncMarker(syncMarker);
                     if (previous != null) {
                         preserveEnrichment(entity, previous);
                     }
                     return entity;
                 })
-                .collect(toImmutableList());
-        jpaRepository.saveAll(fresh);
-
-        existingById.values().stream()
-                .filter(entity -> !freshIds.contains(entity.getId()))
-                .filter(SqlitePullRequestStore::workspaceVisible)
-                .forEach(entity -> {
-                    if (dashboardVisible(entity)) {
-                        entity.setWorkspaceVisible(false);
-                        jpaRepository.save(entity);
-                    }
-                    else {
-                        jpaRepository.delete(entity);
-                    }
-                });
-    }
-
-    /**
-     * PRs the user has handled (reviewed, approved, merged, dismissed…) in the
-     * last {@value HANDLED_RETENTION_DAYS} days. These are preserved in the
-     * pr table even after they drop out of the GitHub search results, so the
-     * Handled view keeps showing them until the retention window elapses.
-     */
-    private Set<Long> handledPrIdsWithinRetention(Instant now)
-    {
-        Instant cutoff = now.minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS);
-        return viewStateStore.findAll().values().stream()
-                .filter(s -> s.reviewedAt() != null && s.reviewedAt().isAfter(cutoff))
-                .map(PrViewState::prId)
-                .collect(toImmutableSet());
+                .collect(toImmutableList()));
     }
 
     @Override
-    public Map<Long, Instant> findUpdatedAtMap()
+    @Transactional
+    public Set<Long> completeRepositorySync(String repository, String syncMarker)
     {
-        return jpaRepository.findAll().stream()
-                .filter(SqlitePullRequestStore::dashboardVisible)
-                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+        requireNonNull(repository, "repository is null");
+        requireNonNull(syncMarker, "syncMarker is null");
+        jpaRepository.hideStaleWorkspaceRows(repository, syncMarker);
+        return deleteInvisibleRows();
     }
 
-    @Override
-    public Set<Long> findIdsMissingEnrichment()
+    private PullRequestPage toPage(Page<PullRequestEntity> rows, int page, int pageSize, long openPullRequests)
     {
-        // Treat both null AND an empty map as "not yet synced". The empty
-        // map is what the previous sync stored when the PR genuinely had
-        // no reviews at the moment — but it's indistinguishable from
-        // "stale empty after a reviewer later requested changes", which
-        // is exactly the trino #29289 case. Re-syncing on every cycle
-        // is cheap relative to silently stale reviewer state.
-        // Null head_ref also forces a re-sync for older local rows.
-        return jpaRepository.findAll().stream()
-                .filter(SqlitePullRequestStore::dashboardVisible)
-                .filter(e -> {
-                    Map<String, String> verdicts = e.getReviewerVerdicts();
-                    if (verdicts == null || verdicts.isEmpty()) {
-                        return true;
-                    }
-                    return e.getHeadRef() == null;
-                })
+        Set<Long> ids = rows.stream()
                 .map(PullRequestEntity::getId)
                 .collect(toImmutableSet());
+        Map<Long, PrViewState> stateByPrId = viewStateStore.findByPrIds(ids);
+        return new PullRequestPage(
+                rows.stream()
+                        .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())))
+                        .collect(toImmutableList()),
+                page,
+                pageSize,
+                rows.getTotalElements(),
+                openPullRequests,
+                rows.hasNext());
+    }
+
+    private static PageRequest pageRequest(int page, int pageSize)
+    {
+        return PageRequest.of(page, pageSize, Sort.by(
+                Sort.Order.desc("updatedAt"),
+                Sort.Order.desc("id")));
+    }
+
+    private Map<Long, PullRequestEntity> existingById(List<PullRequest> pullRequests)
+    {
+        return jpaRepository.findAllById(pullRequests.stream()
+                        .map(PullRequest::id)
+                        .collect(toImmutableSet())).stream()
+                .collect(toImmutableMap(PullRequestEntity::getId, entity -> entity));
+    }
+
+    private Set<Long> deleteInvisibleRows()
+    {
+        Set<Long> removed = ImmutableSet.copyOf(jpaRepository.findInvisibleIds());
+        if (!removed.isEmpty()) {
+            jpaRepository.deleteInvisibleRows();
+        }
+        return removed;
     }
 
     @Override

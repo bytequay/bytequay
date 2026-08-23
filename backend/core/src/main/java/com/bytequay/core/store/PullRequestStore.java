@@ -16,6 +16,7 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestPage;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,17 +26,21 @@ import java.util.Set;
 
 public interface PullRequestStore
 {
-    List<PullRequest> findAll();
+    PullRequestPage findPage(int page, int pageSize);
 
-    List<PullRequest> findByRepository(String repository);
+    PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
 
-    void replaceAll(List<PullRequest> pullRequests);
+    Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids);
 
-    void replaceRepository(String repository, List<PullRequest> pullRequests);
+    Set<Long> findIdsMissingEnrichment(Set<Long> ids);
 
-    Map<Long, Instant> findUpdatedAtMap();
+    void saveDashboardSyncPage(List<PullRequest> pullRequests, String syncMarker);
 
-    Set<Long> findIdsMissingEnrichment();
+    Set<Long> completeDashboardSync(String syncMarker);
+
+    void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker);
+
+    Set<Long> completeRepositorySync(String repository, String syncMarker);
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
 

@@ -20,6 +20,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.core.ParameterizedTypeReference;
@@ -44,6 +45,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubRepoClient
 {
+    private static final String ISSUE_TYPES_API_VERSION = "2026-03-10";
+
     private final RestClient gitHubRestClient;
     private final GitHubPaginator paginator;
 
@@ -147,14 +150,17 @@ public class GitHubRepoClient
         }
     }
 
-    public List<RepositoryIssue> fetchOpenIssues(String pat, RepoRef repo)
+    public IssuePage fetchOpenIssuesPage(String pat, RepoRef repo, int page)
     {
-        return paginator.paginate(
-                        pat,
-                        "/repos/{owner}/{repo}/issues",
-                        new ParameterizedTypeReference<List<IssueResponse>>() {},
-                        repo.owner(),
-                        repo.repo()).stream()
+        checkArgument(page > 0, "page must be positive");
+        List<IssueResponse> response = paginator.fetchPage(
+                pat,
+                "/repos/{owner}/{repo}/issues",
+                new ParameterizedTypeReference<List<IssueResponse>>() {},
+                page,
+                repo.owner(),
+                repo.repo());
+        List<RepositoryIssue> issues = response.stream()
                 .filter(value -> value.pullRequest() == null)
                 .filter(value -> value.id() > 0 && value.number() > 0)
                 .filter(value -> value.title() != null && !value.title().isBlank())
@@ -179,6 +185,56 @@ public class GitHubRepoClient
                         value.createdAt(),
                         value.updatedAt()))
                 .collect(toImmutableList());
+        return new IssuePage(issues, response.size() == GitHubPaginator.PAGE_SIZE);
+    }
+
+    public String fetchIssueType(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        try {
+            IssueResponse issue = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                    .header("Authorization", authorization(pat))
+                    .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
+                    .retrieve()
+                    .body(IssueResponse.class);
+            if (issue == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty issue response from GitHub");
+            }
+            return issueTypeName(issue.type());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    public List<String> fetchIssueTypes(String pat, RepoRef repo)
+    {
+        try {
+            List<IssueTypeResponse> types = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/issue-types", repo.owner(), repo.repo())
+                    .header("Authorization", authorization(pat))
+                    .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            return Optional.ofNullable(types).orElse(ImmutableList.of()).stream()
+                    .map(IssueTypeResponse::name)
+                    .filter(Objects::nonNull)
+                    .filter(name -> !name.isBlank())
+                    .distinct()
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static String issueTypeName(JsonNode type)
+    {
+        if (type == null || type.isNull()) {
+            return null;
+        }
+        return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
     public RepoMeta fetchRepoMeta(String pat, RepoRef repo)
@@ -256,6 +312,14 @@ public class GitHubRepoClient
             @JsonProperty("avatar_url") String avatarUrl,
             String type) {}
 
+    public record IssuePage(List<RepositoryIssue> issues, boolean hasNext)
+    {
+        public IssuePage
+        {
+            issues = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
+        }
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record LabelResponse(long id, String name, String color) {}
 
@@ -272,7 +336,11 @@ public class GitHubRepoClient
             int comments,
             @JsonProperty("created_at") java.time.Instant createdAt,
             @JsonProperty("updated_at") java.time.Instant updatedAt,
-            @JsonProperty("pull_request") Map<String, Object> pullRequest) {}
+            @JsonProperty("pull_request") Map<String, Object> pullRequest,
+            JsonNode type) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record IssueTypeResponse(String name) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueUser(

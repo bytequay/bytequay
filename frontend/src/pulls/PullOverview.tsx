@@ -17,6 +17,7 @@ import type {
   PullReactionDto,
   PullRequestDetailDto,
   PullRequestDto,
+  RepoLabelDto,
   PullTimelineCommentDto,
   RepoUserDto,
 } from '../types';
@@ -61,7 +62,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
           <h2>{title} <span>#{detail.number}</span></h2>
-          <PullRequestCopyButton value={detail.htmlUrl ?? pr.htmlUrl} />
+          <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />
         </div>
         <div className="pr-overview__branches">
           <span className={`pr-state is-${displayState.toLowerCase()}`}>
@@ -80,7 +81,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       </section>
 
       <div className="pr-overview__rule" />
-      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} />
+      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onRefresh={onRefresh} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
           Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
@@ -95,22 +96,33 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
         ))}
         <ChecksCard detail={detail} />
       </section>
-      <CommentComposer pr={pr} detail={detail} onRefresh={onRefresh} />
+      <DiscussionComposer
+        candidates={mentionCandidates(detail)}
+        onSubmit={async body => {
+          await window.bridge.commentPr(pr.repo, pr.number, body);
+          await onRefresh();
+        }}
+      />
     </div>
   );
 }
 
 type PeoplePickerKind = 'reviewers' | 'assignees';
-type PeoplePickerCandidate = RepoUserDto & { selected: boolean };
+type MetadataPickerKind = PeoplePickerKind | 'labels';
+type PeoplePickerCandidate = RepoUserDto & { selected: boolean; locked: boolean };
 
-function Metadata({ detail, contributorsWorkspaceId }: {
+function Metadata({ detail, contributorsWorkspaceId, onRefresh }: {
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
+  onRefresh: () => Promise<void>;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState<PeoplePickerKind | null>(null);
+  const [open, setOpen] = useState<MetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
+  const [repoLabels, setRepoLabels] = useState<RepoLabelDto[]>([]);
   const [loading, setLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -131,18 +143,39 @@ function Metadata({ detail, contributorsWorkspaceId }: {
 
   useEffect(() => {
     setRepoUsers([]);
+    setRepoLabels([]);
     setOpen(null);
+    setError(null);
   }, [detail.repo]);
 
-  const toggle = (kind: PeoplePickerKind) => {
+  const toggle = (kind: MetadataPickerKind) => {
     setQuery('');
+    setError(null);
     setOpen(current => current === kind ? null : kind);
-    if (repoUsers.length > 0 || loading) return;
+    if (loading || (kind === 'labels' ? repoLabels.length > 0 : repoUsers.length > 0)) return;
     setLoading(true);
-    void window.bridge.fetchRepoUsers(detail.repo, contributorsWorkspaceId)
-      .then(setRepoUsers)
-      .catch(() => setRepoUsers([]))
+    const request = kind === 'labels'
+      ? window.bridge.fetchRepoLabels(detail.repo).then(setRepoLabels)
+      : window.bridge.fetchRepoUsers(detail.repo, contributorsWorkspaceId).then(setRepoUsers);
+    void request
+      .catch(failure => setError(remoteErrorMessage(failure)))
       .finally(() => setLoading(false));
+  };
+
+  const update = async (action: () => Promise<void>) => {
+    setUpdating(true);
+    setError(null);
+    try {
+      await action();
+      await onRefresh();
+      setOpen(null);
+    }
+    catch (failure) {
+      setError(remoteErrorMessage(failure));
+    }
+    finally {
+      setUpdating(false);
+    }
   };
 
   return (
@@ -163,7 +196,10 @@ function Metadata({ detail, contributorsWorkspaceId }: {
               : `${detail.reviewers.length} people`}
         </button>
         {open === 'reviewers' && <PeoplePicker detail={detail} kind="reviewers" loading={loading}
-          query={query} repoUsers={repoUsers} setQuery={setQuery} />}
+          query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
+          onToggle={candidate => { if (!candidate.locked) void update(() => window.bridge.updatePrReviewer(
+            detail.repo, detail.number, candidate.login, !candidate.selected,
+          )); }} />}
       </div>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
@@ -171,51 +207,167 @@ function Metadata({ detail, contributorsWorkspaceId }: {
           <PersonIcon /> <small>Assignees</small>{detail.assignees.length > 0 ? ` ${detail.assignees.length}` : ''}
         </button>
         {open === 'assignees' && <PeoplePicker detail={detail} kind="assignees" loading={loading}
-          query={query} repoUsers={repoUsers} setQuery={setQuery} />}
+          query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
+          onToggle={candidate => { void update(() => window.bridge.updatePrMetadata(
+            detail.repo,
+            detail.number,
+            toggleSelection(detail.assignees, candidate.login),
+            detail.labels.map(label => label.name),
+          )); }} />}
       </div>
-      <span>
-        <span className="pr-meta__label-dots" aria-hidden="true">
-          {(detail.labels.length > 1 ? detail.labels.slice(0, 2) : [detail.labels[0]]).filter(Boolean).map((label, index) => (
-            <i className="pr-meta__label-dot" style={{ background: labelPalette(label?.name ?? '', label?.color).color }} key={`${label?.name ?? 'label'}-${index}`} />
-          ))}
-        </span>
-        {detail.labels.length === 1 ? detail.labels[0].name : `${detail.labels.length} labels`}
-      </span>
+      <div className="pr-meta__picker">
+        <button type="button" className={`pr-meta__chip${open === 'labels' ? ' is-open' : ''}`}
+          aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => toggle('labels')}>
+          <span className="pr-meta__label-dots" aria-hidden="true">
+            {(detail.labels.length > 1 ? detail.labels.slice(0, 2) : [detail.labels[0]]).filter(Boolean).map((label, index) => (
+              <i className="pr-meta__label-dot" style={{ background: labelPalette(label?.name ?? '', label?.color).color }} key={`${label?.name ?? 'label'}-${index}`} />
+            ))}
+          </span>
+          {detail.labels.length === 0 ? 'No labels' : detail.labels.length === 1 ? detail.labels[0].name : `${detail.labels.length} labels`}
+        </button>
+        {open === 'labels' && <LabelPicker labels={repoLabels} selected={detail.labels.map(label => label.name)}
+          loading={loading} query={query} setQuery={setQuery} updating={updating}
+          onToggle={label => { void update(() => window.bridge.updatePrMetadata(
+            detail.repo,
+            detail.number,
+            detail.assignees,
+            toggleSelection(detail.labels.map(value => value.name), label.name),
+          )); }} />}
+      </div>
       {detail.milestone && <span><small>Milestone</small> {detail.milestone}</span>}
+      {error && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
     </div>
   );
 }
 
-function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery }: {
+function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updating, onToggle }: {
   detail: PullRequestDetailDto;
   kind: PeoplePickerKind;
   loading: boolean;
   query: string;
   repoUsers: RepoUserDto[];
   setQuery: (value: string) => void;
+  updating: boolean;
+  onToggle: (candidate: PeoplePickerCandidate) => void;
 }) {
   const normalized = query.trim().toLowerCase();
   const candidates = peoplePickerCandidates(detail, repoUsers, kind)
     .filter(candidate => candidate.login.toLowerCase().includes(normalized));
+  return <MetadataPicker ariaLabel={kind} placeholder="Search users..." query={query} setQuery={setQuery}
+    loading={loading} updating={updating} emptyText="No users found" loadingText="Loading repository users…"
+    options={candidates.map(candidate => ({
+      key: candidate.login,
+      label: displayActor(candidate.login),
+      login: candidate.login,
+      avatarUrl: candidate.avatarUrl,
+      bot: candidate.bot,
+      selected: candidate.selected,
+      disabled: candidate.locked,
+      disabledReason: candidate.locked ? 'Completed reviews cannot be removed' : undefined,
+    }))}
+    onToggle={option => {
+      const candidate = candidates.find(value => value.login === option.key);
+      if (candidate) onToggle(candidate);
+    }} />;
+}
+
+function LabelPicker({ labels, selected, loading, query, setQuery, updating, onToggle }: {
+  labels: RepoLabelDto[];
+  selected: string[];
+  loading: boolean;
+  query: string;
+  setQuery: (value: string) => void;
+  updating: boolean;
+  onToggle: (label: RepoLabelDto) => void;
+}) {
+  const selectedNames = new Set(selected.map(label => label.toLowerCase()));
+  const candidates = labels.filter(label => label.name.toLowerCase().includes(query.trim().toLowerCase()));
+  return <MetadataPicker ariaLabel="labels" placeholder="Search labels..." query={query} setQuery={setQuery}
+    loading={loading} updating={updating} emptyText="No labels found" loadingText="Loading repository labels…"
+    options={candidates.map(label => ({
+      key: label.name,
+      label: label.name,
+      color: labelPalette(label.name, label.color).color,
+      selected: selectedNames.has(label.name.toLowerCase()),
+    }))}
+    onToggle={option => {
+      const label = candidates.find(value => value.name === option.key);
+      if (label) onToggle(label);
+    }} />;
+}
+
+export type MetadataPickerOption = {
+  key: string;
+  label: string;
+  login?: string;
+  avatarUrl?: string | null;
+  color?: string;
+  bot?: boolean;
+  selected: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+export function MetadataPicker({
+  ariaLabel,
+  placeholder,
+  query,
+  setQuery,
+  options,
+  loading,
+  updating,
+  loadingText,
+  emptyText,
+  note,
+  onToggle,
+}: {
+  ariaLabel: string;
+  placeholder: string;
+  query: string;
+  setQuery: (value: string) => void;
+  options: MetadataPickerOption[];
+  loading: boolean;
+  updating: boolean;
+  loadingText: string;
+  emptyText: string;
+  note?: string;
+  onToggle: (option: MetadataPickerOption) => void;
+}) {
   return (
     <div className="pr-people-picker">
-      <input autoFocus aria-label={`Search ${kind}`} placeholder="Search users..." value={query}
+      <input autoFocus aria-label={`Search ${ariaLabel}`} placeholder={placeholder} value={query}
         onChange={event => setQuery(event.target.value)} />
-      <div className="pr-people-picker__list" role="listbox" aria-label={kind}>
-        {candidates.map(candidate => (
-          <div className="pr-people-picker__row" tabIndex={0}
-            aria-selected={candidate.selected} role="option" key={candidate.login}>
-            <span className="pr-people-picker__check">{candidate.selected && <CheckIcon size={16} />}</span>
-            <Avatar login={candidate.login} avatarUrl={candidate.avatarUrl} size={20} />
-            <span>{displayActor(candidate.login)}</span>
-            {candidate.bot && <span className="pr-bot">Bot</span>}
-          </div>
+      {note && <div className="pr-people-picker__note">{note}</div>}
+      <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel}>
+        {options.map(option => (
+          <button className={`pr-people-picker__row${option.color ? ' is-label' : ''}`} type="button"
+            disabled={updating || option.disabled} aria-selected={option.selected} role="option" key={option.key}
+            title={option.disabledReason} onClick={() => onToggle(option)}>
+            <span className="pr-people-picker__check">{option.selected && <CheckIcon size={16} />}</span>
+            {option.login
+              ? <Avatar login={option.login} avatarUrl={option.avatarUrl} size={20} />
+              : <i className="pr-meta__label-dot" style={{ background: option.color }} />}
+            <span>{option.label}</span>
+            {option.bot && <span className="pr-bot">Bot</span>}
+          </button>
         ))}
-        {loading && repoUsers.length === 0 && <div className="pr-people-picker__empty">Loading repository users…</div>}
-        {!loading && candidates.length === 0 && <div className="pr-people-picker__empty">No users found</div>}
+        {loading && options.length === 0 && <div className="pr-people-picker__empty">{loadingText}</div>}
+        {!loading && options.length === 0 && <div className="pr-people-picker__empty">{emptyText}</div>}
       </div>
     </div>
   );
+}
+
+export function toggleSelection(values: string[], value: string) {
+  const selected = values.some(candidate => candidate.toLowerCase() === value.toLowerCase());
+  return selected
+    ? values.filter(candidate => candidate.toLowerCase() !== value.toLowerCase())
+    : [...values, value];
+}
+
+export function remoteErrorMessage(failure: unknown) {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  return message.replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
 export function peoplePickerCandidates(
@@ -226,8 +378,16 @@ export function peoplePickerCandidates(
   const participantAvatars = new Map<string, string | null>(mentionCandidates(detail)
     .map(candidate => [candidate.login.toLowerCase(), candidate.avatarUrl] as const));
   const selected = kind === 'reviewers'
-    ? detail.reviewers.map(reviewer => ({ login: reviewer.login, avatarUrl: reviewer.avatarUrl }))
-    : detail.assignees.map(login => ({ login, avatarUrl: participantAvatars.get(login.toLowerCase()) ?? null }));
+    ? detail.reviewers.map(reviewer => ({
+      login: reviewer.login,
+      avatarUrl: reviewer.avatarUrl,
+      locked: reviewer.state.toUpperCase() !== 'PENDING',
+    }))
+    : detail.assignees.map(login => ({
+      login,
+      avatarUrl: participantAvatars.get(login.toLowerCase()) ?? null,
+      locked: false,
+    }));
   const selectedLogins = new Set(selected.map(user => user.login.toLowerCase()));
   const result: PeoplePickerCandidate[] = selected.map(user => {
     const repositoryUser = repoUsers.find(candidate => candidate.login.toLowerCase() === user.login.toLowerCase());
@@ -236,11 +396,12 @@ export function peoplePickerCandidates(
       avatarUrl: user.avatarUrl ?? repositoryUser?.avatarUrl ?? null,
       bot: repositoryUser?.bot ?? user.login.endsWith('[bot]'),
       selected: true,
+      locked: user.locked,
     };
   });
   for (const user of repoUsers) {
     if (selectedLogins.has(user.login.toLowerCase())) continue;
-    result.push({ ...user, selected: false });
+    result.push({ ...user, selected: false, locked: false });
   }
   return result;
 }
@@ -589,12 +750,13 @@ function eventText(activity: Activity) {
   }
 }
 
-function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge }: {
+export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, menu = true }: {
   actor: string;
   avatarUrl?: string | null;
   bot?: boolean;
   timestamp: string | null;
   badge?: { text: string; className: string } | null;
+  menu?: boolean;
 }) {
   return (
     <header className="pr-card__header">
@@ -603,7 +765,7 @@ function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge }: {
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
-      <div className="pr-card__menu"><ReactionPicker /><span aria-hidden="true"><KebabIcon /></span></div>
+      {menu && <div className="pr-card__menu"><ReactionPicker /><span aria-hidden="true"><KebabIcon /></span></div>}
     </header>
   );
 }
@@ -641,13 +803,12 @@ function ChecksCard({ detail }: { detail: PullRequestDetailDto }) {
   );
 }
 
-type MentionCandidate = { login: string; avatarUrl: string | null };
+export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
 
-function CommentComposer({ pr, detail, onRefresh }: {
-  pr: PullRequestDto;
-  detail: PullRequestDetailDto;
-  onRefresh: () => Promise<void>;
+export function DiscussionComposer({ candidates, onSubmit }: {
+  candidates: MentionCandidate[];
+  onSubmit: (body: string) => Promise<void>;
 }) {
   const [body, setBody] = useState('');
   const [preview, setPreview] = useState(false);
@@ -655,7 +816,6 @@ function CommentComposer({ pr, detail, onRefresh }: {
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const candidates = useMemo(() => mentionCandidates(detail), [detail]);
   const visibleCandidates = mention
     ? candidates.filter(candidate => candidate.login.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 8)
     : [];
@@ -673,9 +833,8 @@ function CommentComposer({ pr, detail, onRefresh }: {
     if (!body.trim()) return;
     setPosting(true);
     try {
-      await window.bridge.commentPr(pr.repo, pr.number, body.trim());
+      await onSubmit(body.trim());
       setBody('');
-      await onRefresh();
     }
     finally { setPosting(false); }
   };
@@ -891,7 +1050,7 @@ function CopyIcon() {
   return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3" /></svg>;
 }
 
-function PullRequestCopyButton({ value }: { value: string }) {
+export function CopyLinkButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<number | null>(null);
 
@@ -908,8 +1067,8 @@ function PullRequestCopyButton({ value }: { value: string }) {
 
   return (
     <button type="button" className={`pr-copy-button${copied ? ' is-copied' : ''}`}
-      aria-label={copied ? 'Pull request link copied' : 'Copy pull request link'}
-      title={copied ? undefined : 'Copy pull request link'} onClick={() => { void copy(); }}>
+      aria-label={copied ? `${label} copied` : `Copy ${label}`}
+      title={copied ? undefined : `Copy ${label}`} onClick={() => { void copy(); }}>
       {copied ? <CheckIcon size={16} /> : <CopyIcon />}
       {copied && <span className="pr-copy-button__message" role="status">Copied</span>}
     </button>

@@ -17,10 +17,15 @@ import type { Bridge, InAppNavState } from './types';
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
-  fetchPrs: workspaceId => ipcRenderer.invoke('prs:list', workspaceId),
+  fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),
   syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
   fetchPullRequestDetail: (repo, number) => ipcRenderer.invoke('prs:detail', repo, number),
   fetchRepoUsers: (repo, workspaceId) => ipcRenderer.invoke('prs:users', repo, workspaceId),
+  fetchRepoLabels: repo => ipcRenderer.invoke('prs:labels', repo),
+  updatePrMetadata: (repo, number, assignees, labels) =>
+    ipcRenderer.invoke('prs:metadata:update', repo, number, assignees, labels),
+  updatePrReviewer: (repo, number, login, requested) =>
+    ipcRenderer.invoke('prs:reviewer:update', repo, number, login, requested),
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
   refreshPullRequestDetail: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh', repo, number),
@@ -50,8 +55,18 @@ const bridge: Bridge = {
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   getWorkspace: workspaceId => ipcRenderer.invoke('workspaces:get', workspaceId),
   getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
-  fetchWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues', workspaceId),
+  fetchWorkspaceIssues: (workspaceId, page, pageSize) => ipcRenderer.invoke('workspaces:issues', workspaceId, page, pageSize),
   syncWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:sync', workspaceId),
+  fetchWorkspaceIssueTimeline: (workspaceId, issueNumber) =>
+    ipcRenderer.invoke('workspaces:issues:timeline', workspaceId, issueNumber),
+  commentWorkspaceIssue: (workspaceId, issueNumber, body) =>
+    ipcRenderer.invoke('workspaces:issues:comment', workspaceId, issueNumber, body),
+  fetchWorkspaceIssueType: (workspaceId, issueNumber) =>
+    ipcRenderer.invoke('workspaces:issues:type', workspaceId, issueNumber),
+  updateWorkspaceIssueType: (workspaceId, issueNumber, type) =>
+    ipcRenderer.invoke('workspaces:issues:type:update', workspaceId, issueNumber, type),
+  updateWorkspaceIssueMetadata: (workspaceId, issueNumber, assignees, labels) =>
+    ipcRenderer.invoke('workspaces:issues:metadata:update', workspaceId, issueNumber, assignees, labels),
   syncWorkspace: workspaceId => ipcRenderer.invoke('workspaces:sync', workspaceId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),

@@ -22,23 +22,38 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Latest locally persisted issue list for one monitored repository ID. */
-public record RepositoryIssueSnapshot(
+/** One database-backed page of open issues for a monitored repository. */
+public record RepositoryIssuePage(
         long repositoryId,
         RepoRef repository,
         List<RepositoryIssue> issues,
+        int page,
+        int pageSize,
+        long totalIssues,
+        boolean hasMore,
         Optional<Instant> syncedAt)
 {
-    public RepositoryIssueSnapshot
+    public RepositoryIssuePage
     {
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         requireNonNull(repository, "repository is null");
         issues = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
+        checkArgument(page >= 0, "page is negative");
+        checkArgument(pageSize > 0, "pageSize must be positive");
+        checkArgument(totalIssues >= 0, "totalIssues is negative");
         requireNonNull(syncedAt, "syncedAt is null");
     }
 
-    public static RepositoryIssueSnapshot empty(long repositoryId, RepoRef repository)
+    public static RepositoryIssuePage empty(long repositoryId, RepoRef repository, int page, int pageSize)
     {
-        return new RepositoryIssueSnapshot(repositoryId, repository, ImmutableList.of(), Optional.empty());
+        return new RepositoryIssuePage(
+                repositoryId,
+                repository,
+                ImmutableList.of(),
+                page,
+                pageSize,
+                0,
+                false,
+                Optional.empty());
     }
 }

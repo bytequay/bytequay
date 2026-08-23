@@ -74,6 +74,13 @@ public class PullRequestSyncJob
         executor.execute(this::doSync);
     }
 
+    /** Queues one workspace repository refresh and returns immediately. */
+    public void requestRepositorySync(RepoRef repository)
+    {
+        requireNonNull(repository, "repository is null");
+        executor.execute(() -> synchronizeRepository(repository));
+    }
+
     /** Synchronizes one monitored repository under the same overlap guard as the periodic job. */
     public void synchronizeRepository(RepoRef repository)
     {

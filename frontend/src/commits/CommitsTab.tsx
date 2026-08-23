@@ -79,8 +79,8 @@ export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRe
 
   useEffect(() => {
     let cancelled = false;
-    window.bridge.fetchPrs(workspace.id)
-      .then(value => { if (!cancelled) setPullRequests(value); })
+    window.bridge.fetchPrs(workspace.id, 0, 50)
+      .then(value => { if (!cancelled) setPullRequests(value.pullRequests); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [workspace.id]);

@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.RepositoryIssueSnapshot;
+import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.domain.Workspace.MetadataState;
@@ -32,15 +36,17 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDefaultWorkspaceIssueService
@@ -50,10 +56,11 @@ class TestDefaultWorkspaceIssueService
     private static final RepoRef UPSTREAM = RepoRef.of("upstream", "project");
 
     private final Map<String, Workspace> workspaces = new HashMap<>();
-    private final Map<Long, RepositoryIssueSnapshot> snapshots = new HashMap<>();
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final RepositoryIssueStore issueStore = mock(RepositoryIssueStore.class);
     private final GitHubRepoClient gitHub = mock(GitHubRepoClient.class);
+    private final GitHubPullRequestReadClient issueReads = mock(GitHubPullRequestReadClient.class);
+    private final GitHubPullRequestWriteClient issueWrites = mock(GitHubPullRequestWriteClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private DefaultWorkspaceIssueService service;
 
@@ -63,25 +70,12 @@ class TestDefaultWorkspaceIssueService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        when(issueStore.find(org.mockito.ArgumentMatchers.anyLong()))
-                .thenAnswer(invocation -> Optional.ofNullable(snapshots.get(invocation.getArgument(0))));
-        doAnswer(invocation -> {
-            long repositoryId = invocation.getArgument(0);
-            RepoRef repository = invocation.getArgument(1);
-            List<RepositoryIssue> issues = invocation.getArgument(2);
-            Instant syncedAt = invocation.getArgument(3);
-            snapshots.put(repositoryId, new RepositoryIssueSnapshot(
-                    repositoryId, repository, issues, Optional.of(syncedAt)));
-            return null;
-        }).when(issueStore).replace(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.any());
         service = new DefaultWorkspaceIssueService(
                 workspaceStore,
                 issueStore,
                 gitHub,
+                issueReads,
+                issueWrites,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -89,30 +83,160 @@ class TestDefaultWorkspaceIssueService
     @Test
     void directAndForkSyncUseTheirMonitoredRepository()
     {
-        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
-        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
-        when(gitHub.fetchOpenIssues("token", DIRECT)).thenReturn(ImmutableList.of(issue(1)));
-        when(gitHub.fetchOpenIssues("token", UPSTREAM)).thenReturn(ImmutableList.of(issue(2)));
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        Workspace fork = workspace("fork", 300, UPSTREAM, Topology.FORK);
+        workspaces.put("direct", direct);
+        workspaces.put("fork", fork);
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1))
+                .thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(1)), false));
+        when(gitHub.fetchOpenIssuesPage("token", UPSTREAM, 1))
+                .thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(2)), false));
 
-        assertThat(service.synchronize("direct").issues()).extracting(RepositoryIssue::id).containsExactly(1L);
-        assertThat(service.synchronize("fork").issues()).extracting(RepositoryIssue::id).containsExactly(2L);
-        verify(gitHub).fetchOpenIssues("token", DIRECT);
-        verify(gitHub).fetchOpenIssues("token", UPSTREAM);
+        service.synchronize("direct");
+        service.synchronize("fork");
+        verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 1);
+        verify(gitHub).fetchOpenIssuesPage("token", UPSTREAM, 1);
+        verify(issueStore).saveSyncPage(
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))),
+                anyString());
+        verify(issueStore).saveSyncPage(
+                org.mockito.ArgumentMatchers.eq(300L),
+                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))),
+                anyString());
     }
 
     @Test
-    void providerFailureKeepsPreviousSnapshotReadable()
+    void writesEachGitHubPageBeforeRequestingTheNextOne()
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
-        RepositoryIssueSnapshot previous = new RepositoryIssueSnapshot(
-                100, DIRECT, ImmutableList.of(issue(1)), Optional.of(NOW.minusSeconds(60)));
-        snapshots.put(100L, previous);
-        when(gitHub.fetchOpenIssues("token", DIRECT)).thenThrow(new IllegalStateException("provider down"));
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1))
+                .thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(1)), true));
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 2))
+                .thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(2)), false));
+
+        service.synchronize("direct");
+
+        var order = inOrder(gitHub, issueStore);
+        order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 1);
+        order.verify(issueStore).saveSyncPage(
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))),
+                anyString());
+        order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 2);
+        order.verify(issueStore).saveSyncPage(
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))),
+                anyString());
+        order.verify(issueStore).completeSync(
+                org.mockito.ArgumentMatchers.eq(100L),
+                org.mockito.ArgumentMatchers.eq(DIRECT),
+                anyString(),
+                org.mockito.ArgumentMatchers.eq(NOW));
+    }
+
+    @Test
+    void readsOnlyTheRequestedDatabasePage()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        RepositoryIssuePage expected = new RepositoryIssuePage(
+                100, DIRECT, ImmutableList.of(issue(1)), 2, 50, 101, false, Optional.of(NOW));
+        workspaces.put("direct", direct);
+        when(issueStore.findPage(100, DIRECT, 2, 50)).thenReturn(expected);
+
+        assertThat(service.list("direct", 2, 50)).isSameAs(expected);
+        verify(issueStore).findPage(100, DIRECT, 2, 50);
+    }
+
+    @Test
+    void providerFailureDoesNotFinalizeOrHideThePreviousDatabasePage()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        RepositoryIssuePage previous = new RepositoryIssuePage(
+                100, DIRECT, ImmutableList.of(issue(1)), 0, 50, 1, false,
+                Optional.of(NOW.minusSeconds(60)));
+        workspaces.put("direct", direct);
+        when(issueStore.findPage(100, DIRECT, 0, 50)).thenReturn(previous);
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1))
+                .thenThrow(new IllegalStateException("provider down"));
 
         assertThatThrownBy(() -> service.synchronize("direct"))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
-        assertThat(service.list("direct")).isEqualTo(previous);
+        assertThat(service.list("direct", 0, 50)).isSameAs(previous);
+        verify(issueStore, never()).completeSync(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                anyString(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void combinesIssueEventsAndCommentsWithoutTimelineCommentDuplicates()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        PullRequestRef ref = PullRequestRef.of("owner", "project", 7);
+        PrTimelineEvent assigned = event(1, "assigned", NOW.minusSeconds(20));
+        PrTimelineEvent duplicateComment = event(2, "commented", NOW.minusSeconds(10));
+        PrTimelineEvent comment = event(2, "commented", NOW.minusSeconds(10));
+        when(issueReads.fetchPrTimeline("token", ref, null)).thenReturn(ImmutableList.of(assigned, duplicateComment));
+        when(issueReads.fetchPrIssueComments("token", ref, null)).thenReturn(ImmutableList.of(comment));
+
+        assertThat(service.timeline("direct", 7)).containsExactly(assigned, comment);
+    }
+
+    @Test
+    void postsIssueCommentToTheMonitoredRepository()
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        PullRequestRef ref = PullRequestRef.of("upstream", "project", 9);
+        PrTimelineEvent created = event(3, "commented", NOW);
+        when(issueWrites.createIssueComment("token", ref, "Looks good")).thenReturn(created);
+
+        assertThat(service.comment("fork", 9, "  Looks good  ")).isEqualTo(created);
+        verify(issueWrites).createIssueComment("token", ref, "Looks good");
+        verifyNoMoreInteractions(issueWrites);
+    }
+
+    @Test
+    void loadsAndUpdatesIssueTypeOnTheMonitoredRepository()
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        PullRequestRef ref = PullRequestRef.of("upstream", "project", 9);
+        when(gitHub.fetchIssueType("token", UPSTREAM, 9)).thenReturn("Task");
+        when(gitHub.fetchIssueTypes("token", UPSTREAM)).thenReturn(ImmutableList.of("Task", "Bug"));
+        when(issueWrites.updateIssueType("token", ref, "Bug")).thenReturn("Bug");
+
+        assertThat(service.issueType("fork", 9))
+                .isEqualTo(new WorkspaceIssueService.IssueTypeOptions("Task", ImmutableList.of("Task", "Bug")));
+        assertThat(service.updateIssueType("fork", 9, " Bug "))
+                .isEqualTo(new WorkspaceIssueService.IssueTypeOptions("Bug", ImmutableList.of("Task", "Bug")));
+        verify(issueWrites).updateIssueType("token", ref, "Bug");
+    }
+
+    @Test
+    void updatesIssueAssigneesAndLabelsAndRefreshesTheDatabaseProjection()
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        PullRequestRef ref = PullRequestRef.of("upstream", "project", 9);
+        GitHubPullRequestWriteClient.IssueMetadata updated =
+                new GitHubPullRequestWriteClient.IssueMetadata(
+                        ImmutableList.of("alice"), ImmutableList.of("bug"), NOW);
+        when(issueWrites.updateIssueMetadata(
+                "token", ref, ImmutableList.of("alice"), ImmutableList.of("bug")))
+                .thenReturn(updated);
+
+        assertThat(service.updateMetadata(
+                "fork", 9, ImmutableList.of(" alice "), ImmutableList.of("bug")))
+                .isEqualTo(new WorkspaceIssueService.IssueMetadata(
+                        ImmutableList.of("alice"), ImmutableList.of("bug")));
+        verify(issueStore).updateMetadata(
+                300, 9, ImmutableList.of("alice"), ImmutableList.of("bug"), NOW);
+    }
+
+    private static PrTimelineEvent event(long id, String type, Instant timestamp)
+    {
+        return new PrTimelineEvent(id, type, "alice", timestamp, null, Optional.empty());
     }
 
     private static RepositoryIssue issue(long id)

@@ -395,22 +395,51 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('prs:list', (_event, workspaceId?: string) => backendJson(workspaceId
-    ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
-    : `${BACKEND_BASE}/prs`));
+  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {
+    const url = new URL(workspaceId
+      ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
+      : '/prs', BACKEND_BASE);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('size', String(pageSize));
+    return backendJson(url);
+  });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
     ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
     : `${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
   ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
-  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {
-    if (workspaceId) {
-      return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/contributors`);
-    }
+  ipcMain.handle('prs:users', (_event, repo: string) => {
     const url = new URL('/prs/users', BACKEND_BASE);
     url.searchParams.set('repo', repo);
     return backendJson(url);
   });
+  ipcMain.handle('prs:labels', (_event, repo: string) => {
+    const url = new URL('/prs/labels', BACKEND_BASE);
+    url.searchParams.set('repo', repo);
+    return backendJson(url);
+  });
+  ipcMain.handle('prs:metadata:update', (
+    _event,
+    repo: string,
+    number: number,
+    assignees: string[],
+    labels: string[],
+  ) => backendVoid(prUrl('/prs/metadata', repo, number), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignees, labels }),
+  }));
+  ipcMain.handle('prs:reviewer:update', (
+    _event,
+    repo: string,
+    number: number,
+    login: string,
+    requested: boolean,
+  ) => backendVoid(prUrl('/prs/reviewers', repo, number), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ login, requested }),
+  }));
   ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) => {
     const url = new URL('/prs/merge-mode', BACKEND_BASE);
     url.searchParams.set('repo', repo);
@@ -571,12 +600,44 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`));
   ipcMain.handle('workspaces:metadata', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/metadata`));
-  ipcMain.handle('workspaces:issues', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues`));
+  ipcMain.handle('workspaces:issues', (_event, workspaceId: string, page: number, pageSize: number) => {
+    const url = new URL(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues`);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('size', String(pageSize));
+    return backendJson(url);
+  });
   ipcMain.handle('workspaces:issues:sync', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/sync`, {
       method: 'POST',
+      signal: AbortSignal.timeout(15 * 60_000),
     }));
+  ipcMain.handle('workspaces:issues:timeline', (_event, workspaceId: string, issueNumber: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/timeline`));
+  ipcMain.handle('workspaces:issues:comment', (_event, workspaceId: string, issueNumber: number, body: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }));
+  ipcMain.handle('workspaces:issues:type', (_event, workspaceId: string, issueNumber: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`));
+  ipcMain.handle('workspaces:issues:type:update', (_event, workspaceId: string, issueNumber: number, type: string | null) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+    }));
+  ipcMain.handle('workspaces:issues:metadata:update', (
+    _event,
+    workspaceId: string,
+    issueNumber: number,
+    assignees: string[],
+    labels: string[],
+  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/metadata`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignees, labels }),
+  }));
   ipcMain.handle('workspaces:sync', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',

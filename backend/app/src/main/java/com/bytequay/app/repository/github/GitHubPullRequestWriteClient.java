@@ -17,8 +17,13 @@ import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -26,6 +31,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +45,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubPullRequestWriteClient
 {
+    private static final String ISSUE_TYPES_API_VERSION = "2026-03-10";
+
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
 
@@ -70,6 +78,90 @@ public class GitHubPullRequestWriteClient
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    public String updateIssueType(String pat, PullRequestRef issue, String type)
+    {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("type", type);
+        return issueTypeName(updateIssue(pat, issue, request).type());
+    }
+
+    public IssueMetadata updateIssueMetadata(
+            String pat,
+            PullRequestRef issue,
+            List<String> assignees,
+            List<String> labels)
+    {
+        if (assignees == null && labels == null) {
+            throw new IllegalArgumentException("assignees or labels must be provided");
+        }
+        Map<String, Object> request = new LinkedHashMap<>();
+        if (assignees != null) {
+            request.put("assignees", ImmutableList.copyOf(assignees));
+        }
+        if (labels != null) {
+            request.put("labels", ImmutableList.copyOf(labels));
+        }
+        UpdatedIssue updated = updateIssue(pat, issue, request);
+        return new IssueMetadata(
+                Optional.ofNullable(updated.assignees()).orElse(ImmutableList.of()).stream()
+                        .map(UpdatedUser::login)
+                        .filter(login -> login != null && !login.isBlank())
+                        .collect(ImmutableList.toImmutableList()),
+                Optional.ofNullable(updated.labels()).orElse(ImmutableList.of()).stream()
+                        .map(UpdatedLabel::name)
+                        .filter(name -> name != null && !name.isBlank())
+                        .collect(ImmutableList.toImmutableList()),
+                updated.updatedAt());
+    }
+
+    private UpdatedIssue updateIssue(String pat, PullRequestRef issue, Map<String, Object> request)
+    {
+        try {
+            UpdatedIssue updated = gitHubRestClient.patch()
+                    .uri("/repos/{owner}/{repo}/issues/{number}", issue.owner(), issue.repo(), issue.number())
+                    .header("Authorization", authorization(pat))
+                    .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(UpdatedIssue.class);
+            if (updated == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "Empty response from GitHub when updating issue");
+            }
+            return updated;
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    public void updateReviewerRequest(String pat, PullRequestRef pullRequest, String login, boolean requested)
+    {
+        requireText(login, "reviewer login");
+        try {
+            gitHubRestClient.method(requested ? HttpMethod.POST : HttpMethod.DELETE)
+                    .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
+                            pullRequest.owner(), pullRequest.repo(), pullRequest.number())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("reviewers", ImmutableList.of(login)))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static String issueTypeName(JsonNode type)
+    {
+        if (type == null || type.isNull()) {
+            return null;
+        }
+        return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
     public void approve(String pat, PullRequestRef pr)
@@ -253,6 +345,29 @@ public class GitHubPullRequestWriteClient
                 comment.body(),
                 Optional.empty());
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record IssueMetadata(List<String> assignees, List<String> labels, Instant updatedAt)
+    {
+        public IssueMetadata
+        {
+            assignees = ImmutableList.copyOf(requireNonNull(assignees, "assignees is null"));
+            labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UpdatedIssue(
+            JsonNode type,
+            List<UpdatedLabel> labels,
+            List<UpdatedUser> assignees,
+            @JsonProperty("updated_at") Instant updatedAt) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UpdatedLabel(String name) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UpdatedUser(String login) {}
 
     private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
 }

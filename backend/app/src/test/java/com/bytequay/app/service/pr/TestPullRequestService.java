@@ -18,6 +18,7 @@ import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.HandledAction;
@@ -31,6 +32,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -66,6 +68,7 @@ class TestPullRequestService
 {
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubPullRequestWriteClient writes;
+    @Mock private GitHubRepoClient repositories;
     @Mock private GitHubMergeClient merges;
     @Mock private GitHubActionsClient actions;
     @Mock private GitHubAccountClient accounts;
@@ -80,7 +83,7 @@ class TestPullRequestService
     void setUp()
     {
         service = new PullRequestService(
-                gitHub, writes, merges, actions, accounts, store, detailStore, viewStateStore,
+                gitHub, writes, repositories, merges, actions, accounts, store, detailStore, viewStateStore,
                 credentialService, Runnable::run, Runnable::run);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
     }
@@ -93,22 +96,56 @@ class TestPullRequestService
     }
 
     @Test
+    void updatesPullRequestAssigneesAndLabelsThenInvalidatesDetail()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.updateMetadata(
+                "owner/repo", 7, ImmutableList.of(" alice "), ImmutableList.of("bug"));
+
+        verify(writes).updateIssueMetadata(
+                "pat",
+                PullRequestRef.of("owner", "repo", 7),
+                ImmutableList.of("alice"),
+                ImmutableList.of("bug"));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
+    void updatesPullRequestReviewerThenInvalidatesDetail()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.updateReviewerRequest("owner/repo", 7, " alice ", true);
+
+        verify(writes).updateReviewerRequest(
+                "pat", PullRequestRef.of("owner", "repo", 7), "alice", true);
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
+    void listsRepositoryLabelsForMetadataPicker()
+    {
+        RepositoryLabel label = new RepositoryLabel(1, "bug", "d73a4a");
+        when(repositories.fetchLabels("pat", RepoRef.of("owner", "repo")))
+                .thenReturn(ImmutableList.of(label));
+
+        assertThat(service.listRepositoryLabels("owner/repo")).containsExactly(label);
+    }
+
+    @Test
     void workspaceSyncScopesGitHubAndDoesNotReplaceGlobalList()
     {
         RepoRef repository = RepoRef.of("owner", "repo");
-        when(store.findByRepository("owner/repo")).thenReturn(ImmutableList.of());
         when(gitHub.searchPullRequestsPaged(
-                eq("pat"), eq("is:pr is:open repo:owner/repo"), anyInt(), anyInt(),
+                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
                 eq("updated"), eq("desc")))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
-        when(gitHub.searchPullRequests(
-                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo")))
-                .thenReturn(ImmutableList.of());
 
         service.syncRepository(repository);
 
-        verify(store).replaceRepository("owner/repo", ImmutableList.of());
-        verify(store, never()).replaceAll(any());
+        verify(store).completeRepositorySync(eq("owner/repo"), anyString());
+        verify(store, never()).saveDashboardSyncPage(any(), anyString());
     }
 
     @Test

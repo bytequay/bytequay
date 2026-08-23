@@ -184,7 +184,6 @@ class TestDefaultWorkspaceRepositoryService
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         PullRequestSyncJob pullRequestSync = mock(PullRequestSyncJob.class);
-        WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         AtomicReference<CodeState> observed = new AtomicReference<>();
         when(provisioning.provision(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
@@ -202,14 +201,12 @@ class TestDefaultWorkspaceRepositoryService
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 pullRequestSync,
-                issues,
                 Runnable::run);
 
-        Workspace watched = watch(service, 100);
+        watch(service, 100);
 
         assertThat(observed).hasValue(CodeState.PENDING);
         verify(pullRequestSync).requestImmediateSync();
-        verify(issues).synchronize(watched.id());
     }
 
     private static DefaultWorkspaceRepositoryService service(
@@ -232,7 +229,6 @@ class TestDefaultWorkspaceRepositoryService
                 mock(WorkspaceProvisioningService.class),
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestSyncJob.class),
-                mock(WorkspaceIssueService.class),
                 ignored -> {});
     }
 

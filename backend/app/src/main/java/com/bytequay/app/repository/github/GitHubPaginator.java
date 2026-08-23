@@ -35,7 +35,7 @@ final class GitHubPaginator
 {
     /** Hard cap on pages so a runaway request cannot tie up the executor. */
     private static final int MAX_PAGES = 50;
-    private static final int PAGE_SIZE = 100;
+    static final int PAGE_SIZE = 100;
 
     private final RestClient gitHubRestClient;
 
@@ -81,6 +81,16 @@ final class GitHubPaginator
             Object... uriVariables)
     {
         return paginateSince(pat, pathTemplate, typeRef, null, uriVariables);
+    }
+
+    <T> List<T> fetchPage(
+            String pat,
+            String pathTemplate,
+            ParameterizedTypeReference<List<T>> typeRef,
+            int page,
+            Object... uriVariables)
+    {
+        return fetchPage(pat, pathTemplate, typeRef, null, page, uriVariables);
     }
 
     private <T> List<T> fetchPage(

@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, replaceMention } from './PullOverview';
+import PullOverview, { activeMention, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -47,6 +47,12 @@ const emptyPayload: PullTimelinePayloadDto = {
 };
 
 describe('PullOverview', () => {
+  it('shows the backend message without Electron IPC noise', () => {
+    expect(remoteErrorMessage(new Error(
+      "Error invoking remote method 'prs:metadata:update': Error: Grant it access to this repository",
+    ))).toBe('Grant it access to this repository');
+  });
+
   it('renders review submission as an overlay without replacing the pull request', () => {
     const html = renderToStaticMarkup(<ReviewDialog
       pr={pullRequest()}

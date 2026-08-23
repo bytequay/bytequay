@@ -22,6 +22,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -37,11 +38,17 @@ public class SqlitePrViewStateStore
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    /** Returns all view-state rows, keyed by PR id. */
+    /** Returns only the requested view-state rows, keyed by PR id. */
     @Override
-    public Map<Long, PrViewState> findAll()
+    public Map<Long, PrViewState> findByPrIds(Set<Long> prIds)
     {
-        return jpaRepository.findAll().stream()
+        requireNonNull(prIds, "prIds is null");
+        return toDomain(jpaRepository.findAllById(prIds).stream());
+    }
+
+    private static Map<Long, PrViewState> toDomain(java.util.stream.Stream<PrViewStateEntity> entities)
+    {
+        return entities
                 .collect(toImmutableMap(
                         PrViewStateEntity::getPrId,
                         e -> new PrViewState(

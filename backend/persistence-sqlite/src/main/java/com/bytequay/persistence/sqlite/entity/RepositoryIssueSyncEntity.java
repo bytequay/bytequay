@@ -13,9 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
-import com.bytequay.persistence.sqlite.converter.RepositoryIssueListConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -23,11 +21,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
-import java.util.List;
 
 @Entity
-@Table(name = "repository_issues")
-public class RepositoryIssueSnapshotEntity
+@Table(name = "repository_issue_sync")
+public class RepositoryIssueSyncEntity
 {
     @Id
     @Column(name = "repository_id")
@@ -38,10 +35,6 @@ public class RepositoryIssueSnapshotEntity
 
     @Column(nullable = false)
     private String repo;
-
-    @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = RepositoryIssueListConverter.class)
-    private List<RepositoryIssue> issues;
 
     @Column(name = "synced_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
@@ -55,9 +48,6 @@ public class RepositoryIssueSnapshotEntity
 
     public String getRepo() { return repo; }
     public void setRepo(String repo) { this.repo = repo; }
-
-    public List<RepositoryIssue> getIssues() { return issues; }
-    public void setIssues(List<RepositoryIssue> issues) { this.issues = issues; }
 
     public Instant getSyncedAt() { return syncedAt; }
     public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

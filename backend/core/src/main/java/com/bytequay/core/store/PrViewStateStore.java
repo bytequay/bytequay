@@ -17,10 +17,11 @@ import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PrViewState;
 
 import java.util.Map;
+import java.util.Set;
 
 public interface PrViewStateStore
 {
-    Map<Long, PrViewState> findAll();
+    Map<Long, PrViewState> findByPrIds(Set<Long> prIds);
 
     void markReviewed(long prId, HandledAction action);
 }

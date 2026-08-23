@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
@@ -84,13 +85,32 @@ class TestPullRequestSyncJob
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var scheduled = executor.submit(job::tick);
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            job.synchronizeRepository(repository);
+            job.requestRepositorySync(repository);
             release.countDown();
             scheduled.get();
         }
 
         verify(pullRequests, times(1)).syncFromGitHub();
         verify(pullRequests, never()).syncRepository(repository);
+    }
+
+    @Test
+    void workspaceRefreshIsQueued()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        AtomicReference<Runnable> submitted = new AtomicReference<>();
+        PullRequestSyncJob job = new PullRequestSyncJob(
+                pullRequests,
+                configuredCredentials(),
+                mock(WorkspaceStore.class),
+                submitted::set);
+        RepoRef repository = RepoRef.of("owner", "repo");
+
+        job.requestRepositorySync(repository);
+
+        verify(pullRequests, never()).syncRepository(repository);
+        submitted.get().run();
+        verify(pullRequests).syncRepository(repository);
     }
 
     private static CredentialService configuredCredentials()

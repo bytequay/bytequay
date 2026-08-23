@@ -20,12 +20,14 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
-import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoUser;
+import com.bytequay.core.domain.RepositoryLabel;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,15 +53,23 @@ public class PullRequestController
     }
 
     @GetMapping("/prs")
-    public List<PullRequest> list()
+    public PullRequestPage list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size)
     {
-        return pullRequests.listPullRequests();
+        return pullRequests.listPullRequests(page, size);
     }
 
     @GetMapping("/prs/users")
     public List<RepoUser> users(@RequestParam("repo") String repo)
     {
         return pullRequests.listRepositoryUsers(repo);
+    }
+
+    @GetMapping("/prs/labels")
+    public List<RepositoryLabel> labels(@RequestParam("repo") String repo)
+    {
+        return pullRequests.listRepositoryLabels(repo);
     }
 
     @PostMapping("/api/settings/sync/trigger")
@@ -131,6 +141,32 @@ public class PullRequestController
     public record ReviewRequest(String event, String body, List<InlineReviewComment> comments) {}
 
     public record ResolutionRequest(boolean resolved) {}
+
+    public record MetadataRequest(List<String> assignees, List<String> labels) {}
+
+    public record ReviewerRequest(String login, boolean requested) {}
+
+    @PatchMapping("/prs/metadata")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateMetadata(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody MetadataRequest request)
+    {
+        requireNonNull(request, "body is required");
+        pullRequests.updateMetadata(repo, number, request.assignees(), request.labels());
+    }
+
+    @PatchMapping("/prs/reviewers")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateReviewer(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody ReviewerRequest request)
+    {
+        requireNonNull(request, "body is required");
+        pullRequests.updateReviewerRequest(repo, number, request.login(), request.requested());
+    }
 
     @PostMapping("/prs/comment")
     public Map<String, String> comment(

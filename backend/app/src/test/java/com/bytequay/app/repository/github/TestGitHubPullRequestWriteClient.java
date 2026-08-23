@@ -148,6 +148,86 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void updatesIssueTypeThroughTheIssuesEndpoint()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(header("X-GitHub-Api-Version", "2026-03-10"))
+                .andExpect(content().json("""
+                        {"type":"Bug"}
+                        """))
+                .andRespond(withSuccess("""
+                        {"type":{"name":"Bug"}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.updateIssueType(
+                "pat", PullRequestRef.of("upstream", "project", 12), "Bug")).isEqualTo("Bug");
+        server.verify();
+    }
+
+    @Test
+    void updatesIssueAssigneesAndLabelsThroughTheIssuesEndpoint()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("""
+                        {"assignees":["alice"],"labels":["bug"]}
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "assignees":[{"login":"alice"}],
+                          "labels":[{"name":"bug"}],
+                          "updated_at":"2026-08-23T10:00:00Z"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.updateIssueMetadata(
+                "pat",
+                PullRequestRef.of("upstream", "project", 12),
+                List.of("alice"),
+                List.of("bug")))
+                .isEqualTo(new GitHubPullRequestWriteClient.IssueMetadata(
+                        List.of("alice"), List.of("bug"), java.time.Instant.parse("2026-08-23T10:00:00Z")));
+        server.verify();
+    }
+
+    @Test
+    void addsAndRemovesRequestedReviewers()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        String url = "https://api.github.test/repos/upstream/project/pulls/12/requested_reviewers";
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"reviewers\":[\"alice\"]}"))
+                .andRespond(withSuccess());
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.DELETE))
+                .andExpect(content().json("{\"reviewers\":[\"alice\"]}"))
+                .andRespond(withSuccess());
+
+        PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
+        client.updateReviewerRequest("pat", pullRequest, "alice", true);
+        client.updateReviewerRequest("pat", pullRequest, "alice", false);
+        server.verify();
+    }
+
+    @Test
     void resolvesAndUnresolvesReviewThreadsWithGraphQl()
     {
         RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");

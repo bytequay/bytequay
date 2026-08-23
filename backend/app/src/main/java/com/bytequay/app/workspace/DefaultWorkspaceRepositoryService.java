@@ -67,7 +67,6 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceProvisioningService provisioning;
     private final WorkspaceMetadataService metadata;
     private final PullRequestSyncJob pullRequestSync;
-    private final WorkspaceIssueService issues;
     private final Executor executor;
 
     public DefaultWorkspaceRepositoryService(
@@ -81,7 +80,6 @@ public class DefaultWorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestSyncJob pullRequestSync,
-            WorkspaceIssueService issues,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -94,7 +92,6 @@ public class DefaultWorkspaceRepositoryService
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.pullRequestSync = requireNonNull(pullRequestSync, "pullRequestSync is null");
-        this.issues = requireNonNull(issues, "issues is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -220,7 +217,6 @@ public class DefaultWorkspaceRepositoryService
             submit(() -> metadata.synchronize(workspaceId), workspaceId);
         }
         pullRequestSync.requestImmediateSync();
-        submit(() -> issues.synchronize(workspaceId), workspaceId);
         return accepted;
     }
 
@@ -480,7 +476,6 @@ public class DefaultWorkspaceRepositoryService
             submit(() -> metadata.synchronize(workspace.id()), workspace.id());
         }
         pullRequestSync.requestImmediateSync();
-        submit(() -> issues.synchronize(workspace.id()), workspace.id());
     }
 
     private void submit(Runnable task, String workspaceId)

@@ -18,6 +18,7 @@ import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -33,9 +34,11 @@ import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
+import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
+import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -55,7 +58,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -63,8 +66,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
@@ -74,8 +75,8 @@ import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
@@ -92,14 +93,6 @@ public class PullRequestService
     // keeps the safety net while cutting the steady-state cost ~15x.
     private static final Duration BACKFILL_RECHECK_INTERVAL = Duration.ofMinutes(15);
 
-    // How often the notifications-feed backstop actually re-polls GitHub. The
-    // dashboard sweep runs every ~60s, but the four search queries are the
-    // primary source; notifications only catch what search silently drops, so
-    // polling them (plus the per-PR fetch each surfaced ref costs) every sweep
-    // is wasteful. Between polls the last resolved set is re-served so those
-    // PRs stay in the sweep's result set and don't flicker off the dashboard.
-    private static final Duration NOTIFICATION_POLL_INTERVAL = Duration.ofMinutes(5);
-
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
     // (GitHub's search ceiling is 1000) while still covering reviewers
@@ -109,6 +102,7 @@ public class PullRequestService
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
+    private final GitHubRepoClient repositories;
     private final GitHubMergeClient merges;
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
@@ -117,24 +111,11 @@ public class PullRequestService
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final CredentialService credentialService;
-    /** prId → the last time we forced a detail-sync for an
-     *  unchanged-but-under-enriched PR. Gates the enrichment / review-
-     *  re-check to {@link #BACKFILL_RECHECK_INTERVAL} so a
-     *  review-less PR isn't re-fetched on every sync tick. In-memory
-     *  only — a restart just re-checks each PR once. */
-    private final ConcurrentMap<Long, Instant> lastBackfillAttempt = new ConcurrentHashMap<>();
-    /** Last resolved notification-backstop PRs and when we last polled the
-     *  notifications feed. Re-served on every sweep inside {@link
-     *  #NOTIFICATION_POLL_INTERVAL} so the search-invisible PRs they surface
-     *  stay put; refreshed only past that interval. In-memory only — a restart
-     *  just forces one poll on the next sweep. */
-    private volatile List<PullRequest> cachedNotificationPrs = ImmutableList.of();
-    private volatile Instant lastNotificationPoll = Instant.EPOCH;
-
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
             GitHubPullRequestWriteClient pullRequestWrites,
+            GitHubRepoClient repositories,
             GitHubMergeClient merges,
             GitHubActionsClient actions,
             GitHubAccountClient accounts,
@@ -147,6 +128,7 @@ public class PullRequestService
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
+        this.repositories = requireNonNull(repositories, "repositories is null");
         this.merges = requireNonNull(merges, "merges is null");
         requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
@@ -162,15 +144,18 @@ public class PullRequestService
                 requireNonNull(ioExecutor, "ioExecutor is null"));
     }
 
-    public List<PullRequest> listPullRequests()
+    public PullRequestPage listPullRequests(int page, int pageSize)
     {
-        return store.findAll();
+        checkPage(page, pageSize);
+        return store.findPage(page, pageSize);
     }
 
     /** Returns the existing local PR rows restricted to one repository. */
-    public List<PullRequest> listPullRequests(RepoRef repository)
+    public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize)
     {
-        return store.findByRepository(requireNonNull(repository, "repository is null").fullName());
+        checkPage(page, pageSize);
+        return store.findRepositoryPage(
+                requireNonNull(repository, "repository is null").fullName(), page, pageSize);
     }
 
     /**
@@ -185,29 +170,18 @@ public class PullRequestService
         requireNonNull(repository, "repository is null");
         String pat = credentialService.resolveGitHubToken();
         String currentLogin = resolveCurrentLogin(pat);
-        Map<Long, Instant> previous = store.findByRepository(repository.fullName()).stream()
-                .filter(pullRequest -> pullRequest.updatedAt() != null)
-                .collect(toImmutableMap(PullRequest::id, PullRequest::updatedAt));
+        String syncMarker = java.util.UUID.randomUUID().toString();
         String qualifier = " repo:" + repository.fullName();
-        List<PullRequest> open = searchAllPages(pat, "is:pr is:open" + qualifier);
+        syncRepositoryQuery(
+                pat, repository, currentLogin, syncMarker, "is:pr is:open" + qualifier);
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
-        List<PullRequest> closed = gitHub.searchPullRequests(
-                pat, "is:pr is:closed closed:>=" + sinceDate + qualifier);
-        LinkedHashMap<Long, PullRequest> freshById = new LinkedHashMap<>();
-        for (PullRequest pullRequest : open) {
-            freshById.put(pullRequest.id(), workspaceOrigin(pullRequest, currentLogin));
-        }
-        for (PullRequest pullRequest : closed) {
-            freshById.putIfAbsent(pullRequest.id(), workspaceOrigin(pullRequest, currentLogin));
-        }
-        List<PullRequest> fresh = ImmutableList.copyOf(freshById.values());
-        store.replaceRepository(repository.fullName(), fresh);
-
-        List<PullRequest> changed = fresh.stream()
-                .filter(pullRequest -> !previous.containsKey(pullRequest.id())
-                        || !Objects.equals(pullRequest.updatedAt(), previous.get(pullRequest.id())))
-                .collect(toImmutableList());
-        syncDetails(pat, currentLogin, changed);
+        syncRepositoryQuery(
+                pat,
+                repository,
+                currentLogin,
+                syncMarker,
+                "is:pr is:closed closed:>=" + sinceDate + qualifier);
+        deleteDetails(store.completeRepositorySync(repository.fullName(), syncMarker));
     }
 
     public List<RepoUser> listRepositoryUsers(String repo)
@@ -215,6 +189,13 @@ public class PullRequestService
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, 1);
         return gitHub.fetchAssignableUsers(pat, RepoRef.of(ref.owner(), ref.repo()));
+    }
+
+    public List<RepositoryLabel> listRepositoryLabels(String repo)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, 1);
+        return repositories.fetchLabels(pat, RepoRef.of(ref.owner(), ref.repo()));
     }
 
     public boolean hasMergeQueue(String repo, String baseRef)
@@ -233,49 +214,24 @@ public class PullRequestService
     public void syncFromGitHub()
     {
         String pat = credentialService.resolveGitHubToken();
-        Map<Long, Instant> existingUpdatedAt = store.findUpdatedAtMap();
-        // Rows whose enrichment fields are still null get a forced detail
-        // sync regardless of updatedAt.
-        Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
-        // Pull the current user's login once per sync so we can reconcile
-        // `handledAction` against reviews submitted outside the app (e.g. via
-        // the embedded github.com window or a separate browser tab).
         String currentLogin = resolveCurrentLogin(pat);
-
-        List<PullRequest> fresh = fetchRelevant(pat);
-        store.replaceAll(fresh);
-
-        Set<Long> freshIds = fresh.stream()
-                .map(PullRequest::id)
-                .collect(toImmutableSet());
-        Set<Long> removedIds = existingUpdatedAt.keySet().stream()
-                .filter(id -> !freshIds.contains(id))
-                .collect(toImmutableSet());
-        if (!removedIds.isEmpty()) {
-            detailStore.deleteByPrIds(removedIds);
-            removedIds.forEach(lastBackfillAttempt::remove);
-        }
-
-        // A PR earns a detail sync if its updatedAt moved (definitely
-        // changed), or — to backfill rows GitHub didn't bump — if it
-        // still looks under-enriched AND we haven't re-checked it within
-        // BACKFILL_RECHECK_INTERVAL. The interval gate is what keeps a
-        // review-less PR from being re-fetched on every ~60s tick.
-        Instant now = Instant.now();
-        List<PullRequest> toSync = new ArrayList<>();
-        for (PullRequest pr : fresh) {
-            Instant existing = existingUpdatedAt.get(pr.id());
-            if (existing == null || !existing.equals(pr.updatedAt())) {
-                toSync.add(pr);
-                continue;
-            }
-            boolean underEnriched = missingEnrichment.contains(pr.id());
-            if (underEnriched && backfillDue(pr.id(), now)) {
-                lastBackfillAttempt.put(pr.id(), now);
-                toSync.add(pr);
-            }
-        }
-        syncDetails(pat, currentLogin, toSync);
+        String syncMarker = java.util.UUID.randomUUID().toString();
+        Set<String> seen = new HashSet<>();
+        syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED);
+        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
+        syncDashboardQuery(
+                pat,
+                currentLogin,
+                syncMarker,
+                seen,
+                "is:pr is:closed author:@me closed:>=" + sinceDate,
+                AUTHORED);
+        syncDashboardQuery(
+                pat, currentLogin, syncMarker, seen, "is:pr is:open user-review-requested:@me", REVIEW_REQUESTED);
+        syncDashboardQuery(
+                pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", REVIEW_REQUESTED);
+        syncNotificationPullRequests(pat, currentLogin, syncMarker, seen);
+        deleteDetails(store.completeDashboardSync(syncMarker));
     }
 
     private void syncDetails(String pat, String currentLogin, List<PullRequest> pullRequests)
@@ -285,15 +241,6 @@ public class PullRequestService
                         () -> syncDetailQuietly(pat, pullRequest, currentLogin), executor))
                 .collect(toImmutableList());
         CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
-    }
-
-    /** True when an under-enriched PR is due for a forced backfill sync:
-     *  either we've never re-checked it or the last attempt is older than
-     *  {@link #BACKFILL_RECHECK_INTERVAL}. */
-    private boolean backfillDue(long prId, Instant now)
-    {
-        Instant last = lastBackfillAttempt.get(prId);
-        return last == null || last.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL));
     }
 
     private String resolveCurrentLogin(String pat)
@@ -416,6 +363,36 @@ public class PullRequestService
                         cached.unavailableSections());
             });
         }
+    }
+
+    public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
+    {
+        pullRequestWrites.updateIssueMetadata(
+                credentialService.resolveGitHubToken(),
+                parseRef(repo, number),
+                normalizeNames(assignees, "assignees"),
+                normalizeNames(labels, "labels"));
+        invalidatePullRequestCaches(repo, number);
+    }
+
+    public void updateReviewerRequest(String repo, int number, String login, boolean requested)
+    {
+        requireNotBlank(login, "reviewer login must not be blank");
+        pullRequestWrites.updateReviewerRequest(
+                credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
+        invalidatePullRequestCaches(repo, number);
+    }
+
+    private static List<String> normalizeNames(List<String> values, String name)
+    {
+        requireNonNull(values, name + " is null");
+        return values.stream()
+                .map(value -> {
+                    requireNotBlank(value, name + " must not contain blanks");
+                    return value.trim();
+                })
+                .distinct()
+                .collect(toImmutableList());
     }
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
@@ -583,149 +560,123 @@ public class PullRequestService
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private List<PullRequest> fetchRelevant(String pat)
+    private void syncDashboardQuery(
+            String pat,
+            String currentLogin,
+            String syncMarker,
+            Set<String> seen,
+            String query,
+            PullRequest.Origin origin)
     {
-        CompletableFuture<List<PullRequest>> authoredFuture = CompletableFuture.supplyAsync(
-                () -> searchAllPages(pat, "is:pr is:open author:@me"), executor);
-        // user-review-requested (not review-requested) so a review asked of
-        // a TEAM the user belongs to is included, not just direct requests —
-        // GitHub files team requests under the team, so review-requested:@me
-        // misses them and the PR never reaches the board.
-        CompletableFuture<List<PullRequest>> reviewFuture = CompletableFuture.supplyAsync(
-                () -> searchAllPages(pat, "is:pr is:open user-review-requested:@me"), executor);
-        // Open PRs I've already reviewed. GitHub drops a PR from
-        // `review-requested:@me` the moment a verdict is submitted, so
-        // without this an already-reviewed PR vanishes from the list
-        // even though it's still open and re-reviewable — which is what
-        // the assign-review dialog wants to offer. These carry the
-        // REVIEW_REQUESTED origin too, but the awaiting-me filter still
-        // hides them from the dashboard because they have a verdict.
-        CompletableFuture<List<PullRequest>> reviewedByFuture = CompletableFuture.supplyAsync(
-                () -> searchAllPages(pat, "is:pr is:open reviewed-by:@me"), executor);
-        // Keep a short history of recently closed authored PRs for the Done tab.
-        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
-        CompletableFuture<List<PullRequest>> recentlyClosedFuture = CompletableFuture.supplyAsync(
-                () -> gitHub.searchPullRequests(pat,
-                        "is:pr is:closed author:@me closed:>=" + sinceDate),
-                executor);
-
-        List<PullRequest> authored = join(authoredFuture);
-        List<PullRequest> reviewRequested = join(reviewFuture);
-        List<PullRequest> reviewedBy = join(reviewedByFuture);
-        List<PullRequest> recentlyClosed = join(recentlyClosedFuture);
-
-        LinkedHashMap<String, PullRequest> merged = new LinkedHashMap<>();
-        if (authored != null) {
-            for (PullRequest pr : authored) {
-                merged.put(pr.repo() + "#" + pr.number(), withOrigin(pr, AUTHORED));
-            }
-        }
-        if (recentlyClosed != null) {
-            for (PullRequest pr : recentlyClosed) {
-                merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, AUTHORED));
-            }
-        }
-        if (reviewRequested != null) {
-            for (PullRequest pr : reviewRequested) {
-                String key = pr.repo() + "#" + pr.number();
-                merged.putIfAbsent(key, withOrigin(pr, REVIEW_REQUESTED));
-            }
-        }
-        if (reviewedBy != null) {
-            for (PullRequest pr : reviewedBy) {
-                String key = pr.repo() + "#" + pr.number();
-                merged.putIfAbsent(key, withOrigin(pr, REVIEW_REQUESTED));
-            }
-        }
-        // 5th source: the notifications feed (review requests + direct
-        // @-mentions). GitHub's search index can silently drop a review request
-        // (observed: a team review request on an enterprise repo never surfaced
-        // in user-review-requested:@me), but the notifications pipeline — the
-        // one that sends the email — always has it. Pull each PR search missed
-        // via a direct read, stamped REVIEW_REQUESTED, deduped by repo#number.
-        // ponytail: single notifications page (≤50, freshest first) covers
-        // "jump to top on a new request/mention"; a PR reaches the board this
-        // way only while its notification is still returned — the search sweep
-        // stays the durable source. Also: a mention on the user's OWN PR that
-        // author:@me search somehow dropped would be mislabelled REVIEW_REQUESTED
-        // here (author:@me is reliable, so vanishingly rare). Add paging /
-        // author-check / requested-reviewer re-verify only if these bite.
-        for (PullRequest pr : notificationBackstopPrs(pat, merged.keySet())) {
-            merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, REVIEW_REQUESTED));
-        }
-        return ImmutableList.copyOf(merged.values());
-    }
-
-    /**
-     * The open PRs surfaced by the notifications backstop. Re-polls the
-     * notifications feed (and re-fetches each surfaced PR) at most once per
-     * {@link #NOTIFICATION_POLL_INTERVAL}; every sweep in between re-serves the
-     * last resolved set so those PRs stay in the dashboard result and don't
-     * flicker. Best-effort throughout — a notifications-endpoint failure or a
-     * transient per-PR 5xx must never regress the search-based sweep, so it
-     * keeps whatever it resolved and retries on the next poll.
-     */
-    private List<PullRequest> notificationBackstopPrs(String pat, Set<String> alreadyPresent)
-    {
-        if (Duration.between(lastNotificationPoll, Instant.now()).compareTo(NOTIFICATION_POLL_INTERVAL) < 0) {
-            return cachedNotificationPrs;
-        }
-        lastNotificationPoll = Instant.now();
-        List<PullRequestRef> refs;
-        try {
-            refs = gitHub.fetchAttentionPrRefs(pat);
-        }
-        catch (RuntimeException e) {
-            log.info("attention notifications fetch failed: {}", e.getMessage());
-            return cachedNotificationPrs;
-        }
-        List<PullRequest> resolved = new ArrayList<>();
-        for (PullRequestRef ref : refs) {
-            // Skip anything the search sweep already surfaced — no point spending
-            // a per-PR fetch on a PR we already have.
-            if (alreadyPresent.contains(ref.repoFullName() + "#" + ref.number())) {
-                continue;
-            }
-            try {
-                PullRequest pr = gitHub.getPullRequest(pat, ref);
-                // Notifications (all=true) still list review requests whose PR
-                // has since closed/merged; the review-requested search is
-                // is:open, so match it — a closed PR must never enter "To review".
-                if ("open".equals(pr.state())) {
-                    resolved.add(pr);
-                }
-            }
-            catch (RuntimeException e) {
-                log.info("notification PR {} fetch failed: {}", ref.fullName(), e.getMessage());
-            }
-        }
-        cachedNotificationPrs = ImmutableList.copyOf(resolved);
-        return cachedNotificationPrs;
-    }
-
-    /**
-     * Runs a GitHub PR search to exhaustion (up to {@link #MAX_SEARCH_PAGES}
-     * pages of {@link #SEARCH_PAGE_SIZE}), instead of the single 50-item
-     * page the dashboard used to read. A heavy reviewer can sit on more
-     * than 50 open review requests; the old single page silently dropped
-     * the tail, so those PRs never appeared anywhere — including the
-     * assign-review dialog's number search.
-     */
-    private List<PullRequest> searchAllPages(String pat, String query)
-    {
-        List<PullRequest> all = new ArrayList<>();
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
-            // sort=updated desc so the freshest PRs land on the first pages —
-            // GitHub's default best-match ordering can push the newest past
-            // the MAX_SEARCH_PAGES cap and out of the synced set entirely.
             PullRequestHistoryPage result =
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
-            all.addAll(result.items());
+            List<PullRequest> fresh = result.items().stream()
+                    .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
+                    .map(pullRequest -> withOrigin(pullRequest, origin))
+                    .collect(toImmutableList());
+            syncDashboardPage(pat, currentLogin, syncMarker, fresh);
             if (!result.hasMore()) {
                 break;
             }
         }
-        return ImmutableList.copyOf(all);
+    }
+
+    private void syncDashboardPage(
+            String pat,
+            String currentLogin,
+            String syncMarker,
+            List<PullRequest> pullRequests)
+    {
+        if (pullRequests.isEmpty()) {
+            return;
+        }
+        Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
+        Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
+        Set<Long> missingEnrichment = store.findIdsMissingEnrichment(ids);
+        store.saveDashboardSyncPage(pullRequests, syncMarker);
+        Instant now = Instant.now();
+        syncDetails(pat, currentLogin, pullRequests.stream()
+                .filter(pullRequest -> {
+                    Instant updatedAt = previous.get(pullRequest.id());
+                    return updatedAt == null
+                            || !Objects.equals(updatedAt, pullRequest.updatedAt())
+                            || missingEnrichment.contains(pullRequest.id()) && backfillDue(pullRequest, now);
+                })
+                .collect(toImmutableList()));
+    }
+
+    private void syncRepositoryQuery(
+            String pat,
+            RepoRef repository,
+            String currentLogin,
+            String syncMarker,
+            String query)
+    {
+        for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
+            PullRequestHistoryPage result =
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
+            List<PullRequest> fresh = result.items().stream()
+                    .map(pullRequest -> workspaceOrigin(pullRequest, currentLogin))
+                    .collect(toImmutableList());
+            if (!fresh.isEmpty()) {
+                Set<Long> ids = fresh.stream().map(PullRequest::id).collect(toImmutableSet());
+                Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
+                store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
+                syncDetails(pat, currentLogin, fresh.stream()
+                        .filter(pullRequest -> !Objects.equals(previous.get(pullRequest.id()), pullRequest.updatedAt()))
+                        .collect(toImmutableList()));
+            }
+            if (!result.hasMore()) {
+                break;
+            }
+        }
+    }
+
+    private void syncNotificationPullRequests(
+            String pat,
+            String currentLogin,
+            String syncMarker,
+            Set<String> seen)
+    {
+        for (PullRequestRef ref : gitHub.fetchAttentionPrRefs(pat)) {
+            if (!seen.add(ref.repoFullName() + "#" + ref.number())) {
+                continue;
+            }
+            try {
+                PullRequest pullRequest = gitHub.getPullRequest(pat, ref);
+                if ("open".equals(pullRequest.state())) {
+                    syncDashboardPage(
+                            pat,
+                            currentLogin,
+                            syncMarker,
+                            ImmutableList.of(withOrigin(pullRequest, REVIEW_REQUESTED)));
+                }
+            }
+            catch (RuntimeException failure) {
+                log.info("notification PR {} fetch failed: {}", ref.fullName(), failure.getMessage());
+            }
+        }
+    }
+
+    private boolean backfillDue(PullRequest pullRequest, Instant now)
+    {
+        return detailStore.findSyncedAt(pullRequest.repo(), pullRequest.number())
+                .map(syncedAt -> syncedAt.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL)))
+                .orElse(true);
+    }
+
+    private void deleteDetails(Set<Long> pullRequestIds)
+    {
+        if (!pullRequestIds.isEmpty()) {
+            detailStore.deleteByPrIds(pullRequestIds);
+        }
+    }
+
+    private static void checkPage(int page, int pageSize)
+    {
+        checkArgument(page >= 0, "page is negative");
+        checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
     }
 
     private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)
@@ -740,7 +691,7 @@ public class PullRequestService
             updateListState(pr.id(), detail);
             // One viewState lookup feeds both reconcile (handledAction) and
             // the MENTIONED rule (viewedAt anchors which mentions are "new").
-            PrViewState viewState = viewStateStore.findAll().get(pr.id());
+            PrViewState viewState = viewStateStore.findByPrIds(ImmutableSet.of(pr.id())).get(pr.id());
             reconcileHandledActionFromReviews(pr.id(), detail.reviews(), currentLogin, viewState);
             Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
             // Refresh list-level values without reloading the detail blob.
@@ -886,10 +837,5 @@ public class PullRequestService
                 ? AUTHORED
                 : REVIEW_REQUESTED;
         return withOrigin(pullRequest, origin);
-    }
-
-    private static <T> T join(CompletableFuture<T> future)
-    {
-        return future.join();
     }
 }

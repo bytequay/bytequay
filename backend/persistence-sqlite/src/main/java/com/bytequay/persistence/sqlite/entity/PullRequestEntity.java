@@ -85,6 +85,12 @@ public class PullRequestEntity
     @Column(name = "workspace_visible")
     private Boolean workspaceVisible;
 
+    @Column(name = "dashboard_sync_marker")
+    private String dashboardSyncMarker;
+
+    @Column(name = "workspace_sync_marker")
+    private String workspaceSyncMarker;
+
     /** Set by the sync job from the accompanying detail fetch. NULL when not yet enriched. */
     @Enumerated(EnumType.STRING)
     @Column(name = "ci_status")
@@ -211,6 +217,12 @@ public class PullRequestEntity
 
     public Boolean getWorkspaceVisible() { return workspaceVisible; }
     public void setWorkspaceVisible(Boolean workspaceVisible) { this.workspaceVisible = workspaceVisible; }
+
+    public String getDashboardSyncMarker() { return dashboardSyncMarker; }
+    public void setDashboardSyncMarker(String dashboardSyncMarker) { this.dashboardSyncMarker = dashboardSyncMarker; }
+
+    public String getWorkspaceSyncMarker() { return workspaceSyncMarker; }
+    public void setWorkspaceSyncMarker(String workspaceSyncMarker) { this.workspaceSyncMarker = workspaceSyncMarker; }
 
     public PullRequestDetail.CiStatus getCiStatus() { return ciStatus; }
     public void setCiStatus(PullRequestDetail.CiStatus ciStatus) { this.ciStatus = ciStatus; }

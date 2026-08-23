@@ -22,18 +22,23 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
-import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
-import com.bytequay.core.domain.RepositoryIssueSnapshot;
+import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -96,20 +101,23 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/pull-requests")
-    public List<PullRequest> pullRequests(@PathVariable String workspaceId)
+    public PullRequestPage pullRequests(
+            @PathVariable String workspaceId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         return pullRequests.listPullRequests(RepoRef.of(
-                workspace.monitoredOwner(), workspace.monitoredRepo()));
+                workspace.monitoredOwner(), workspace.monitoredRepo()), page, size);
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")
-    public List<PullRequest> syncPullRequests(@PathVariable String workspaceId)
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void syncPullRequests(@PathVariable String workspaceId)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequestSync.synchronizeRepository(repository);
-        return pullRequests.listPullRequests(repository);
+        pullRequestSync.requestRepositorySync(repository);
     }
 
     @GetMapping("/{workspaceId}/metadata")
@@ -125,15 +133,63 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues")
-    public RepositoryIssueSnapshot issues(@PathVariable String workspaceId)
+    public RepositoryIssuePage issues(
+            @PathVariable String workspaceId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size)
     {
-        return issues.list(workspaceId);
+        return issues.list(workspaceId, page, size);
     }
 
     @PostMapping("/{workspaceId}/issues/sync")
-    public RepositoryIssueSnapshot syncIssues(@PathVariable String workspaceId)
+    public RepositoryIssuePage syncIssues(@PathVariable String workspaceId)
     {
-        return issues.synchronize(workspaceId);
+        issues.synchronize(workspaceId);
+        return issues.list(workspaceId, 0, 50);
+    }
+
+    @GetMapping("/{workspaceId}/issues/{issueNumber}/timeline")
+    public List<PrTimelineEvent> issueTimeline(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    {
+        return issues.timeline(workspaceId, issueNumber);
+    }
+
+    @PostMapping("/{workspaceId}/issues/{issueNumber}/comments")
+    public PrTimelineEvent commentOnIssue(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber,
+            @RequestBody IssueCommentRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return issues.comment(workspaceId, issueNumber, request.body());
+    }
+
+    @GetMapping("/{workspaceId}/issues/{issueNumber}/type")
+    public WorkspaceIssueService.IssueTypeOptions issueType(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber)
+    {
+        return issues.issueType(workspaceId, issueNumber);
+    }
+
+    @PatchMapping("/{workspaceId}/issues/{issueNumber}/type")
+    public WorkspaceIssueService.IssueTypeOptions updateIssueType(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber,
+            @RequestBody IssueTypeRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return issues.updateIssueType(workspaceId, issueNumber, request.type());
+    }
+
+    @PatchMapping("/{workspaceId}/issues/{issueNumber}/metadata")
+    public WorkspaceIssueService.IssueMetadata updateIssueMetadata(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber,
+            @RequestBody IssueMetadataRequest request)
+    {
+        requireNonNull(request, "body is required");
+        return issues.updateMetadata(workspaceId, issueNumber, request.assignees(), request.labels());
     }
 
     @PostMapping("/{workspaceId}/sync")
@@ -152,4 +208,10 @@ public class WorkspaceController
     public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}
 
     public record WatchPreviewRequest(long selectedRepositoryId) {}
+
+    public record IssueCommentRequest(String body) {}
+
+    public record IssueTypeRequest(String type) {}
+
+    public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 }

@@ -31,6 +31,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -103,11 +104,47 @@ class TestSqliteRepositoryMetadataStore
                 "https://github.com/owner/project/issues/7",
                 ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
 
-        issueStore.replace(100, REPOSITORY, ImmutableList.of(issue), NOW.minusSeconds(1));
-        issueStore.replace(100, REPOSITORY, ImmutableList.of(issue), NOW);
+        issueStore.saveSyncPage(100, ImmutableList.of(issue), "first");
+        issueStore.completeSync(100, REPOSITORY, "first", NOW.minusSeconds(1));
+        issueStore.saveSyncPage(100, ImmutableList.of(issue), "second");
+        issueStore.completeSync(100, REPOSITORY, "second", NOW);
 
-        var snapshot = issueStore.find(100).orElseThrow();
-        assertThat(snapshot.issues()).containsExactly(issue);
-        assertThat(snapshot.syncedAt()).contains(NOW);
+        var page = issueStore.findPage(100, REPOSITORY, 0, 50);
+        assertThat(page.issues()).containsExactly(issue);
+        assertThat(page.syncedAt()).contains(NOW);
+        assertThat(page.totalIssues()).isEqualTo(1);
+    }
+
+    @Test
+    void readsIssuesInDatabasePagesOrderedByMostRecentlyUpdated()
+    {
+        var issues = IntStream.rangeClosed(1, 55)
+                .mapToObj(number -> new RepositoryIssue(
+                        number,
+                        number,
+                        "Issue " + number,
+                        "body",
+                        "alice",
+                        "avatar",
+                        "https://github.com/owner/project/issues/" + number,
+                        ImmutableList.of(),
+                        ImmutableList.of(),
+                        0,
+                        NOW,
+                        NOW.plusSeconds(number)))
+                .toList();
+        issueStore.saveSyncPage(100, issues.subList(0, 30), "sync");
+        issueStore.saveSyncPage(100, issues.subList(30, 55), "sync");
+        issueStore.completeSync(100, REPOSITORY, "sync", NOW);
+
+        var first = issueStore.findPage(100, REPOSITORY, 0, 50);
+        var second = issueStore.findPage(100, REPOSITORY, 1, 50);
+
+        assertThat(first.issues()).hasSize(50);
+        assertThat(first.issues().getFirst().number()).isEqualTo(55);
+        assertThat(first.hasMore()).isTrue();
+        assertThat(second.issues()).hasSize(5);
+        assertThat(second.hasMore()).isFalse();
+        assertThat(second.totalIssues()).isEqualTo(55);
     }
 }

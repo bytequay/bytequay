@@ -13,10 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.persistence.sqlite.entity.RepositoryIssueSnapshotEntity;
+import com.bytequay.persistence.sqlite.entity.RepositoryIssueSyncEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface RepositoryIssueJpaRepository
-        extends JpaRepository<RepositoryIssueSnapshotEntity, Long>
+public interface RepositoryIssueSyncJpaRepository
+        extends JpaRepository<RepositoryIssueSyncEntity, Long>
 {
 }

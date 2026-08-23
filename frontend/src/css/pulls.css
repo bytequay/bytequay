@@ -476,13 +476,17 @@
 .pr-people-picker { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: 310px; overflow: hidden; border: 1px solid #d8dee4; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(31, 35, 40, 0.18); }
 .pr-people-picker input { width: 100%; height: 42px; border: 0; border-bottom: 1px solid #e1e7eb; outline: 0; background: transparent; padding: 0 16px; color: #24292f; font: inherit; font-size: 15px; }
 .pr-people-picker input::placeholder { color: #8c959f; }
+.pr-people-picker__note { border-bottom: 1px solid #e1e7eb; background: #f6f8fa; color: #59636e; padding: 9px 16px; font-size: 12px; line-height: 1.4; }
 .pr-people-picker__list { max-height: 390px; overflow-y: auto; padding: 7px 8px; }
-.pr-people-picker__row { position: relative; display: grid; min-height: 36px; align-items: center; grid-template-columns: 24px 20px minmax(0, auto) 1fr; gap: 8px; border-radius: 8px; color: #24292f; padding: 5px 10px; font-size: 15px; }
+.pr-people-picker__row { position: relative; display: grid; width: 100%; min-height: 36px; align-items: center; grid-template-columns: 24px 20px minmax(0, auto) 1fr; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: #24292f; padding: 5px 10px; font: inherit; font-size: 15px; text-align: left; }
 .pr-people-picker__row:hover, .pr-people-picker__row:focus-visible { outline: 0; background: #f3f4f6; }
+.pr-people-picker__row:disabled { cursor: not-allowed; opacity: 0.55; }
+.pr-people-picker__row.is-label { grid-template-columns: 24px 20px minmax(0, 1fr); }
 .pr-people-picker__row:focus-visible::before { position: absolute; left: 4px; width: 3px; height: 24px; border-radius: 999px; background: #0969da; content: ''; }
 .pr-people-picker__row > span:nth-last-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-people-picker__check { display: grid; color: #59636e; place-items: center; }
 .pr-people-picker__empty { padding: 14px 16px; color: #59636e; font-size: 13px; }
+.pr-meta__error { flex: 1 0 100%; border: 1px solid #ff8182; border-radius: 8px; background: #fff1f0; color: #a40e26; padding: 9px 11px; font-size: 12px; }
 .pr-unavailable { margin: -8px 0 18px; border-left: 3px solid #bf8700; background: #fff8c5; color: #633c01; padding: 9px 12px; font-size: 12px; }
 
 .pr-timeline { position: relative; display: flex; flex-direction: column; gap: 10px; }

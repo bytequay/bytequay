@@ -23,6 +23,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -76,8 +77,10 @@ class TestGitHubRepoClient
                           "created_at":"2026-08-20T00:00:00Z","updated_at":"2026-08-21T00:00:00Z"}]
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchOpenIssues("pat", REPOSITORY))
-                .singleElement()
+        GitHubRepoClient.IssuePage page = fixture.client().fetchOpenIssuesPage("pat", REPOSITORY, 1);
+
+        assertThat(page.hasNext()).isFalse();
+        assertThat(page.issues()).singleElement()
                 .satisfies(issue -> {
                     assertThat(issue.id()).isEqualTo(10);
                     assertThat(issue.labels()).containsExactly("bug");
@@ -99,6 +102,26 @@ class TestGitHubRepoClient
 
         assertThat(fixture.client().fetchCommitAvatars("pat", REPOSITORY, "main", 2))
                 .containsExactlyEntriesOf(ImmutableMap.of("abc", "https://avatars/alice"));
+        fixture.server().verify();
+    }
+
+    @Test
+    void fetchesCurrentAndAvailableIssueTypes()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andExpect(header("X-GitHub-Api-Version", "2026-03-10"))
+                .andRespond(withSuccess("""
+                        {"id":10,"number":7,"title":"Issue","type":{"name":"Task"}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issue-types"))
+                .andExpect(header("X-GitHub-Api-Version", "2026-03-10"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"name":"Task"},{"id":2,"name":"Bug"}]
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchIssueType("pat", REPOSITORY, 7)).isEqualTo("Task");
+        assertThat(fixture.client().fetchIssueTypes("pat", REPOSITORY)).containsExactly("Task", "Bug");
         fixture.server().verify();
     }
 

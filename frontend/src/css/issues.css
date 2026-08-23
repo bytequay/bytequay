@@ -5,30 +5,31 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-.issues-page { display: flex; height: 100%; min-height: 0; background: #fff; }
-.issues-list { display: flex; min-width: 360px; flex: 0 0 42%; flex-direction: column; border-right: 1px solid #e7e9ec; }
-.issues-toolbar { display: flex; min-height: 48px; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #e7e9ec; }
-.issues-toolbar strong { flex: 1; font-size: 13px; }
-.issues-toolbar button, .issue-detail-head button { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; cursor: pointer; }
-.issues-toolbar button:disabled { cursor: wait; opacity: 0.6; }
-.issues-freshness { padding: 5px 12px; border-bottom: 1px solid #f0f1f2; color: #8c959f; font-size: 11px; }
-.issues-error { padding: 9px 12px; background: #fff1f0; color: #cf222e; font-size: 12px; }
-.issues-rows { min-height: 0; overflow-y: auto; padding: 6px 8px 24px; }
-.issues-row { display: flex; width: 100%; flex-direction: column; gap: 5px; padding: 11px 12px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
-.issues-row:hover { background: #f4f5f7; }
-.issues-row.is-selected { background: #eef0f3; }
-.issues-row-title { color: #1f2328; font-size: 13.5px; font-weight: 600; }
-.issues-row-meta { color: #656d76; font-size: 11.5px; }
-.issues-labels { display: flex; flex-wrap: wrap; gap: 5px; }
-.issues-labels i { padding: 2px 7px; border-radius: 999px; background: #eff2f4; color: #4f5862; font-size: 10.5px; font-style: normal; }
-.issue-detail { min-width: 0; flex: 1; overflow-y: auto; }
-.issue-detail-head { display: flex; align-items: flex-start; gap: 18px; padding: 20px 24px; border-bottom: 1px solid #e7e9ec; }
-.issue-detail-head > div { min-width: 0; flex: 1; }
-.issue-detail-head h1 { margin: 0 0 6px; color: #1f2328; font-size: 20px; line-height: 1.3; }
-.issue-detail-head span, .issue-assignees { color: #656d76; font-size: 12px; }
-.issue-assignees { padding: 10px 24px 0; }
-.issue-body { padding: 20px 24px 40px; color: #24292f; font-size: 13px; line-height: 1.55; }
+.issues-page .issues-list { min-width: 280px; }
+.issues-list__count { margin-left: 3px; border-radius: 999px; background: #eceef0; color: #59636e; padding: 1px 6px; font-size: 10.5px; font-weight: 700; }
+.issues-freshness { flex: 0 0 auto; border-bottom: 1px solid #f0f1f2; color: #8c959f; padding: 5px 12px; font-size: 11px; }
+.issues-page-loading { color: #8c959f; padding: 12px; text-align: center; font-size: 12px; }
+.issues-error { flex: 0 0 auto; background: #fff1f0; color: #cf222e; padding: 9px 12px; font-size: 12px; }
 
-@media (max-width: 800px) {
-  .issues-list { min-width: 280px; flex-basis: 48%; }
-}
+.issues-row__state { color: #1a7f37; }
+.issues-row .pull-row__labels > span,
+.issue-rail .pr-label { border: 1px solid transparent; }
+.issues-row__stats { justify-content: space-between; }
+.issues-row__assignees { min-width: 0; overflow: hidden; color: #8b949e; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+.issues-detail .pull-detail__header { padding: 15px 20px; }
+.issue-overview { max-width: 1240px; }
+.issue-overview .pr-overview__branches strong { color: #24292f; font-weight: 500; }
+.issue-overview .pr-state svg { width: 15px; height: 15px; }
+.issue-conversation { min-width: 0; }
+.issue-comment .pr-reactions { padding-top: 0; }
+.issue-event .pr-bot { margin-left: 5px; }
+.issue-event .pr-label { margin: 0 2px; vertical-align: 1px; }
+.issues-activity-loading { color: #8b949e; }
+.issues-event-marker { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid #d0d7de; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px #fff; }
+.issue-type-chip { cursor: default; }
+.issue-type-chip select { max-width: 130px; border: 0; outline: 0; background: transparent; color: #24292f; font: inherit; font-weight: 500; }
+.issue-type-chip[data-type="task"] select { color: #9a6700; }
+.issue-type-chip[data-type="bug"] select { color: #cf222e; }
+.issue-type-chip[data-type="feature"] select { color: #0969da; }
+.issue-type-chip select:disabled { color: #59636e; opacity: 1; }

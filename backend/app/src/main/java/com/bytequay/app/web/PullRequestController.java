@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.scheduler.PullRequestSyncJob;
+import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -44,12 +44,12 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestController
 {
     private final PullRequestService pullRequests;
-    private final PullRequestSyncJob syncJob;
+    private final PullRequestRefreshService refreshService;
 
-    public PullRequestController(PullRequestService pullRequests, PullRequestSyncJob syncJob)
+    public PullRequestController(PullRequestService pullRequests, PullRequestRefreshService refreshService)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.syncJob = requireNonNull(syncJob, "syncJob is null");
+        this.refreshService = requireNonNull(refreshService, "refreshService is null");
     }
 
     @GetMapping("/prs")
@@ -76,7 +76,7 @@ public class PullRequestController
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void triggerSync()
     {
-        syncJob.requestImmediateSync();
+        refreshService.requestRefresh();
     }
 
     @GetMapping("/prs/detail")

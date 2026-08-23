@@ -400,6 +400,14 @@ describe('PullOverview', () => {
     expect(html).not.toContain('description reactions');
   });
 
+  it('turns bare GitHub URLs into local references that can resolve a title', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'follows https://github.com/owner/repo/issues/42'} />);
+
+    expect(html).toContain('class="md-reference is-issue"');
+    expect(html).toContain('href="https://github.com/owner/repo/issues/42"');
+    expect(html).toContain('owner/repo <small>#42</small>');
+  });
+
   it('shows reviewer identities below three people and a count from three people', () => {
     const value = detail();
     value.reviewers = [

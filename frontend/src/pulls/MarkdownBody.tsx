@@ -14,13 +14,13 @@
 import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  findLocalIssue,
   openGitHubReference,
   parseGitHubReference,
   type GitHubReference,
+  type LocalGitHubReference,
+  resolveLocalGitHubReference,
 } from '../githubReference';
 import { relativeTime } from '../relativeTime';
-import type { PullRequestDetailDto, RepositoryIssueSnapshotDto } from '../types';
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -74,6 +74,7 @@ function stripHtml(value: string) {
 function htmlToMarkdown(value: string) {
   return decodeEntities(value
     .replace(/<!--[^]*?-->/g, '')
+    .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
     .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
       (_match, href: string, label: string) => `[${stripHtml(label)}](${href})`)
     .replace(/<br\s*\/?\s*>/gi, '\n')
@@ -208,7 +209,7 @@ export function markdownBlocks(markdown: string): Block[] {
 }
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
-  const token = /(\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+  const token = /(\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:issues|pull)\/[0-9]+(?:[?#][^\s<>()\]]*)?|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
   return text.split(token).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
@@ -228,9 +229,12 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       const href = link[2].startsWith('/') ? `https://github.com${link[2]}` : link[2];
       const reference = link[1].match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);
-      const label = reference ? <>{reference[1]} <small>{reference[2]}</small></> : link[1];
+      const showTitle = /^https?:\/\//i.test(link[1]);
+      const label = showTitle && githubReference
+        ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
+        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : link[1];
       if (githubReference) return (
-        <ReferenceLink key={key} reference={githubReference}>{label}</ReferenceLink>
+        <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );
       return (
         <a key={key} href={href} onClick={event => {
@@ -241,14 +245,18 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         </a>
       );
     }
+    const bareReference = parseGitHubReference(part);
+    if (bareReference) return (
+      <ReferenceLink key={key} reference={bareReference} showTitle>
+        {bareReference.owner}/{bareReference.repo} <small>#{bareReference.number}</small>
+      </ReferenceLink>
+    );
     if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
     return <Fragment key={key}>{part}</Fragment>;
   });
 }
 
-type ReferencePreview =
-  | { kind: 'pull'; detail: PullRequestDetailDto }
-  | { kind: 'issue'; issue: RepositoryIssueSnapshotDto['issues'][number] };
+type ReferencePreview = LocalGitHubReference;
 
 const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
 
@@ -256,18 +264,16 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
   const existing = previewRequests.get(key);
   if (existing) return existing;
-  const request = reference.kind === 'pull'
-    ? window.bridge.fetchPullRequestDetail(`${reference.owner}/${reference.repo}`, reference.number)
-      .then((detail): ReferencePreview => ({ kind: 'pull', detail }))
-      .catch((): null => null)
-    : findLocalIssue(reference)
-      .then((local): ReferencePreview | null => local ? { kind: 'issue', issue: local.issue } : null)
-      .catch((): null => null);
+  const request = resolveLocalGitHubReference(reference).catch((): null => null);
   previewRequests.set(key, request);
   return request;
 }
 
-function ReferenceLink({ reference, children }: { reference: GitHubReference; children: ReactNode }) {
+function ReferenceLink({ reference, showTitle = false, children }: {
+  reference: GitHubReference;
+  showTitle?: boolean;
+  children: ReactNode;
+}) {
   const previewId = useId();
   const anchor = useRef<HTMLAnchorElement>(null);
   const showTimer = useRef<number | null>(null);
@@ -308,10 +314,28 @@ function ReferenceLink({ reference, children }: { reference: GitHubReference; ch
     clearTimer(hideTimer);
   }, []);
 
+  useEffect(() => {
+    if (!showTitle) return;
+    let current = true;
+    void loadPreview({
+      href: reference.href,
+      kind: reference.kind,
+      number: reference.number,
+      owner: reference.owner,
+      repo: reference.repo,
+    }).then(value => {
+      if (current) setPreview(value);
+    });
+    return () => { current = false; };
+  }, [reference.href, reference.kind, reference.number, reference.owner, reference.repo, showTitle]);
+
+  const kind = preview?.kind ?? reference.kind;
+  const title = preview?.kind === 'pull' ? preview.detail.title : preview?.kind === 'issue' ? preview.issue.title : null;
+
   return <>
     <a
       ref={anchor}
-      className={`md-reference is-${reference.kind}`}
+      className={`md-reference is-${kind}`}
       href={reference.href}
       aria-describedby={open ? previewId : undefined}
       onMouseEnter={() => show(350)}
@@ -321,11 +345,11 @@ function ReferenceLink({ reference, children }: { reference: GitHubReference; ch
       onClick={event => {
         event.preventDefault();
         hide(0);
-        void openGitHubReference(reference);
+        void openGitHubReference({ ...reference, kind });
       }}
     >
-      <ReferenceIcon pull={reference.kind === 'pull'} />
-      {children}
+      <ReferenceIcon pull={kind === 'pull'} />
+      {showTitle && title ? <>{title} <small>#{reference.number}</small></> : children}
     </a>
     {open && createPortal(
       <ReferencePreviewCard
@@ -354,12 +378,13 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
   const labels = preview?.kind === 'pull' ? preview.detail.labels.map(label => label.name) : preview?.kind === 'issue' ? preview.issue.labels : [];
   const author = preview?.kind === 'pull' ? preview.detail.author : preview?.kind === 'issue' ? preview.issue.author : null;
   const updatedAt = preview?.kind === 'pull' ? preview.detail.updatedAt : preview?.kind === 'issue' ? preview.issue.updatedAt : null;
+  const kind = preview?.kind ?? reference.kind;
   return (
     <aside
-      className={`md-reference-preview is-${reference.kind}`}
+      className={`md-reference-preview is-${kind}`}
       id={id}
       role="dialog"
-      aria-label={`${reference.kind === 'pull' ? 'Pull request' : 'Issue'} preview`}
+      aria-label={`${kind === 'pull' ? 'Pull request' : 'Issue'} preview`}
       style={style}
       tabIndex={0}
       onMouseEnter={onEnter}
@@ -368,7 +393,7 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
       onBlur={onLeave}
     >
       <header>
-        <span><ReferenceIcon pull={reference.kind === 'pull'} /> {reference.kind === 'pull' ? 'Pull request' : 'Issue'}</span>
+        <span><ReferenceIcon pull={kind === 'pull'} /> {kind === 'pull' ? 'Pull request' : 'Issue'}</span>
         <small>{reference.owner}/{reference.repo} #{reference.number}</small>
       </header>
       {preview === undefined && <div className="md-reference-preview__status">Loading local details…</div>}

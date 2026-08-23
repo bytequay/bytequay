@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { RepositoryIssueSnapshotDto } from './types';
+import type { PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
 import { workspaceIssueRoute } from './workspaces/model';
 
 export type GitHubReference = {
@@ -21,6 +21,10 @@ export type GitHubReference = {
   number: number;
   href: string;
 };
+
+export type LocalGitHubReference =
+  | { kind: 'pull'; detail: PullRequestDetailDto }
+  | { kind: 'issue'; workspaceId: string; issue: RepositoryIssueSnapshotDto['issues'][number] };
 
 export function parseGitHubReference(href: string): GitHubReference | null {
   try {
@@ -76,13 +80,33 @@ export async function findLocalIssue(reference: GitHubReference): Promise<{
   }
 }
 
+export async function resolveLocalGitHubReference(reference: GitHubReference): Promise<LocalGitHubReference | null> {
+  if (reference.kind === 'issue') {
+    const localIssue = await findLocalIssue(reference);
+    if (localIssue) return { kind: 'issue', ...localIssue };
+  }
+  try {
+    return {
+      kind: 'pull',
+      detail: await window.bridge.fetchPullRequestDetail(`${reference.owner}/${reference.repo}`, reference.number),
+    };
+  }
+  catch {
+    return null;
+  }
+}
+
 export async function openGitHubReference(reference: GitHubReference): Promise<void> {
   if (reference.kind === 'pull') {
     window.location.hash = pullRequestRoute(reference);
     return;
   }
-  const local = await findLocalIssue(reference).catch((): null => null);
-  if (local) {
+  const local = await resolveLocalGitHubReference(reference).catch((): null => null);
+  if (local?.kind === 'pull') {
+    window.location.hash = pullRequestRoute(reference);
+    return;
+  }
+  if (local?.kind === 'issue') {
     window.location.hash = workspaceIssueRoute(local.workspaceId, reference.number);
     return;
   }

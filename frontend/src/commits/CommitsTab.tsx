@@ -60,17 +60,19 @@ export function commitSyncLabel(status: CommitRefreshStatusDto | null): string {
     : 'not synced yet';
 }
 
-export default function CommitsTab({ workspace, initialExecutionId, onOpenPullRequest, onOpenSettings }: {
+export default function CommitsTab({ workspace, initialExecutionId, initialRepo, onOpenPullRequest, onOpenSettings }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
+  /** Open on the upstream commit browser (from the Home cherry-pick card). */
+  initialRepo?: 'workspace' | 'upstream';
   onOpenPullRequest: (number: number) => void;
   onOpenSettings: () => void;
 }) {
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
-  const [repo, setRepo] = useState<'workspace' | 'upstream'>('workspace');
+  const [repo, setRepo] = useState<'workspace' | 'upstream'>(initialRepo ?? 'workspace');
   const [branch, setBranch] = useState(workspace.defaultBranch);
   const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
   const [branchMenu, setBranchMenu] = useState(false);

@@ -34,6 +34,27 @@ describe('workspace commits tab', () => {
     expect(html).toContain('cmt-readonly">Settings');
   });
 
+  it('opens on the upstream browser when asked to start there', () => {
+    const linked: Workspace = {
+      ...workspace(),
+      upstreamDefaultBranch: 'main',
+      upstreamRemote: 'upstream',
+      upstreamWorkspaceId: 'upstream-workspace',
+      upstreamOwner: 'upstream',
+      upstreamRepo: 'project',
+      topology: 'FORK',
+    };
+    const html = renderToStaticMarkup(<CommitsTab
+      workspace={linked}
+      initialRepo="upstream"
+      onOpenPullRequest={() => {}}
+      onOpenSettings={() => {}}
+    />);
+
+    expect(html).toContain('cmt-repo-chip is-active" title="Remote source');
+    expect(html).toContain('cmt-repo-chip" title="This workspace');
+  });
+
   it('refreshes the workspace and only an explicitly linked upstream', () => {
     expect(commitRefreshRefs('feature', 'main', false)).toEqual([
       { source: 'WORKSPACE', branch: 'feature' },

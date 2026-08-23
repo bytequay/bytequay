@@ -28,13 +28,16 @@ const PAGE_SIZE = 50;
 
 export default function PullsScreen({
   initialPr,
+  initialTab,
   repositoryScope,
 }: {
   initialPr?: { repo: string; number: number };
+  /** Filter tab to open on (from the Home review card). */
+  initialTab?: PullTab;
   repositoryScope?: { workspaceId: string; repository: string };
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
-  const [tab, setTab] = useState<PullTab>('all');
+  const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');

@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import CommitsTab from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import PullsScreen from '../pulls/PullsScreen';
+import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import type { CherryPickExecution, WorkspaceDto } from '../types';
 import { relativeTime } from '../relativeTime';
@@ -39,11 +40,17 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [openPullRequestNumber, setOpenPullRequestNumber] = useState<number | null>(null);
+  const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
+  const [initialPullsTab, setInitialPullsTab] = useState<PullTab | null>(null);
 
-  // A task jump is one-shot: leaving the Commits tab forgets it, so the next
-  // visit starts on the commit browser again.
+  // Home-card jumps are one-shot: leaving the target tab forgets them, so the
+  // next visit starts on that tab's default view again.
   useEffect(() => {
-    if (tab !== 'commits') setOpenExecutionId(null);
+    if (tab !== 'commits') {
+      setOpenExecutionId(null);
+      setInitialCommitsRepo(null);
+    }
+    if (tab !== 'prs') setInitialPullsTab(null);
   }, [tab]);
 
   useEffect(() => {
@@ -65,6 +72,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         key={openExecutionId ?? 'commits'}
         workspace={workspace}
         initialExecutionId={openExecutionId}
+        initialRepo={initialCommitsRepo ?? undefined}
         onOpenPullRequest={number => {
           setOpenPullRequestNumber(number);
           onSelectTab('prs');
@@ -80,6 +88,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         initialPr={openPullRequestNumber === null
           ? undefined
           : { repo: repository, number: openPullRequestNumber }}
+        initialTab={initialPullsTab ?? undefined}
         repositoryScope={{ workspaceId: workspace.id, repository }}
       />
     );
@@ -130,6 +139,15 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     <WorkspaceHome
       workspace={workspace}
       onWorkspaceChanged={onWorkspaceChanged}
+      onCherryPickUpstream={() => {
+        setInitialCommitsRepo('upstream');
+        onSelectTab('commits');
+      }}
+      onReviewRequests={() => {
+        setInitialPullsTab('req');
+        onSelectTab('prs');
+      }}
+      onOpenIssues={() => onSelectTab('issues')}
     />
   );
 }
@@ -153,11 +171,11 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
 }
 
 const HOME_CARDS = [
-  { icon: '⌕', color: '#0969da', title: 'Explore and understand code' },
-  { icon: '⇢', color: '#8250df', title: 'Cherry-pick from upstream' },
-  { icon: '⑃', color: '#1a7f37', title: 'Review a pull request' },
-  { icon: '◉', color: '#bc4c00', title: 'Fix issues and failures' },
-];
+  { icon: '⌕', color: '#0969da', title: 'Explore and understand code', action: 'wip' },
+  { icon: '⇢', color: '#8250df', title: 'Cherry-pick from upstream', action: 'cherry-pick' },
+  { icon: '⑃', color: '#1a7f37', title: 'Review a pull request', action: 'review' },
+  { icon: '◉', color: '#bc4c00', title: 'Fix issues and failures', action: 'issues' },
+] as const;
 
 // ponytail: dummy counts until real workspace stats are wired
 const HOME_LINKS = [
@@ -167,9 +185,12 @@ const HOME_LINKS = [
   '12 commits ahead of upstream',
 ];
 
-export function WorkspaceHome({ workspace, onWorkspaceChanged }: {
+export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstream, onReviewRequests, onOpenIssues }: {
   workspace: Workspace;
   onWorkspaceChanged: (workspace: Workspace) => void;
+  onCherryPickUpstream: () => void;
+  onReviewRequests: () => void;
+  onOpenIssues: () => void;
 }) {
   const [wip, setWip] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -240,7 +261,12 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged }: {
               key={card.title}
               type="button"
               className="ws-action-card"
-              onClick={() => setWip(card.title)}
+              onClick={() => {
+                if (card.action === 'cherry-pick') onCherryPickUpstream();
+                else if (card.action === 'review') onReviewRequests();
+                else if (card.action === 'issues') onOpenIssues();
+                else setWip(card.title);
+              }}
             >
               <div className="ws-action-icon" style={{ color: card.color }} aria-hidden="true">{card.icon}</div>
               <div className="ws-action-title">{card.title}</div>

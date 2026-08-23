@@ -46,6 +46,9 @@ describe('watched repository workspace UI', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={{ ...workspace('FORK'), metadataState: 'FAILED', metadataError: 'Metadata refresh failed.' }}
       onWorkspaceChanged={() => {}}
+      onCherryPickUpstream={() => {}}
+      onReviewRequests={() => {}}
+      onOpenIssues={() => {}}
     />);
 
     expect(html).toContain('What should we do?');
@@ -62,6 +65,9 @@ describe('watched repository workspace UI', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={workspace('DIRECT')}
       onWorkspaceChanged={() => {}}
+      onCherryPickUpstream={() => {}}
+      onReviewRequests={() => {}}
+      onOpenIssues={() => {}}
     />);
 
     expect(html).not.toContain('linked');

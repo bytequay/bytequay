@@ -61,13 +61,13 @@ const bridge: Bridge = {
   getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
   fetchWorkspaceIssues: (workspaceId, page, pageSize) => ipcRenderer.invoke('workspaces:issues', workspaceId, page, pageSize),
   fetchWorkspaceIssue: (workspaceId, issueNumber) => ipcRenderer.invoke('workspaces:issue', workspaceId, issueNumber),
-  syncWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:sync', workspaceId),
-  fetchWorkspaceIssueTimeline: (workspaceId, issueNumber) =>
-    ipcRenderer.invoke('workspaces:issues:timeline', workspaceId, issueNumber),
+  refreshWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:refresh', workspaceId),
+  fetchWorkspaceIssueDetail: (workspaceId, issueNumber) =>
+    ipcRenderer.invoke('workspaces:issues:detail', workspaceId, issueNumber),
+  refreshWorkspaceIssueDetail: (workspaceId, issueNumber) =>
+    ipcRenderer.invoke('workspaces:issues:detail:refresh', workspaceId, issueNumber),
   commentWorkspaceIssue: (workspaceId, issueNumber, body) =>
     ipcRenderer.invoke('workspaces:issues:comment', workspaceId, issueNumber, body),
-  fetchWorkspaceIssueType: (workspaceId, issueNumber) =>
-    ipcRenderer.invoke('workspaces:issues:type', workspaceId, issueNumber),
   updateWorkspaceIssueType: (workspaceId, issueNumber, type) =>
     ipcRenderer.invoke('workspaces:issues:type:update', workspaceId, issueNumber, type),
   updateWorkspaceIssueMetadata: (workspaceId, issueNumber, assignees, labels) =>

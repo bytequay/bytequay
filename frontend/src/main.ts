@@ -765,21 +765,23 @@ function registerIpc(): void {
   });
   ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
-  ipcMain.handle('workspaces:issues:sync', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/sync`, {
+  ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
-  ipcMain.handle('workspaces:issues:timeline', (_event, workspaceId: string, issueNumber: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/timeline`));
+  ipcMain.handle('workspaces:issues:detail', (_event, workspaceId: string, issueNumber: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail`));
+  ipcMain.handle('workspaces:issues:detail:refresh', (_event, workspaceId: string, issueNumber: number) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail/refresh`, {
+      method: 'POST',
+    }));
   ipcMain.handle('workspaces:issues:comment', (_event, workspaceId: string, issueNumber: number, body: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),
     }));
-  ipcMain.handle('workspaces:issues:type', (_event, workspaceId: string, issueNumber: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`));
   ipcMain.handle('workspaces:issues:type:update', (_event, workspaceId: string, issueNumber: number, type: string | null) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`, {
       method: 'PATCH',

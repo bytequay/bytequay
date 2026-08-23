@@ -22,6 +22,7 @@ import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentMode
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceDetails;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
@@ -33,6 +34,7 @@ import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.google.common.collect.ImmutableMap;
@@ -65,6 +67,7 @@ public class WorkspaceController
     private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
+    private final WorkspaceIssueRefreshService issueRefresh;
     private final WorkspaceRemoteSourceService remoteSources;
     private final ModelSettingsService models;
     private final CredentialService credentials;
@@ -75,6 +78,7 @@ public class WorkspaceController
             PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
+            WorkspaceIssueRefreshService issueRefresh,
             WorkspaceRemoteSourceService remoteSources,
             ModelSettingsService models,
             CredentialService credentials)
@@ -84,6 +88,7 @@ public class WorkspaceController
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
+        this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.models = requireNonNull(models, "models is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
@@ -166,17 +171,26 @@ public class WorkspaceController
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue is not available locally"));
     }
 
-    @PostMapping("/{workspaceId}/issues/sync")
-    public RepositoryIssuePage syncIssues(@PathVariable String workspaceId)
+    @PostMapping("/{workspaceId}/issues/refresh")
+    public RepositoryIssuePage refreshIssues(@PathVariable String workspaceId)
     {
-        issues.synchronize(workspaceId);
-        return issues.list(workspaceId, 0, 50);
+        return issueRefresh.refreshIssues(workspaceId);
     }
 
-    @GetMapping("/{workspaceId}/issues/{issueNumber}/timeline")
-    public List<PrTimelineEvent> issueTimeline(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    @GetMapping("/{workspaceId}/issues/{issueNumber}/detail")
+    public RepositoryIssueDetail issueDetail(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber)
     {
-        return issues.timeline(workspaceId, issueNumber);
+        return issues.detail(workspaceId, issueNumber);
+    }
+
+    @PostMapping("/{workspaceId}/issues/{issueNumber}/detail/refresh")
+    public RepositoryIssueDetail refreshIssueDetail(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber)
+    {
+        return issueRefresh.refreshDetail(workspaceId, issueNumber);
     }
 
     @PostMapping("/{workspaceId}/issues/{issueNumber}/comments")
@@ -187,14 +201,6 @@ public class WorkspaceController
     {
         requireNonNull(request, "body is required");
         return issues.comment(workspaceId, issueNumber, request.body());
-    }
-
-    @GetMapping("/{workspaceId}/issues/{issueNumber}/type")
-    public WorkspaceIssueService.IssueTypeOptions issueType(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber)
-    {
-        return issues.issueType(workspaceId, issueNumber);
     }
 
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/type")

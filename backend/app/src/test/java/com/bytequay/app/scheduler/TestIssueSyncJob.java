@@ -15,7 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.workspace.WorkspaceIssueService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.CodeState;
@@ -39,7 +39,7 @@ class TestIssueSyncJob
     @Test
     void scheduledSyncRefreshesEachMonitoredRepositoryOnce()
     {
-        WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
+        WorkspaceIssueRefreshService issues = mock(WorkspaceIssueRefreshService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
@@ -50,10 +50,10 @@ class TestIssueSyncJob
 
         new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
 
-        verify(issues).synchronize("first");
-        verify(issues, never()).synchronize("second");
-        verify(issues).synchronize("third");
-        verify(issues, times(2)).synchronize(org.mockito.ArgumentMatchers.anyString());
+        verify(issues).refreshIssues("first");
+        verify(issues, never()).refreshIssues("second");
+        verify(issues).refreshIssues("third");
+        verify(issues, times(2)).refreshIssues(org.mockito.ArgumentMatchers.anyString());
     }
 
     private static Workspace workspace(String id, long repositoryId)

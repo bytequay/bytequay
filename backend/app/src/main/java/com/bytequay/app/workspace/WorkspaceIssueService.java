@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.google.common.collect.ImmutableList;
 
@@ -34,24 +35,8 @@ public interface WorkspaceIssueService
     /** Returns one issue from the local projection without contacting GitHub. */
     Optional<RepositoryIssue> find(String workspaceId, int issueNumber);
 
-    /**
-     * Refreshes open issues independently from low-volatility reference metadata.
-     *
-     * <p>Unlinked workspaces target the selected repository; linked workspaces target their persisted upstream.
-     * A provider failure leaves the previous local snapshot intact.</p>
-     *
-     * @param workspaceId workspace used to resolve the monitored repository
-     */
-    void synchronize(String workspaceId);
-
-    /**
-     * Loads the selected issue's structural activity and comments from GitHub.
-     *
-     * @param workspaceId workspace used to resolve the monitored repository
-     * @param issueNumber GitHub issue number
-     * @return chronological issue activity, including comments
-     */
-    List<PrTimelineEvent> timeline(String workspaceId, int issueNumber);
+    /** Returns locally persisted activity and type data without contacting GitHub. */
+    RepositoryIssueDetail detail(String workspaceId, int issueNumber);
 
     /**
      * Posts a user-authored comment to the selected issue.
@@ -62,8 +47,6 @@ public interface WorkspaceIssueService
      * @return the created comment as a timeline event
      */
     PrTimelineEvent comment(String workspaceId, int issueNumber, String body);
-
-    IssueTypeOptions issueType(String workspaceId, int issueNumber);
 
     IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type);
 

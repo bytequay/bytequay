@@ -305,6 +305,15 @@ export type WorkspaceIssueTypeDto = {
   available: string[];
 };
 
+export type WorkspaceIssueDetailDto = {
+  repositoryId: number;
+  issueNumber: number;
+  timeline: WorkspaceIssueTimelineEventDto[];
+  currentType: string | null;
+  availableTypes: string[];
+  refreshedAt: string | null;
+};
+
 export type RepoMetaDto = {
   fullName: string;
   htmlUrl: string;
@@ -716,10 +725,10 @@ export type Bridge = {
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
-  syncWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
-  fetchWorkspaceIssueTimeline: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueTimelineEventDto[]>;
+  refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
+  refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   commentWorkspaceIssue: (workspaceId: string, issueNumber: number, body: string) => Promise<WorkspaceIssueTimelineEventDto>;
-  fetchWorkspaceIssueType: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueTypeDto>;
   updateWorkspaceIssueType: (workspaceId: string, issueNumber: number, type: string | null) => Promise<WorkspaceIssueTypeDto>;
   updateWorkspaceIssueMetadata: (
     workspaceId: string,

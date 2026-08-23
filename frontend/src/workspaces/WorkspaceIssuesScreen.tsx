@@ -69,10 +69,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [issueTypeError, setIssueTypeError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const timelineRequest = useRef(0);
-  const typeRequest = useRef(0);
+  const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
 
@@ -83,54 +81,44 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       : value.issues[0]?.id ?? null);
   }, []);
 
-  const loadTimeline = useCallback(async (issueNumber: number) => {
-    const request = ++timelineRequest.current;
+  const loadDetail = useCallback(async (issueNumber: number, refresh = false) => {
+    const request = ++detailRequest.current;
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const nextTimeline = await window.bridge.fetchWorkspaceIssueTimeline(workspaceId, issueNumber);
-      if (request === timelineRequest.current) setTimeline(nextTimeline);
+      const detail = refresh
+        ? await window.bridge.refreshWorkspaceIssueDetail(workspaceId, issueNumber)
+        : await window.bridge.fetchWorkspaceIssueDetail(workspaceId, issueNumber);
+      if (request === detailRequest.current) {
+        setTimeline(detail.timeline);
+        setIssueType({ current: detail.currentType, available: detail.availableTypes });
+      }
     }
     catch (failure) {
-      if (request === timelineRequest.current) {
+      if (request === detailRequest.current) {
         setDetailError(failure instanceof Error ? failure.message : String(failure));
       }
     }
     finally {
-      if (request === timelineRequest.current) setDetailLoading(false);
-    }
-  }, [workspaceId]);
-
-  const loadIssueType = useCallback(async (issueNumber: number) => {
-    const request = ++typeRequest.current;
-    setIssueTypeError(null);
-    try {
-      const nextType = await window.bridge.fetchWorkspaceIssueType(workspaceId, issueNumber);
-      if (request === typeRequest.current) setIssueType(nextType);
-    }
-    catch (failure) {
-      if (request === typeRequest.current) {
-        setIssueTypeError(failure instanceof Error ? failure.message : String(failure));
-      }
+      if (request === detailRequest.current) setDetailLoading(false);
     }
   }, [workspaceId]);
 
   const updateIssueType = useCallback(async (issueNumber: number, type: string | null) => {
-    const request = ++typeRequest.current;
+    const request = ++detailRequest.current;
     setMutationError(null);
     try {
       const nextType = await window.bridge.updateWorkspaceIssueType(workspaceId, issueNumber, type);
-      if (request !== typeRequest.current) return;
+      if (request !== detailRequest.current) return;
       setIssueType(nextType);
-      await loadTimeline(issueNumber);
     }
     catch (failure) {
-      if (request === typeRequest.current) {
+      if (request === detailRequest.current) {
         setMutationError(remoteErrorMessage(failure));
         throw failure;
       }
     }
-  }, [loadTimeline, workspaceId]);
+  }, [workspaceId]);
 
   const updateIssueMetadata = useCallback(async (
     issueNumber: number,
@@ -151,19 +139,18 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           ? { ...issue, assignees: updated.assignees, labels: updated.labels }
           : issue),
       } : current);
-      await loadTimeline(issueNumber);
     }
     catch (failure) {
       setMutationError(remoteErrorMessage(failure));
       throw failure;
     }
-  }, [loadTimeline, workspaceId]);
+  }, [workspaceId]);
 
-  const syncAllIssues = useCallback(async () => {
+  const refreshIssues = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const value = await window.bridge.syncWorkspaceIssues(workspaceId);
+      const value = await window.bridge.refreshWorkspaceIssues(workspaceId);
       apply(value);
     }
     catch (failure) {
@@ -249,15 +236,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setIssueType(null);
     setMutationError(null);
     if (selectedNumber !== null) {
-      void loadTimeline(selectedNumber);
-      void loadIssueType(selectedNumber);
+      void loadDetail(selectedNumber);
     }
     else {
-      timelineRequest.current += 1;
-      typeRequest.current += 1;
+      detailRequest.current += 1;
       setDetailLoading(false);
     }
-  }, [loadIssueType, loadTimeline, selectedNumber]);
+  }, [loadDetail, selectedNumber]);
 
   const resizeDetail = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -303,7 +288,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <button className="is-active" type="button">Open issues <span className="issues-list__count">{snapshot?.totalIssues ?? 0}</span></button>
           </nav>
           <button className="pulls-toolbar-button" type="button" title="Sync issues" aria-label="Sync issues"
-            disabled={loading} onClick={() => { void syncAllIssues(); }}>
+            disabled={loading} onClick={() => { void refreshIssues(); }}>
             <RefreshIcon />
           </button>
           <button className={`pulls-toolbar-button${paneShown ? ' is-active' : ''}`} type="button"
@@ -334,7 +319,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               <h1>{selected.title}</h1>
               <div className="pull-detail__header-actions">
                 <button type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
-                  onClick={() => { void Promise.all([loadTimeline(selected.number), loadIssueType(selected.number)]); }}><RefreshIcon /></button>
+                  onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
                 <button type="button" onClick={() => { void window.bridge.openInAppBrowser(selected.htmlUrl); }}>
                   Open on GitHub <span aria-hidden="true">↗</span>
                 </button>
@@ -345,9 +330,9 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               </div>
             </div>
           </header>
-          {(detailError || issueTypeError) && (
+          {detailError && (
             <div className="pull-detail__error" role="alert">
-              Could not load issue details. {detailError ?? issueTypeError}
+              Could not load issue details. {detailError}
             </div>
           )}
           {mutationError && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
@@ -358,7 +343,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
               onComment={async body => {
                 await window.bridge.commentWorkspaceIssue(workspaceId, selected.number, body);
-                await loadTimeline(selected.number);
+                await loadDetail(selected.number);
               }} />
           </div>
         </section>

@@ -450,8 +450,11 @@ periodic sweep or workspace access may request refresh, but the service checks t
 multiple workspaces linked to the same upstream do not multiply GitHub calls.
 
 Issues and pull requests are active repository data, not part of this slow reference-metadata
-cache. They keep their own sync policy. Pull requests reuse the existing implementation as
-described below; Issues remains a separate workspace feature.
+cache. They keep their own refresh policy. `WorkspaceIssueRefreshService` refreshes the open-issue
+projection for scheduled and explicit requests and refreshes one selected issue's activity and
+type data on explicit request. Both snapshots are persisted before they are returned. Normal
+issue list and detail GETs read SQLite only; direct comment and metadata writes update the relevant
+local projection. Pull requests reuse the existing implementation as described below.
 
 ### WorkspacePullRequestService
 
@@ -574,7 +577,9 @@ DELETE /api/workspaces/{workspaceId}
 
 GET    /api/workspaces/{workspaceId}/metadata
 GET    /api/workspaces/{workspaceId}/issues
-POST   /api/workspaces/{workspaceId}/issues/sync
+POST   /api/workspaces/{workspaceId}/issues/refresh
+GET    /api/workspaces/{workspaceId}/issues/{issueNumber}/detail
+POST   /api/workspaces/{workspaceId}/issues/{issueNumber}/detail/refresh
 GET    /api/workspaces/{workspaceId}/pull-requests
 POST   /api/workspaces/{workspaceId}/pull-requests/sync
 GET    /api/workspaces/{workspaceId}/contributors

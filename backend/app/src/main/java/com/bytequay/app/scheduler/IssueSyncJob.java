@@ -15,7 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.workspace.WorkspaceIssueService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
@@ -34,13 +34,13 @@ public class IssueSyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(IssueSyncJob.class);
 
-    private final WorkspaceIssueService issues;
+    private final WorkspaceIssueRefreshService issues;
     private final WorkspaceStore workspaces;
     private final CredentialService credentials;
     private final AppSettingsService appSettings;
 
     public IssueSyncJob(
-            WorkspaceIssueService issues,
+            WorkspaceIssueRefreshService issues,
             WorkspaceStore workspaces,
             CredentialService credentials,
             AppSettingsService appSettings)
@@ -65,7 +65,7 @@ public class IssueSyncJob
                 continue;
             }
             try {
-                issues.synchronize(workspace.id());
+                issues.refreshIssues(workspace.id());
             }
             catch (RuntimeException failure) {
                 log.warn("Issue sync failed for {}: {}", workspace.monitoredRepository(), failure.getMessage());

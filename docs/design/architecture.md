@@ -251,7 +251,19 @@ persisted before they are displayed.
 
 GitHub writes remain behind direct comment, approve, or merge actions.
 
-### 6.2 Agent flow
+### 6.2 Issue flow
+
+Issue display and refresh use the same local-first boundary:
+
+1. Issue list, individual issue, activity, and type display requests read SQLite only.
+2. `WorkspaceIssueRefreshService.refreshIssues` fetches and persists the open-issue projection;
+   the scheduled job and the frontend refresh action call this same method.
+3. `WorkspaceIssueRefreshService.refreshDetail` fetches one issue's activity and type data,
+   persists one detail snapshot, and then rereads it for the explicit frontend refresh response.
+4. Direct comment, type, assignee, and label writes update the affected local projection so later
+   display requests still read SQLite.
+
+### 6.3 Agent flow
 
 1. The frontend creates a worktree-scoped task through `app`.
 2. `agent-core` validates lifecycle rules and selects an `AgentDriver`.

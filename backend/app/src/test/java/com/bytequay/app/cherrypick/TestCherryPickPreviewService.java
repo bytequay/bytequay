@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -241,6 +242,33 @@ class TestCherryPickPreviewService
     }
 
     @Test
+    void doesNotEnumerateAnUnrelatedTargetHistory()
+            throws IOException
+    {
+        Path target = init("unrelated-target");
+        write(target, "target.txt", "target\n");
+        commit(target, "Target seed");
+        git(clone, "remote", "set-url", "fork", target.toString());
+
+        String base = head(upstream);
+        write(upstream, "source.txt", "source\n");
+        commit(upstream, "Source change");
+
+        GitCommandRunner boundedGit = gitWithoutRevList();
+        service = new CherryPickPreviewService(
+                boundedGit,
+                new CherryPickConflictScout(boundedGit),
+                commitHistory,
+                credentials,
+                mock(WorkspaceRemoteSourceService.class),
+                clock);
+
+        CherryPickPreview preview = service.preview(command(base, "main"));
+
+        assertThat(preview.commits()).singleElement().doesNotMatch(CherryPickCommitPreview::alreadyOnTarget);
+    }
+
+    @Test
     void reportsPatchEquivalenceAsAdvisoryOnly()
     {
         String base = head(upstream);
@@ -417,6 +445,22 @@ class TestCherryPickPreviewService
         git(root, "config", "user.name", "ByteQuay Test");
         git(root, "config", "user.email", "bytequay@example.com");
         return root.toRealPath();
+    }
+
+    private GitCommandRunner gitWithoutRevList()
+            throws IOException
+    {
+        Path executable = temporaryDirectory.resolve("git-without-rev-list.sh");
+        Files.writeString(executable, """
+                #!/bin/sh
+                if [ "$3" = "rev-list" ]; then
+                    echo "rev-list must not run"
+                    exit 97
+                fi
+                exec git "$@"
+                """, StandardCharsets.UTF_8);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        return new GitCommandRunner(executable.toString());
     }
 
     private static void write(Path repository, String name, String content)

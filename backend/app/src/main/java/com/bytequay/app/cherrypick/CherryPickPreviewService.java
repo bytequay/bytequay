@@ -141,7 +141,7 @@ public class CherryPickPreviewService
         }
 
         List<RangeCommit> range = readRange(repository, baseSha, tipSha);
-        Set<String> targetAncestors = readTargetAncestors(repository, targetSha, baseSha);
+        Set<String> targetAncestors = readTargetAncestors(repository, targetSha, range);
         Map<String, String> originLines = readOriginLines(repository, targetSha, baseSha);
         List<String> warnings = new ArrayList<>();
         Set<String> patchEquivalent = readPatchEquivalent(repository, targetSha, tipSha, baseSha, warnings);
@@ -442,23 +442,25 @@ public class CherryPickPreviewService
         return paths.build();
     }
 
-    /**
-     * Reads the target commits that could possibly contain a range commit.
-     *
-     * <p>Bounded by the source base on purpose: a commit in {@code base..tip} is
-     * by definition not an ancestor of the base, so it can only appear in the
-     * part of the target the base does not already reach. Reading a real
-     * repository's whole history instead would exceed the runner's output limit.
-     */
-    private Set<String> readTargetAncestors(Path repository, String targetSha, String baseSha)
+    /** Returns the selected range prefix that is already an ancestor of the target. */
+    private Set<String> readTargetAncestors(Path repository, String targetSha, List<RangeCommit> range)
     {
+        Result result = git.run(repository, "merge-base", targetSha, range.getLast().sha());
+        if (result.exitCode() == 1) {
+            return ImmutableSet.of();
+        }
+        if (!result.successful()) {
+            throw new CherryPickInvalidRequestException("git merge-base failed: " + result.output().strip());
+        }
+        String mergeBase = result.output().strip();
         ImmutableSet.Builder<String> ancestors = ImmutableSet.builder();
-        for (String line : required(repository, "rev-list", targetSha, "^" + baseSha).split("\n")) {
-            if (!line.isBlank()) {
-                ancestors.add(line.strip());
+        for (RangeCommit commit : range) {
+            ancestors.add(commit.sha());
+            if (commit.sha().equals(mergeBase)) {
+                return ancestors.build();
             }
         }
-        return ancestors.build();
+        return ImmutableSet.of();
     }
 
     /** Maps each cherry-picked source SHA to the target commit that records it. */

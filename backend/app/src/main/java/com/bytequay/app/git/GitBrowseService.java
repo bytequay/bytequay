@@ -60,9 +60,27 @@ public class GitBrowseService
         String currentBranch = require(repository, "rev-parse", "--abbrev-ref", "HEAD").strip();
         List<String> branches = lines(require(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads"));
         List<Remote> remotes = lines(require(repository, "remote")).stream()
-                .map(name -> new Remote(name, require(repository, "config", "--get", "remote." + name + ".url").strip()))
+                .map(name -> new Remote(
+                        name,
+                        require(repository, "config", "--get", "remote." + name + ".url").strip(),
+                        remoteHeadBranch(repository, name)))
                 .collect(toImmutableList());
         return new RepoOverview(currentBranch, branches, remotes);
+    }
+
+    /** The remote's default branch, when its HEAD symref is known locally. */
+    private Optional<String> remoteHeadBranch(Path repository, String remote)
+    {
+        Result result = git.run(repository, "symbolic-ref", "--quiet", "refs/remotes/" + remote + "/HEAD");
+        if (!result.successful()) {
+            return Optional.empty();
+        }
+        String prefix = "refs/remotes/" + remote + "/";
+        String target = result.output().strip();
+        if (!target.startsWith(prefix)) {
+            return Optional.empty();
+        }
+        return Optional.of(target.substring(prefix.length()));
     }
 
     public List<String> remoteBranches(Path repository, String remote)
@@ -381,7 +399,7 @@ public class GitBrowseService
         return files.build();
     }
 
-    public record Remote(String name, String url) {}
+    public record Remote(String name, String url, Optional<String> headBranch) {}
 
     public record RepoOverview(String currentBranch, List<String> branches, List<Remote> remotes) {}
 

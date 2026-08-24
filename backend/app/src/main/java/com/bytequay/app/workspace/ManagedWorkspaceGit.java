@@ -366,6 +366,7 @@ class ManagedWorkspaceGit
         for (RemoteSource source : remoteSources.findByWorkspace(workspace.id())) {
             try {
                 fetch(repository, source.name(), environment);
+                ensureRemoteHead(repository, source.name(), environment);
             }
             catch (Failure failure) {
                 failed.add(source.name());
@@ -374,6 +375,20 @@ class ManagedWorkspaceGit
             }
         }
         return failed.build();
+    }
+
+    /**
+     * Resolves the remote source's default branch once so its HEAD symref is
+     * readable offline; {@code git remote add} never creates it. Best-effort:
+     * without it the UI falls back to guessing the branch.
+     */
+    private void ensureRemoteHead(Path repository, String remote, Map<String, String> environment)
+    {
+        Result existing = git.run(repository, "symbolic-ref", "--quiet", "refs/remotes/" + remote + "/HEAD");
+        if (existing.successful()) {
+            return;
+        }
+        git.run(repository, NETWORK_TIMEOUT, environment, ImmutableList.of("remote", "set-head", remote, "--auto"));
     }
 
     private void fetch(Path repository, String remote, Map<String, String> environment)

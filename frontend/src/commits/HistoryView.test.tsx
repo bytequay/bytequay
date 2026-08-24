@@ -18,7 +18,7 @@ import { DiffViewer } from '../pulls/PullChanges';
 import HistoryView from './HistoryView';
 
 describe('workspace commit history', () => {
-  it('disables an incomplete range and omits the local-history hint', () => {
+  it('shows the empty state without range controls or hints', () => {
     const html = renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
@@ -33,9 +33,37 @@ describe('workspace commit history', () => {
       onOpenPullRequest={() => {}}
     />);
 
-    expect(html).toContain('<button type="button" disabled="">Select range</button>');
+    expect(html).toContain('No commits on this ref.');
+    expect(html).not.toContain('select range');
     expect(html).not.toContain('SHA not on this branch');
     expect(html).not.toContain('Click a commit to see its diff');
+  });
+
+  it('hides commits the toolbar search does not match', () => {
+    const html = renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[{
+        sha: '0123456789abcdef',
+        title: 'Improve commit browsing',
+        body: '',
+        author: 'example-author',
+        authorAvatarUrl: null,
+        authoredAt: '2026-08-22T00:00:00Z',
+      }]}
+      loading={false}
+      checked={new Set()}
+      filter="kafka"
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+
+    expect(html).toContain('No commits match “kafka”.');
+    expect(html).not.toContain('cmt-commit-row');
   });
 
   it('uses the pull-request diff viewer without review controls', () => {
@@ -99,8 +127,8 @@ describe('workspace commit history', () => {
     expect(html).toContain('>?</span>');
   });
 
-  it('does not synthesize a remote avatar URL for a commit card', () => {
-    const html = renderToStaticMarkup(<HistoryView
+  it('synthesizes a GitHub avatar only for login-like commit authors', () => {
+    const render = (author: string) => renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
       logRef="main"
@@ -110,7 +138,7 @@ describe('workspace commit history', () => {
         sha: 'fedcba9876543210',
         title: 'Keep history local',
         body: '',
-        author: 'example-author',
+        author,
         authorAvatarUrl: null,
         authoredAt: '2026-08-22T00:00:00Z',
       }]}
@@ -121,7 +149,10 @@ describe('workspace commit history', () => {
       onOpenPullRequest={() => {}}
     />);
 
-    expect(html).toContain('avatar--fallback');
-    expect(html).not.toContain('github.com');
+    const displayName = render('Example Author');
+    expect(displayName).toContain('avatar--fallback');
+    expect(displayName).not.toContain('github.com');
+
+    expect(render('example-author')).toContain('https://github.com/example-author.png');
   });
 });

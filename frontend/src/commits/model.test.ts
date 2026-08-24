@@ -17,7 +17,10 @@ import {
   filterTasks,
   foldNav,
   groupByDay,
+  isLikelyGitHubLogin,
+  matchesCommitQuery,
   orderTasks,
+  remoteBranchCorrection,
   selectedSpan,
   spanFromShas,
   squashMessage,
@@ -81,6 +84,63 @@ describe('groupByDay', () => {
     expect(groups[0].label).toMatch(/^Commits on /);
     expect(groups[0].commits.map(entry => entry.commit.sha)).toEqual(['a1', 'a2']);
     expect(groups[1].commits.map(entry => entry.index)).toEqual([2]);
+  });
+});
+
+describe('remoteBranchCorrection', () => {
+  it('stays put while branches are unknown', () => {
+    expect(remoteBranchCorrection([], 'master', 'main', false)).toBeNull();
+  });
+
+  it('steers to the detected default branch until the user picks one', () => {
+    expect(remoteBranchCorrection(['main', 'master'], 'master', 'main', false)).toBe('main');
+    expect(remoteBranchCorrection(['main', 'master'], 'main', 'main', false)).toBeNull();
+    expect(remoteBranchCorrection(['main', 'master'], 'master', 'main', true)).toBeNull();
+  });
+
+  it('replaces a branch the source does not have: default, then main/master, then first', () => {
+    expect(remoteBranchCorrection(['dev', 'release'], 'master', 'release', true)).toBe('release');
+    expect(remoteBranchCorrection(['dev', 'main'], 'master', null, false)).toBe('main');
+    expect(remoteBranchCorrection(['dev', 'master'], 'main', null, true)).toBe('master');
+    expect(remoteBranchCorrection(['dev', 'release'], 'master', null, false)).toBe('dev');
+  });
+});
+
+describe('isLikelyGitHubLogin', () => {
+  it('accepts login-shaped names and rejects display names', () => {
+    expect(isLikelyGitHubLogin('chenjian2664')).toBe(true);
+    expect(isLikelyGitHubLogin('example-author')).toBe(true);
+    expect(isLikelyGitHubLogin('Pia Fenwick')).toBe(false);
+    expect(isLikelyGitHubLogin('张万义')).toBe(false);
+    expect(isLikelyGitHubLogin('')).toBe(false);
+  });
+});
+
+describe('matchesCommitQuery', () => {
+  const subject: GitCommitDto = {
+    sha: 'f4627c7abcdef',
+    title: 'Update MongoDB image versions',
+    body: '',
+    author: 'dev',
+    authoredAt: '2026-08-21T10:00:00Z',
+    pullRequestNumber: 30825,
+    pullRequestTitle: 'Update MongoDB image versions in tests',
+  };
+
+  it('matches title, PR title, PR #number, and SHA prefix', () => {
+    expect(matchesCommitQuery(subject, '')).toBe(true);
+    expect(matchesCommitQuery(subject, 'mongodb IMAGE')).toBe(true);
+    expect(matchesCommitQuery(subject, 'in tests')).toBe(true);
+    expect(matchesCommitQuery(subject, '#30825')).toBe(true);
+    expect(matchesCommitQuery(subject, '308')).toBe(true);
+    expect(matchesCommitQuery(subject, 'F4627')).toBe(true);
+  });
+
+  it('rejects non-matches, including a lone #', () => {
+    expect(matchesCommitQuery(subject, 'kafka')).toBe(false);
+    expect(matchesCommitQuery(subject, '#99999')).toBe(false);
+    expect(matchesCommitQuery(subject, '627c7')).toBe(false);
+    expect(matchesCommitQuery(commit('aaaa111'), '#')).toBe(false);
   });
 });
 

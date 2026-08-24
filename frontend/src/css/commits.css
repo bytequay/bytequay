@@ -48,10 +48,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 28px;
+  box-sizing: border-box;
   border: 1px solid #d0d7de;
   border-radius: 6px;
   cursor: pointer;
-  padding: 5px 12px;
+  padding: 0 12px;
   font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -67,7 +69,7 @@
   white-space: nowrap;
 }
 
-.cmt-repo-chip.is-active { background: #0969da; border-color: #0969da; color: #ffffff; }
+.cmt-repo-chip.is-active { background: #f2f8fd; border-color: #0969da; color: #0969da; }
 
 .cmt-caret { font-size: 10px; opacity: 0.7; }
 
@@ -157,17 +159,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 0;
+  padding: 0;
+  background: transparent;
   cursor: pointer;
   color: #57606a;
-  font-size: 14px;
+  font-size: 13px;
 }
 
-.cmt-sync span:last-child { font-size: 11px; color: #8c959f; white-space: nowrap; }
+.cmt-sync span:last-child { font-size: 12px; color: #57606a; white-space: nowrap; }
 
 @keyframes cmt-spin { to { transform: rotate(360deg); } }
 @keyframes cmt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -281,13 +281,49 @@
 .cmt-history-resize:hover::after,
 .cmt-history-resize.is-resizing::after { width: 2px; background: #0969da; }
 
-.cmt-range-bar { padding: 10px 12px; border-bottom: 1px solid #d0d7de; background: #ffffff; }
+/* Range picker: a toolbar chip that opens a small SHA-input dropdown. */
+.cmt-range { position: relative; }
 
-.cmt-range-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cmt-range summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  box-sizing: border-box;
+  width: fit-content;
+  list-style: none;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  color: #24292f;
+  white-space: nowrap;
+  cursor: pointer;
+}
 
-.cmt-range-label { font-size: 10.5px; font-weight: 700; color: #656d76; letter-spacing: 0.4px; }
+.cmt-range summary::-webkit-details-marker { display: none; }
+.cmt-range summary:hover { background: #f6f8fa; }
+.cmt-range[open] summary { background: #f2f8fd; border-color: #0969da; color: #0969da; }
 
-.cmt-range-row input {
+.cmt-range-panel {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.25);
+}
+
+.cmt-range-panel input {
   width: 84px;
   padding: 4px 8px;
   border: 1px solid #d0d7de;
@@ -300,7 +336,7 @@
 
 .cmt-range-sep { color: #8c959f; font-size: 11px; }
 
-.cmt-range-row button {
+.cmt-range-panel button {
   padding: 4px 12px;
   border: 1px solid #d0d7de;
   border-radius: 6px;
@@ -309,64 +345,117 @@
   font-weight: 600;
   color: #24292f;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.cmt-range-row button:disabled { opacity: 0.55; cursor: default; }
+.cmt-range-panel button:disabled { opacity: 0.55; cursor: default; }
 
-.cmt-range-error { font-size: 11px; color: #cf222e; }
+.cmt-range-error { font-size: 11px; color: #cf222e; white-space: nowrap; }
+
+/* Search row under the toolbar; filters the history list below it. */
+.cmt-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #d0d7de;
+  background: #ffffff;
+  color: #8c959f;
+  font-size: 13px;
+}
+
+.cmt-search:focus-within { color: #0969da; }
+
+.cmt-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+  color: #1f2328;
+}
+
+.cmt-search input::placeholder { color: #8c959f; }
+
+.cmt-range-bar { padding: 10px 12px; border-bottom: 1px solid #d0d7de; background: #ffffff; }
 
 .cmt-hint { font-size: 11px; color: #8c959f; margin-top: 8px; line-height: 1.4; }
 .cmt-hint.is-upstream { color: #9a6700; }
+.cmt-range-bar .cmt-hint { margin-top: 0; }
 
-.cmt-commit-list { flex: 1; overflow: auto; }
+.cmt-commit-list { flex: 1; overflow: auto; padding: 12px; }
+
+.cmt-day-card {
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.cmt-day-card + .cmt-day-card { margin-top: 14px; }
 
 .cmt-day-head {
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #656d76;
-  background: #eceff2;
-  border-bottom: 1px solid #d8dee4;
-  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #57606a;
+  background: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
 }
+
+.cmt-day-icon { color: #8c959f; }
+.cmt-day-count { margin-left: auto; font-size: 11px; font-weight: 400; color: #8c959f; }
 
 .cmt-commit-row {
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 8px 12px 8px 9px;
-  border-bottom: 1px solid #eceff2;
-  border-left: 3px solid transparent;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-top: 1px solid #eef0f2;
   cursor: pointer;
   background: #ffffff;
 }
 
-.cmt-commit-row.is-selected { background: #f1f8ff; }
-.cmt-commit-row.is-viewed { border-left-color: #0969da; }
+/* The group header's own border already separates the first row. */
+.cmt-day-head + div .cmt-commit-row { border-top: none; }
+
+.cmt-commit-row:hover { background: #f6f8fa; }
+.cmt-commit-row.is-selected { background: #f2f8fd; }
+.cmt-commit-row.is-viewed { background: #f2f8fd; box-shadow: inset 2px 0 0 #0969da; }
 
 .cmt-commit-row input[type='checkbox'] {
-  margin-top: 3px;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
+  flex: none;
   accent-color: #0969da;
   cursor: pointer;
 }
 
 .cmt-commit-main { flex: 1; min-width: 0; }
 
-.cmt-commit-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-
-.cmt-commit-title { font-size: 13px; font-weight: 600; color: #1f2328; }
+.cmt-commit-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2328;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .cmt-chip {
   font-size: 10.5px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 2em;
   padding: 1px 7px;
   white-space: nowrap;
 }
 
-.cmt-chip.is-pr { color: #0969da; background: #ddf4ff; }
+.cmt-chip.is-pr { color: #0969da; background: #ddf4ff; font-size: 11px; padding: 1px 8px; flex: none; }
 .cmt-chip.is-already { color: #9a6700; background: #fff8c5; }
 .cmt-chip.is-skip { color: #57606a; background: #eceff2; }
 .cmt-chip.is-conflict { color: #bc4c00; background: #fff1e5; }
@@ -374,44 +463,62 @@
 .cmt-commit-meta {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin-top: 3px;
-  font-size: 11.5px;
-  color: #656d76;
+  font-size: 12px;
+  color: #57606a;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .cmt-commit-meta strong { color: #24292f; font-weight: 600; }
+.cmt-commit-byline { flex: none; }
 
 .cmt-commit-pr {
-  display: flex;
-  max-width: 100%;
+  display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
   overflow: hidden;
   border: 0;
   background: transparent;
   color: #57606a;
+  font-size: 12px;
   padding: 0;
   text-align: left;
+  cursor: pointer;
 }
 
+.cmt-commit-dot { color: #d0d7de; }
 .cmt-commit-pr:hover .cmt-commit-pr-title { color: #0969da; text-decoration: underline; }
-.cmt-commit-pr-title { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-commit-pr-title { overflow: hidden; font-size: 12px; color: #8c959f; text-overflow: ellipsis; white-space: nowrap; }
 
 .cmt-commit-sha {
-  border: 0;
-  background: transparent;
-  cursor: copy;
+  flex: none;
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 11px;
+  font-size: 11.5px;
   color: #0969da;
-  padding: 2px 0 0;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 3px 9px;
+  background: #ffffff;
 }
 
-.cmt-commit-sha:hover { text-decoration: underline; }
+.cmt-commit-row:hover .cmt-commit-sha { background: #f6f8fa; }
 
-.cmt-inline-editor { padding: 10px 12px; background: #f6f8fa; border-bottom: 1px solid #d8dee4; }
+.cmt-commit-copy {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #8c959f;
+  font-size: 13px;
+  padding: 0;
+  cursor: copy;
+}
+
+.cmt-commit-copy:hover { color: #0969da; }
+
+.cmt-inline-editor { padding: 10px 12px; background: #f6f8fa; border-top: 1px solid #d8dee4; }
 
 .cmt-editor-label {
   font-size: 10.5px;
@@ -1522,9 +1629,11 @@
 .cmt-split-chip {
   display: flex;
   align-items: stretch;
+  height: 28px;
+  box-sizing: border-box;
   border: 1px solid #d0d7de;
   border-radius: 6px;
-  background: #f6f8fa;
+  background: #ffffff;
   color: #57606a;
   overflow: hidden;
   max-width: min(560px, 46vw);
@@ -1537,15 +1646,17 @@
   background: none;
   color: inherit;
   cursor: pointer;
-  padding: 5px 12px;
+  padding: 0 11px;
   font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
   min-width: 0;
 }
-.cmt-split-chip__seg + .cmt-split-chip__seg { border-left: 1px solid #d0d7de; }
+.cmt-split-chip__seg + .cmt-split-chip__seg { border-left: 1px solid #eef0f2; }
+.cmt-split-chip__seg .cmt-repo-chip__label.cmt-mono { font-size: 12px; font-weight: 400; color: #24292f; }
 .cmt-split-chip__caret { padding-right: 8px; padding-left: 8px; }
-.cmt-split-chip__seg:hover { background: rgba(9, 105, 218, 0.06); }
-.cmt-split-chip.is-active { background: #0969da; border-color: #0969da; color: #ffffff; }
-.cmt-split-chip.is-active .cmt-split-chip__seg + .cmt-split-chip__seg { border-left-color: rgba(255, 255, 255, 0.35); }
-.cmt-split-chip.is-active .cmt-split-chip__seg:hover { background: rgba(255, 255, 255, 0.12); }
+.cmt-split-chip__seg:hover { background: #f6f8fa; }
+.cmt-split-chip.is-active { background: #f2f8fd; border-color: #0969da; color: #0969da; }
+.cmt-split-chip.is-active .cmt-split-chip__seg .cmt-repo-chip__label.cmt-mono { color: #0969da; }
+.cmt-split-chip.is-active .cmt-split-chip__seg + .cmt-split-chip__seg { border-left-color: rgba(9, 105, 218, 0.25); }
+.cmt-split-chip.is-active .cmt-split-chip__seg:hover { background: rgba(9, 105, 218, 0.08); }

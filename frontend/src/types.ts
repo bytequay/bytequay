@@ -532,7 +532,12 @@ export type CherryPickExecutionRequest = {
   pullRequestBody: string;
 };
 
-export type GitRemoteDto = { name: string; url: string };
+export type GitRemoteDto = {
+  name: string;
+  url: string;
+  /** The remote's default branch, when its HEAD symref is known locally. */
+  headBranch?: string | null;
+};
 
 export type GitOverviewDto = {
   currentBranch: string;

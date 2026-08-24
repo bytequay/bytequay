@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { relativeTime } from '../relativeTime';
 import type {
   CherryPickPreview,
@@ -27,7 +27,7 @@ import FlowView from './FlowView';
 import HistoryView from './HistoryView';
 import ProgressView from './ProgressView';
 import TasksView from './TasksView';
-import { selectedSpan, shortSha } from './model';
+import { remoteBranchCorrection, selectedSpan, shortSha, spanFromShas } from './model';
 import '../css/commits.css';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
@@ -87,6 +87,8 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [sourceBranchMenu, setSourceBranchMenu] = useState(false);
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
+  /** The user chose this source's branch themselves; stop steering to its default. */
+  const [upBranchPicked, setUpBranchPicked] = useState(false);
   const [commits, setCommits] = useState<GitCommitDto[]>([]);
   const [logLoading, setLogLoading] = useState(true);
   const [checkedWs, setCheckedWs] = useState<Set<string>>(new Set());
@@ -99,6 +101,12 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [executionId, setExecutionId] = useState<string | null>(initialExecutionId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
+  const [rangeError, setRangeError] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  /** The one ref an unreadable remote log already auto-synced for. */
+  const autoSyncAttempt = useRef<string | null>(null);
 
   const hasUpstream = workspace.upstreamRepositoryId !== null;
   const remoteSources = selectableCommitSources(overview?.remotes ?? [], workspace.originRemote);
@@ -115,6 +123,9 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const activeRemoteUrl = activeRemote === null
     ? null
     : overview?.remotes.find(remote => remote.name === activeRemote)?.url ?? null;
+  const activeRemoteHead = activeRemote === null
+    ? null
+    : overview?.remotes.find(remote => remote.name === activeRemote)?.headBranch ?? null;
   const sourceSlug = activeRemoteUrl ? githubSlug(activeRemoteUrl) : null;
   const logRef = isRemote ? `${activeRemote}/${upBranch}` : branch;
   const historySource: CommitHistorySourceDto = isUpstream ? 'UPSTREAM' : isRemote ? 'REMOTE' : 'WORKSPACE';
@@ -139,6 +150,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
       ? workspace.upstreamDefaultBranch ?? workspace.defaultBranch
       : workspace.defaultBranch);
     setUpBranches([]);
+    setUpBranchPicked(false);
     setCheckedUp(new Set());
   }, [hasUpstream, source, firstExtraRemote, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
 
@@ -155,26 +167,6 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   }, [branchMenu, sourceMenu, sourceBranchMenu]);
 
   useEffect(() => {
-    let cancelled = false;
-    setLogLoading(true);
-    window.bridge.gitLog(workspace.id, historySource, historyBranch, 300, historyRemote)
-      .then(snapshot => {
-        if (cancelled) return;
-        setCommits(snapshot.commits);
-        setRefreshStatus(snapshot.refresh);
-        setError(null);
-      })
-      .catch(failure => {
-        if (cancelled) return;
-        setError(failure instanceof Error ? failure.message : String(failure));
-      })
-      .finally(() => {
-        if (!cancelled) setLogLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [workspace.id, historySource, historyBranch, historyRemote, logVersion]);
-
-  useEffect(() => {
     if (isRemote) return;
     let cancelled = false;
     window.bridge.gitStatus(workspace.id)
@@ -183,16 +175,42 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     return () => { cancelled = true; };
   }, [workspace.id, isRemote, logVersion, commitsView]);
 
+  // A browsed remote's branches load as soon as it becomes active (not only
+  // when its menu opens), and reload after every sync in case a fetch just
+  // brought the remote-tracking refs in.
   useEffect(() => {
-    if (activeRemote === null || !sourceBranchMenu || upBranches.length > 0) return;
+    if (activeRemote === null) return;
     let cancelled = false;
     window.bridge.gitRemoteBranches(workspace.id, activeRemote)
       .then(value => { if (!cancelled) setUpBranches(value); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [activeRemote, sourceBranchMenu, upBranches.length, workspace.id]);
+  }, [activeRemote, workspace.id, logVersion]);
+
+  // The branch defaults to the workspace's default, which may not even exist
+  // on the source; steer to the source's detected default branch (its HEAD,
+  // resolved during sync) until the user picks a branch themselves.
+  useEffect(() => {
+    if (activeRemote === null) return;
+    const correction = remoteBranchCorrection(upBranches, upBranch, activeRemoteHead, upBranchPicked);
+    if (correction === null) return;
+    setUpBranch(correction);
+    setCheckedUp(new Set());
+  }, [activeRemote, upBranches, upBranch, activeRemoteHead, upBranchPicked]);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
+
+  const canApplyRange = rangeFrom.trim() !== '' && rangeTo.trim() !== '';
+  const applyRange = () => {
+    if (!canApplyRange) return;
+    const result = spanFromShas(commits, rangeFrom, rangeTo);
+    if ('error' in result) {
+      setRangeError(true);
+      return;
+    }
+    setRangeError(false);
+    (isRemote ? setCheckedUp : setCheckedWs)(new Set(result.anchors));
+  };
 
   const sync = async () => {
     if (syncing) return;
@@ -202,13 +220,17 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
       const upstreamBranch = isUpstream
         ? upBranch
         : workspace.upstreamDefaultBranch ?? workspace.defaultBranch;
+      // The extra-remote ref is only validated when its branch is known to
+      // exist; the fetch itself covers every configured remote regardless, so
+      // a fresh remote (branches unknown) syncs green instead of failing on a
+      // guessed branch.
       const status = await window.bridge.refreshCommitHistory(
         workspace.id,
         commitRefreshRefs(
           branch,
           upstreamBranch,
           hasUpstream,
-          activeRemote !== null && activeRemote !== 'upstream'
+          activeRemote !== null && activeRemote !== 'upstream' && upBranches.includes(upBranch)
             ? { name: activeRemote, branch: upBranch }
             : undefined,
         ),
@@ -227,6 +249,39 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
       setSyncing(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    setLogLoading(true);
+    window.bridge.gitLog(workspace.id, historySource, historyBranch, 300, historyRemote)
+      .then(snapshot => {
+        if (cancelled) return;
+        setCommits(snapshot.commits);
+        setRefreshStatus(snapshot.refresh);
+        setError(null);
+      })
+      .catch(failure => {
+        if (cancelled) return;
+        // Never leave the previous ref's commits on screen: a reader would
+        // take them for the selected source's history.
+        setCommits([]);
+        setError(failure instanceof Error ? failure.message : String(failure));
+        // A browsed remote ref usually fails because it was never fetched;
+        // sync once for it (a fetch), which bumps logVersion and retries.
+        const attempt = `${historySource}:${historyRemote ?? ''}:${historyBranch}`;
+        if (historySource !== 'WORKSPACE' && autoSyncAttempt.current !== attempt) {
+          autoSyncAttempt.current = attempt;
+          void sync();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLogLoading(false);
+    });
+    return () => { cancelled = true; };
+    // `sync` is deliberately omitted: it is remade every render and only the
+    // error path calls it; depending on it would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.id, historySource, historyBranch, historyRemote, logVersion]);
 
   const openFlow = async () => {
     if (activeRemote === null || !span) return;
@@ -325,6 +380,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
 
   const sourceLabel = source ?? 'Select source';
   const showTabBar = screen !== 'progress';
+  const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote);
   const filteredUpBranches = upBranches.filter(name =>
     name.toLowerCase().includes(upBranchQuery.trim().toLowerCase()));
 
@@ -341,7 +397,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
               onClick={wsChipClick}
             >
               <span className="cmt-mono">⑂</span>
-              <span className="cmt-repo-chip__label">{branch}</span>
+              <span className="cmt-repo-chip__label cmt-mono">{branch}</span>
               <span className="cmt-caret">▾</span>
             </button>
             {branchMenu && (
@@ -398,7 +454,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
                   onClick={sourceBranchChipClick}
                 >
                   <span className="cmt-mono">⑂</span>
-                  <span className="cmt-repo-chip__label">{upBranch}</span>
+                  <span className="cmt-repo-chip__label cmt-mono">{upBranch}</span>
                   <span className="cmt-caret">▾</span>
                 </button>
               )}
@@ -458,6 +514,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
                     className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
                     onClick={() => {
                       setUpBranch(name);
+                      setUpBranchPicked(true);
                       setSourceBranchMenu(false);
                       setUpBranchQuery('');
                       setCheckedUp(new Set());
@@ -471,6 +528,28 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
             )}
           </div>
 
+          {historyVisible && (
+            <div className="cmt-chip-wrap">
+              <details className="cmt-range">
+                <summary title="Select a commit range by SHA">⇲ select range</summary>
+                <div className="cmt-range-panel">
+                  <input
+                    value={rangeFrom}
+                    placeholder="from SHA"
+                    onChange={event => { setRangeFrom(event.target.value); setRangeError(false); }}
+                  />
+                  <span className="cmt-range-sep">…</span>
+                  <input
+                    value={rangeTo}
+                    placeholder="to SHA"
+                    onChange={event => { setRangeTo(event.target.value); setRangeError(false); }}
+                  />
+                  <button type="button" disabled={!canApplyRange} onClick={applyRange}>Select range</button>
+                  {rangeError && <span className="cmt-range-error">SHA not on this branch</span>}
+                </div>
+              </details>
+            </div>
+          )}
           <div className="cmt-sync">
             <button
               type="button"
@@ -523,6 +602,17 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
         </div>
       )}
 
+      {showTabBar && historyVisible && (
+        <div className="cmt-search">
+          <span>⌕</span>
+          <input
+            value={searchQuery}
+            placeholder="Search — PR title, #number, or SHA"
+            onChange={event => setSearchQuery(event.target.value)}
+          />
+        </div>
+      )}
+
       {error && screen === 'commits' && <div className="cmt-error" role="alert">{error}</div>}
 
       {screen === 'commits' && commitsView === 'changes' && !isRemote && (
@@ -541,6 +631,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
           commits={commits}
           loading={logLoading}
           checked={checked}
+          filter={searchQuery}
           onChangeChecked={next => (isRemote ? setCheckedUp(next) : setCheckedWs(next))}
           onHistoryRewritten={() => setLogVersion(version => version + 1)}
           onOpenPullRequest={onOpenPullRequest}

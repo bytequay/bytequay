@@ -717,20 +717,27 @@
 .pull-changes__totals span:last-child { color: #cf222e; }
 .pull-changes__panes { display: flex; min-width: 0; min-height: 0; flex: 1; }
 
-.pull-file-tree { width: 188px; flex: 0 0 188px; overflow-y: auto; padding: 8px 6px 20px; background: #fff; }
+.pull-file-tree { width: 260px; flex: 0 0 260px; overflow-y: auto; padding: 8px 8px 20px; background: #fff; }
 .pull-file-tree__resize { position: relative; z-index: 2; width: 7px; flex: 0 0 7px; cursor: col-resize; }
 .pull-file-tree__resize::after { position: absolute; top: 0; right: 3px; bottom: 0; width: 1px; background: #e7e9ec; content: ''; }
 .pull-file-tree__resize:hover::after,
 .pull-file-tree__resize.is-resizing::after { width: 2px; background: #0969da; }
-.pull-file-tree button { display: flex; width: 100%; min-width: 0; align-items: flex-start; gap: 6px; border: 0; border-radius: 6px; background: transparent; color: #6e7781; padding: 6px 7px; text-align: left; }
-.pull-file-tree button:hover { background: #f0f1f3; }
-.pull-file-tree button.is-active { background: #e7e9ec; color: #454c54; }
-.pull-file-tree button > svg { flex: 0 0 auto; margin-top: 1px; }
-.pull-file-tree button > span { display: flex; min-width: 0; flex-direction: column; }
-.pull-file-tree strong,
-.pull-file-tree small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pull-file-tree strong { color: #1f2328; font-size: 11.5px; font-weight: 500; }
-.pull-file-tree small { margin-top: 2px; color: #8b949e; font-size: 9.5px; }
+.pull-file-tree button { display: flex; width: 100%; min-width: 0; align-items: center; gap: 9px; border: 0; border-radius: 6px; background: transparent; color: #6e7781; padding: 6px 9px; text-align: left; }
+.pull-file-tree button:hover { background: #f6f8fa; }
+.pull-file-tree button.is-active { background: #f2f8fd; box-shadow: inset 2px 0 0 #0969da; }
+.pull-file-tree__badge { display: inline-flex; flex: 0 0 auto; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 4px; background: #eceff2; color: #57606a; font-family: var(--font-mono); font-style: normal; font-size: 9.5px; font-weight: 700; }
+.pull-file-tree__badge.is-modified { background: #fff8c5; color: #9a6700; }
+.pull-file-tree__badge.is-added { background: #dafbe1; color: #1a7f37; }
+.pull-file-tree__badge.is-removed { background: #ffebe9; color: #cf222e; }
+.pull-file-tree__badge.is-renamed { background: #ddf4ff; color: #0969da; }
+.pull-file-tree__name { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.pull-file-tree__name strong,
+.pull-file-tree__name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pull-file-tree__name strong { color: #1f2328; font-size: 12px; font-weight: 600; }
+.pull-file-tree__name small { margin-top: 1px; color: #8c959f; font-family: var(--font-mono); font-size: 9.5px; }
+.pull-file-tree__stats { display: inline-flex; flex: 0 0 auto; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; }
+.pull-file-tree__stats .is-add { color: #1a7f37; }
+.pull-file-tree__stats .is-del { color: #cf222e; }
 
 .pull-changes__scroll { min-width: 0; min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; padding: 12px 14px 40px; background: #fafbfc; }
 .pull-diff-file { min-width: 0; overflow: hidden; border: 1px solid #d5dbe1; border-radius: 10px; background: #fff; }

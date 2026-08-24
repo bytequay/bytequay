@@ -17,7 +17,14 @@ import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
 import { useResizablePane } from '../useResizablePane';
-import { groupByDay, selectedSpan, shortSha, spanFromShas, squashMessage } from './model';
+import {
+  groupByDay,
+  isLikelyGitHubLogin,
+  matchesCommitQuery,
+  selectedSpan,
+  shortSha,
+  squashMessage,
+} from './model';
 
 export default function HistoryView({
   workspaceId,
@@ -28,6 +35,7 @@ export default function HistoryView({
   commits,
   loading,
   checked,
+  filter = '',
   onChangeChecked,
   onHistoryRewritten,
   onOpenPullRequest,
@@ -42,14 +50,13 @@ export default function HistoryView({
   commits: GitCommitDto[];
   loading: boolean;
   checked: ReadonlySet<string>;
+  /** Toolbar search query; hides non-matching rows, selection is untouched. */
+  filter?: string;
   onChangeChecked: (next: Set<string>) => void;
   onHistoryRewritten: () => void;
   onOpenPullRequest: (number: number) => void;
 }) {
   const [viewedSha, setViewedSha] = useState<string | null>(null);
-  const [rangeFrom, setRangeFrom] = useState('');
-  const [rangeTo, setRangeTo] = useState('');
-  const [rangeError, setRangeError] = useState(false);
   const [diffFiles, setDiffFiles] = useState<GitDiffFileDto[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
@@ -61,7 +68,6 @@ export default function HistoryView({
   const commitPane = useResizablePane(460, 340, 800);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
-  const canApplyRange = rangeFrom.trim() !== '' && rangeTo.trim() !== '';
   const spanCommits = useMemo(
     () => (span ? commits.slice(span.lo, span.hi + 1) : []),
     [commits, span],
@@ -69,6 +75,16 @@ export default function HistoryView({
   const single = !isUpstream && spanCommits.length === 1 ? spanCommits[0] : null;
   const multi = !isUpstream && spanCommits.length > 1;
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
+  const query = filter.trim();
+  const visibleGroups = useMemo(() => {
+    if (query === '') return dayGroups;
+    return dayGroups
+      .map(group => ({
+        ...group,
+        commits: group.commits.filter(({ commit }) => matchesCommitQuery(commit, query)),
+      }))
+      .filter(group => group.commits.length > 0);
+  }, [dayGroups, query]);
   const viewerFiles = useMemo<DiffFileDto[]>(() => diffFiles.map(file => ({
     filename: file.path,
     status: file.status,
@@ -105,7 +121,9 @@ export default function HistoryView({
         if (!cancelled) setDiffLoading(false);
       });
     return () => { cancelled = true; };
-  }, [workspaceId, diffBase, diffHead]);
+    // `commits` retries a diff that failed transiently (e.g. while a sync
+    // held the repository) once the next log snapshot arrives.
+  }, [workspaceId, diffBase, diffHead, commits]);
 
   const resetDrafts = () => {
     setEditTitle(null);
@@ -115,23 +133,19 @@ export default function HistoryView({
     setError(null);
   };
 
+  // The toolbar's range picker changes `checked` from outside; drop drafts so
+  // an edit typed for one commit never applies to a newly selected one.
+  useEffect(() => {
+    setEditTitle(null);
+    setEditBody(null);
+    setSquashDraft(null);
+  }, [checked]);
+
   const toggle = (sha: string) => {
     const next = new Set(checked);
     if (next.has(sha)) next.delete(sha);
     else next.add(sha);
     onChangeChecked(next);
-    resetDrafts();
-  };
-
-  const applyRange = () => {
-    if (!canApplyRange) return;
-    const result = spanFromShas(commits, rangeFrom, rangeTo);
-    if ('error' in result) {
-      setRangeError(true);
-      return;
-    }
-    setRangeError(false);
-    onChangeChecked(new Set(result.anchors));
     resetDrafts();
   };
 
@@ -190,41 +204,36 @@ export default function HistoryView({
         className="cmt-history-left"
         style={{ width: commitPane.width, flexBasis: commitPane.width }}
       >
-        <div className="cmt-range-bar">
-          <div className="cmt-range-row">
-            <span className="cmt-range-label">RANGE</span>
-            <input
-              value={rangeFrom}
-              placeholder="from SHA"
-              onChange={event => { setRangeFrom(event.target.value); setRangeError(false); }}
-            />
-            <span className="cmt-range-sep">…</span>
-            <input
-              value={rangeTo}
-              placeholder="to SHA"
-              onChange={event => { setRangeTo(event.target.value); setRangeError(false); }}
-            />
-            <button type="button" disabled={!canApplyRange} onClick={applyRange}>Select range</button>
-            {rangeError && <span className="cmt-range-error">SHA not on this branch</span>}
+        {(isUpstream || (spanCommits.length > 0 && !canRewrite)) && (
+          <div className="cmt-range-bar">
+            {isUpstream && (
+              <div className="cmt-hint is-upstream">
+                <strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs),
+                then cherry-pick the range into {branch}.
+              </div>
+            )}
+            {!isUpstream && spanCommits.length > 0 && !canRewrite && (
+              <div className="cmt-hint">
+                Check out {branch} to edit messages or squash; {logRef} is only being viewed.
+              </div>
+            )}
           </div>
-          {isUpstream && (
-            <div className="cmt-hint is-upstream">
-              <strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs),
-              then cherry-pick the range into {branch}.
-            </div>
-          )}
-          {!isUpstream && spanCommits.length > 0 && !canRewrite && (
-            <div className="cmt-hint">
-              Check out {branch} to edit messages or squash; {logRef} is only being viewed.
-            </div>
-          )}
-        </div>
+        )}
         <div className="cmt-commit-list">
           {loading && <div className="cmt-loading">Loading commits…</div>}
           {!loading && commits.length === 0 && <div className="cmt-loading">No commits on this ref.</div>}
-          {dayGroups.map(group => (
-            <div key={group.label}>
-              <div className="cmt-day-head">{group.label}</div>
+          {!loading && commits.length > 0 && visibleGroups.length === 0 && (
+            <div className="cmt-loading">No commits match “{query}”.</div>
+          )}
+          {visibleGroups.map(group => (
+            <div className="cmt-day-card" key={group.label}>
+              <div className="cmt-day-head">
+                <span className="cmt-day-icon">⑂</span>
+                <span>{group.label}</span>
+                <span className="cmt-day-count">
+                  {group.commits.length} {group.commits.length === 1 ? 'commit' : 'commits'}
+                </span>
+              </div>
               {group.commits.map(({ commit, index }) => {
                 const inRange = span !== null && index >= span.lo && index <= span.hi;
                 const isViewed = viewed?.sha === commit.sha;
@@ -243,45 +252,47 @@ export default function HistoryView({
                         onClick={event => event.stopPropagation()}
                         onChange={() => toggle(commit.sha)}
                       />
+                      <Avatar
+                        login={commit.author}
+                        avatarUrl={commit.authorAvatarUrl}
+                        size={26}
+                        allowGitHubFallback={isLikelyGitHubLogin(commit.author)}
+                      />
                       <div className="cmt-commit-main">
-                        <div className="cmt-commit-title-row">
-                          <span className="cmt-commit-title">{commit.title}</span>
-                        </div>
-                        {pullRequestNumber !== null && (
-                          <button
-                            type="button"
-                            className="cmt-commit-pr"
-                            title={pullRequestTitle
-                              ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
-                              : `Open PR #${pullRequestNumber}`}
-                            onClick={event => {
-                              event.stopPropagation();
-                              onOpenPullRequest(pullRequestNumber);
-                            }}
-                          >
-                            <span className="cmt-chip is-pr">PR #{pullRequestNumber}</span>
-                            <span className="cmt-commit-pr-title">
-                              {pullRequestTitle ?? 'View pull request'}
-                            </span>
-                          </button>
-                        )}
+                        <div className="cmt-commit-title">{commit.title}</div>
                         <div className="cmt-commit-meta">
-                          <Avatar
-                            login={commit.author}
-                            avatarUrl={commit.authorAvatarUrl}
-                            size={14}
-                            allowGitHubFallback={false}
-                          />
-                          <span>
+                          <span className="cmt-commit-byline">
                             <strong>{commit.author}</strong>
                             {' committed '}
                             {relativeTime(commit.authoredAt)}
                           </span>
+                          {pullRequestNumber !== null && (
+                            <button
+                              type="button"
+                              className="cmt-commit-pr"
+                              title={pullRequestTitle
+                                ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
+                                : `Open PR #${pullRequestNumber}`}
+                              onClick={event => {
+                                event.stopPropagation();
+                                onOpenPullRequest(pullRequestNumber);
+                              }}
+                            >
+                              <span className="cmt-commit-dot">·</span>
+                              <span className="cmt-chip is-pr">⑃ #{pullRequestNumber}</span>
+                              <span className="cmt-commit-pr-title">
+                                {pullRequestTitle ?? 'View pull request'}
+                              </span>
+                            </button>
+                          )}
                         </div>
                       </div>
+                      <span className="cmt-commit-sha" title="View this commit's changes">
+                        {shortSha(commit.sha)}
+                      </span>
                       <button
                         type="button"
-                        className="cmt-commit-sha"
+                        className="cmt-commit-copy"
                         title="Copy full commit SHA"
                         aria-label={`Copy full commit SHA ${commit.sha}`}
                         onClick={event => {
@@ -289,7 +300,7 @@ export default function HistoryView({
                           void navigator.clipboard.writeText(commit.sha);
                         }}
                       >
-                        {shortSha(commit.sha)}
+                        ⧉
                       </button>
                     </div>
 
@@ -386,7 +397,7 @@ export default function HistoryView({
                           login={viewed.author}
                           avatarUrl={viewed.authorAvatarUrl}
                           size={14}
-                          allowGitHubFallback={false}
+                          allowGitHubFallback={isLikelyGitHubLogin(viewed.author)}
                         />
                         {viewed.author} committed {relativeTime(viewed.authoredAt)}
                       </span>

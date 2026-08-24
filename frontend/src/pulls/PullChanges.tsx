@@ -107,7 +107,7 @@ export function DiffViewer({
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
-  const fileTree = useResizablePane(188, 140, 480);
+  const fileTree = useResizablePane(260, 160, 480);
   const totals = useMemo(() => files.reduce((sum, file) => ({
     additions: sum.additions + file.additions,
     deletions: sum.deletions + file.deletions,
@@ -179,6 +179,7 @@ export function DiffViewer({
             {files.map(file => {
               const segments = file.filename.split('/');
               const name = segments.pop() ?? file.filename;
+              const badge = fileStatusBadge(file.status);
               return (
                 <button
                   type="button"
@@ -187,8 +188,17 @@ export function DiffViewer({
                   onClick={() => pick(file.filename)}
                   title={file.filename}
                 >
-                  <FileIcon />
-                  <span><strong>{name}</strong>{segments.length > 0 && <small>{segments.join('/')}</small>}</span>
+                  <i className={`pull-file-tree__badge is-${badge.kind}`} title={badge.title}>
+                    {badge.letter}
+                  </i>
+                  <span className="pull-file-tree__name">
+                    <strong>{name}</strong>
+                    {segments.length > 0 && <small>{segments.join('/')}</small>}
+                  </span>
+                  <span className="pull-file-tree__stats">
+                    {file.additions > 0 && <span className="is-add">+{file.additions}</span>}
+                    {file.deletions > 0 && <span className="is-del">−{file.deletions}</span>}
+                  </span>
                 </button>
               );
             })}
@@ -647,12 +657,18 @@ function PanelIcon() {
   );
 }
 
-function FileIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
-      <path d="M14 2v5h5" />
-    </svg>
-  );
+/** Normalizes both git letter statuses (M/A/D/R) and GitHub word statuses
+ *  ("modified", "removed", …) to one status badge. First-letter alone would
+ *  collide: "removed" and "renamed" both start with R. */
+export function fileStatusBadge(status: string): { letter: string; kind: string; title: string } {
+  const normalized = status.toLowerCase();
+  if (normalized === 'a' || normalized === 'added') return { letter: 'A', kind: 'added', title: 'added' };
+  if (normalized === 'd' || normalized === 'removed' || normalized === 'deleted') {
+    return { letter: 'D', kind: 'removed', title: 'removed' };
+  }
+  if (normalized === 'r' || normalized === 'renamed') return { letter: 'R', kind: 'renamed', title: 'renamed' };
+  if (normalized === 'm' || normalized === 'modified' || normalized === 'changed') {
+    return { letter: 'M', kind: 'modified', title: 'modified' };
+  }
+  return { letter: status.charAt(0).toUpperCase() || '?', kind: 'other', title: status };
 }

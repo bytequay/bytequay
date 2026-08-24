@@ -140,7 +140,7 @@ class TestModelSettingsService
         @Override
         public List<ModelApiKey> findAll()
         {
-            return List.copyOf(keys);
+            return ImmutableList.copyOf(keys);
         }
 
         @Override

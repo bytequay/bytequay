@@ -22,6 +22,7 @@ import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -94,7 +95,7 @@ class TestDefaultWorkspaceRemoteSourceService
     @Test
     void reservedAndInvalidNamesAreRejected()
     {
-        for (String name : List.of("origin", "upstream", "-oss", "a b", "")) {
+        for (String name : ImmutableList.of("origin", "upstream", "-oss", "a b", "")) {
             assertThatThrownBy(() -> service.add("ws-1", name, "https://github.com/x/y.git"))
                     .isInstanceOf(WorkspaceException.class);
         }
@@ -104,7 +105,7 @@ class TestDefaultWorkspaceRemoteSourceService
     @Test
     void unsafeUrlsAreRejected()
     {
-        for (String url : List.of(
+        for (String url : ImmutableList.of(
                 "http://github.com/x/y.git",
                 "https://user:pass@github.com/x/y.git",
                 "https://github.com/x/y.git?token=1",

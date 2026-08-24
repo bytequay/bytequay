@@ -16,13 +16,12 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -102,7 +101,7 @@ class TestGitHubPullRequestWriteClient
                 PullRequestRef.of("upstream", "project", 12),
                 "COMMENT",
                 "",
-                List.of(
+                ImmutableList.of(
                         new InlineReviewComment(
                                 "src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha"),
                         new InlineReviewComment(
@@ -196,10 +195,12 @@ class TestGitHubPullRequestWriteClient
         assertThat(client.updateIssueMetadata(
                 "pat",
                 PullRequestRef.of("upstream", "project", 12),
-                List.of("alice"),
-                List.of("bug")))
+                ImmutableList.of("alice"),
+                ImmutableList.of("bug")))
                 .isEqualTo(new GitHubPullRequestWriteClient.IssueMetadata(
-                        List.of("alice"), List.of("bug"), java.time.Instant.parse("2026-08-23T10:00:00Z")));
+                        ImmutableList.of("alice"),
+                        ImmutableList.of("bug"),
+                        java.time.Instant.parse("2026-08-23T10:00:00Z")));
         server.verify();
     }
 

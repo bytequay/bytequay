@@ -26,6 +26,7 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,7 +35,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -240,6 +240,6 @@ class TestCherryPickPreviewHttpApi
                 sourceRemote,
                 "origin",
                 "main",
-                List.of(extraRemotes));
+                ImmutableList.copyOf(extraRemotes));
     }
 }

@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -130,8 +131,8 @@ public class RepositoryIssueEntity
 
     public void updateMetadata(List<String> assignees, List<String> labels, Instant updatedAt)
     {
-        this.assignees = List.copyOf(assignees);
-        this.labels = List.copyOf(labels);
+        this.assignees = ImmutableList.copyOf(assignees);
+        this.labels = ImmutableList.copyOf(labels);
         this.updatedAt = updatedAt;
     }
 

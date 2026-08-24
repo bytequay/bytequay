@@ -20,8 +20,6 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -127,9 +125,9 @@ class TestDefaultWorkspaceMetadataService
 
         WorkspaceMetadataSyncResult result = service.synchronize("direct");
 
-        assertThat(result.state()).isEqualTo(MetadataState.READY);
+        assertThat(result.successful()).isTrue();
         assertThat(result.contributorCount()).isEqualTo(1);
-        assertThat(workspaces.get("direct").codeState()).isEqualTo(CodeState.READY);
+        assertThat(workspaces.get("direct").lastCodeSyncAt()).contains(NOW);
         verify(workspaceStore).save(org.mockito.ArgumentMatchers.any());
         verify(gitHub).fetchContributors("token", DIRECT);
         verify(gitHub).fetchLabels("token", DIRECT);
@@ -151,7 +149,23 @@ class TestDefaultWorkspaceMetadataService
         verify(gitHub, times(1)).fetchContributors("token", UPSTREAM);
         verify(gitHub, times(1)).fetchLabels("token", UPSTREAM);
         verify(gitHub, times(1)).fetchTopics("token", UPSTREAM);
-        assertThat(workspaces.get("fork-two").metadataState()).isEqualTo(MetadataState.READY);
+        assertThat(workspaces.get("fork-two").lastMetadataSyncAt()).contains(NOW);
+    }
+
+    @Test
+    void freshWorkspaceTimestampUsesTheCachedSnapshot()
+    {
+        Workspace fresh = workspace("direct", 100, DIRECT, Topology.DIRECT)
+                .withMetadataSyncAt(Optional.of(NOW), NOW);
+        workspaces.put("direct", fresh);
+
+        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+
+        assertThat(result.successful()).isTrue();
+        verify(workspaceStore, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(gitHub, never()).fetchContributors("token", DIRECT);
+        verify(gitHub, never()).fetchLabels("token", DIRECT);
+        verify(gitHub, never()).fetchTopics("token", DIRECT);
     }
 
     @Test
@@ -172,10 +186,10 @@ class TestDefaultWorkspaceMetadataService
 
         WorkspaceMetadataSyncResult result = service.synchronize("direct");
 
-        assertThat(result.state()).isEqualTo(MetadataState.FAILED);
+        assertThat(result.successful()).isFalse();
         assertThat(service.getSnapshot("direct")).isEqualTo(previous);
-        assertThat(workspaces.get("direct").codeState()).isEqualTo(CodeState.READY);
-        assertThat(workspaces.get("direct").metadataError()).isPresent();
+        assertThat(workspaces.get("direct").lastCodeSyncAt()).contains(NOW);
+        assertThat(workspaces.get("direct").lastMetadataSyncAt()).isEmpty();
         verify(metadataStore, never()).upsertContributors(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(),
@@ -205,11 +219,7 @@ class TestDefaultWorkspaceMetadataService
                         ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
                         : Optional.empty(),
                 "/tmp/" + id,
-                CodeState.READY,
-                MetadataState.PENDING,
                 Optional.of(NOW),
-                Optional.empty(),
-                Optional.empty(),
                 Optional.empty(),
                 0,
                 NOW,

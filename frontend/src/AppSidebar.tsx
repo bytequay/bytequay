@@ -15,7 +15,7 @@ import { useState, type ReactNode } from 'react';
 import Avatar from './Avatar';
 import { useResizablePane } from './useResizablePane';
 import type { WorkspaceTab } from './workspaces/WorkspaceShell';
-import { workspacePhaseColor, type Workspace } from './workspaces/model';
+import { workspaceHasReadableCode, workspacePhaseColor, type Workspace } from './workspaces/model';
 
 export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
 
@@ -66,8 +66,8 @@ export default function AppSidebar({
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;
-    if (tab === 'commits' && workspace.codeState !== 'READY') {
-      return `Available when repository code is ready (${workspace.codeState.toLowerCase()}).`;
+    if (tab === 'commits' && !workspaceHasReadableCode(workspace)) {
+      return 'Available after the repository is cloned.';
     }
     return null;
   };

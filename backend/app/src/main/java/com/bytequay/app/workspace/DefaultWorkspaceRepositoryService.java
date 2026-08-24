@@ -23,8 +23,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.WatchedRepo;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WatchedRepoStore;
@@ -41,13 +39,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
@@ -60,6 +61,8 @@ public class DefaultWorkspaceRepositoryService
         implements WorkspaceRepositoryService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultWorkspaceRepositoryService.class);
+    private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
+    private static final Duration METADATA_FRESHNESS = Duration.ofDays(7);
 
     private final WorkspaceStore store;
     private final WatchedRepoStore legacyStore;
@@ -74,6 +77,8 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceMetadataService metadata;
     private final PullRequestRefreshService pullRequestRefresh;
     private final Executor executor;
+    private final Set<String> codeRefreshes = ConcurrentHashMap.newKeySet();
+    private final Set<String> metadataRefreshes = ConcurrentHashMap.newKeySet();
 
     public DefaultWorkspaceRepositoryService(
             WorkspaceStore store,
@@ -180,22 +185,26 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public WorkspaceRepositoryContext requireReadyRepository(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
-        if (workspace.codeState() != CodeState.READY) {
-            throw WorkspaceException.repositoryNotReady();
-        }
-        return repositoryContext(workspace);
+        return repositoryContext(requireSynchronizedWorkspace(workspaceId));
     }
 
     @Override
     public WorkspaceRepositoryContext requireReadableRepository(String workspaceId)
     {
+        return repositoryContext(requireSynchronizedWorkspace(workspaceId));
+    }
+
+    private Workspace requireSynchronizedWorkspace(String workspaceId)
+    {
         Workspace workspace = requireWorkspace(workspaceId);
-        if (workspace.codeState() != CodeState.READY
-                && (workspace.codeState() != CodeState.SYNCING || workspace.lastCodeSyncAt().isEmpty())) {
-            throw WorkspaceException.repositoryNotReady();
+        if (workspace.lastCodeSyncAt().isEmpty()) {
+            provisioning.synchronizeCode(workspaceId);
+            workspace = requireWorkspace(workspaceId);
+            if (workspace.lastCodeSyncAt().isEmpty()) {
+                throw WorkspaceException.repositoryNotReady();
+            }
         }
-        return repositoryContext(workspace);
+        return workspace;
     }
 
     private WorkspaceRepositoryContext repositoryContext(Workspace workspace)
@@ -222,34 +231,18 @@ public class DefaultWorkspaceRepositoryService
     public Workspace requestSync(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
-        CodeState code = workspace.codeState();
-        MetadataState metadataState = workspace.metadataState();
-        boolean codeBusy = code == CodeState.CLONING || code == CodeState.SYNCING;
-        boolean metadataBusy = metadataState == MetadataState.SYNCING;
-        if (codeBusy && metadataBusy) {
-            return workspace;
-        }
-        boolean synchronize = code == CodeState.READY;
-        if (!codeBusy) {
-            code = synchronize ? CodeState.SYNCING : CodeState.PENDING;
-        }
-        if (!metadataBusy) {
-            metadataState = MetadataState.PENDING;
-        }
-        Workspace accepted = store.save(workspace.withStates(code, metadataState, clock.instant()));
-        if (!codeBusy) {
-            if (synchronize) {
-                submit(() -> provisioning.synchronizeCode(workspaceId), workspaceId);
-            }
-            else {
-                submit(() -> provisioning.provision(workspaceId), workspaceId);
-            }
-        }
-        if (!metadataBusy) {
-            submit(() -> metadata.synchronize(workspaceId), workspaceId);
-        }
+        scheduleRefreshes(workspace, false);
         submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspaceId);
-        return accepted;
+        return workspace;
+    }
+
+    @Override
+    public Workspace requestSyncAfterConfigurationChange(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        scheduleRefreshes(workspace, true);
+        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspaceId);
+        return workspace;
     }
 
     @Override
@@ -260,10 +253,7 @@ public class DefaultWorkspaceRepositoryService
         if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }
-        if (workspace.codeState() == CodeState.PENDING
-                || workspace.codeState() == CodeState.CLONING
-                || workspace.codeState() == CodeState.SYNCING
-                || hasActiveExecution(workspace)) {
+        if (codeRefreshes.contains(workspace.id()) || hasActiveExecution(workspace)) {
             throw WorkspaceException.busy();
         }
         Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
@@ -291,8 +281,8 @@ public class DefaultWorkspaceRepositoryService
                         Optional.empty(),
                         Optional.empty(),
                         now));
-        store.save(linked);
-        return requestSync(workspace.id());
+        Workspace saved = store.save(linked.withMetadataSyncAt(Optional.empty(), now));
+        return requestSyncAfterConfigurationChange(saved.id());
     }
 
     @Override
@@ -313,9 +303,7 @@ public class DefaultWorkspaceRepositoryService
     public void unwatch(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
-        if (workspace.codeState() == CodeState.PENDING
-                || workspace.codeState() == CodeState.CLONING
-                || workspace.codeState() == CodeState.SYNCING) {
+        if (codeRefreshes.contains(workspace.id())) {
             throw WorkspaceException.busy();
         }
         if (hasActiveExecution(workspace)) {
@@ -372,10 +360,6 @@ public class DefaultWorkspaceRepositoryService
                 Optional.empty(),
                 Optional.empty(),
                 paths.workspace(id).resolve("repository").toString(),
-                CodeState.PENDING,
-                MetadataState.PENDING,
-                Optional.empty(),
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 displayOrder,
@@ -563,18 +547,52 @@ public class DefaultWorkspaceRepositoryService
 
     private void scheduleIncompleteWork(Workspace workspace)
     {
-        if (workspace.codeState() == CodeState.PENDING
-                || workspace.codeState() == CodeState.CLONING) {
-            submit(() -> provisioning.provision(workspace.id()), workspace.id());
-        }
-        else if (workspace.codeState() == CodeState.SYNCING) {
-            submit(() -> provisioning.synchronizeCode(workspace.id()), workspace.id());
-        }
-        if (workspace.metadataState() == MetadataState.PENDING
-                || workspace.metadataState() == MetadataState.SYNCING) {
-            submit(() -> metadata.synchronize(workspace.id()), workspace.id());
-        }
+        scheduleRefreshes(workspace, false);
         submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspace.id());
+    }
+
+    private void scheduleRefreshes(Workspace workspace, boolean forceCode)
+    {
+        Instant now = clock.instant();
+        if (forceCode || stale(workspace.lastCodeSyncAt(), now, CODE_FRESHNESS)) {
+            submitUnique(codeRefreshes, workspace.id(), workspace.lastCodeSyncAt().isPresent()
+                    ? () -> provisioning.synchronizeCode(workspace.id())
+                    : () -> provisioning.provision(workspace.id()));
+        }
+        if (stale(workspace.lastMetadataSyncAt(), now, METADATA_FRESHNESS)) {
+            submitUnique(metadataRefreshes, workspace.id(), () -> metadata.synchronize(workspace.id()));
+        }
+    }
+
+    private static boolean stale(Optional<Instant> syncedAt, Instant now, Duration freshness)
+    {
+        return syncedAt.filter(value -> !value.isBefore(now.minus(freshness))).isEmpty();
+    }
+
+    private void submitUnique(Set<String> active, String workspaceId, Runnable task)
+    {
+        if (!active.add(workspaceId)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    task.run();
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Workspace {} background synchronization stopped: {}",
+                            workspaceId, failure.getMessage());
+                }
+                finally {
+                    active.remove(workspaceId);
+                }
+            });
+        }
+        catch (RuntimeException rejected) {
+            active.remove(workspaceId);
+            log.warn("Workspace {} background synchronization could not be scheduled: {}",
+                    workspaceId, rejected.getMessage());
+        }
     }
 
     private void submit(Runnable task, String workspaceId)

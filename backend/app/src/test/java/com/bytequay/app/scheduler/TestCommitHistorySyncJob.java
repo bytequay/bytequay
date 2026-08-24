@@ -20,8 +20,6 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,19 +57,20 @@ class TestCommitHistorySyncJob
     }
 
     @Test
-    void scheduledTickRefreshesOnlyStaleReadyWorkspacesAndExplicitUpstreams()
+    void scheduledTickRefreshesStaleAndUnsyncedWorkspacesAndExplicitUpstreams()
     {
-        WorkspaceSummary linked = workspace("linked", CodeState.READY, true, 200);
-        WorkspaceSummary direct = workspace("direct", CodeState.READY, false, 300);
-        WorkspaceSummary fresh = workspace("fresh", CodeState.READY, false, 400);
-        WorkspaceSummary recentFailure = workspace("recent-failure", CodeState.READY, false, 500);
-        WorkspaceSummary pending = workspace("pending", CodeState.PENDING, false, 600);
-        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(linked, direct, fresh, recentFailure, pending));
+        WorkspaceSummary linked = workspace("linked", true, true, 200);
+        WorkspaceSummary direct = workspace("direct", true, false, 300);
+        WorkspaceSummary fresh = workspace("fresh", true, false, 400);
+        WorkspaceSummary recentFailure = workspace("recent-failure", true, false, 500);
+        WorkspaceSummary unsynced = workspace("unsynced", false, false, 600);
+        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(linked, direct, fresh, recentFailure, unsynced));
         when(commits.getRefreshStatus("linked")).thenReturn(CommitRefreshStatus.idle("linked"));
         when(commits.getRefreshStatus("direct")).thenReturn(failedAttempt("direct", NOW.minusSeconds(301)));
         when(commits.getRefreshStatus("fresh")).thenReturn(success("fresh", NOW.minusSeconds(60)));
         when(commits.getRefreshStatus("recent-failure"))
                 .thenReturn(failedAttempt("recent-failure", NOW.minusSeconds(60)));
+        when(commits.getRefreshStatus("unsynced")).thenReturn(CommitRefreshStatus.idle("unsynced"));
 
         job.tick();
 
@@ -84,14 +83,15 @@ class TestCommitHistorySyncJob
                 "fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         verify(commits, never()).refresh(
                 "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
-        verify(commits, never()).getRefreshStatus("pending");
+        verify(commits).refresh(
+                "unsynced", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
     }
 
     @Test
     void dueRefreshUsesTheSameDirectServicePath()
     {
-        WorkspaceSummary due = workspace("due", CodeState.READY, false, 700);
-        WorkspaceSummary recentFailure = workspace("recent-failure", CodeState.READY, false, 800);
+        WorkspaceSummary due = workspace("due", true, false, 700);
+        WorkspaceSummary recentFailure = workspace("recent-failure", true, false, 800);
         when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(due, recentFailure));
         when(commits.getRefreshStatus("due")).thenReturn(CommitRefreshStatus.idle("due"));
         when(commits.getRefreshStatus("recent-failure"))
@@ -123,7 +123,7 @@ class TestCommitHistorySyncJob
 
     private static WorkspaceSummary workspace(
             String id,
-            CodeState codeState,
+            boolean codeAvailable,
             boolean linked,
             long repositoryId)
     {
@@ -143,12 +143,8 @@ class TestCommitHistorySyncJob
                 "main",
                 linked ? "upstream-main" : null,
                 "/managed/" + id,
-                codeState,
-                MetadataState.READY,
-                null,
-                null,
-                null,
-                null,
+                codeAvailable ? NOW : null,
+                NOW,
                 0);
     }
 }

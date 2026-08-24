@@ -301,7 +301,7 @@ public final class CommitHistorySyncJob
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
-        // List ready workspaces, apply the five-minute freshness check, and
+        // List workspaces, apply the five-minute freshness check, and
         // call commits.refresh(...).
     }
 }
@@ -436,7 +436,7 @@ sequenceDiagram
     participant Workspaces as WorkspaceRepositoryService
     participant Service as CommitHistoryService.refresh
 
-    Job->>Workspaces: list ready watched workspaces
+    Job->>Workspaces: list watched workspaces
     Workspaces-->>Job: durable workspace routing
     loop each stale workspace
         Job->>Service: refresh(workspaceId, default refs)

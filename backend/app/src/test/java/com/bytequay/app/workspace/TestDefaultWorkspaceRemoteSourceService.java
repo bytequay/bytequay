@@ -18,8 +18,6 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.R
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -81,7 +79,7 @@ class TestDefaultWorkspaceRemoteSourceService
         verify(git).probeRemoteSource(any(), anyString());
         assertThat(store.findByWorkspace("ws-1"))
                 .containsExactly(new RemoteSource("ws-1", "oss", "https://github.com/trino-oss/trino.git"));
-        verify(repositoryService).requestSync("ws-1");
+        verify(repositoryService).requestSyncAfterConfigurationChange("ws-1");
     }
 
     @Test
@@ -132,7 +130,7 @@ class TestDefaultWorkspaceRemoteSourceService
         service.remove("ws-1", "oss");
 
         assertThat(store.findByWorkspace("ws-1")).isEmpty();
-        verify(repositoryService).requestSync("ws-1");
+        verify(repositoryService).requestSyncAfterConfigurationChange("ws-1");
     }
 
     private static Workspace workspace(boolean ready)
@@ -152,12 +150,8 @@ class TestDefaultWorkspaceRemoteSourceService
                 Optional.of("master"),
                 Optional.of("https://github.com/trinodb/trino.git"),
                 "/managed/repository",
-                ready ? CodeState.READY : CodeState.PENDING,
-                MetadataState.READY,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
+                ready ? Optional.of(NOW) : Optional.empty(),
+                Optional.of(NOW),
                 0,
                 NOW,
                 NOW);

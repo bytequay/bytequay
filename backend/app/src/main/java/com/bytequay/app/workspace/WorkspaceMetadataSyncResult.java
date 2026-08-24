@@ -14,7 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
-import com.bytequay.core.domain.Workspace.MetadataState;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -23,7 +22,7 @@ import static java.util.Objects.requireNonNull;
 
 public record WorkspaceMetadataSyncResult(
         String workspaceId,
-        MetadataState state,
+        boolean successful,
         int contributorCount,
         int labelCount,
         int topicCount,
@@ -33,20 +32,19 @@ public record WorkspaceMetadataSyncResult(
     public WorkspaceMetadataSyncResult
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        requireNonNull(state, "state is null");
         requireNonNull(contributorsSyncedAt, "contributorsSyncedAt is null");
         requireNonNull(labelsTopicsSyncedAt, "labelsTopicsSyncedAt is null");
     }
 
     public static WorkspaceMetadataSyncResult of(
             String workspaceId,
-            MetadataState state,
+            boolean successful,
             RepositoryMetadataSnapshot snapshot)
     {
         requireNonNull(snapshot, "snapshot is null");
         return new WorkspaceMetadataSyncResult(
                 workspaceId,
-                state,
+                successful,
                 snapshot.contributors().size(),
                 snapshot.labels().size(),
                 snapshot.topics().size(),

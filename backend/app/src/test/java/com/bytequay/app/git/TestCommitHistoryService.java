@@ -22,8 +22,6 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
@@ -221,12 +219,8 @@ class TestCommitHistoryService
                 "main",
                 upstreamRepositoryId == null ? null : "main",
                 REPOSITORY.toString(),
-                CodeState.READY,
-                MetadataState.READY,
                 Instant.parse("2026-08-22T00:00:00Z"),
                 Instant.parse("2026-08-22T00:00:00Z"),
-                null,
-                null,
                 0);
     }
 

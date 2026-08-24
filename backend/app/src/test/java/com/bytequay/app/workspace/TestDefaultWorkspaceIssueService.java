@@ -22,8 +22,6 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -199,12 +197,8 @@ class TestDefaultWorkspaceIssueService
                         ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
                         : Optional.empty(),
                 "/tmp/" + id,
-                CodeState.READY,
-                MetadataState.READY,
                 Optional.of(NOW),
                 Optional.of(NOW),
-                Optional.empty(),
-                Optional.empty(),
                 0,
                 NOW,
                 NOW);

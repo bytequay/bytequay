@@ -15,8 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -85,21 +83,9 @@ public class WorkspaceEntity
     @Column(nullable = false)
     private String localRepositoryPath;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private CodeState codeState;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private MetadataState metadataState;
-
     private Instant lastCodeSyncAt;
 
     private Instant lastMetadataSyncAt;
-
-    private String codeError;
-
-    private String metadataError;
 
     @Column(nullable = false)
     private int displayOrder;
@@ -138,12 +124,8 @@ public class WorkspaceEntity
         upstreamDefaultBranch = workspace.upstreamDefaultBranch().orElse(null);
         upstreamCloneUrl = workspace.upstreamCloneUrl().orElse(null);
         localRepositoryPath = workspace.localRepositoryPath();
-        codeState = workspace.codeState();
-        metadataState = workspace.metadataState();
         lastCodeSyncAt = workspace.lastCodeSyncAt().orElse(null);
         lastMetadataSyncAt = workspace.lastMetadataSyncAt().orElse(null);
-        codeError = workspace.codeError().orElse(null);
-        metadataError = workspace.metadataError().orElse(null);
         displayOrder = workspace.displayOrder();
         createdAt = workspace.createdAt();
         updatedAt = workspace.updatedAt();
@@ -172,12 +154,8 @@ public class WorkspaceEntity
                 upstreamId.isPresent() ? Optional.ofNullable(upstreamDefaultBranch) : Optional.empty(),
                 upstreamId.isPresent() ? Optional.ofNullable(upstreamCloneUrl) : Optional.empty(),
                 localRepositoryPath,
-                codeState,
-                metadataState,
                 Optional.ofNullable(lastCodeSyncAt),
                 Optional.ofNullable(lastMetadataSyncAt),
-                Optional.ofNullable(codeError),
-                Optional.ofNullable(metadataError),
                 displayOrder,
                 createdAt,
                 updatedAt);

@@ -34,16 +34,12 @@ export type Workspace = {
   monitoredOwner: string;
   monitoredRepo: string;
   topology: WorkspaceDto['topology'];
-  codeState: WorkspaceDto['codeState'];
-  metadataState: WorkspaceDto['metadataState'];
-  codeError: string | null;
-  metadataError: string | null;
   lastCodeSyncAt: string | null;
   lastMetadataSyncAt: string | null;
   displayOrder: number;
 };
 
-export type WorkspacePhase = 'preparing' | 'ready' | 'syncing' | 'needs-attention';
+export type WorkspacePhase = 'preparing' | 'ready';
 
 export function workspaceFromDto(dto: WorkspaceDto): Workspace {
   return {
@@ -63,10 +59,6 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
     monitoredOwner: dto.monitoredOwner,
     monitoredRepo: dto.monitoredRepo,
     topology: dto.topology,
-    codeState: dto.codeState,
-    metadataState: dto.metadataState,
-    codeError: dto.codeError,
-    metadataError: dto.metadataError,
     lastCodeSyncAt: dto.lastCodeSyncAt,
     lastMetadataSyncAt: dto.lastMetadataSyncAt,
     displayOrder: dto.displayOrder,
@@ -74,21 +66,13 @@ export function workspaceFromDto(dto: WorkspaceDto): Workspace {
 }
 
 export function workspacePhase(workspace: Workspace): WorkspacePhase {
-  if (workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED') {
-    return 'needs-attention';
-  }
-  if (workspace.codeState === 'SYNCING' || workspace.metadataState === 'SYNCING') {
-    return 'syncing';
-  }
-  return workspace.codeState === 'READY' ? 'ready' : 'preparing';
+  return workspaceHasReadableCode(workspace) ? 'ready' : 'preparing';
 }
 
 export function workspacePhaseLabel(workspace: Workspace): string {
   return {
     preparing: 'Preparing',
     ready: 'Ready',
-    syncing: 'Syncing',
-    'needs-attention': 'Needs attention',
   }[workspacePhase(workspace)];
 }
 
@@ -96,24 +80,15 @@ export function workspacePhaseColor(workspace: Workspace): string {
   return {
     preparing: '#9a6700',
     ready: '#1a7f37',
-    syncing: '#0969da',
-    'needs-attention': '#cf222e',
   }[workspacePhase(workspace)];
 }
 
-export function workspaceStateLabel(state: Workspace['codeState'] | Workspace['metadataState']): string {
-  return {
-    PENDING: 'Preparing',
-    CLONING: 'Cloning',
-    READY: 'Ready',
-    SYNCING: 'Syncing',
-    FAILED: 'Needs attention',
-  }[state];
+export function workspaceIsUpdating(workspace: Workspace): boolean {
+  return !workspaceHasReadableCode(workspace);
 }
 
-export function workspaceIsUpdating(workspace: Workspace): boolean {
-  return ['PENDING', 'CLONING', 'SYNCING'].includes(workspace.codeState)
-    || workspace.metadataState === 'SYNCING';
+export function workspaceHasReadableCode(workspace: Workspace): boolean {
+  return workspace.lastCodeSyncAt !== null;
 }
 
 export function workspaceRoute(workspaceId: string): string {

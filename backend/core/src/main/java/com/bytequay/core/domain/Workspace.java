@@ -42,12 +42,8 @@ public record Workspace(
         Optional<String> upstreamDefaultBranch,
         Optional<String> upstreamCloneUrl,
         String localRepositoryPath,
-        CodeState codeState,
-        MetadataState metadataState,
         Optional<Instant> lastCodeSyncAt,
         Optional<Instant> lastMetadataSyncAt,
-        Optional<String> codeError,
-        Optional<String> metadataError,
         int displayOrder,
         Instant createdAt,
         Instant updatedAt)
@@ -68,12 +64,8 @@ public record Workspace(
         requireNonNull(upstreamDefaultBranch, "upstreamDefaultBranch is null");
         requireNonNull(upstreamCloneUrl, "upstreamCloneUrl is null");
         checkText(localRepositoryPath, "localRepositoryPath");
-        requireNonNull(codeState, "codeState is null");
-        requireNonNull(metadataState, "metadataState is null");
         requireNonNull(lastCodeSyncAt, "lastCodeSyncAt is null");
         requireNonNull(lastMetadataSyncAt, "lastMetadataSyncAt is null");
-        requireNonNull(codeError, "codeError is null");
-        requireNonNull(metadataError, "metadataError is null");
         checkArgument(displayOrder >= 0, "displayOrder is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -102,52 +94,35 @@ public record Workspace(
         }
     }
 
-    public Workspace withStates(CodeState nextCodeState, MetadataState nextMetadataState, Instant now)
-    {
-        return new Workspace(
-                id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
-                upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
-                defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                nextCodeState, nextMetadataState, lastCodeSyncAt, lastMetadataSyncAt,
-                Optional.empty(), Optional.empty(), displayOrder, createdAt, now);
-    }
-
     public Workspace withName(String nextName, Instant now)
     {
         return new Workspace(
                 id, nextName, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                codeState, metadataState, lastCodeSyncAt, lastMetadataSyncAt,
-                codeError, metadataError, displayOrder, createdAt, now);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
-    public Workspace withCodeState(
-            CodeState nextCodeState,
+    public Workspace withCodeSyncAt(
             Optional<Instant> nextLastCodeSyncAt,
-            Optional<String> nextCodeError,
             Instant now)
     {
         return new Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                nextCodeState, metadataState, nextLastCodeSyncAt, lastMetadataSyncAt,
-                nextCodeError, metadataError, displayOrder, createdAt, now);
+                nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
-    public Workspace withMetadataState(
-            MetadataState nextMetadataState,
+    public Workspace withMetadataSyncAt(
             Optional<Instant> nextLastMetadataSyncAt,
-            Optional<String> nextMetadataError,
             Instant now)
     {
         return new Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                codeState, nextMetadataState, lastCodeSyncAt, nextLastMetadataSyncAt,
-                codeError, nextMetadataError, displayOrder, createdAt, now);
+                lastCodeSyncAt, nextLastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
     public Workspace withRepositoryRouting(
@@ -167,31 +142,13 @@ public record Workspace(
                 nextUpstreamRepository, nextMonitoredRepositoryId,
                 nextMonitoredRepository, topology, nextDefaultBranch, nextOriginCloneUrl,
                 nextUpstreamDefaultBranch, nextUpstreamCloneUrl, localRepositoryPath,
-                codeState, metadataState, lastCodeSyncAt, lastMetadataSyncAt,
-                codeError, metadataError, displayOrder, createdAt, now);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
     public enum Topology
     {
         DIRECT,
         FORK
-    }
-
-    public enum CodeState
-    {
-        PENDING,
-        CLONING,
-        READY,
-        SYNCING,
-        FAILED
-    }
-
-    public enum MetadataState
-    {
-        PENDING,
-        SYNCING,
-        READY,
-        FAILED
     }
 
     private static void checkText(String value, String name)

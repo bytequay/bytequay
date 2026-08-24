@@ -13,8 +13,6 @@
  */
 package com.bytequay.core.domain;
 
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import org.junit.jupiter.api.Test;
 
@@ -45,10 +43,6 @@ class TestWorkspace
                 Optional.of("main"),
                 Optional.of("https://github.com/upstream/project.git"),
                 "/tmp/workspace/repository",
-                CodeState.PENDING,
-                MetadataState.PENDING,
-                Optional.empty(),
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 0,

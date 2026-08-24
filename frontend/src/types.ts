@@ -252,12 +252,8 @@ export type WorkspaceDto = {
   defaultBranch: string;
   upstreamDefaultBranch: string | null;
   localRepositoryPath: string;
-  codeState: 'PENDING' | 'CLONING' | 'READY' | 'SYNCING' | 'FAILED';
-  metadataState: 'PENDING' | 'SYNCING' | 'READY' | 'FAILED';
   lastCodeSyncAt: string | null;
   lastMetadataSyncAt: string | null;
-  codeError: string | null;
-  metadataError: string | null;
   displayOrder: number;
 };
 

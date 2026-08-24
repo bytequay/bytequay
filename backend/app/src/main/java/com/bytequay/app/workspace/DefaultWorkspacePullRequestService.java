@@ -29,7 +29,6 @@ import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Service;
@@ -46,6 +45,7 @@ public final class DefaultWorkspacePullRequestService
 {
     private final WorkspaceStore workspaces;
     private final CherryPickExecutionStore executions;
+    private final WorkspaceProvisioningService provisioning;
     private final GitHubAccountClient repositories;
     private final GitHubPullRequestWriteClient pullRequests;
     private final CredentialService credentials;
@@ -56,6 +56,7 @@ public final class DefaultWorkspacePullRequestService
     public DefaultWorkspacePullRequestService(
             WorkspaceStore workspaces,
             CherryPickExecutionStore executions,
+            WorkspaceProvisioningService provisioning,
             GitHubAccountClient repositories,
             GitHubPullRequestWriteClient pullRequests,
             CredentialService credentials,
@@ -64,6 +65,7 @@ public final class DefaultWorkspacePullRequestService
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executions = requireNonNull(executions, "executions is null");
+        this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
@@ -174,8 +176,13 @@ public final class DefaultWorkspacePullRequestService
         requireNonNull(workspaceId, "workspaceId is null");
         Workspace workspace = workspaces.findById(workspaceId)
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
-        if (workspace.codeState() != CodeState.READY) {
-            throw WorkspaceException.repositoryNotReady();
+        if (workspace.lastCodeSyncAt().isEmpty()) {
+            provisioning.synchronizeCode(workspaceId);
+            workspace = workspaces.findById(workspaceId)
+                    .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
+            if (workspace.lastCodeSyncAt().isEmpty()) {
+                throw WorkspaceException.repositoryNotReady();
+            }
         }
         return workspace;
     }

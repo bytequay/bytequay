@@ -69,7 +69,7 @@ public interface WorkspaceRepositoryService
     WorkspaceDetails getWorkspace(String workspaceId);
 
     /**
-     * Resolves a ready backend-owned checkout for Git or cherry-pick operations.
+     * Resolves a backend-owned checkout for Git or cherry-pick operations, synchronizing it first when needed.
      *
      * @param workspaceId ByteQuay workspace identifier
      * @return normalized managed path and persisted remote/base routing
@@ -78,7 +78,7 @@ public interface WorkspaceRepositoryService
     WorkspaceRepositoryContext requireReadyRepository(String workspaceId);
 
     /**
-     * Resolves a previously ready checkout for local display while a fetch may be running.
+     * Resolves a checkout that has completed at least one successful code synchronization, synchronizing it first when needed.
      *
      * @param workspaceId ByteQuay workspace identifier
      * @return normalized managed path and persisted remote/base routing
@@ -90,9 +90,17 @@ public interface WorkspaceRepositoryService
      * Requests code and metadata synchronization without creating another workspace.
      *
      * @param workspaceId ByteQuay workspace identifier
-     * @return state immediately after the idempotent request is recorded
+     * @return the unchanged durable workspace while process-local refresh work runs
      */
     Workspace requestSync(String workspaceId);
+
+    /**
+     * Synchronizes code after repository routing or configured remotes change, regardless of age.
+     *
+     * @param workspaceId workspace whose Git configuration changed
+     * @return the unchanged durable workspace while process-local refresh work runs
+     */
+    Workspace requestSyncAfterConfigurationChange(String workspaceId);
 
     /**
      * Selects a GitHub-readable repository as upstream, or unlinks it when empty.

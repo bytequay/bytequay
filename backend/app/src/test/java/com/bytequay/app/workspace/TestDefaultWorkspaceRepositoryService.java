@@ -21,8 +21,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.WatchedRepo;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WatchedRepoStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -47,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -160,41 +159,82 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
-    void keepsAPreviouslyReadyRepositoryReadableDuringSynchronization()
+    void synchronizesMissingCodeBeforeReturningRepository()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", 100L))
-                .thenReturn(Optional.of(direct(100, "owner")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
-        Workspace syncing = store.save(watch(service, 100).withCodeState(
-                CodeState.SYNCING,
-                Optional.of(NOW),
-                Optional.empty(),
-                NOW));
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class), provisioning);
+        Workspace unsynced = watch(service, 100);
+        reset(provisioning);
+        when(provisioning.synchronizeCode(unsynced.id())).thenAnswer(ignored -> {
+            Workspace synced = store.save(unsynced.withCodeSyncAt(Optional.of(NOW), NOW));
+            return WorkspaceCodeSyncResult.success(synced);
+        });
 
-        assertThat(service.requireReadableRepository(syncing.id()).repository())
-                .isEqualTo(Path.of("/tmp/bytequay-workspaces", syncing.id(), "repository"));
-        assertThatThrownBy(() -> service.requireReadyRepository(syncing.id()))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
+        assertThat(service.requireReadyRepository(unsynced.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", unsynced.id(), "repository"));
+        assertThat(service.requireReadableRepository(unsynced.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", unsynced.id(), "repository"));
+        verify(provisioning).synchronizeCode(unsynced.id());
     }
 
     @Test
-    void syncAlwaysQueuesCodeAndMetadata()
+    void usesTheLastSuccessfulCodeSyncForReadyAndReadableRepositories()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
+        Workspace synced = store.save(watch(service, 100)
+                .withCodeSyncAt(Optional.of(NOW), NOW));
+
+        assertThat(service.requireReadableRepository(synced.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
+        assertThat(service.requireReadyRepository(synced.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
+    }
+
+    @Test
+    void staleSyncQueuesCodeAndMetadata()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L))
+                .thenReturn(Optional.of(direct(100, "owner")));
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubToken()).thenReturn("token");
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+                store,
+                mock(WatchedRepoStore.class),
+                mock(CherryPickExecutionStore.class),
+                new InMemoryRemoteSourceStore(),
+                new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
+                gitHub,
+                credentials,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new WorkspacePaths("/tmp/bytequay-workspaces"),
+                provisioning,
+                metadata,
+                mock(PullRequestRefreshService.class),
+                Runnable::run);
+        Instant staleCode = NOW.minusSeconds(301);
+        Instant staleMetadata = NOW.minusSeconds(8 * 24 * 60 * 60);
         Workspace ready = store.save(watch(service, 100)
-                .withStates(CodeState.READY, MetadataState.READY, NOW));
+                .withCodeSyncAt(Optional.of(staleCode), NOW)
+                .withMetadataSyncAt(Optional.of(staleMetadata), NOW));
+        reset(provisioning, metadata);
 
         Workspace requested = service.requestSync(ready.id());
 
-        assertThat(requested.codeState()).isEqualTo(CodeState.SYNCING);
-        assertThat(requested.metadataState()).isEqualTo(MetadataState.PENDING);
+        assertThat(requested.lastCodeSyncAt()).contains(staleCode);
+        assertThat(requested.lastMetadataSyncAt()).contains(staleMetadata);
+        verify(provisioning).synchronizeCode(ready.id());
+        verify(metadata).synchronize(ready.id());
     }
 
     @Test
@@ -209,11 +249,11 @@ class TestDefaultWorkspaceRepositoryService
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
-        AtomicReference<CodeState> observed = new AtomicReference<>();
+        AtomicReference<Optional<Instant>> observed = new AtomicReference<>();
         when(provisioning.provision(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
-            observed.set(saved.codeState());
-            return WorkspaceProvisioningResult.of(saved);
+            observed.set(saved.lastCodeSyncAt());
+            return WorkspaceProvisioningResult.success(saved);
         });
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,
@@ -232,7 +272,7 @@ class TestDefaultWorkspaceRepositoryService
 
         watch(service, 100);
 
-        assertThat(observed).hasValue(CodeState.PENDING);
+        assertThat(observed).hasValue(Optional.empty());
         verify(pullRequestRefresh).refreshRepository(RepoRef.of("owner", "project"));
     }
 
@@ -240,6 +280,15 @@ class TestDefaultWorkspaceRepositoryService
             WorkspaceStore store,
             GitHubAccountClient gitHub,
             WatchedRepoStore legacy)
+    {
+        return service(store, gitHub, legacy, mock(WorkspaceProvisioningService.class));
+    }
+
+    private static DefaultWorkspaceRepositoryService service(
+            WorkspaceStore store,
+            GitHubAccountClient gitHub,
+            WatchedRepoStore legacy,
+            WorkspaceProvisioningService provisioning)
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
@@ -255,10 +304,10 @@ class TestDefaultWorkspaceRepositoryService
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
-                mock(WorkspaceProvisioningService.class),
+                provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
-                ignored -> {});
+                Runnable::run);
     }
 
     @Test
@@ -295,7 +344,9 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "contributor")));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
-        Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
+        Workspace selected = store.save(watch(service, 100)
+                .withCodeSyncAt(Optional.of(NOW), NOW)
+                .withMetadataSyncAt(Optional.of(NOW), NOW));
 
         Workspace linked = service.setUpstream(selected.id(), Optional.of(300L));
 
@@ -305,7 +356,8 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(linked.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(linked.upstreamDefaultBranch()).contains("main");
 
-        store.save(linked.withStates(CodeState.READY, MetadataState.READY, NOW));
+        store.save(linked.withCodeSyncAt(Optional.of(NOW), NOW)
+                .withMetadataSyncAt(Optional.of(NOW), NOW));
         Workspace unlinked = service.setUpstream(selected.id(), Optional.empty());
 
         assertThat(unlinked.upstreamRepository()).isEmpty();
@@ -320,7 +372,9 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
         DefaultWorkspaceRepositoryService service = service(store, gitHub, mock(WatchedRepoStore.class));
-        Workspace selected = store.save(watch(service, 100).withStates(CodeState.READY, MetadataState.READY, NOW));
+        Workspace selected = store.save(watch(service, 100)
+                .withCodeSyncAt(Optional.of(NOW), NOW)
+                .withMetadataSyncAt(Optional.of(NOW), NOW));
 
         assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(100L)))
                 .isInstanceOfSatisfying(WorkspaceException.class,

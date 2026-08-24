@@ -28,7 +28,7 @@ browser) plus PNG exports.
    routing summary.
 5. **Failure never blocks.** Failed and pending workspaces stay clickable; errors are
    plain-language, sanitized, and carry their retry button inline.
-6. **No internal vocabulary.** `PENDING`/`metadataState`/`monitoredRepositoryId` never
+6. **No internal vocabulary.** Persistence field names such as `monitoredRepositoryId` never
    appear. UI words: *queued, cloning…, fetching latest, code ready, labels & people,
    needs attention, followed for updates*.
 7. **No filesystem in the watch flow.** No folder picker anywhere; no local path on Home
@@ -248,14 +248,14 @@ enhancement (or is dropped for the minimal implementation).
 | Watch board 5 (fork confirm) | Watch preview fields (owner/name, branch, topology, upstream, monitored, dev base, push, PR base); "The confirmation explicitly names upstream monitoring and PR routing for a fork"; one canonical upstream (nested-fork rule) |
 | Watch board 6 (no push access) | "If the push destination is not writable … disabled with a clear explanation"; "Explain read-only behavior when no push destination is writable" |
 | Watch board 7 (already watched) | "A GitHub repository can be watched only once. A repeated watch returns the existing workspace"; idempotent watch |
-| Watch board 8 (saved/preparing, failure+retry) | "Save first is intentional"; "Home shows the workspace card immediately and updates its progress"; "Failed background work remains visible and retryable" |
-| Workspaces cards: pending/cloning/ready/syncing | Workspace `codeState` PENDING/CLONING/READY/SYNCING; "Cards show Preparing, Ready, Syncing, or Needs attention" |
-| Workspaces card: cloning + metadata green; stale; metadata failed | "Code readiness and metadata readiness are independent"; metadata freshness (7-day contributors / 30-day labels); "A metadata failure does not downgrade ready code" |
-| Workspaces cards clickable incl. failed | "A workspace row is clickable in every state"; "Do not hide failures or block opening an already-saved workspace" |
+| Watch board 8 (saved/preparing, failure+retry) | "Save first is intentional"; an empty `lastCodeSyncAt` renders Preparing and a successful retry advances the timestamp |
+| Workspaces cards: pending/cloning/ready/syncing | Current UI derives Preparing or Ready solely from whether `lastCodeSyncAt` exists; lifecycle enums are not persisted |
+| Workspaces card: cloning + metadata green; stale; metadata failed | Code and metadata freshness use independent last-success timestamps; stale data remains usable while refresh is attempted |
+| Workspaces cards clickable incl. failed | A workspace row remains clickable while code or metadata timestamps are absent or stale |
 | Workspaces: no local path / no picker | "Remove the local-folder picker"; "The renderer never chooses or submits these paths" |
 | Workspace Home A/B (fork/direct routing cards) | "Frontend design → Workspace Home" (selected repo, topology, monitored upstream, default branch, dev base); routing table |
-| Workspace Home A (stale metadata) / D (clone failed) | Independent states, last successful sync, safe errors and retry actions |
-| Workspace Home C (cloning, dimmed tabs) | "Explain why tabs are disabled when their required state is not ready"; "Commits is enabled when codeState == READY"; "Workspace Home can be opened in every state" |
+| Workspace Home A (stale metadata) / D (clone failed) | Last successful code and metadata timestamps remain the only durable freshness facts |
+| Workspace Home C (cloning, dimmed tabs) | Explain why tabs are disabled before the first code sync; Commits is enabled when `lastCodeSyncAt` exists; Workspace Home is always available |
 | Workspace Home stat cards / activity / shortcut | "Keep its task counts, PR count, recent cherry-pick activity, and Commits shortcut" |
 | PR board A (scoped upstream list) | "Pass the workspace's monitored repository as a scope"; "using upstream PRs for fork workspaces"; "the workspace tab must never show PRs from another repository" |
 | PR board A header chip + subhead | "Show the monitored repository in the workspace tab header, especially for a fork"; global page stays account-centric |

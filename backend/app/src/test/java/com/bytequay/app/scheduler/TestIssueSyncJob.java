@@ -18,8 +18,6 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -75,12 +73,8 @@ class TestIssueSyncJob
                 Optional.empty(),
                 Optional.empty(),
                 "/tmp/bytequay-issue-sync/" + id,
-                CodeState.READY,
-                MetadataState.READY,
                 Optional.of(now),
                 Optional.of(now),
-                Optional.empty(),
-                Optional.empty(),
                 0,
                 now,
                 now);

@@ -32,8 +32,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -142,10 +140,22 @@ class TestDefaultWorkspacePullRequestService
         verify(fixture.pullRequests(), never()).createPullRequest(any(), any(), any(), any(), any(), any());
     }
 
+    @Test
+    void missingCodeTimestampTriggersSyncBeforeStatus()
+    {
+        Workspace unsynced = directWorkspace().withCodeSyncAt(Optional.empty(), NOW);
+        Fixture fixture = fixture(unsynced, directRepository(true));
+
+        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).pushWritable()).isTrue();
+
+        verify(fixture.provisioning()).synchronizeCode("workspace");
+    }
+
     private Fixture fixture(Workspace workspace, UserRepo selected)
     {
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
-        when(workspaceStore.findById("workspace")).thenReturn(Optional.of(workspace));
+        AtomicReference<Workspace> storedWorkspace = new AtomicReference<>(workspace);
+        when(workspaceStore.findById("workspace")).thenAnswer(ignored -> Optional.of(storedWorkspace.get()));
         CherryPickExecution initial = completedExecution(workspace);
         AtomicReference<CherryPickExecution> current = new AtomicReference<>(initial);
         CherryPickExecutionStore executionStore = mock(CherryPickExecutionStore.class);
@@ -155,6 +165,12 @@ class TestDefaultWorkspacePullRequestService
             CherryPickExecution versioned = saved.withVersion(saved.version() + 1);
             current.set(versioned);
             return versioned;
+        });
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        when(provisioning.synchronizeCode("workspace")).thenAnswer(ignored -> {
+            Workspace synced = storedWorkspace.get().withCodeSyncAt(Optional.of(NOW), NOW);
+            storedWorkspace.set(synced);
+            return WorkspaceCodeSyncResult.success(synced);
         });
         GitHubAccountClient repositories = mock(GitHubAccountClient.class);
         when(repositories.fetchRepository("token", workspace.selectedRepositoryId()))
@@ -174,12 +190,13 @@ class TestDefaultWorkspacePullRequestService
         DefaultWorkspacePullRequestService service = new DefaultWorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
+                provisioning,
                 repositories,
                 pullRequests,
                 credentials,
                 git,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        return new Fixture(service, workspace, initial.id(), git, pullRequests);
+        return new Fixture(service, workspace, initial.id(), provisioning, git, pullRequests);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace)
@@ -263,12 +280,8 @@ class TestDefaultWorkspacePullRequestService
                 upstreamId.map(ignored -> "main"),
                 upstreamUrl,
                 temporaryDirectory.resolve("repository").toString(),
-                CodeState.READY,
-                MetadataState.READY,
                 Optional.of(NOW),
                 Optional.of(NOW),
-                Optional.empty(),
-                Optional.empty(),
                 0,
                 NOW,
                 NOW);
@@ -331,6 +344,7 @@ class TestDefaultWorkspacePullRequestService
             DefaultWorkspacePullRequestService service,
             Workspace workspace,
             CherryPickExecutionId executionId,
+            WorkspaceProvisioningService provisioning,
             WorkspaceBranchPusher git,
             GitHubPullRequestWriteClient pullRequests)
     {
@@ -339,6 +353,7 @@ class TestDefaultWorkspacePullRequestService
             requireNonNull(service, "service is null");
             requireNonNull(workspace, "workspace is null");
             requireNonNull(executionId, "executionId is null");
+            requireNonNull(provisioning, "provisioning is null");
             requireNonNull(git, "git is null");
             requireNonNull(pullRequests, "pullRequests is null");
         }

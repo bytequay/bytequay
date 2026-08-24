@@ -122,7 +122,8 @@ relationship.
 8. Home shows the workspace card immediately and updates its progress.
 
 Saving first is intentional. A slow clone or GitHub request must not make it unclear whether the
-watch action succeeded. Failed background work remains visible and retryable.
+watch action succeeded. Background failures leave last-success timestamps unchanged and are retried
+when the data is still stale.
 
 ### 2. Open the workspace
 
@@ -130,8 +131,8 @@ watch action succeeded. Failed background work remains visible and retryable.
 2. The Workspaces page lists the same backend workspaces created from Home.
 3. The user clicks a workspace.
 4. The app routes to `/workspaces/:workspaceId` and opens Workspace Home.
-5. Workspace Home shows repository topology, clone location, code sync state, metadata sync
-   state, default branch, last successful sync, and any retryable error.
+5. Workspace Home shows repository topology, clone location, default branch, and last successful
+   code and metadata sync times.
 
 ### 3. Browse commits and start cherry-pick
 
@@ -197,12 +198,8 @@ Workspace
   upstreamDefaultBranch      nullable when unlinked
   upstreamCloneUrl           nullable when unlinked
   localRepositoryPath        backend-owned path
-  codeState                  PENDING | CLONING | READY | SYNCING | FAILED
-  metadataState              PENDING | READY | FAILED; legacy SYNCING rows are recovered
-  lastCodeSyncAt
-  lastMetadataSyncAt
-  codeError                  nullable, sanitized
-  metadataError              nullable, sanitized
+  lastCodeSyncAt             nullable until the first successful clone/fetch
+  lastMetadataSyncAt         nullable until the first successful metadata refresh
   createdAt / updatedAt
 ```
 
@@ -323,7 +320,8 @@ public interface WorkspaceRepositoryService
      * Resolves the trusted repository path and routing for a code operation.
      *
      * <p>Git and cherry-pick controllers use this method instead of accepting a
-     * filesystem path from the renderer.</p>
+     * filesystem path from the renderer. If the checkout has never synchronized,
+     * the method attempts synchronous provisioning before returning.</p>
      *
      * @param workspaceId ByteQuay workspace ID
      * @return a ready repository context containing path, remotes, and base refs
@@ -382,8 +380,8 @@ public interface WorkspaceProvisioningService
      * Creates or recovers the managed checkout for a saved workspace.
      *
      * <p>The operation clones the selected repository as {@code origin}; when an upstream
-     * repository is selected it also configures and fetches {@code upstream}. It records state transitions
-     * and a sanitized failure without deleting an unknown directory.</p>
+     * repository is selected it also configures and fetches {@code upstream}. A failure leaves the
+     * last successful synchronization timestamp unchanged and never deletes an unknown directory.</p>
      *
      * @param workspaceId saved workspace to provision
      * @return the final provisioning result
@@ -391,13 +389,13 @@ public interface WorkspaceProvisioningService
     WorkspaceProvisioningResult provision(String workspaceId);
 
     /**
-     * Fetches and prunes the configured remotes for a ready workspace.
+     * Creates the managed checkout when needed, otherwise fetches and prunes the configured remotes.
      *
      * <p>This operation never resets a branch, discards local changes, rebases,
      * force-pushes, or changes the selected pull-request base.</p>
      *
-     * @param workspaceId ready workspace to synchronize
-     * @return remote update summary and resulting code state
+     * @param workspaceId saved workspace to synchronize
+     * @return success, the last successful synchronization time, and failed optional remotes
      */
     WorkspaceCodeSyncResult synchronizeCode(String workspaceId);
 }
@@ -421,10 +419,10 @@ public interface WorkspaceMetadataService
      * For a linked workspace it is the selected upstream repository. Contributors,
      * labels, and repository topics/tags are stored locally by stable repository ID.
      * A normal call refreshes only projections whose fixed freshness interval has
-     * expired and records a sanitized sync error.</p>
+     * expired. Failure leaves the cached snapshot and last-success timestamp unchanged.</p>
      *
      * @param workspaceId workspace whose metadata should be refreshed
-     * @return counts, freshness timestamps, and completion state for the refresh
+     * @return success, counts, and freshness timestamps for the refresh
      */
     WorkspaceMetadataSyncResult synchronize(String workspaceId);
 
@@ -449,10 +447,11 @@ Store the provider's stable IDs and use upserts rather than destructive replacem
 periodic sweep or workspace access may request refresh, but the service checks the timestamp so
 multiple workspaces linked to the same upstream do not multiply GitHub calls.
 
-Metadata refresh does not persist an in-progress state. A running refresh retains the previous
-durable state while the caller owns any spinner, then saves `READY` or `FAILED` with the completed
-outcome. `PENDING` remains durable for initial workspace preparation and crash recovery. Startup
-may still recover an older `SYNCING` row, but current code does not create one.
+Metadata refresh persists no lifecycle state or error. A successful freshness check or refresh
+advances `lastMetadataSyncAt`; failure leaves the previous timestamp and cached snapshot unchanged.
+The caller owns any temporary spinner. The workspace timestamp uses the shortest metadata cache
+interval (seven days); the metadata store still applies its separate seven-day contributor and
+thirty-day label/topic intervals.
 
 Issues and pull requests are active repository data, not part of this slow reference-metadata
 cache. They keep their own refresh policy. `WorkspaceIssueRefreshService` refreshes the open-issue
@@ -543,7 +542,8 @@ The write commands do not accept a renderer-provided remote, branch, base, title
 service loads the completed execution and workspace, rechecks the selected repository by stable
 GitHub ID, then derives every write parameter from persisted routing and the saved PR draft. The
 read-only delivery status endpoint supports an actionable disabled state without turning execution
-polling into repeated GitHub permission requests.
+polling into repeated GitHub permission requests. If the workspace has no successful code timestamp,
+delivery first attempts the same synchronous provisioning path used by code refresh.
 
 ## Application orchestration
 
@@ -555,13 +555,14 @@ polling into repeated GitHub permission requests.
 4. Commit.
 5. Schedule provisioning and metadata synchronization independently.
 
-The first implementation can use the existing Spring async facilities rather than introducing a
-new queue. On application startup, a recovery component reschedules workspaces left in `PENDING`,
-`CLONING`, or `SYNCING`. State transitions and idempotent filesystem checks make this safe.
+The implementation uses the existing Spring async facilities rather than introducing a new queue.
+Active work is deduplicated in process. On application startup, a recovery component provisions a
+workspace with no code timestamp and refreshes code or metadata whose last-success timestamp is
+older than its freshness interval. Idempotent filesystem checks make retries safe.
 
-Code readiness and metadata readiness are separate:
+Code availability and metadata freshness are separate:
 
-- Commits is enabled when `codeState == READY`.
+- Commits is enabled after `lastCodeSyncAt` is present.
 - Pull Requests uses the existing locally persisted PR data filtered to the monitored repository.
 - Contributor, label, and topic/tag lookup uses the latest locally stored reference snapshot and
   refreshes only when its weekly/monthly freshness interval expires.
@@ -666,14 +667,13 @@ Show:
 - selected repository and topology;
 - selected upstream repository, when present;
 - default branch and development base ref;
-- code and metadata state independently;
 - last successful sync times;
-- safe errors and retry actions;
-- disabled feature explanations while required data is not ready.
+- whether the local data is fresh or due for refresh;
+- disabled feature explanations until the first required synchronization succeeds.
 
 The current coded Workspace Home is the starting point. Keep its task counts, PR count, recent
 cherry-pick activity, and Commits shortcut. Replace local-path discovery with durable workspace
-state and add topology/provisioning/freshness/error information rather than replacing the page.
+timestamps and add topology/provisioning/freshness information rather than replacing the page.
 
 ### Pull Requests
 
@@ -716,10 +716,10 @@ scratch:
 
 | Surface | Current state | Design still needed |
 | --- | --- | --- |
-| Home watched repositories | Implemented | Watch preview/confirmation, duplicate-watch result, clone and metadata progress/error states |
-| Workspaces list | Implemented for renderer-local checkouts | Backend workspace cards, preparation states, retry, remove local-folder-first copy |
+| Home watched repositories | Implemented | Watch preview/confirmation, duplicate-watch result, and timestamp freshness |
+| Workspaces list | Implemented for renderer-local checkouts | Backend workspace cards and removal of local-folder-first copy |
 | Workspace shell/navigation | Implemented | Readiness rules and badges only |
-| Workspace Home | Implemented in `WorkspaceShell.tsx` | Explicit upstream routing, independent code/metadata state, freshness, failure/retry states |
+| Workspace Home | Implemented in `WorkspaceShell.tsx` | Explicit upstream routing and code/metadata freshness timestamps |
 | Commits and cherry-pick | Implemented | Workspace-ID data source and managed-base messaging |
 | Workspace Pull Requests | Global `PullsScreen` is already mounted | Repository-scoped header/list, empty/stale/error states; reuse all detail UI |
 | Workspace Tasks | Implemented for cherry-pick executions | Replace path-derived scope with workspace ID |
@@ -757,15 +757,15 @@ sequenceDiagram
     API-->>Home: Selected repository, topology hint, and permissions
     User->>Home: Confirm Watch
     Home->>API: Create workspace
-    API->>DB: Save PENDING workspace
+    API->>DB: Save workspace with empty sync timestamps
     DB-->>API: Committed workspace
     API-->>Home: Workspace summary
     par code preparation
         API->>Provision: Clone/configure/fetch
-        Provision->>DB: codeState = READY or FAILED
+        Provision->>DB: On success, save lastCodeSyncAt
     and repository metadata
         API->>Metadata: Sync monitored repository
-        Metadata->>DB: metadataState = READY or FAILED
+        Metadata->>DB: On success, save lastMetadataSyncAt
     end
     User->>Workspaces: Open Workspaces
     Workspaces->>API: List workspaces

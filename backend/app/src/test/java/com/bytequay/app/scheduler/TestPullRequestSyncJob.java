@@ -18,8 +18,6 @@ import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -113,12 +111,8 @@ class TestPullRequestSyncJob
                 Optional.empty(),
                 Optional.empty(),
                 "/tmp/bytequay-pr-refresh/" + id,
-                CodeState.READY,
-                MetadataState.READY,
                 Optional.of(now),
                 Optional.of(now),
-                Optional.empty(),
-                Optional.empty(),
                 0,
                 now,
                 now);

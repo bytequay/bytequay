@@ -23,6 +23,7 @@ import type { CherryPickExecution } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
   workspaceFromDto,
+  workspaceHasReadableCode,
   workspaceIsUpdating,
   workspacePhaseColor,
   workspacePhaseLabel,
@@ -66,7 +67,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.clearTimeout(timer);
   }, [workspace, onWorkspaceChanged]);
 
-  if (tab === 'commits' && workspace.codeState !== 'READY') {
+  if (tab === 'commits' && !workspaceHasReadableCode(workspace)) {
     return <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />;
   }
   if (tab === 'commits') {
@@ -143,7 +144,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   return (
     <WorkspaceHome
       workspace={workspace}
-      onWorkspaceChanged={onWorkspaceChanged}
       onCherryPickUpstream={() => {
         setInitialCommitsRepo('upstream');
         onSelectTab('commits');
@@ -190,32 +190,13 @@ const HOME_LINKS = [
   '12 commits ahead of upstream',
 ];
 
-export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstream, onReviewRequests, onOpenIssues }: {
+export function WorkspaceHome({ workspace, onCherryPickUpstream, onReviewRequests, onOpenIssues }: {
   workspace: Workspace;
-  onWorkspaceChanged: (workspace: Workspace) => void;
   onCherryPickUpstream: () => void;
   onReviewRequests: () => void;
   onOpenIssues: () => void;
 }) {
   const [wip, setWip] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-
-  const retryable = workspace.codeState === 'FAILED' || workspace.metadataState === 'FAILED';
-
-  const retry = async () => {
-    setRetrying(true);
-    setRetryError(null);
-    try {
-      onWorkspaceChanged(workspaceFromDto(await window.bridge.syncWorkspace(workspace.id)));
-    }
-    catch (failure) {
-      setRetryError(failure instanceof Error ? failure.message : String(failure));
-    }
-    finally {
-      setRetrying(false);
-    }
-  };
 
   if (wip !== null) {
     return (
@@ -250,17 +231,6 @@ export function WorkspaceHome({ workspace, onWorkspaceChanged, onCherryPickUpstr
           <span className="ws-hero-dot" style={{ background: workspacePhaseColor(workspace) }} aria-hidden="true" />
           {status}
         </div>
-        {retryable && (
-          <button
-            type="button"
-            className="ws-retry-btn ws-hero-retry"
-            disabled={retrying}
-            onClick={() => { void retry(); }}
-          >
-            {retrying ? 'Retrying…' : 'Retry preparation'}
-          </button>
-        )}
-        {retryError && <div className="ws-error" role="alert">{retryError}</div>}
         <div className="ws-action-cards">
           {HOME_CARDS.map(card => (
             <button

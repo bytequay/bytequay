@@ -31,7 +31,6 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.CommitHistoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -141,7 +140,7 @@ class CommitHistoryRefresher
     private WorkspaceCodeSyncResult refreshCode(String workspaceId)
     {
         WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(workspaceId);
-        if (synchronization.codeState() != CodeState.READY) {
+        if (!synchronization.successful()) {
             throw new IllegalStateException("managed repository synchronization failed");
         }
         return synchronization;

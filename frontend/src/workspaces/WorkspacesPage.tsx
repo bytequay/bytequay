@@ -47,17 +47,6 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
     return () => window.clearTimeout(timer);
   }, [workspaces]);
 
-  const retry = async (workspaceId: string) => {
-    setError(null);
-    try {
-      const updated = workspaceFromDto(await window.bridge.syncWorkspace(workspaceId));
-      setWorkspaces(previous => previous.map(row => row.id === updated.id ? updated : row));
-    }
-    catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-  };
-
   return (
     <div className="ws-page">
       <div className="ws-head">
@@ -80,16 +69,14 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       <WorkspaceCards
         workspaces={workspaces}
         onOpen={onOpen}
-        onRetry={workspaceId => { void retry(workspaceId); }}
       />
     </div>
   );
 }
 
-export function WorkspaceCards({ workspaces, onOpen, onRetry }: {
+export function WorkspaceCards({ workspaces, onOpen }: {
   workspaces: Workspace[];
   onOpen: (workspaceId: string) => void;
-  onRetry: (workspaceId: string) => void;
 }) {
   return (
     <div className="ws-grid">
@@ -124,19 +111,7 @@ export function WorkspaceCards({ workspaces, onOpen, onRetry }: {
             )}
             <div className="ws-card-foot">
               branch {workspace.defaultBranch}
-              <span>· code {workspace.codeState.toLowerCase()}</span>
-              {phase === 'needs-attention' && (
-                <button
-                  className="ws-card-retry"
-                  type="button"
-                  onClick={event => {
-                    event.stopPropagation();
-                    onRetry(workspace.id);
-                  }}
-                >
-                  Retry
-                </button>
-              )}
+              <span>· {workspace.lastCodeSyncAt ? 'code available' : 'cloning code'}</span>
             </div>
           </div>
         );

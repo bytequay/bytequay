@@ -14,8 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 
 import java.time.Instant;
@@ -36,12 +34,8 @@ public record WorkspaceSummary(
         String defaultBranch,
         String upstreamDefaultBranch,
         String localRepositoryPath,
-        CodeState codeState,
-        MetadataState metadataState,
         Instant lastCodeSyncAt,
         Instant lastMetadataSyncAt,
-        String codeError,
-        String metadataError,
         int displayOrder)
 {
     public static WorkspaceSummary of(Workspace workspace)
@@ -62,12 +56,8 @@ public record WorkspaceSummary(
                 workspace.defaultBranch(),
                 workspace.upstreamDefaultBranch().orElse(null),
                 workspace.localRepositoryPath(),
-                workspace.codeState(),
-                workspace.metadataState(),
                 workspace.lastCodeSyncAt().orElse(null),
                 workspace.lastMetadataSyncAt().orElse(null),
-                workspace.codeError().orElse(null),
-                workspace.metadataError().orElse(null),
                 workspace.displayOrder());
     }
 }

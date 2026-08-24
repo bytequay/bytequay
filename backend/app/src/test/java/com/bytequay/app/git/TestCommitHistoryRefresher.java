@@ -32,7 +32,6 @@ import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -99,7 +98,7 @@ class TestCommitHistoryRefresher
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, CodeState.READY, Optional.of(NOW)));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW)));
         when(credentials.resolveGitHubToken()).thenReturn("test-token");
     }
 
@@ -167,13 +166,13 @@ class TestCommitHistoryRefresher
     void failedGitFetchAndPersistenceProduceRetryableFailedState()
     {
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, CodeState.FAILED, Optional.empty()));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, false, Optional.empty()));
         service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
 
         store.failUpsert = true;
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, CodeState.READY, Optional.of(NOW)));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW)));
         successfulEmptyBranch("main");
         service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
@@ -185,7 +184,7 @@ class TestCommitHistoryRefresher
         readyWorkspace("oss");
         when(provisioning.synchronizeCode(WORKSPACE_ID)).thenReturn(new WorkspaceCodeSyncResult(
                 WORKSPACE_ID,
-                CodeState.READY,
+                true,
                 Optional.of(NOW),
                 ImmutableSet.of("oss")));
 

@@ -27,7 +27,6 @@ type Props = {
   events: RecentEventDto[];
   onOpenWorkspace: (workspaceId: string) => void;
   onWatch: () => void;
-  onRetry: (workspaceId: string) => void;
   onRemove: (workspace: Workspace) => void;
 };
 
@@ -69,7 +68,6 @@ function WatchedReposGrid({
   events,
   onOpenWorkspace,
   onWatch,
-  onRetry,
   onRemove,
 }: Props) {
   const [metas, setMetas] = useState<Record<string, RepoMetaDto>>({});
@@ -112,7 +110,6 @@ function WatchedReposGrid({
             const lang = topLanguage(meta);
             const chip = activityChip(events, monitored);
             const phase = workspacePhase(workspace);
-            const failed = phase === 'needs-attention';
             return (
               <div
                 key={workspace.id}
@@ -153,18 +150,6 @@ function WatchedReposGrid({
                   <span>⎇ {workspace.defaultBranch}</span>
                   {workspace.topology === 'FORK' && <span>⑂ fork</span>}
                   {chip && <span className="home-repo-tile__chip">{chip}</span>}
-                  {failed && (
-                    <button
-                      className="home-repo-tile__retry"
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        onRetry(workspace.id);
-                      }}
-                    >
-                      Retry
-                    </button>
-                  )}
                 </div>
               </div>
             );

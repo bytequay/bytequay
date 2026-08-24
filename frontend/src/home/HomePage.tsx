@@ -197,17 +197,6 @@ function HomePage({
     }
   }
 
-  async function handleRetry(workspaceId: string) {
-    setWorkspaceError(null);
-    try {
-      const updated = workspaceFromDto(await window.bridge.syncWorkspace(workspaceId));
-      setWorkspaces(previous => previous.map(row => row.id === updated.id ? updated : row));
-    }
-    catch (failure) {
-      setWorkspaceError(failure instanceof Error ? failure.message : String(failure));
-    }
-  }
-
   return (
     <div className="home-page">
       <main className="home-main">
@@ -287,7 +276,6 @@ function HomePage({
         events={events}
         onOpenWorkspace={onOpenWorkspace}
         onWatch={() => setShowModal(true)}
-        onRetry={workspaceId => { void handleRetry(workspaceId); }}
         onRemove={workspace => { void handleRemove(workspace); }}
       />
 

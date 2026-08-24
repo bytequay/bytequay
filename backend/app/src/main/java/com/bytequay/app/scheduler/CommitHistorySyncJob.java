@@ -20,7 +20,6 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,9 +72,6 @@ public class CommitHistorySyncJob
     {
         Instant staleBefore = clock.instant().minus(FRESHNESS);
         for (WorkspaceSummary workspace : workspaces.listWorkspaces()) {
-            if (workspace.codeState() != CodeState.READY) {
-                continue;
-            }
             CommitRefreshStatus status = commits.getRefreshStatus(workspace.id());
             if (!due(status, staleBefore)) {
                 continue;

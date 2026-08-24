@@ -28,13 +28,11 @@ describe('watched repository workspace UI', () => {
       events={[]}
       onOpenWorkspace={() => {}}
       onWatch={() => {}}
-      onRetry={() => {}}
       onRemove={() => {}}
     />);
     const list = renderToStaticMarkup(<WorkspaceCards
       workspaces={[value]}
       onOpen={() => {}}
-      onRetry={() => {}}
     />);
 
     for (const html of [home, list]) {
@@ -45,8 +43,7 @@ describe('watched repository workspace UI', () => {
 
   it('shows the hero, action cards, and quick links on Workspace Home', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
-      workspace={{ ...workspace('FORK'), metadataState: 'FAILED', metadataError: 'Metadata refresh failed.' }}
-      onWorkspaceChanged={() => {}}
+      workspace={workspace('FORK')}
       onCherryPickUpstream={() => {}}
       onReviewRequests={() => {}}
       onOpenIssues={() => {}}
@@ -59,24 +56,21 @@ describe('watched repository workspace UI', () => {
     expect(html).toContain('Review a pull request');
     expect(html).toContain('4 open pull requests');
     expect(html).toContain('Do anything in this workspace…');
-    expect(html).toContain('Retry preparation');
   });
 
   it('omits the upstream note for a direct repository', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={workspace('DIRECT')}
-      onWorkspaceChanged={() => {}}
       onCherryPickUpstream={() => {}}
       onReviewRequests={() => {}}
       onOpenIssues={() => {}}
     />);
 
     expect(html).not.toContain('linked');
-    expect(html).not.toContain('Retry preparation');
   });
 
-  it('keeps repository-scoped PRs and Issues available when reference metadata failed', () => {
-    const value = { ...workspace('FORK'), metadataState: 'FAILED' as const };
+  it('keeps repository-scoped PRs and Issues available before metadata is synchronized', () => {
+    const value = workspace('FORK');
     const props = {
       workspace: value,
       onSelectTab: () => {},
@@ -127,10 +121,6 @@ function workspace(topology: Workspace['topology']): Workspace {
     monitoredOwner: linked ? 'upstream' : 'contributor',
     monitoredRepo: 'project',
     topology,
-    codeState: 'PENDING',
-    metadataState: 'PENDING',
-    codeError: null,
-    metadataError: null,
     lastCodeSyncAt: null,
     lastMetadataSyncAt: null,
     displayOrder: 0,

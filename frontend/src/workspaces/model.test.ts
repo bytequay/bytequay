@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorkspaceDto } from '../types';
 import {
   workspaceFromDto,
+  workspaceHasReadableCode,
   workspaceIdFromRoute,
   workspaceIssueRoute,
   workspaceLocationFromRoute,
@@ -45,9 +46,21 @@ describe('workspaceFromDto', () => {
 
   it('uses one status rule for every workspace list', () => {
     const workspace = workspaceFromDto(dto('DIRECT'));
-    expect(workspacePhaseLabel({ ...workspace, codeState: 'READY' })).toBe('Ready');
-    expect(workspacePhaseLabel({ ...workspace, codeState: 'SYNCING' })).toBe('Syncing');
-    expect(workspacePhaseLabel({ ...workspace, metadataState: 'FAILED' })).toBe('Needs attention');
+    expect(workspacePhaseLabel(workspace)).toBe('Preparing');
+    expect(workspacePhaseLabel({
+      ...workspace,
+      lastCodeSyncAt: '2026-08-21T00:00:00Z',
+    })).toBe('Ready');
+  });
+
+  it('uses the last successful code sync to decide whether the checkout is readable', () => {
+    const workspace = workspaceFromDto(dto('DIRECT'));
+
+    expect(workspaceHasReadableCode(workspace)).toBe(false);
+    expect(workspaceHasReadableCode({
+      ...workspace,
+      lastCodeSyncAt: '2026-08-21T00:00:00Z',
+    })).toBe(true);
   });
 
   it('round-trips workspace IDs through the renderer route', () => {
@@ -83,12 +96,8 @@ function dto(topology: WorkspaceDto['topology'], linked = topology === 'FORK'): 
     defaultBranch: 'main',
     upstreamDefaultBranch: linked ? 'main' : null,
     localRepositoryPath: '/managed/workspace-id/repository',
-    codeState: 'PENDING',
-    metadataState: 'PENDING',
     lastCodeSyncAt: null,
     lastMetadataSyncAt: null,
-    codeError: null,
-    metadataError: null,
     displayOrder: 0,
   };
 }

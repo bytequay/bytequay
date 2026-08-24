@@ -25,8 +25,6 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import org.junit.jupiter.api.Test;
 
@@ -111,12 +109,8 @@ class TestPullRequestRefreshControllers
                 "main",
                 "main",
                 "/tmp/workspace-id",
-                CodeState.READY,
-                MetadataState.READY,
                 NOW,
                 NOW,
-                null,
-                null,
                 0);
         return new WorkspaceDetails(
                 summary,

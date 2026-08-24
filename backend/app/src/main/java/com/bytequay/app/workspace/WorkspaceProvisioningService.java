@@ -24,15 +24,16 @@ public interface WorkspaceProvisioningService
      * fail without deletion.</p>
      *
      * @param workspaceId saved workspace to provision
-     * @return final code state and synchronization time
+     * @return success and the last successful synchronization time
      */
     WorkspaceProvisioningResult provision(String workspaceId);
 
     /**
-     * Fetches and prunes every configured remote without changing branches or local files.
+     * Creates the managed checkout when needed, otherwise fetches and prunes every configured remote
+     * without changing branches or local files.
      *
-     * @param workspaceId ready workspace to synchronize
-     * @return final code state and synchronization time
+     * @param workspaceId saved workspace to synchronize
+     * @return success, the last successful synchronization time, and failed optional remotes
      */
     WorkspaceCodeSyncResult synchronizeCode(String workspaceId);
 }

@@ -14,7 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
@@ -26,14 +25,13 @@ import static java.util.Objects.requireNonNull;
 /** Result of fetching a managed repository's configured remotes. */
 public record WorkspaceCodeSyncResult(
         String workspaceId,
-        CodeState codeState,
+        boolean successful,
         Optional<Instant> lastCodeSyncAt,
         Set<String> failedRemoteSources)
 {
     public WorkspaceCodeSyncResult
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        requireNonNull(codeState, "codeState is null");
         requireNonNull(lastCodeSyncAt, "lastCodeSyncAt is null");
         failedRemoteSources = ImmutableSet.copyOf(requireNonNull(
                 failedRemoteSources, "failedRemoteSources is null"));
@@ -41,21 +39,27 @@ public record WorkspaceCodeSyncResult(
 
     public WorkspaceCodeSyncResult(
             String workspaceId,
-            CodeState codeState,
+            boolean successful,
             Optional<Instant> lastCodeSyncAt)
     {
-        this(workspaceId, codeState, lastCodeSyncAt, ImmutableSet.of());
+        this(workspaceId, successful, lastCodeSyncAt, ImmutableSet.of());
     }
 
-    public static WorkspaceCodeSyncResult of(Workspace workspace)
+    public static WorkspaceCodeSyncResult success(Workspace workspace)
     {
         return new WorkspaceCodeSyncResult(
-                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt(), ImmutableSet.of());
+                workspace.id(), true, workspace.lastCodeSyncAt(), ImmutableSet.of());
     }
 
-    public static WorkspaceCodeSyncResult of(Workspace workspace, Set<String> failedRemoteSources)
+    public static WorkspaceCodeSyncResult success(Workspace workspace, Set<String> failedRemoteSources)
     {
         return new WorkspaceCodeSyncResult(
-                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt(), failedRemoteSources);
+                workspace.id(), true, workspace.lastCodeSyncAt(), failedRemoteSources);
+    }
+
+    public static WorkspaceCodeSyncResult failure(Workspace workspace)
+    {
+        return new WorkspaceCodeSyncResult(
+                workspace.id(), false, workspace.lastCodeSyncAt(), ImmutableSet.of());
     }
 }

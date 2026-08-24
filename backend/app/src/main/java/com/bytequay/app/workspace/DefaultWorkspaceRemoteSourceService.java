@@ -16,7 +16,6 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -68,7 +67,7 @@ public class DefaultWorkspaceRemoteSourceService
             throw WorkspaceException.invalidRemoteSource(
                     "A remote source named " + remoteName + " already exists.");
         }
-        if (workspace.codeState() == CodeState.READY) {
+        if (workspace.lastCodeSyncAt().isPresent()) {
             try {
                 git.probeRemoteSource(workspace, remoteUrl);
             }
@@ -78,8 +77,8 @@ public class DefaultWorkspaceRemoteSourceService
         }
         store.save(new RemoteSource(workspace.id(), remoteName, remoteUrl));
         // Reconcile and fetch happen inside the normal background sync so the
-        // checkout, remote list, and freshness state stay in one flow.
-        repositoryService.requestSync(workspace.id());
+        // checkout, remote list, and last-success timestamp stay in one flow.
+        repositoryService.requestSyncAfterConfigurationChange(workspace.id());
         return remotes(workspace);
     }
 
@@ -89,7 +88,7 @@ public class DefaultWorkspaceRemoteSourceService
         Workspace workspace = requireWorkspace(workspaceId);
         String remoteName = requireValidName(name);
         store.delete(workspace.id(), remoteName);
-        repositoryService.requestSync(workspace.id());
+        repositoryService.requestSyncAfterConfigurationChange(workspace.id());
         return remotes(workspace);
     }
 

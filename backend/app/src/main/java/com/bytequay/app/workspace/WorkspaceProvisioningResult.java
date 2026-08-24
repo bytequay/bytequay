@@ -14,7 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -24,19 +23,24 @@ import static java.util.Objects.requireNonNull;
 /** Result of creating or recovering a managed repository checkout. */
 public record WorkspaceProvisioningResult(
         String workspaceId,
-        CodeState codeState,
+        boolean successful,
         Optional<Instant> lastCodeSyncAt)
 {
     public WorkspaceProvisioningResult
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        requireNonNull(codeState, "codeState is null");
         requireNonNull(lastCodeSyncAt, "lastCodeSyncAt is null");
     }
 
-    public static WorkspaceProvisioningResult of(Workspace workspace)
+    public static WorkspaceProvisioningResult success(Workspace workspace)
     {
         return new WorkspaceProvisioningResult(
-                workspace.id(), workspace.codeState(), workspace.lastCodeSyncAt());
+                workspace.id(), true, workspace.lastCodeSyncAt());
+    }
+
+    public static WorkspaceProvisioningResult failure(Workspace workspace)
+    {
+        return new WorkspaceProvisioningResult(
+                workspace.id(), false, workspace.lastCodeSyncAt());
     }
 }

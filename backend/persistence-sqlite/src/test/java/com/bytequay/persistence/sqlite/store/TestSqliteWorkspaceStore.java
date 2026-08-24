@@ -15,8 +15,6 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
@@ -190,10 +188,6 @@ class TestSqliteWorkspaceStore
                 upstreamId.map(ignored -> "main"),
                 upstreamCloneUrl,
                 "/tmp/workspaces/" + id + "/repository",
-                CodeState.PENDING,
-                MetadataState.PENDING,
-                Optional.empty(),
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 displayOrder,

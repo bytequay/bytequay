@@ -19,7 +19,6 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +32,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
@@ -74,27 +72,20 @@ public final class DefaultWorkspaceMetadataService
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
         try {
-            refreshExpired(workspace);
             Instant now = clock.instant();
+            if (!expired(workspace.lastMetadataSyncAt(), now, CONTRIBUTOR_TTL)) {
+                return WorkspaceMetadataSyncResult.of(workspaceId, true, snapshot(workspace));
+            }
+            refreshExpired(workspace);
+            now = clock.instant();
             Workspace latest = requireWorkspace(workspaceId);
-            workspaces.save(latest.withMetadataState(
-                    MetadataState.READY, Optional.of(now), Optional.empty(), now));
-            return WorkspaceMetadataSyncResult.of(
-                    workspaceId, MetadataState.READY, snapshot(workspace));
+            workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
+            return WorkspaceMetadataSyncResult.of(workspaceId, true, snapshot(workspace));
         }
         catch (RuntimeException failure) {
-            String reference = UUID.randomUUID().toString();
-            log.warn("Workspace {} metadata synchronization failed [{}]: {}",
-                    workspaceId, reference, failure.getMessage());
-            Instant now = clock.instant();
-            Workspace latest = requireWorkspace(workspaceId);
-            workspaces.save(latest.withMetadataState(
-                    MetadataState.FAILED,
-                    latest.lastMetadataSyncAt(),
-                    Optional.of("Repository metadata refresh failed. Retry later. Reference: " + reference),
-                    now));
-            return WorkspaceMetadataSyncResult.of(
-                    workspaceId, MetadataState.FAILED, snapshot(workspace));
+            log.warn("Workspace {} metadata synchronization failed: {}",
+                    workspaceId, failure.getMessage());
+            return WorkspaceMetadataSyncResult.of(workspaceId, false, snapshot(workspace));
         }
         finally {
             lock.unlock();

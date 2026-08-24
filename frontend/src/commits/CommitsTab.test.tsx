@@ -120,11 +120,7 @@ function workspace(): Workspace {
     monitoredOwner: 'example',
     monitoredRepo: 'project',
     topology: 'DIRECT',
-    codeState: 'READY',
-    metadataState: 'READY',
-    codeError: null,
-    metadataError: null,
-    lastCodeSyncAt: null,
+    lastCodeSyncAt: '2026-08-24T00:00:00Z',
     lastMetadataSyncAt: null,
     displayOrder: 0,
   };

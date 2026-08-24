@@ -383,7 +383,6 @@ export default function FlowView({
           <div className="cmt-modal" onClick={event => event.stopPropagation()}>
             <div className="cmt-modal-head">
               <span className="cmt-modal-title">Dry run — execution plan</span>
-              <span className="cmt-modal-sub">nothing runs; this is exactly what Start submits</span>
               <div className="cmt-tasks-spacer" />
               <button type="button" className="cmt-modal-close" onClick={() => setDryRun(false)}>×</button>
             </div>
@@ -429,10 +428,7 @@ export default function FlowView({
               </div>
             </div>
             <div className="cmt-modal-foot">
-              <span>
-                Start creates a work branch at frozen {preview.targetBranch}{' '}
-                <code>{shortSha(preview.targetSha)}</code> — local Git only, no push.
-              </span>
+              <div className="cmt-tasks-spacer" />
               <button type="button" className="cmt-btn-plain" onClick={() => setDryRun(false)}>Back</button>
               {startButton}
             </div>

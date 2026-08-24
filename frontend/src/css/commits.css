@@ -1179,7 +1179,6 @@
 }
 
 .cmt-modal-title { font-size: 15px; font-weight: 700; color: #1f2328; }
-.cmt-modal-sub { font-size: 12px; color: #656d76; }
 
 .cmt-modal-close {
   border: none;
@@ -1242,9 +1241,6 @@
   border-top: 1px solid #d0d7de;
   background: #f6f8fa;
 }
-
-.cmt-modal-foot > span { font-size: 11.5px; color: #656d76; flex: 1; }
-.cmt-modal-foot code { font-family: ui-monospace, Menlo, monospace; }
 
 /* ── Progress ────────────────────────────────────────────── */
 

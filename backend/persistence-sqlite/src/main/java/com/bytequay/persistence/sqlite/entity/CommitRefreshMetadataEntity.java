@@ -13,29 +13,22 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.CommitRefreshStatus.State;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
 
 @Entity
-@Table(name = "commit_refresh_status")
-public class CommitRefreshStatusEntity
+@Table(name = "commit_refresh_metadata")
+public class CommitRefreshMetadataEntity
 {
     @Id
     @Column(name = "workspace_id", nullable = false)
     private String workspaceId;
-
-    @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private State state;
 
     @Column(name = "last_attempt_at")
     @Convert(converter = InstantToTextConverter.class)
@@ -50,9 +43,6 @@ public class CommitRefreshStatusEntity
 
     public String getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
-
-    public State getState() { return state; }
-    public void setState(State state) { this.state = state; }
 
     public Instant getLastAttemptAt() { return lastAttemptAt; }
     public void setLastAttemptAt(Instant lastAttemptAt) { this.lastAttemptAt = lastAttemptAt; }

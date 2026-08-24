@@ -37,7 +37,7 @@ final class CommitHistoryRouting
                 return new ResolvedCommitHistoryRef(
                         OptionalLong.of(context.selectedRepositoryId()),
                         Optional.of(context.selectedRepository()),
-                        ref.branch(),
+                        context.targetRemote() + "/" + ref.branch(),
                         ref.branch());
             }
             case UPSTREAM -> {

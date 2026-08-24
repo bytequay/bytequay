@@ -48,12 +48,7 @@ export function commitRefreshRefs(
   ];
 }
 
-export function isCommitRefreshActive(status: CommitRefreshStatusDto | null): boolean {
-  return status?.state === 'QUEUED' || status?.state === 'RUNNING';
-}
-
 export function commitSyncLabel(status: CommitRefreshStatusDto | null): string {
-  if (isCommitRefreshActive(status)) return 'syncing…';
   if (status?.state === 'FAILED') {
     return status.lastSucceededAt
       ? `sync failed · last synced ${relativeTime(status.lastSucceededAt)}`
@@ -98,7 +93,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const [checkedUp, setCheckedUp] = useState<Set<string>>(new Set());
   const [changesCount, setChangesCount] = useState<number | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<CommitRefreshStatusDto | null>(null);
-  const [manualPolling, setManualPolling] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<CherryPickPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [executionId, setExecutionId] = useState<string | null>(initialExecutionId ?? null);
@@ -126,8 +121,6 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const historyBranch = isRemote ? upBranch : branch;
   const historyRemote = historySource === 'REMOTE' ? activeRemote ?? undefined : undefined;
   const checked = isRemote ? checkedUp : checkedWs;
-  const syncing = isCommitRefreshActive(refreshStatus);
-
   const refreshOverview = useCallback(() => {
     window.bridge.gitOverview(workspace.id)
       .then(setOverview)
@@ -182,50 +175,6 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   }, [workspace.id, historySource, historyBranch, historyRemote, logVersion]);
 
   useEffect(() => {
-    setManualPolling(false);
-  }, [workspace.id, historySource, historyBranch, historyRemote]);
-
-  useEffect(() => {
-    if (!manualPolling || !isCommitRefreshActive(refreshStatus)) return;
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      window.bridge.gitLog(workspace.id, historySource, historyBranch, 300, historyRemote)
-        .then(snapshot => {
-          if (cancelled) return;
-          setCommits(snapshot.commits);
-          setRefreshStatus(snapshot.refresh);
-          if (!isCommitRefreshActive(snapshot.refresh)) {
-            setManualPolling(false);
-            if (snapshot.refresh.state === 'FAILED') {
-              setError(snapshot.refresh.error ?? 'Commit history refresh failed');
-            }
-            else {
-              setError(null);
-              refreshOverview();
-            }
-          }
-        })
-        .catch(failure => {
-          if (cancelled) return;
-          setManualPolling(false);
-          setError(failure instanceof Error ? failure.message : String(failure));
-        });
-    }, 1_000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [
-    manualPolling,
-    refreshStatus,
-    workspace.id,
-    historySource,
-    historyBranch,
-    historyRemote,
-    refreshOverview,
-  ]);
-
-  useEffect(() => {
     if (isRemote) return;
     let cancelled = false;
     window.bridge.gitStatus(workspace.id)
@@ -247,6 +196,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
 
   const sync = async () => {
     if (syncing) return;
+    setSyncing(true);
     setError(null);
     try {
       const upstreamBranch = isUpstream
@@ -264,17 +214,17 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
         ),
       );
       setRefreshStatus(status);
-      if (isCommitRefreshActive(status)) {
-        setManualPolling(true);
+      setLogVersion(version => version + 1);
+      if (status.state === 'FAILED') {
+        setError(status.error ?? 'Commit history refresh failed');
       }
       else {
-        setLogVersion(version => version + 1);
-        if (status.state === 'FAILED') {
-          setError(status.error ?? 'Commit history refresh failed');
-        }
+        refreshOverview();
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -530,7 +480,9 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
             >
               <span className={syncing ? 'is-spinning' : ''}>⟳</span>
             </button>
-            <span title={refreshStatus?.error ?? undefined}>{commitSyncLabel(refreshStatus)}</span>
+            <span title={refreshStatus?.error ?? undefined}>
+              {syncing ? 'syncing…' : commitSyncLabel(refreshStatus)}
+            </span>
           </div>
 
           <div className="cmt-tab-divider" />

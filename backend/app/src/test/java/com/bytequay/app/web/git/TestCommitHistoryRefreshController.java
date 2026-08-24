@@ -18,6 +18,7 @@ import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.domain.CommitRefreshStatus;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -27,8 +28,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.git.CommitRefreshCause.MANUAL;
-import static com.bytequay.core.domain.CommitRefreshStatus.State.QUEUED;
+import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,19 +52,19 @@ class TestCommitHistoryRefreshController
     }
 
     @Test
-    void acceptsValidatedSourceAndBranchSelectorsWithoutWaitingForSynchronization()
+    void returnsTheCompletedRefreshResult()
             throws Exception
     {
-        List<CommitHistoryRef> refs = List.of(
+        List<CommitHistoryRef> refs = ImmutableList.of(
                 new CommitHistoryRef(Source.WORKSPACE, "feature"),
                 new CommitHistoryRef(Source.UPSTREAM, "main"));
-        CommitRefreshStatus queued = new CommitRefreshStatus(
+        CommitRefreshStatus completed = new CommitRefreshStatus(
                 "workspace-id",
-                QUEUED,
+                IDLE,
                 Optional.of(Instant.parse("2026-08-23T00:00:00Z")),
-                Optional.empty(),
+                Optional.of(Instant.parse("2026-08-23T00:00:00Z")),
                 Optional.empty());
-        when(commits.requestRefresh("workspace-id", refs, MANUAL)).thenReturn(queued);
+        when(commits.refresh("workspace-id", refs)).thenReturn(completed);
 
         mvc.perform(post("/api/workspaces/workspace-id/git/commits/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -74,10 +74,10 @@ class TestCommitHistoryRefreshController
                                   {"source":"UPSTREAM","branch":"main"}
                                 ]}
                                 """))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.state").value("QUEUED"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("IDLE"));
 
-        verify(commits).requestRefresh("workspace-id", refs, MANUAL);
+        verify(commits).refresh("workspace-id", refs);
     }
 
     @Test

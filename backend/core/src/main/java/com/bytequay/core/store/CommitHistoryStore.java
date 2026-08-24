@@ -15,7 +15,7 @@ package com.bytequay.core.store;
 
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
-import com.bytequay.core.domain.CommitRefreshStatus;
+import com.bytequay.core.domain.CommitRefreshMetadata;
 
 import java.util.Collection;
 
@@ -25,7 +25,7 @@ public interface CommitHistoryStore
 
     void upsertEnrichment(Collection<CommitEnrichment> enrichment);
 
-    CommitRefreshStatus findRefreshStatus(String workspaceId);
+    CommitRefreshMetadata findRefreshMetadata(String workspaceId);
 
-    void saveRefreshStatus(CommitRefreshStatus status);
+    void saveRefreshMetadata(CommitRefreshMetadata metadata);
 }

@@ -13,10 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.persistence.sqlite.entity.CommitRefreshStatusEntity;
+import com.bytequay.persistence.sqlite.entity.CommitRefreshMetadataEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CommitRefreshStatusJpaRepository
-        extends JpaRepository<CommitRefreshStatusEntity, String>
+public interface CommitRefreshMetadataJpaRepository
+        extends JpaRepository<CommitRefreshMetadataEntity, String>
 {
 }

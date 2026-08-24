@@ -15,14 +15,12 @@ package com.bytequay.app.web.git;
 
 import com.bytequay.app.git.CommitHistoryService;
 import com.bytequay.core.domain.CommitRefreshStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import static com.bytequay.app.git.CommitRefreshCause.MANUAL;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -37,11 +35,10 @@ public class CommitHistoryRefreshController
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<CommitRefreshStatus> refresh(
+    public CommitRefreshStatus refresh(
             @PathVariable String workspaceId,
             @RequestBody CommitHistoryRefreshRequest request)
     {
-        CommitRefreshStatus status = commits.requestRefresh(workspaceId, request.historyRefs(), MANUAL);
-        return ResponseEntity.accepted().body(status);
+        return commits.refresh(workspaceId, request.historyRefs());
     }
 }

@@ -28,13 +28,13 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.CommitEnrichment;
+import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.store.CommitHistoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -44,29 +44,22 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
-import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
-import static com.bytequay.core.domain.CommitRefreshStatus.State.RUNNING;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-/** Single coalescing worker for scheduled, startup, and manual commit refreshes. */
+/** Fetches and persists one commit refresh before returning. */
 @Component
-public class CommitHistoryRefreshWorker
+class CommitHistoryRefresher
 {
-    private static final Logger log = LoggerFactory.getLogger(CommitHistoryRefreshWorker.class);
+    private static final Logger log = LoggerFactory.getLogger(CommitHistoryRefresher.class);
     private static final int MAX_COMMITS = 300;
     private static final Duration NEGATIVE_RETRY_INTERVAL = Duration.ofDays(1);
     private static final Duration NEGATIVE_RETRY_WINDOW = Duration.ofDays(7);
@@ -80,12 +73,8 @@ public class CommitHistoryRefreshWorker
     private final CherryPickPullRequestLookup pullRequests;
     private final AvatarCache avatars;
     private final Clock clock;
-    private final Executor executor;
 
-    private final Map<String, Set<CommitHistoryRef>> pending = new ConcurrentHashMap<>();
-    private final AtomicBoolean draining = new AtomicBoolean();
-
-    public CommitHistoryRefreshWorker(
+    CommitHistoryRefresher(
             WorkspaceRepositoryService workspaces,
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
@@ -94,8 +83,7 @@ public class CommitHistoryRefreshWorker
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
             AvatarCache avatars,
-            Clock clock,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
@@ -106,80 +94,47 @@ public class CommitHistoryRefreshWorker
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.avatars = requireNonNull(avatars, "avatars is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.executor = requireNonNull(executor, "executor is null");
     }
 
-    void enqueue(String workspaceId, Collection<CommitHistoryRef> refs)
+    CommitRefreshStatus refresh(String workspaceId, Collection<CommitHistoryRef> refs)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(refs, "refs is null");
-        pending.compute(workspaceId, (ignored, existing) -> {
-            Set<CommitHistoryRef> merged = new LinkedHashSet<>();
-            if (existing != null) {
-                merged.addAll(existing);
-            }
-            merged.addAll(refs);
-            return Set.copyOf(merged);
-        });
-        scheduleDrain();
-    }
-
-    private void scheduleDrain()
-    {
-        if (draining.compareAndSet(false, true)) {
-            executor.execute(this::drain);
-        }
-    }
-
-    private void drain()
-    {
+        Instant attempt = clock.instant();
         try {
-            Batch batch;
-            while ((batch = take()) != null) {
-                refresh(batch);
-            }
-        }
-        finally {
-            draining.set(false);
-            if (!pending.isEmpty()) {
-                scheduleDrain();
-            }
-        }
-    }
-
-    private Batch take()
-    {
-        for (String workspaceId : pending.keySet()) {
-            Set<CommitHistoryRef> refs = pending.remove(workspaceId);
-            if (refs != null) {
-                return new Batch(workspaceId, refs);
-            }
-        }
-        return null;
-    }
-
-    private void refresh(Batch batch)
-    {
-        CommitRefreshStatus previous = store.findRefreshStatus(batch.workspaceId());
-        Instant attempt = previous.lastAttemptAt().orElseGet(clock::instant);
-        try {
-            store.saveRefreshStatus(new CommitRefreshStatus(
-                    batch.workspaceId(), RUNNING, Optional.of(attempt), previous.lastSucceededAt(), Optional.empty()));
-            synchronize(batch);
-            store.saveRefreshStatus(new CommitRefreshStatus(
-                    batch.workspaceId(), IDLE, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty()));
+            synchronize(workspaceId, refs);
+            CommitRefreshMetadata metadata = new CommitRefreshMetadata(
+                    workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
+            store.saveRefreshMetadata(metadata);
+            return status(metadata);
         }
         catch (RuntimeException failure) {
-            fail(batch.workspaceId(), attempt, failure);
+            return fail(workspaceId, attempt, failure);
         }
     }
 
-    private void synchronize(Batch batch)
+    CommitRefreshStatus status(String workspaceId)
     {
-        WorkspaceCodeSyncResult synchronization = refreshCode(batch.workspaceId());
-        validateRemoteSources(batch.refs(), synchronization);
-        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(batch.workspaceId());
-        List<ResolvedCommitHistoryRef> refs = resolveRefs(context, batch.refs());
+        requireNonNull(workspaceId, "workspaceId is null");
+        return status(store.findRefreshMetadata(workspaceId));
+    }
+
+    private static CommitRefreshStatus status(CommitRefreshMetadata metadata)
+    {
+        return new CommitRefreshStatus(
+                metadata.workspaceId(),
+                metadata.error().isPresent() ? FAILED : IDLE,
+                metadata.lastAttemptAt(),
+                metadata.lastSucceededAt(),
+                metadata.error());
+    }
+
+    private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs)
+    {
+        WorkspaceCodeSyncResult synchronization = refreshCode(workspaceId);
+        validateRemoteSources(requestedRefs, synchronization);
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
+        List<ResolvedCommitHistoryRef> refs = resolveRefs(context, requestedRefs);
         store.upsertEnrichment(enrichRefs(context, refs));
     }
 
@@ -230,7 +185,7 @@ public class CommitHistoryRefreshWorker
                 continue;
             }
             enrich(context, ref, token, now).forEach(value -> updates.merge(
-                    new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefreshWorker::merge));
+                    new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefresher::merge));
         }
         return updates.values();
     }
@@ -348,27 +303,26 @@ public class CommitHistoryRefreshWorker
                 second.lastSeenAt());
     }
 
-    private void fail(String workspaceId, Instant attempt, RuntimeException failure)
+    private CommitRefreshStatus fail(String workspaceId, Instant attempt, RuntimeException failure)
     {
         String reference = UUID.randomUUID().toString();
         log.warn("Commit history refresh failed for workspace {} [{}]: {}",
                 workspaceId, reference, failure.getMessage());
+        CommitRefreshMetadata current = store.findRefreshMetadata(workspaceId);
+        CommitRefreshMetadata failed = new CommitRefreshMetadata(
+                workspaceId,
+                Optional.of(attempt),
+                current.lastSucceededAt(),
+                Optional.of("Commit refresh failed. Retry later. Reference: " + reference));
         try {
-            CommitRefreshStatus current = store.findRefreshStatus(workspaceId);
-            store.saveRefreshStatus(new CommitRefreshStatus(
-                    workspaceId,
-                    FAILED,
-                    Optional.of(attempt),
-                    current.lastSucceededAt(),
-                    Optional.of("Commit refresh failed. Retry later. Reference: " + reference)));
+            store.saveRefreshMetadata(failed);
         }
         catch (RuntimeException statusFailure) {
-            log.warn("Could not persist failed commit refresh state for workspace {}: {}",
+            log.warn("Could not persist failed commit refresh metadata for workspace {}: {}",
                     workspaceId, statusFailure.getMessage());
         }
+        return status(failed);
     }
-
-    private record Batch(String workspaceId, Set<CommitHistoryRef> refs) {}
 
     private record EnrichmentKey(long repositoryId, String sha) {}
 }

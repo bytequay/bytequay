@@ -18,7 +18,6 @@ import type { Workspace } from '../workspaces/model';
 import CommitsTab, {
   commitRefreshRefs,
   commitSyncLabel,
-  isCommitRefreshActive,
   selectableCommitSources,
 } from './CommitsTab';
 
@@ -87,11 +86,7 @@ describe('workspace commits tab', () => {
     ]);
   });
 
-  it('polls only active manual refresh states and reports durable status', () => {
-    expect(isCommitRefreshActive(status('QUEUED'))).toBe(true);
-    expect(isCommitRefreshActive(status('RUNNING'))).toBe(true);
-    expect(isCommitRefreshActive(status('IDLE'))).toBe(false);
-    expect(isCommitRefreshActive(status('FAILED'))).toBe(false);
+  it('reports the last completed refresh status', () => {
     expect(commitSyncLabel(status('FAILED'))).toBe('sync failed');
     expect(commitSyncLabel(status('IDLE'))).toBe('not synced yet');
   });

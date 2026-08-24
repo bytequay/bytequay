@@ -14,11 +14,11 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.CommitEnrichment;
-import com.bytequay.core.domain.CommitRefreshStatus;
-import com.bytequay.core.domain.CommitRefreshStatus.State;
+import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.repository.CommitEnrichmentJpaRepository;
-import com.bytequay.persistence.sqlite.repository.CommitRefreshStatusJpaRepository;
+import com.bytequay.persistence.sqlite.repository.CommitRefreshMetadataJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -29,7 +29,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -53,7 +52,7 @@ class TestSqliteCommitHistoryStore
     private CommitEnrichmentJpaRepository enrichmentRepository;
 
     @Autowired
-    private CommitRefreshStatusJpaRepository refreshRepository;
+    private CommitRefreshMetadataJpaRepository refreshRepository;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -71,9 +70,9 @@ class TestSqliteCommitHistoryStore
         CommitEnrichment positive = enrichment(100, SHA, Optional.of(42), Optional.of("PR title"));
         CommitEnrichment negative = enrichment(100, "fedcba9876543210", Optional.empty(), Optional.empty());
 
-        store.upsertEnrichment(List.of(positive, negative));
+        store.upsertEnrichment(ImmutableList.of(positive, negative));
 
-        assertThat(store.findEnrichment(100, List.of(SHA, negative.sha())).commits())
+        assertThat(store.findEnrichment(100, ImmutableList.of(SHA, negative.sha())).commits())
                 .containsExactlyInAnyOrder(positive, negative);
     }
 
@@ -82,14 +81,14 @@ class TestSqliteCommitHistoryStore
     {
         CommitEnrichment first = enrichment(100, SHA, Optional.of(42), Optional.of("PR title"));
         CommitEnrichment unrelated = enrichment(100, "fedcba9876543210", Optional.empty(), Optional.empty());
-        store.upsertEnrichment(List.of(first, unrelated));
+        store.upsertEnrichment(ImmutableList.of(first, unrelated));
 
         CommitEnrichment seenAgain = new CommitEnrichment(
                 100, SHA, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), NOW.plusSeconds(1));
-        store.upsertEnrichment(List.of(seenAgain));
+        store.upsertEnrichment(ImmutableList.of(seenAgain));
 
-        var snapshot = store.findEnrichment(100, List.of(SHA, unrelated.sha())).commits();
+        var snapshot = store.findEnrichment(100, ImmutableList.of(SHA, unrelated.sha())).commits();
         assertThat(snapshot).hasSize(2);
         assertThat(snapshot.stream().filter(value -> value.sha().equals(SHA)).findFirst().orElseThrow())
                 .extracting(CommitEnrichment::pullRequestNumber, CommitEnrichment::pullRequestTitle)
@@ -97,21 +96,21 @@ class TestSqliteCommitHistoryStore
     }
 
     @Test
-    void reloadsDurableStateAndKeepsLastSuccessOnFailure()
+    void reloadsDurableMetadataAndKeepsLastSuccessOnFailure()
     {
-        store.upsertEnrichment(List.of(enrichment(100, SHA, Optional.of(42), Optional.of("PR title"))));
-        store.saveRefreshStatus(new CommitRefreshStatus(
-                "workspace", State.IDLE, Optional.of(NOW), Optional.of(NOW), Optional.empty()));
-        store.saveRefreshStatus(new CommitRefreshStatus(
-                "workspace", State.FAILED, Optional.of(NOW.plusSeconds(1)), Optional.empty(), Optional.of("Retry")));
+        store.upsertEnrichment(ImmutableList.of(enrichment(100, SHA, Optional.of(42), Optional.of("PR title"))));
+        store.saveRefreshMetadata(new CommitRefreshMetadata(
+                "workspace", Optional.of(NOW), Optional.of(NOW), Optional.empty()));
+        store.saveRefreshMetadata(new CommitRefreshMetadata(
+                "workspace", Optional.of(NOW.plusSeconds(1)), Optional.empty(), Optional.of("Retry")));
 
         SqliteCommitHistoryStore reloaded = new SqliteCommitHistoryStore(enrichmentRepository, refreshRepository);
 
-        assertThat(reloaded.findEnrichment(100, List.of(SHA)).commits()).hasSize(1);
-        assertThat(reloaded.findRefreshStatus("workspace"))
-                .isEqualTo(new CommitRefreshStatus(
-                        "workspace", State.FAILED, Optional.of(NOW.plusSeconds(1)), Optional.of(NOW), Optional.of("Retry")));
-        assertThat(reloaded.findRefreshStatus("missing")).isEqualTo(CommitRefreshStatus.idle("missing"));
+        assertThat(reloaded.findEnrichment(100, ImmutableList.of(SHA)).commits()).hasSize(1);
+        assertThat(reloaded.findRefreshMetadata("workspace"))
+                .isEqualTo(new CommitRefreshMetadata(
+                        "workspace", Optional.of(NOW.plusSeconds(1)), Optional.of(NOW), Optional.of("Retry")));
+        assertThat(reloaded.findRefreshMetadata("missing")).isEqualTo(CommitRefreshMetadata.empty("missing"));
     }
 
     private static CommitEnrichment enrichment(

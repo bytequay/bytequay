@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -82,7 +83,7 @@ public class CherryPickPullRequestLookup
         requireNonNull(sourceShas, "sourceShas is null");
         requireNonNull(warnings, "warnings is null");
         if (sourceShas.isEmpty()) {
-            return new PullRequestLookupResult(ImmutableList.of(), Set.of());
+            return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of());
         }
         String token;
         try {
@@ -91,7 +92,7 @@ public class CherryPickPullRequestLookup
         catch (RuntimeException e) {
             warnings.add("Pull-request grouping is unavailable without GitHub credentials. "
                     + "Every commit is listed individually and stays selectable.");
-            return new PullRequestLookupResult(ImmutableList.of(), Set.copyOf(sourceShas));
+            return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.copyOf(sourceShas));
         }
 
         List<PullRequestLookupResult.Association> associations = new ArrayList<>();

@@ -1,9 +1,10 @@
 # Commit History and Refresh Design
 
 The Commits tab must be local-first. Opening it reads the managed Git checkout
-and SQLite only. GitHub synchronization happens in a backend worker, either on
-a schedule or after the user clicks the existing refresh button. A slow or
-failed refresh must never blank commit history that was already available.
+and SQLite only. GitHub synchronization happens only through an explicit,
+synchronous backend refresh call, invoked by either the scheduler or the
+existing refresh button. A slow or failed refresh must never blank commit
+history that was already available.
 
 This document refines the Commits section of
 [Watched Repository / Workspace](watched-repo.md). The explicit upstream is a
@@ -36,17 +37,18 @@ of commit enrichment and PR synchronization.
 - `GET .../git/commits` performs no GitHub, `gh`, or other network call.
 - Core commit facts and ordering come from the managed Git checkout. Do not
   duplicate Git objects in SQLite.
-- SQLite stores commit enrichment: avatar cache key, commit-to-PR association,
-  enrichment timestamps, and refresh state.
+- SQLite stores commit enrichment and completed-refresh metadata: avatar cache
+  key, commit-to-PR association, enrichment timestamps, last attempt, last
+  success, and the last failure message.
 - Existing pull-request tables and `PullRequestService` remain the only full PR
   projection. Do not create a second PR service or copy PR details into a new
   table.
 - Avatar bytes used by commit cards are served from a ByteQuay-owned local
   cache. A missing image renders the existing initial fallback; rendering must
   not silently try GitHub.
-- Scheduled and manual refreshes use the same queue, validation, overlap guard,
-  synchronization code, and persisted status.
-- Existing commits remain visible while refresh is queued, running, or failed.
+- Scheduled and manual refreshes call the same synchronous service method and
+  use the same validation and synchronization code.
+- Existing commits remain visible while a manual request is running or failed.
 - The backend owns `lastSucceededAt`; the renderer does not persist sync state.
 - A linked upstream is resolved from its stable GitHub repository ID and
   persisted routing snapshot. It does not need to be a watched workspace. An
@@ -61,7 +63,7 @@ of commit enrichment and PR synchronization.
 | Commit-to-PR number/title/URL | SQLite commit enrichment | local store lookup |
 | Full PR list and detail | existing SQLite `PullRequestStore` and `PrDetailStore` | existing local PR service |
 | Commit avatar | application-data file cache, referenced by SQLite key | localhost avatar endpoint |
-| Refresh state and timestamps | SQLite | commit history response |
+| Completed refresh timestamps and error | SQLite | commit history response |
 | Changed files and patches | managed local Git checkout | existing local diff endpoints |
 
 Git already durably stores commit information more completely than another
@@ -94,10 +96,10 @@ public record CommitEnrichmentSnapshot(
 {}
 ```
 
-`CommitEnrichment`, `CommitEnrichmentSnapshot`, and `CommitRefreshStatus` are
-framework-free domain values in `core`, beside the storage port that uses
-them. The named snapshot keeps collection shape and indexing choices out of
-the storage-port contract.
+`CommitEnrichment`, `CommitEnrichmentSnapshot`, and `CommitRefreshMetadata` are
+framework-free domain values in `core`, beside the storage port that uses them.
+`CommitRefreshStatus` is the framework-free API view. The named snapshot keeps
+collection shape and indexing choices out of the storage-port contract.
 
 The repository ID, rather than `owner/repo`, survives repository renames. The
 SHA makes the row reusable across branches and workspaces. `lastSeenAt` permits
@@ -109,26 +111,24 @@ Recent negative associations may be retried once per day for seven days;
 failed requests remain due for the next refresh. This prevents every five
 minute sweep from repeating hundreds of negative GitHub requests.
 
-### 4.2 Refresh state
+### 4.2 Refresh metadata
 
-Store one state row per workspace:
+SQLite stores only the latest completed outcome:
 
 ```java
-public record CommitRefreshStatus(
+public record CommitRefreshMetadata(
         String workspaceId,
-        State state,
         Optional<Instant> lastAttemptAt,
         Optional<Instant> lastSucceededAt,
         Optional<String> error)
-{
-    public enum State { IDLE, QUEUED, RUNNING, FAILED }
-}
+{}
 ```
 
-The state is small, durable, and sufficient for the toolbar. The error is a
-safe user-facing summary with a correlation reference; detailed provider
-errors remain in backend logs. Existing enrichment is never deleted when a
-refresh fails.
+`CommitRefreshStatus` is the API view with `IDLE` and `FAILED`, derived from the
+durable completed metadata. The spinner is renderer-local and exists only while
+the manual HTTP request is pending. The error is a safe user-facing summary
+with a correlation reference; detailed provider errors remain in backend logs.
+Existing enrichment is never deleted when a refresh fails.
 
 ### 4.3 Avatar files
 
@@ -146,50 +146,38 @@ displayed image remain available after restart and while offline.
 
 ## 5. Backend contracts
 
-The application service is the only entry point used by the commit controller
-and refresh endpoint:
+The concrete application service is the only entry point used by the commit
+controller, refresh endpoint, and scheduler:
 
 ```java
 package com.bytequay.app.git;
 
-public interface CommitHistoryService
+public class CommitHistoryService
 {
     /**
      * Builds commit history from the managed Git checkout and joins enrichment
      * from SQLite.
      *
      * <p>This method is display-safe: it must not call GitHub, execute `gh`,
-     * enqueue a refresh, or wait for a running refresh.</p>
+     * or start a refresh.</p>
      *
      * @param workspaceId watched workspace that owns the managed checkout
      * @param ref validated workspace or linked-upstream branch selector
      * @param limit maximum commits to read, capped by the backend
-     * @return local commits plus durable refresh status
+     * @return local commits plus current refresh status
      */
     CommitHistorySnapshot listHistory(
             String workspaceId,
             CommitHistoryRef ref,
             int limit);
 
-    /**
-     * Validates and queues a refresh on the shared application executor.
-     *
-     * <p>The call returns after persisting `QUEUED`. Repeated requests for an
-     * already queued or running workspace are coalesced, not rejected and not
-     * run concurrently.</p>
-     *
-     * @param workspaceId watched workspace to refresh
-     * @param refs validated refs requested by the renderer or scheduler
-     * @param cause manual or scheduled trigger, used for diagnostics only
-     * @return current durable refresh status
-     */
-    CommitRefreshStatus requestRefresh(
+    /** Fetches, enriches, and persists commits before returning. */
+    CommitRefreshStatus refresh(
             String workspaceId,
-            List<CommitHistoryRef> refs,
-            CommitRefreshCause cause);
+            List<CommitHistoryRef> refs);
 
     /**
-     * Returns durable refresh state without reading Git or contacting GitHub.
+     * Returns current refresh state without reading Git or contacting GitHub.
      *
      * @param workspaceId watched workspace to inspect
      * @return current state and last successful refresh time
@@ -232,25 +220,26 @@ public interface CommitHistoryStore
     void upsertEnrichment(Collection<CommitEnrichment> enrichment);
 
     /**
-     * Loads the durable toolbar state for a workspace.
+     * Loads completed refresh metadata for a workspace.
      *
      * @param workspaceId watched workspace ID
-     * @return saved status, or an IDLE status when no attempt exists
+     * @return saved metadata, or empty metadata when no attempt exists
      */
-    CommitRefreshStatus findRefreshStatus(String workspaceId);
+    CommitRefreshMetadata findRefreshMetadata(String workspaceId);
 
     /**
-     * Saves one state transition. Implementations must retain
+     * Saves one completed outcome. Implementations must retain
      * `lastSucceededAt` when a later attempt fails.
      *
-     * @param status validated next refresh state
+     * @param metadata validated completed-refresh metadata
      */
-    void saveRefreshStatus(CommitRefreshStatus status);
+    void saveRefreshMetadata(CommitRefreshMetadata metadata);
 }
 ```
 
-There is one concrete `CommitHistoryRefreshWorker`, not another public service
-interface. It uses existing components:
+`CommitHistoryService.refresh(...)` delegates its focused synchronization steps
+to the package-private `CommitHistoryRefresher`. There is no queue, worker
+executor, polling contract, or second public service. The refresher uses:
 
 - `WorkspaceProvisioningService.synchronizeCode(...)` for safe fetch/prune;
 - `GitBrowseService.log(...)` for local commit extraction;
@@ -258,7 +247,7 @@ interface. It uses existing components:
   avatar result;
 - `CherryPickPullRequestLookup.lookUpResult(...)` only for associations that
   are due;
-- `CommitHistoryStore` for durable enrichment and status; and
+- `CommitHistoryStore` for durable enrichment and completed metadata; and
 - a concrete `AvatarCache` for local image files.
 
 Commit refresh never synchronizes the full pull-request projection. Commit-to-PR
@@ -273,29 +262,23 @@ of starting an unbounded remote lookup from the preview request.
 
 ## 6. Refresh algorithm
 
-For one accepted workspace request, the worker:
+For one accepted workspace request, the synchronous refresh call:
 
-1. Marks the workspace `RUNNING`, preserving the last success time.
-2. Resolves the workspace and each requested source through durable workspace
+1. Resolves the workspace and each requested source through durable workspace
    routing. It never infers an upstream from GitHub.
-3. Calls `WorkspaceProvisioningService.synchronizeCode(workspaceId)`. This
+2. Calls `WorkspaceProvisioningService.synchronizeCode(workspaceId)`. This
    fetches configured remotes without resetting, rebasing, cleaning, or
    changing local files.
-4. Reads up to 300 commits per requested ref from local Git.
-5. Loads all existing enrichment for those SHAs in one SQLite query.
-6. Fetches the branch avatar map once, caches new image bytes, and records local
+3. Reads up to 300 commits per requested ref from local Git.
+4. Loads all existing enrichment for those SHAs in one SQLite query.
+5. Fetches the branch avatar map once, caches new image bytes, and records local
    avatar keys. A provider failure leaves old keys unchanged.
-7. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
+6. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
-8. Upserts enrichment and marks the workspace `IDLE` with a new
-   `lastSucceededAt` only after the required steps complete.
-9. On failure, marks `FAILED`, keeps the last successful timestamp and all
-    prior rows, and logs a correlation reference.
-
-The worker owns one pending set and one `AtomicBoolean` drain guard. A request
-arriving while work is running adds or merges its refs in the pending set; it
-is not silently dropped. Work runs on the existing application executor. No
-new executor or dependency is needed.
+7. Upserts enrichment and saves a new `lastSucceededAt` before returning.
+8. On failure, saves the error and attempt time, keeps the last successful
+   timestamp and all prior rows, logs a correlation reference, and returns a
+   failed result.
 
 The first implementation scans the selected workspace branch and, when
 linked, the selected upstream branch. The scheduled job uses the workspace and
@@ -314,26 +297,20 @@ public final class CommitHistorySyncJob
     private final WorkspaceRepositoryService workspaces;
     private final CommitHistoryService commits;
 
-    /**
-     * Queues default-branch refreshes that have no successful snapshot or
-     * whose last success is older than five minutes.
-     *
-     * <p>The service queue coalesces this request with startup and manual
-     * refreshes, so the scheduler never performs synchronization inline.</p>
-     */
+    /** Refreshes default branches whose last attempt and success are stale. */
     @Scheduled(fixedDelay = 60_000)
-    public void requestDueRefreshes()
+    public void tick()
     {
         // List ready workspaces, apply the five-minute freshness check, and
-        // call commits.requestRefresh(..., SCHEDULED).
+        // call commits.refresh(...).
     }
 }
 ```
 
-The one-minute tick is only a due-work check; GitHub and Git fetches happen no
-more often than the five-minute freshness interval. A fresh manual success
-therefore suppresses the next scheduled refresh. App startup invokes the same
-due-work method after persisted workspaces are restored.
+The scheduled thread performs each due refresh synchronously. GitHub and Git
+fetches happen no more often than the five-minute freshness interval. A fresh
+manual success therefore suppresses the next scheduled refresh. A recent
+failure is also throttled for five minutes.
 
 Pull-request scheduling and overlap policy remain independent. A running or
 failed PR refresh cannot block or fail commit refresh.
@@ -387,9 +364,9 @@ Content-Type: application/json
 }
 ```
 
-returns `202 Accepted` with `CommitRefreshStatus`. The endpoint is a read-side
-synchronization request: it may fetch Git and GitHub but never changes a local
-branch or writes to GitHub.
+returns `200 OK` with the completed `CommitRefreshStatus`. The response is sent
+only after Git fetch, enrichment, and metadata persistence finish. The endpoint
+may fetch Git and GitHub but never changes a local branch or writes to GitHub.
 
 The Electron bridge replaces `gitFetch(workspaceId, remotes)` in the Commits
 toolbar with `refreshCommitHistory(workspaceId, refs)`. The renderer never
@@ -406,6 +383,7 @@ sequenceDiagram
     participant UI as CommitsTab
     participant API as GitBrowseController
     participant Service as CommitHistoryService.listHistory
+    participant Refresher as CommitHistoryRefresher
     participant Git as GitBrowseService.log
     participant Store as CommitHistoryStore
 
@@ -414,10 +392,13 @@ sequenceDiagram
     Service->>Git: log(managedCheckout, validatedRef, limit)
     Git-->>Service: core commit facts
     Service->>Store: findEnrichment(repositoryId, shas)
-    Store-->>Service: avatar keys + PR associations + status
+    Store-->>Service: avatar keys + PR associations
+    Service->>Refresher: status(workspaceId)
+    Refresher->>Store: findRefreshMetadata(workspaceId)
+    Refresher-->>Service: completed metadata
     Service-->>API: CommitHistorySnapshot
-    API-->>UI: commits + durable refresh status
-    Note over UI,Store: No GitHub call and no refresh enqueue
+    API-->>UI: commits + current refresh status
+    Note over UI,Store: No GitHub call and no refresh
 ```
 
 ### 9.2 User clicks refresh
@@ -426,46 +407,42 @@ sequenceDiagram
 sequenceDiagram
     participant UI as CommitsTab
     participant API as Commit refresh endpoint
-    participant Service as CommitHistoryService.requestRefresh
-    participant Worker as CommitHistoryRefreshWorker
+    participant Service as CommitHistoryService.refresh
+    participant Refresher as CommitHistoryRefresher
     participant Git as WorkspaceProvisioningService
     participant GitHub as GitHub clients
     participant Store as CommitHistoryStore
 
     UI->>API: POST commits/refresh(current refs)
-    API->>Service: requestRefresh(workspaceId, refs, MANUAL)
-    Service->>Store: saveRefreshStatus(QUEUED)
-    Service-->>UI: 202 + QUEUED, old rows stay visible
-    Service->>Worker: enqueue/coalesce(workspaceId, refs)
-    Worker->>Store: saveRefreshStatus(RUNNING)
-    Worker->>Git: synchronizeCode(workspaceId)
-    Git-->>Worker: fetched local checkout
-    Worker->>Worker: GitBrowseService.log(refs)
-    Worker->>Store: findEnrichment(repositoryId, shas)
-    Worker->>GitHub: fetch avatars and due PR associations
-    Worker->>Store: upsertEnrichment + save IDLE/succeededAt
-    loop only while QUEUED or RUNNING
-        UI->>API: GET commits(...)
-        API-->>UI: local rows + current status
-    end
+    API->>Service: refresh(workspaceId, refs)
+    Service->>Refresher: refresh(workspaceId, refs)
+    Refresher->>Git: synchronizeCode(workspaceId)
+    Git-->>Refresher: fetched local checkout
+    Refresher->>Refresher: GitBrowseService.log(refs)
+    Refresher->>Store: findEnrichment(repositoryId, shas)
+    Refresher->>GitHub: fetch avatars and due PR associations
+    Refresher->>Store: upsertEnrichment + save completed metadata
+    Refresher-->>Service: completed status
+    Service-->>UI: 200 + IDLE or FAILED
+    UI->>API: GET commits(...)
+    API-->>UI: refreshed local rows
 ```
 
 ### 9.3 Scheduled refresh
 
 ```mermaid
 sequenceDiagram
-    participant Job as CommitHistorySyncJob.requestDueRefreshes
+    participant Job as CommitHistorySyncJob.tick
     participant Workspaces as WorkspaceRepositoryService
-    participant Service as CommitHistoryService.requestRefresh
-    participant Worker as CommitHistoryRefreshWorker
+    participant Service as CommitHistoryService.refresh
 
     Job->>Workspaces: list ready watched workspaces
     Workspaces-->>Job: durable workspace routing
     loop each stale workspace
-        Job->>Service: requestRefresh(default refs, SCHEDULED)
-        Service->>Worker: enqueue/coalesce
+        Job->>Service: refresh(workspaceId, default refs)
+        Service-->>Job: completed status
     end
-    Note over Job,Worker: Manual and scheduled work share one queue and worker
+    Note over Job,Service: Manual and scheduled work call the same synchronous method
 ```
 
 ## 10. UI display logic
@@ -477,15 +454,14 @@ history snapshot already contains each persisted association and title.
 The toolbar follows these states:
 
 - `IDLE` with a timestamp: `synced N ago`;
-- `QUEUED` or `RUNNING`: spinner plus `syncing…`, while current rows remain;
+- pending manual request: spinner plus `syncing…`, while current rows remain;
 - `FAILED`: `sync failed · last synced N ago`, with the same refresh button;
 - no successful snapshot: commits still come from local Git, with `not synced
   yet` and initial/avatar/PR fields filled only where already known.
 
-Polling is allowed only after the user clicks refresh and only while the
-backend reports `QUEUED` or `RUNNING`. Normal tab navigation does not poll,
-enqueue work, or contact GitHub. The scheduler updates SQLite independently;
-the next local read observes the newer snapshot.
+The renderer does not poll. It awaits the manual refresh request, keeps the
+existing rows visible, then reloads local history when the request completes.
+Normal tab navigation does not start refresh work or contact GitHub.
 
 `HistoryView` keeps the current card anatomy:
 
@@ -510,6 +486,7 @@ upstream ref.
   workspaces share one file. Orphan cleanup may use the same 30-day threshold.
 - A failed fetch or GitHub request retains the previous Git refs, PR rows,
   enrichment, avatar files, and successful timestamp.
+- In-progress display state is renderer-local and is not persisted.
 - Validate `source`, branch, limit, workspace readiness, and linked-upstream
   membership at the controller/service boundary.
 - The avatar endpoint accepts only a fixed digest format and resolves files
@@ -519,14 +496,15 @@ upstream ref.
 
 ## 12. Implementation sequence
 
-1. Add `CommitHistoryStore`, SQLite mappings, refresh state, and store tests.
+1. Add `CommitHistoryStore`, SQLite mappings, completed refresh metadata, and
+   store tests.
 2. Add the local avatar cache and localhost read endpoint with traversal and
    missing-file tests.
 3. Introduce `CommitHistoryService.listHistory(...)`; move all remote work out
    of `GitBrowseController.commits(...)` and verify the controller with GitHub
    clients that fail if called.
-4. Add the coalescing refresh worker, scheduler, manual endpoint, and focused
-   success/failure/restart tests.
+4. Add the synchronous refresher, scheduler, manual endpoint, and focused
+   success/failure tests.
 5. Change the Electron bridge and `CommitsTab` to consume
    `CommitHistorySnapshot`, remove renderer `localStorage` sync timestamps, and
    keep old rows during refresh.
@@ -539,10 +517,9 @@ upstream ref.
 - Opening Commits, changing between already-fetched branches, and reopening the
   app while offline show commit history without any GitHub request.
 - Reopening the app does not lose avatar keys or commit-to-PR associations.
-- The refresh button returns quickly, keeps current rows visible, and updates
-  the backend-owned timestamp after all required work succeeds.
-- Scheduled and manual refresh requests never overlap for the same workspace
-  and a request arriving during a run is eventually processed.
+- The refresh button keeps current rows visible, waits for all required work,
+  reloads local history, and updates the backend-owned completion timestamp.
+- Scheduled and manual refreshes call the same synchronous service method.
 - Commit refresh succeeds independently while pull-request refresh is running
   or failing.
 - Two workspaces that see the same repository SHA reuse one enrichment row and

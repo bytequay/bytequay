@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.git;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,8 +24,6 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,7 +107,7 @@ class TestAvatarCache
         HttpResponse<java.io.InputStream> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(status);
         when(response.headers()).thenReturn(HttpHeaders.of(
-                Map.of("Content-Type", List.of(contentType)), (name, value) -> true));
+                ImmutableMap.of("Content-Type", ImmutableList.of(contentType)), (name, value) -> true));
         when(response.body()).thenReturn(new ByteArrayInputStream(body));
         doReturn(response).when(client).send(any(), any(HttpResponse.BodyHandler.class));
     }

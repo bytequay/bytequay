@@ -23,19 +23,16 @@ import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.Workspace.CodeState;
 import com.bytequay.core.domain.Workspace.MetadataState;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.git.CommitRefreshCause.SCHEDULED;
-import static com.bytequay.app.git.CommitRefreshCause.STARTUP;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
-import static com.bytequay.core.domain.CommitRefreshStatus.State.RUNNING;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,50 +59,50 @@ class TestCommitHistorySyncJob
     }
 
     @Test
-    void scheduledTickQueuesOnlyStaleReadyWorkspacesAndExplicitUpstreams()
+    void scheduledTickRefreshesOnlyStaleReadyWorkspacesAndExplicitUpstreams()
     {
         WorkspaceSummary linked = workspace("linked", CodeState.READY, true, 200);
         WorkspaceSummary direct = workspace("direct", CodeState.READY, false, 300);
         WorkspaceSummary fresh = workspace("fresh", CodeState.READY, false, 400);
-        WorkspaceSummary running = workspace("running", CodeState.READY, false, 500);
+        WorkspaceSummary recentFailure = workspace("recent-failure", CodeState.READY, false, 500);
         WorkspaceSummary pending = workspace("pending", CodeState.PENDING, false, 600);
-        when(workspaces.listWorkspaces()).thenReturn(List.of(linked, direct, fresh, running, pending));
+        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(linked, direct, fresh, recentFailure, pending));
         when(commits.getRefreshStatus("linked")).thenReturn(CommitRefreshStatus.idle("linked"));
         when(commits.getRefreshStatus("direct")).thenReturn(failedAttempt("direct", NOW.minusSeconds(301)));
         when(commits.getRefreshStatus("fresh")).thenReturn(success("fresh", NOW.minusSeconds(60)));
-        when(commits.getRefreshStatus("running")).thenReturn(new CommitRefreshStatus(
-                "running", RUNNING, Optional.of(NOW.minusSeconds(600)), Optional.empty(), Optional.empty()));
+        when(commits.getRefreshStatus("recent-failure"))
+                .thenReturn(failedAttempt("recent-failure", NOW.minusSeconds(60)));
 
         job.tick();
 
-        verify(commits).requestRefresh("linked", List.of(
+        verify(commits).refresh("linked", ImmutableList.of(
                 new CommitHistoryRef(Source.WORKSPACE, "main"),
-                new CommitHistoryRef(Source.UPSTREAM, "upstream-main")), SCHEDULED);
-        verify(commits).requestRefresh(
-                "direct", List.of(new CommitHistoryRef(Source.WORKSPACE, "main")), SCHEDULED);
-        verify(commits, never()).requestRefresh(
-                "fresh", List.of(new CommitHistoryRef(Source.WORKSPACE, "main")), SCHEDULED);
-        verify(commits, never()).requestRefresh(
-                "running", List.of(new CommitHistoryRef(Source.WORKSPACE, "main")), SCHEDULED);
+                new CommitHistoryRef(Source.UPSTREAM, "upstream-main")));
+        verify(commits).refresh(
+                "direct", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        verify(commits, never()).refresh(
+                "fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        verify(commits, never()).refresh(
+                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         verify(commits, never()).getRefreshStatus("pending");
     }
 
     @Test
-    void startupUsesTheSameDueWorkPathAndRecentFailureIsThrottled()
+    void dueRefreshUsesTheSameDirectServicePath()
     {
         WorkspaceSummary due = workspace("due", CodeState.READY, false, 700);
         WorkspaceSummary recentFailure = workspace("recent-failure", CodeState.READY, false, 800);
-        when(workspaces.listWorkspaces()).thenReturn(List.of(due, recentFailure));
+        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(due, recentFailure));
         when(commits.getRefreshStatus("due")).thenReturn(CommitRefreshStatus.idle("due"));
         when(commits.getRefreshStatus("recent-failure"))
                 .thenReturn(failedAttempt("recent-failure", NOW.minusSeconds(60)));
 
-        job.requestStartupRefreshes();
+        job.refreshDue();
 
-        verify(commits).requestRefresh(
-                "due", List.of(new CommitHistoryRef(Source.WORKSPACE, "main")), STARTUP);
-        verify(commits, never()).requestRefresh(
-                "recent-failure", List.of(new CommitHistoryRef(Source.WORKSPACE, "main")), STARTUP);
+        verify(commits).refresh(
+                "due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        verify(commits, never()).refresh(
+                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
     }
 
     private static CommitRefreshStatus success(String workspaceId, Instant succeededAt)

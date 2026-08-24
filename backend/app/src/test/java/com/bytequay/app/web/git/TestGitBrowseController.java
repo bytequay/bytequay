@@ -34,7 +34,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -144,7 +143,7 @@ class TestGitBrowseController
     {
         CommitHistoryRef ref = new CommitHistoryRef(Source.UPSTREAM, "main");
         when(commits.listHistory("workspace-a", ref, 20)).thenReturn(new CommitHistorySnapshot(
-                List.of(new CommitHistoryItem(
+                ImmutableList.of(new CommitHistoryItem(
                         "abc",
                         "Example change",
                         "",
@@ -179,6 +178,6 @@ class TestGitBrowseController
                 "upstream",
                 "origin",
                 "main",
-                List.of());
+                ImmutableList.of());
     }
 }

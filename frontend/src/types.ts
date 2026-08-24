@@ -562,7 +562,7 @@ export type CommitHistoryRefDto = {
 
 export type CommitRefreshStatusDto = {
   workspaceId: string;
-  state: 'IDLE' | 'QUEUED' | 'RUNNING' | 'FAILED';
+  state: 'IDLE' | 'FAILED';
   lastAttemptAt?: string | null;
   lastSucceededAt?: string | null;
   error?: string | null;

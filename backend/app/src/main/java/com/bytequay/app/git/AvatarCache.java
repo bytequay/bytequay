@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.git;
 
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,7 +51,7 @@ public class AvatarCache
     private static final Pattern KEY = Pattern.compile("[0-9a-f]{64}");
     private static final int MAX_BYTES = 5 * 1024 * 1024;
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
-    private static final List<ImageType> IMAGE_TYPES = List.of(
+    private static final List<ImageType> IMAGE_TYPES = ImmutableList.of(
             new ImageType(MediaType.IMAGE_PNG, ".png"),
             new ImageType(MediaType.IMAGE_JPEG, ".jpg"),
             new ImageType(MediaType.IMAGE_GIF, ".gif"),

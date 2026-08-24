@@ -15,12 +15,12 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
-import com.bytequay.core.domain.CommitRefreshStatus;
+import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.bytequay.persistence.sqlite.entity.CommitEnrichmentEntity;
-import com.bytequay.persistence.sqlite.entity.CommitRefreshStatusEntity;
+import com.bytequay.persistence.sqlite.entity.CommitRefreshMetadataEntity;
 import com.bytequay.persistence.sqlite.repository.CommitEnrichmentJpaRepository;
-import com.bytequay.persistence.sqlite.repository.CommitRefreshStatusJpaRepository;
+import com.bytequay.persistence.sqlite.repository.CommitRefreshMetadataJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,14 +38,14 @@ public class SqliteCommitHistoryStore
         implements CommitHistoryStore
 {
     private final CommitEnrichmentJpaRepository enrichment;
-    private final CommitRefreshStatusJpaRepository refreshStatus;
+    private final CommitRefreshMetadataJpaRepository refreshMetadata;
 
     public SqliteCommitHistoryStore(
             CommitEnrichmentJpaRepository enrichment,
-            CommitRefreshStatusJpaRepository refreshStatus)
+            CommitRefreshMetadataJpaRepository refreshMetadata)
     {
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
-        this.refreshStatus = requireNonNull(refreshStatus, "refreshStatus is null");
+        this.refreshMetadata = requireNonNull(refreshMetadata, "refreshMetadata is null");
     }
 
     @Override
@@ -77,27 +77,26 @@ public class SqliteCommitHistoryStore
     }
 
     @Override
-    public CommitRefreshStatus findRefreshStatus(String workspaceId)
+    public CommitRefreshMetadata findRefreshMetadata(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        return refreshStatus.findById(workspaceId)
+        return refreshMetadata.findById(workspaceId)
                 .map(SqliteCommitHistoryStore::toDomain)
-                .orElseGet(() -> CommitRefreshStatus.idle(workspaceId));
+                .orElseGet(() -> CommitRefreshMetadata.empty(workspaceId));
     }
 
     @Override
     @Transactional
-    public void saveRefreshStatus(CommitRefreshStatus status)
+    public void saveRefreshMetadata(CommitRefreshMetadata metadata)
     {
-        requireNonNull(status, "status is null");
-        CommitRefreshStatusEntity entity = refreshStatus.findById(status.workspaceId())
-                .orElseGet(CommitRefreshStatusEntity::new);
-        entity.setWorkspaceId(status.workspaceId());
-        entity.setState(status.state());
-        entity.setLastAttemptAt(status.lastAttemptAt().orElse(null));
-        entity.setLastSucceededAt(status.lastSucceededAt().orElse(entity.getLastSucceededAt()));
-        entity.setError(status.error().orElse(null));
-        refreshStatus.save(entity);
+        requireNonNull(metadata, "metadata is null");
+        CommitRefreshMetadataEntity entity = refreshMetadata.findById(metadata.workspaceId())
+                .orElseGet(CommitRefreshMetadataEntity::new);
+        entity.setWorkspaceId(metadata.workspaceId());
+        entity.setLastAttemptAt(metadata.lastAttemptAt().orElse(null));
+        entity.setLastSucceededAt(metadata.lastSucceededAt().orElse(entity.getLastSucceededAt()));
+        entity.setError(metadata.error().orElse(null));
+        refreshMetadata.save(entity);
     }
 
     private static CommitEnrichmentEntity merge(CommitEnrichmentEntity entity, CommitEnrichment value)
@@ -130,11 +129,10 @@ public class SqliteCommitHistoryStore
                 entity.getLastSeenAt());
     }
 
-    private static CommitRefreshStatus toDomain(CommitRefreshStatusEntity entity)
+    private static CommitRefreshMetadata toDomain(CommitRefreshMetadataEntity entity)
     {
-        return new CommitRefreshStatus(
+        return new CommitRefreshMetadata(
                 entity.getWorkspaceId(),
-                entity.getState(),
                 Optional.ofNullable(entity.getLastAttemptAt()),
                 Optional.ofNullable(entity.getLastSucceededAt()),
                 Optional.ofNullable(entity.getError()));

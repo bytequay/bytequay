@@ -19,7 +19,7 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Durable state for one workspace's commit-history refresh. */
+/** Current commit-refresh state returned to the frontend. */
 public record CommitRefreshStatus(
         String workspaceId,
         State state,
@@ -47,8 +47,6 @@ public record CommitRefreshStatus(
     public enum State
     {
         IDLE,
-        QUEUED,
-        RUNNING,
         FAILED
     }
 }

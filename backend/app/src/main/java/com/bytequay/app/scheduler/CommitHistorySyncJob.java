@@ -16,16 +16,14 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.git.CommitHistoryRef;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryService;
-import com.bytequay.app.git.CommitRefreshCause;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.Workspace.CodeState;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -35,13 +33,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.bytequay.app.git.CommitRefreshCause.SCHEDULED;
-import static com.bytequay.app.git.CommitRefreshCause.STARTUP;
-import static com.bytequay.core.domain.CommitRefreshStatus.State.QUEUED;
-import static com.bytequay.core.domain.CommitRefreshStatus.State.RUNNING;
 import static java.util.Objects.requireNonNull;
 
-/** Queues due commit snapshots through the same worker used by manual refresh. */
+/** Refreshes due commit snapshots through the same service used by manual refresh. */
 @Component
 public class CommitHistorySyncJob
 {
@@ -65,12 +59,6 @@ public class CommitHistorySyncJob
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void requestStartupRefreshes()
-    {
-        requestDueRefreshes(STARTUP);
-    }
-
     @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
@@ -78,10 +66,10 @@ public class CommitHistorySyncJob
         if (appSettings.inQuietHours()) {
             return;
         }
-        requestDueRefreshes(SCHEDULED);
+        refreshDue();
     }
 
-    void requestDueRefreshes(CommitRefreshCause cause)
+    void refreshDue()
     {
         Instant staleBefore = clock.instant().minus(FRESHNESS);
         for (WorkspaceSummary workspace : workspaces.listWorkspaces()) {
@@ -93,10 +81,10 @@ public class CommitHistorySyncJob
                 continue;
             }
             try {
-                commits.requestRefresh(workspace.id(), refs(workspace), cause);
+                commits.refresh(workspace.id(), refs(workspace));
             }
             catch (RuntimeException failure) {
-                log.warn("Could not queue commit refresh for workspace {}: {}",
+                log.warn("Could not refresh commits for workspace {}: {}",
                         workspace.id(), failure.getMessage());
             }
         }
@@ -104,9 +92,6 @@ public class CommitHistorySyncJob
 
     private static boolean due(CommitRefreshStatus status, Instant staleBefore)
     {
-        if (status.state() == QUEUED || status.state() == RUNNING) {
-            return false;
-        }
         boolean successStale = status.lastSucceededAt().map(value -> value.isBefore(staleBefore)).orElse(true);
         boolean attemptStale = status.lastAttemptAt().map(value -> value.isBefore(staleBefore)).orElse(true);
         return successStale && attemptStale;
@@ -120,6 +105,6 @@ public class CommitHistorySyncJob
             refs.add(new CommitHistoryRef(Source.UPSTREAM, requireNonNull(
                     workspace.upstreamDefaultBranch(), "linked upstream default branch is null")));
         }
-        return List.copyOf(refs);
+        return ImmutableList.copyOf(refs);
     }
 }

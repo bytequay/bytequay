@@ -16,10 +16,10 @@ package com.bytequay.app.git;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -38,13 +38,13 @@ class TestCommitHistoryRouting
             "upstream",
             "origin",
             "master",
-            List.of("oss", "myoss"));
+            ImmutableList.of("oss", "myoss"));
 
     @Test
-    void workspaceReadsTheLocalBranchWithProviderIdentity()
+    void workspaceReadsTheFetchedOriginBranchWithProviderIdentity()
     {
         var resolved = CommitHistoryRouting.resolve(CONTEXT, new CommitHistoryRef(Source.WORKSPACE, "master"));
-        assertThat(resolved.gitRef()).isEqualTo("master");
+        assertThat(resolved.gitRef()).isEqualTo("origin/master");
         assertThat(resolved.repositoryId()).hasValue(101);
     }
 

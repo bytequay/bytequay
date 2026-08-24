@@ -377,7 +377,7 @@ function registerIpc(): void {
     _event,
     workspaceId: string,
     refs: CommitHistoryRefDto[],
-  ) => gitPost(workspaceId, 'commits/refresh', { refs }));
+  ) => gitPost(workspaceId, 'commits/refresh', { refs }, 15 * 60_000));
   ipcMain.handle('git:commit', (_event, workspaceId: string, summary: string, description: string) =>
     gitPost(workspaceId, 'commit', { summary, description }));
   ipcMain.handle('git:reword', (_event, workspaceId: string, branch: string, sha: string, message: string) =>

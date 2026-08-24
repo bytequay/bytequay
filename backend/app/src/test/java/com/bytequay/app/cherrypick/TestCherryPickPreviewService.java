@@ -38,7 +38,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
@@ -110,7 +109,7 @@ class TestCherryPickPreviewService
         write(upstream, "associated.txt", "associated\n");
         commit(upstream, "Associated change");
         String sha = head(upstream);
-        when(commitHistory.findEnrichment(202, List.of(sha))).thenReturn(new CommitEnrichmentSnapshot(List.of(
+        when(commitHistory.findEnrichment(202, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
                 new CommitEnrichment(
                         202,
                         sha,

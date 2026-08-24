@@ -25,7 +25,7 @@ const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
-const DETAIL_REFRESH_INTERVAL = 3_000;
+const DETAIL_REFRESH_INTERVAL = 6_000;
 
 export default function PullsScreen({
   initialPr,

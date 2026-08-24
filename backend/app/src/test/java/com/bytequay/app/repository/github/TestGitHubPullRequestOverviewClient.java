@@ -115,12 +115,15 @@ class TestGitHubPullRequestOverviewClient
         fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess("""
                         {"id":12,"number":42,"title":"Title","state":"open","labels":[],
-                         "requested_reviewers":[],"draft":false}
+                         "requested_reviewers":[],"draft":false,
+                         "mergeable":false,"mergeable_state":"dirty"}
                         """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"etag-2\""));
 
         var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.empty());
 
         assertThat(fetched.pullRequest()).isPresent();
+        assertThat(fetched.pullRequest().orElseThrow().mergeable()).isFalse();
+        assertThat(fetched.pullRequest().orElseThrow().mergeableState()).isEqualTo("dirty");
         assertThat(fetched.etag()).contains("\"etag-2\"");
         fixture.verify();
     }

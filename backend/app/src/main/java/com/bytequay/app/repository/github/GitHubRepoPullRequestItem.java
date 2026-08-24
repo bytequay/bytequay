@@ -38,6 +38,8 @@ record GitHubRepoPullRequestItem(
         User user,
         List<Label> labels,
         boolean draft,
+        Boolean mergeable,
+        @JsonProperty("mergeable_state") String mergeableState,
         @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
         Head head)
 {

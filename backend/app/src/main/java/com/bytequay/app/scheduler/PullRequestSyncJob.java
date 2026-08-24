@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static java.util.Objects.requireNonNull;
 
 /** Periodically refreshes pull-request projections outside GitHub quiet hours. */
@@ -30,6 +31,7 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestSyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestSyncJob.class);
+    private static final long REFRESH_DELAY_MILLIS = 6 * 60_000L;
 
     private final PullRequestRefreshService refreshService;
     private final WorkspaceStore workspaces;
@@ -48,7 +50,7 @@ public class PullRequestSyncJob
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
-    @Scheduled(fixedDelay = 60_000)
+    @Scheduled(fixedDelay = REFRESH_DELAY_MILLIS)
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured()) {
@@ -72,7 +74,9 @@ public class PullRequestSyncJob
             action.run();
         }
         catch (RuntimeException failure) {
-            log.warn("Pull request refresh failed for {}: {}", scope, failure.getMessage());
+            if (!isRateLimit(failure)) {
+                log.warn("Pull request refresh failed for {}: {}", scope, failure.getMessage());
+            }
         }
     }
 }

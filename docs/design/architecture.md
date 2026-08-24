@@ -256,8 +256,11 @@ Repository refresh discovers every pull request updated within 30 days without f
 plus older pull requests that remain open. Search results can add or update rows but their absence
 never deletes a row. A known row omitted by the current search is reconciled through GitHub's exact
 repository-and-number endpoint before retention runs. Closed rows expire only after both their close
-time and last GitHub update are older than 30 days. Changed PRs refresh their aggregate immediately;
-unchanged open PRs get a full fallback refresh hourly, while closed or merged PRs get one daily.
+time and last GitHub update are older than 30 days. The background job runs six minutes after its
+previous refresh completes. New PRs, changed GitHub update timestamps, and missing local details
+refresh the full aggregate immediately. An unchanged open PR updated within the previous six hours
+refreshes only mergeability and CI when its stored status is at least six minutes old. Other unchanged
+PRs are skipped, including every unchanged closed PR and older open PR.
 
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are

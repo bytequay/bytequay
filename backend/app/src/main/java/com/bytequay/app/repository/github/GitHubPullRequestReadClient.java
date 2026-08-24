@@ -1216,8 +1216,8 @@ public class GitHubPullRequestReadClient
                 item.state(),
                 item.closedAt(),
                 item.mergedAt(),
-                null,
-                null,
+                item.mergeable(),
+                item.mergeableState(),
                 null,
                 null,
                 // Head ref is available directly from the list response.

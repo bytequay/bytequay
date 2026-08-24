@@ -40,6 +40,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -162,7 +163,9 @@ final class PullRequestDetailFetcher
                 return new SourceItems<>(requireNonNullElse(task.get(), ImmutableList.of()), null);
             }
             catch (RuntimeException e) {
-                log.warn("{}({}#{}) unavailable: {}", name, repoFullName(ref), ref.number(), e.toString());
+                if (!isRateLimit(e)) {
+                    log.warn("{}({}#{}) unavailable: {}", name, repoFullName(ref), ref.number(), e.toString());
+                }
                 return new SourceItems<>(ImmutableList.of(), section);
             }
         }, ioExecutor);
@@ -175,7 +178,9 @@ final class PullRequestDetailFetcher
                 return task.get();
             }
             catch (RuntimeException e) {
-                log.warn("{}({}#{}) failed: {}", name, repoFullName(ref), ref.number(), e.toString());
+                if (!isRateLimit(e)) {
+                    log.warn("{}({}#{}) failed: {}", name, repoFullName(ref), ref.number(), e.toString());
+                }
                 throw e;
             }
         }, ioExecutor);

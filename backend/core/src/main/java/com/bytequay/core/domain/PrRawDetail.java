@@ -73,4 +73,13 @@ public record PrRawDetail(
                 requestedReviewerCount, requestedReviewers, headSha, headRef,
                 null);
     }
+
+    public PrRawDetail withMergeability(Boolean latestMergeable, String latestMergeableState)
+    {
+        return new PrRawDetail(
+                title, htmlUrl, state, author, authorAvatarUrl, createdAt, updatedAt, mergedAt,
+                body, labels, labelColors, assignees, milestone, draft, latestMergeable,
+                latestMergeableState, additions, deletions, changedFiles, requestedReviewerCount,
+                requestedReviewers, headSha, headRef, baseRef);
+    }
 }

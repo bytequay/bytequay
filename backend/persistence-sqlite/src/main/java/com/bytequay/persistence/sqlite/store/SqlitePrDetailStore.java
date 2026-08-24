@@ -111,6 +111,15 @@ public class SqlitePrDetailStore
 
     @Override
     @Transactional
+    public void saveStatus(long prId, StoredPrDetail detail)
+    {
+        saveHeader(prId, detail);
+        checkRunRepo.deleteByPrId(prId);
+        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
+    }
+
+    @Override
+    @Transactional
     public PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event)
     {
         requireNonNull(pullRequest, "pullRequest is null");

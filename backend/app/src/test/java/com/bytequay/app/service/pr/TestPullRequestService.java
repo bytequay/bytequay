@@ -54,7 +54,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -90,11 +89,12 @@ class TestPullRequestService
     @Mock private CredentialService credentialService;
 
     private PullRequestService service;
+    private PullRequestSnapshotService snapshots;
 
     @BeforeEach
     void setUp()
     {
-        PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
+        snapshots = new PullRequestSnapshotService(
                 gitHub, actions, detailStore, diffStore, Runnable::run);
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots, viewStateStore,
@@ -337,11 +337,84 @@ class TestPullRequestService
     }
 
     @Test
-    void refreshesOpenPullRequestDetailsMoreOftenThanClosedPullRequests()
+    void fullyRefreshesOnlyNewChangedOrMissingPullRequestDetails()
     {
-        assertThat(PullRequestService.detailRefreshInterval("open")).isEqualTo(Duration.ofHours(1));
-        assertThat(PullRequestService.detailRefreshInterval("closed")).isEqualTo(Duration.ofDays(1));
-        assertThat(PullRequestService.detailRefreshInterval("merged")).isEqualTo(Duration.ofDays(1));
+        Instant now = Instant.parse("2026-08-24T12:00:00Z");
+        PullRequest pullRequest = pullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
+
+        assertThat(PullRequestService.refreshMode(pullRequest, null, Optional.empty(), now))
+                .isEqualTo(PullRequestService.RefreshMode.FULL);
+        assertThat(PullRequestService.refreshMode(
+                pullRequest, now.minusSeconds(120), Optional.of(now.minusSeconds(60)), now))
+                .isEqualTo(PullRequestService.RefreshMode.FULL);
+        assertThat(PullRequestService.refreshMode(
+                pullRequest, pullRequest.updatedAt(), Optional.empty(), now))
+                .isEqualTo(PullRequestService.RefreshMode.FULL);
+    }
+
+    @Test
+    void refreshesOnlyRecentOpenStatusesEverySixMinutes()
+    {
+        Instant now = Instant.parse("2026-08-24T12:00:00Z");
+        PullRequest recentOpen = pullRequest("open", now.minusSeconds(5 * 60 * 60), null);
+        PullRequest oldOpen = pullRequest("open", now.minusSeconds(31L * 24 * 60 * 60), null);
+        PullRequest closed = pullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
+
+        assertThat(PullRequestService.refreshMode(
+                recentOpen, recentOpen.updatedAt(), Optional.of(now.minusSeconds(6 * 60)), now))
+                .isEqualTo(PullRequestService.RefreshMode.STATUS);
+        assertThat(PullRequestService.refreshMode(
+                recentOpen, recentOpen.updatedAt(), Optional.of(now.minusSeconds(5 * 60)), now))
+                .isEqualTo(PullRequestService.RefreshMode.NONE);
+        assertThat(PullRequestService.refreshMode(
+                oldOpen, oldOpen.updatedAt(), Optional.of(now.minusSeconds(7 * 60)), now))
+                .isEqualTo(PullRequestService.RefreshMode.NONE);
+        assertThat(PullRequestService.refreshMode(
+                closed, closed.updatedAt(), Optional.of(now.minusSeconds(7 * 60)), now))
+                .isEqualTo(PullRequestService.RefreshMode.NONE);
+    }
+
+    @Test
+    void statusRefreshUsesThePrEtagAndRefreshesCiAfterNotModified()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        PrCheckRunState latest = new PrCheckRunState(2L, "build", "completed", "failure");
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
+        when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
+                .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"etag-1\"")));
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
+                .thenReturn(ImmutableList.of(latest));
+
+        StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
+
+        assertThat(refreshed.raw().mergeable()).isTrue();
+        assertThat(refreshed.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
+        assertThat(refreshed.checkRuns()).containsExactly(latest);
+        verify(detailStore).saveStatus(12L, refreshed);
+        verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
+        verify(gitHub, never()).fetchPrReviews(anyString(), any());
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any());
+    }
+
+    @Test
+    void statusRefreshAppliesChangedMergeabilityFromThePrEndpoint()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        PullRequest conflicted = pullRequest(
+                "open", Instant.parse("2026-08-24T11:00:00Z"), null, false, "dirty");
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
+        when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
+                .thenReturn(new PullRequestFetch(Optional.of(conflicted), Optional.of("\"etag-2\"")));
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
+                .thenReturn(ImmutableList.of());
+
+        StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
+
+        assertThat(refreshed.raw().mergeable()).isFalse();
+        assertThat(refreshed.raw().mergeableState()).isEqualTo("dirty");
+        verify(detailStore).updateEtag(12L, Optional.of("\"etag-2\""));
     }
 
     @Test
@@ -549,6 +622,16 @@ class TestPullRequestService
 
     private static PullRequest pullRequest(String state, Instant updatedAt, Instant closedAt)
     {
+        return pullRequest(state, updatedAt, closedAt, null, null);
+    }
+
+    private static PullRequest pullRequest(
+            String state,
+            Instant updatedAt,
+            Instant closedAt,
+            Boolean mergeable,
+            String mergeableState)
+    {
         return new PullRequest(
                 12,
                 "owner/repo",
@@ -574,8 +657,8 @@ class TestPullRequestService
                 state,
                 closedAt,
                 null,
-                null,
-                null,
+                mergeable,
+                mergeableState,
                 null,
                 ImmutableMap.of(),
                 "feature");

@@ -13,8 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
+import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
@@ -139,6 +141,34 @@ class TestSqlitePrDetailStore
         store.updateEtag(PR_ID, Optional.of("\"etag-1\""));
 
         assertThat(store.findEtag(PR_ID)).contains("\"etag-1\"");
+    }
+
+    @Test
+    void statusRefreshOnlyReplacesMergeabilityAndChecks()
+    {
+        PrTimelineEvent comment = remote(1, NOW);
+        StoredPrDetail original = new StoredPrDetail(
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
+                        "a".repeat(40), "feature"),
+                ImmutableList.of(new PrReviewState("alice", "APPROVED")),
+                ImmutableList.of(comment),
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
+        store.save(PR_ID, original);
+        StoredPrDetail status = new StoredPrDetail(
+                original.raw().withMergeability(false, "dirty"),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(2L, "test", "completed", "failure")));
+
+        store.saveStatus(PR_ID, status);
+
+        StoredPrDetail restored = store.find(PR_ID).orElseThrow();
+        assertThat(restored.raw().mergeable()).isFalse();
+        assertThat(restored.raw().mergeableState()).isEqualTo("dirty");
+        assertThat(restored.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
+        assertThat(restored.timeline()).containsExactly(comment);
+        assertThat(restored.checkRuns()).containsExactly(
+                new PrCheckRunState(2L, "test", "completed", "failure"));
     }
 
     @Test

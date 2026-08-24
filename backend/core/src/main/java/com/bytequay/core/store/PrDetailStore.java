@@ -31,6 +31,8 @@ public interface PrDetailStore
 
     void save(long prId, StoredPrDetail detail);
 
+    void saveStatus(long prId, StoredPrDetail detail);
+
     void saveIncremental(long prId, StoredPrDetail detail);
 
     void updateEtag(long prId, Optional<String> etag);

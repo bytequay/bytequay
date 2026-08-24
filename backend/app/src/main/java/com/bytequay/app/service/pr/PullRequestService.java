@@ -72,6 +72,7 @@ import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
@@ -86,16 +87,8 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestService
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
-    // Minimum gap between forced detail re-fetches of an *unchanged* PR
-    // that still looks under-enriched. The enrichment re-check exists to catch
-    // reviewer verdicts that flip without bumping the PR's updatedAt, so
-    // we can't drop it entirely — but re-fetching every ~60s sync tick
-    // for every review-less PR is what exhausts the GitHub rate limit.
-    // Throttling each such PR to one backfill attempt per this interval
-    // keeps the safety net while cutting the steady-state cost ~15x.
-    private static final Duration BACKFILL_RECHECK_INTERVAL = Duration.ofMinutes(15);
-    private static final Duration OPEN_DETAIL_REFRESH_INTERVAL = Duration.ofHours(1);
-    private static final Duration CLOSED_DETAIL_REFRESH_INTERVAL = Duration.ofDays(1);
+    private static final Duration STATUS_REFRESH_INTERVAL = Duration.ofMinutes(6);
+    private static final Duration ACTIVE_PULL_REQUEST_WINDOW = Duration.ofHours(6);
     private static final int CLOSED_RETENTION_DAYS = 30;
 
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
@@ -274,12 +267,24 @@ public class PullRequestService
         CompletableFuture.allOf(details.toArray(CompletableFuture[]::new)).join();
     }
 
+    private void syncStatuses(String pat, String currentLogin, List<PullRequest> pullRequests)
+    {
+        List<CompletableFuture<Void>> statuses = pullRequests.stream()
+                .map(pullRequest -> CompletableFuture.runAsync(
+                        () -> syncStatusQuietly(pat, pullRequest, currentLogin), executor))
+                .collect(toImmutableList());
+        CompletableFuture.allOf(statuses.toArray(CompletableFuture[]::new)).join();
+    }
+
     private String resolveCurrentLogin(String pat)
     {
         try {
             return accounts.fetchUserProfile(pat).login();
         }
         catch (Exception e) {
+            if (e instanceof RuntimeException runtimeException && isRateLimit(e)) {
+                throw runtimeException;
+            }
             log.warn("Could not resolve current user for sync reconciliation: {}", e.getMessage());
             return null;
         }
@@ -658,18 +663,8 @@ public class PullRequestService
         }
         Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
         Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
-        Set<Long> missingEnrichment = store.findIdsMissingEnrichment(ids);
         store.saveDashboardSyncPage(pullRequests, syncMarker);
-        Instant now = Instant.now();
-        syncDetails(pat, currentLogin, pullRequests.stream()
-                .filter(pullRequest -> {
-                    Instant updatedAt = previous.get(pullRequest.id());
-                    return updatedAt == null
-                            || !Objects.equals(updatedAt, pullRequest.updatedAt())
-                            || missingEnrichment.contains(pullRequest.id()) && backfillDue(pullRequest, now)
-                            || detailRefreshDue(pullRequest, now);
-                })
-                .collect(toImmutableList()));
+        syncPageRefreshes(pat, currentLogin, pullRequests, previous);
     }
 
     private void syncRepositoryQuery(
@@ -692,11 +687,7 @@ public class PullRequestService
                 Set<Long> ids = fresh.stream().map(PullRequest::id).collect(toImmutableSet());
                 Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
                 store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
-                Instant now = Instant.now();
-                syncDetails(pat, currentLogin, fresh.stream()
-                        .filter(pullRequest -> !Objects.equals(previous.get(pullRequest.id()), pullRequest.updatedAt())
-                                || detailRefreshDue(pullRequest, now))
-                        .collect(toImmutableList()));
+                syncPageRefreshes(pat, currentLogin, fresh, previous);
             }
             if (!result.hasMore()) {
                 break;
@@ -722,6 +713,9 @@ public class PullRequestService
                 }
             }
             catch (RuntimeException failure) {
+                if (isRateLimit(failure)) {
+                    throw failure;
+                }
                 log.info("search-missing PR {} fetch failed: {}", ref.fullName(), failure.getMessage());
             }
         }
@@ -755,35 +749,62 @@ public class PullRequestService
                 }
             }
             catch (RuntimeException failure) {
+                if (isRateLimit(failure)) {
+                    throw failure;
+                }
                 log.info("notification PR {} fetch failed: {}", ref.fullName(), failure.getMessage());
             }
         }
     }
 
-    private boolean backfillDue(PullRequest pullRequest, Instant now)
+    private void syncPageRefreshes(
+            String pat,
+            String currentLogin,
+            List<PullRequest> pullRequests,
+            Map<Long, Instant> previous)
     {
-        return snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number())
-                .map(syncedAt -> syncedAt.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL)))
-                .orElse(true);
+        Instant now = Instant.now();
+        List<PullRequest> details = new ArrayList<>();
+        List<PullRequest> statuses = new ArrayList<>();
+        for (PullRequest pullRequest : pullRequests) {
+            RefreshMode mode = refreshMode(
+                    pullRequest,
+                    previous.get(pullRequest.id()),
+                    snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number()),
+                    now);
+            if (mode == RefreshMode.FULL) {
+                details.add(pullRequest);
+            }
+            else if (mode == RefreshMode.STATUS) {
+                statuses.add(pullRequest);
+            }
+        }
+        syncDetails(pat, currentLogin, details);
+        syncStatuses(pat, currentLogin, statuses);
     }
 
-    private boolean detailRefreshDue(PullRequest pullRequest, Instant now)
+    static RefreshMode refreshMode(
+            PullRequest pullRequest,
+            Instant previousUpdatedAt,
+            Optional<Instant> detailSyncedAt,
+            Instant now)
     {
-        Duration interval = detailRefreshInterval(pullRequest.state());
-        return snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number())
-                .map(syncedAt -> !syncedAt.isAfter(now.minus(interval)))
-                .orElse(true);
+        if (previousUpdatedAt == null
+                || !Objects.equals(previousUpdatedAt, pullRequest.updatedAt())
+                || detailSyncedAt.isEmpty()) {
+            return RefreshMode.FULL;
+        }
+        if (!"open".equalsIgnoreCase(pullRequest.state())
+                || pullRequest.updatedAt() == null
+                || pullRequest.updatedAt().isBefore(now.minus(ACTIVE_PULL_REQUEST_WINDOW))) {
+            return RefreshMode.NONE;
+        }
+        return detailSyncedAt.orElseThrow().isAfter(now.minus(STATUS_REFRESH_INTERVAL))
+                ? RefreshMode.NONE
+                : RefreshMode.STATUS;
     }
 
-    static Duration detailRefreshInterval(String state)
-    {
-        return isClosed(state) ? CLOSED_DETAIL_REFRESH_INTERVAL : OPEN_DETAIL_REFRESH_INTERVAL;
-    }
-
-    private static boolean isClosed(String state)
-    {
-        return "closed".equalsIgnoreCase(state) || "merged".equalsIgnoreCase(state);
-    }
+    enum RefreshMode { FULL, STATUS, NONE }
 
     private void deleteDetails(Set<Long> pullRequestIds)
     {
@@ -812,8 +833,27 @@ public class PullRequestService
             syncDiffQuietly(pat, pullRequest);
         }
         catch (Exception e) {
-            log.warn("Failed to sync detail for PR {}/{}: {}",
-                    pullRequest.repo(), pullRequest.number(), e.getMessage());
+            if (!isRateLimit(e)) {
+                log.warn("Failed to sync detail for PR {}/{}: {}",
+                        pullRequest.repo(), pullRequest.number(), e.getMessage());
+            }
+        }
+    }
+
+    private void syncStatusQuietly(String pat, PullRequest pullRequest, String currentLogin)
+    {
+        try {
+            StoredPrDetail detail = snapshots.refreshStatus(
+                    pat,
+                    parseRef(pullRequest.repo(), pullRequest.number()),
+                    pullRequest.id());
+            storeDetail(pullRequest, detail, currentLogin);
+        }
+        catch (Exception e) {
+            if (!isRateLimit(e)) {
+                log.warn("Failed to sync status for PR {}/{}: {}",
+                        pullRequest.repo(), pullRequest.number(), e.getMessage());
+            }
         }
     }
 
@@ -852,8 +892,10 @@ public class PullRequestService
                     pullRequest.id());
         }
         catch (RuntimeException failure) {
-            log.warn("Failed to sync diff for PR {}/{}: {}",
-                    pullRequest.repo(), pullRequest.number(), failure.getMessage());
+            if (!isRateLimit(failure)) {
+                log.warn("Failed to sync diff for PR {}/{}: {}",
+                        pullRequest.repo(), pullRequest.number(), failure.getMessage());
+            }
         }
     }
 
@@ -864,6 +906,9 @@ public class PullRequestService
             return accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
         }
         catch (RuntimeException failure) {
+            if (isRateLimit(failure)) {
+                throw failure;
+            }
             log.warn("Could not resolve viewer permission for {}: {}", repo, failure.getMessage());
             return false;
         }

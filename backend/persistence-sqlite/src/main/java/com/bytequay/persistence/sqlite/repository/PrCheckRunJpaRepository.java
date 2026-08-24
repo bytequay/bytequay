@@ -26,7 +26,7 @@ public interface PrCheckRunJpaRepository
 {
     List<PrCheckRunEntity> findByPrId(Long prId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM PrCheckRunEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
 }

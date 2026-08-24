@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -38,13 +39,14 @@ public class WebConfig
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(45);
 
     @Bean
-    public RestClient gitHubRestClient()
+    public RestClient gitHubRestClient(GitHubRateLimitInterceptor rateLimit)
     {
         return RestClient.builder()
                 .baseUrl(GITHUB_API_BASE_URL)
                 .defaultHeader("Accept", GITHUB_ACCEPT)
                 .defaultHeader("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
+                .requestInterceptor(rateLimit)
                 .requestFactory(newTimeoutRequestFactory(
                         CONNECT_TIMEOUT,
                         READ_TIMEOUT,

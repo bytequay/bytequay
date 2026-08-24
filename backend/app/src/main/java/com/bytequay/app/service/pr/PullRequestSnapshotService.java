@@ -15,9 +15,12 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -47,6 +50,7 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestSnapshotService
 {
     private final GitHubPullRequestReadClient gitHub;
+    private final GitHubActionsClient actions;
     private final PrDetailStore details;
     private final PrDiffStore diffs;
     private final PullRequestDetailFetcher detailFetcher;
@@ -59,11 +63,12 @@ public class PullRequestSnapshotService
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.actions = requireNonNull(actions, "actions is null");
         this.details = requireNonNull(details, "details is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
         this.detailFetcher = new PullRequestDetailFetcher(
                 gitHub,
-                requireNonNull(actions, "actions is null"),
+                actions,
                 details,
                 requireNonNull(ioExecutor, "ioExecutor is null"));
     }
@@ -111,6 +116,31 @@ public class PullRequestSnapshotService
                 fetched.unavailableSections(),
                 viewerCanWrite);
         details.save(prId, stored);
+        return stored;
+    }
+
+    StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId)
+    {
+        StoredPrDetail existing = details.find(prId)
+                .orElseThrow(() -> missing("Pull request detail"));
+        PullRequestFetch fetched = gitHub.getPullRequest(pat, pullRequest, details.findEtag(prId));
+        PrRawDetail raw = fetched.pullRequest()
+                .map(summary -> existing.raw().withMergeability(summary.mergeable(), summary.mergeableState()))
+                .orElse(existing.raw());
+        List<PrCheckRunState> checks = raw.headSha() == null
+                ? ImmutableList.of()
+                : actions.fetchPrCheckRuns(pat, pullRequest.owner(), pullRequest.repo(), raw.headSha());
+        StoredPrDetail stored = new StoredPrDetail(
+                raw,
+                existing.reviews(),
+                existing.timeline(),
+                checks == null ? ImmutableList.of() : checks,
+                existing.unavailableSections().stream()
+                        .filter(section -> !"checks".equals(section))
+                        .collect(ImmutableList.toImmutableList()),
+                existing.viewerCanWrite());
+        details.saveStatus(prId, stored);
+        details.updateEtag(prId, fetched.etag());
         return stored;
     }
 

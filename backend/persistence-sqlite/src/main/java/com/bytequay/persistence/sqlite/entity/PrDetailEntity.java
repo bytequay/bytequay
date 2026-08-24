@@ -104,6 +104,8 @@ public class PrDetailEntity
     @Column(name = "viewer_can_write")
     private Boolean viewerCanWrite;
 
+    private String etag;
+
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -190,6 +192,9 @@ public class PrDetailEntity
 
     public Boolean getViewerCanWrite() { return viewerCanWrite; }
     public void setViewerCanWrite(Boolean viewerCanWrite) { this.viewerCanWrite = viewerCanWrite; }
+
+    public String getEtag() { return etag; }
+    public void setEtag(String etag) { this.etag = etag; }
 
     public Instant getSyncedAt() { return syncedAt; }
     public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

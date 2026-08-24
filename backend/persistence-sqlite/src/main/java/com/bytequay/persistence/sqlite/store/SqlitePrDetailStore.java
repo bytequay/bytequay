@@ -88,6 +88,12 @@ public class SqlitePrDetailStore
     }
 
     @Override
+    public Optional<String> findEtag(long prId)
+    {
+        return detailRepo.findById(prId).map(PrDetailEntity::getEtag);
+    }
+
+    @Override
     @Transactional
     public void save(long prId, StoredPrDetail detail)
     {
@@ -142,6 +148,17 @@ public class SqlitePrDetailStore
                 .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
                 .map(event -> toEntity(prId, event))
                 .collect(toImmutableList()));
+    }
+
+    @Override
+    @Transactional
+    public void updateEtag(long prId, Optional<String> etag)
+    {
+        requireNonNull(etag, "etag is null");
+        detailRepo.findById(prId).ifPresent(detail -> {
+            detail.setEtag(etag.orElse(null));
+            detailRepo.save(detail);
+        });
     }
 
     @Override

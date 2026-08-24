@@ -133,6 +133,15 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void storesTheGitHubEtag()
+    {
+        store.save(PR_ID, detail(remote(1, NOW)));
+        store.updateEtag(PR_ID, Optional.of("\"etag-1\""));
+
+        assertThat(store.findEtag(PR_ID)).contains("\"etag-1\"");
+    }
+
+    @Test
     void roundTripsTheTypedTimelinePayloadAndUnavailableSections()
     {
         PrTimelinePayload payload = new PrTimelinePayload(

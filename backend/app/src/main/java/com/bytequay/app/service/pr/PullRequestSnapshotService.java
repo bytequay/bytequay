@@ -68,12 +68,11 @@ public class PullRequestSnapshotService
                 requireNonNull(ioExecutor, "ioExecutor is null"));
     }
 
-    PullRequestDetail getDetail(String repo, int number, long prId)
+    Optional<PullRequestDetail> findDetail(String repo, int number, long prId)
     {
-        StoredPrDetail stored = details.find(prId)
-                .orElseThrow(() -> missing("Pull request detail"));
-        return PullRequestDetailMapper.toPullRequestDetail(
-                repo, number, stored, stored.viewerCanWrite());
+        return details.find(prId)
+                .map(stored -> PullRequestDetailMapper.toPullRequestDetail(
+                        repo, number, stored, stored.viewerCanWrite()));
     }
 
     List<DiffFile> getDiffFiles(long prId, String baseSha, String headSha)
@@ -167,6 +166,16 @@ public class PullRequestSnapshotService
     Optional<Instant> findDetailSyncedAt(String repo, int number)
     {
         return details.findSyncedAt(repo, number);
+    }
+
+    Optional<String> findDetailEtag(long prId)
+    {
+        return details.findEtag(prId);
+    }
+
+    void updateDetailEtag(long prId, Optional<String> etag)
+    {
+        details.updateEtag(prId, etag);
     }
 
     void patchDetail(long prId, UnaryOperator<StoredPrDetail> patcher)

@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -61,9 +62,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -191,16 +196,29 @@ class TestPullRequestService
     }
 
     @Test
-    void missingDetailDoesNotFallThroughToGitHub()
+    void missingDetailRefreshesAndReadsTheCachedResult()
     {
+        StoredPrDetail stored = stored();
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.empty());
+        when(detailStore.find(12L)).thenReturn(Optional.empty(), Optional.of(stored));
+        service = spy(service);
+        doReturn(true).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        PullRequestDetail result = service.getPullRequestDetail("owner/repo", 7);
+
+        assertThat(result.body()).isEqualTo("body");
+        verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+    }
+
+    @Test
+    void missingDetailReturnsGitHubNotFound()
+    {
+        ResponseStatusException notFound = new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request does not exist");
+        service = spy(service);
+        doThrow(notFound).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
         assertThatThrownBy(() -> service.getPullRequestDetail("owner/repo", 7))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("404 NOT_FOUND");
-        verify(gitHub, never()).fetchPrDetail(anyString(), any());
-        verify(detailStore, never()).save(any(Long.class), any());
+                .isSameAs(notFound);
     }
 
     @Test
@@ -210,7 +228,8 @@ class TestPullRequestService
         PullRequest pullRequest = pullRequest();
         List<DiffFile> files = ImmutableList.of(
                 new DiffFile("a.txt", "modified", 1, 0, "+line"));
-        when(gitHub.getPullRequest("pat", ref)).thenReturn(pullRequest);
+        when(gitHub.getPullRequest("pat", ref, Optional.empty()))
+                .thenReturn(new PullRequestFetch(Optional.of(pullRequest), Optional.of("\"etag-1\"")));
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
         when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
         when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
@@ -228,13 +247,30 @@ class TestPullRequestService
         when(gitHub.fetchPrDiffFiles("pat", ref)).thenReturn(files);
         when(gitHub.fetchPrDiffCommits("pat", ref)).thenReturn(ImmutableList.of());
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isTrue();
 
         verify(store).saveObserved(any(PullRequest.class));
         ArgumentCaptor<StoredPrDetail> detail = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(pullRequest.id()), detail.capture());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
+        verify(detailStore).updateEtag(pullRequest.id(), Optional.of("\"etag-1\""));
         verify(diffStore).save(eq(pullRequest.id()), eq(null), eq(null), any(StoredPrDiff.class));
+    }
+
+    @Test
+    void explicitDetailRefreshUsesTheStoredEtagAndKeepsLocalDataOnNotModified()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
+        when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
+                .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"etag-1\"")));
+
+        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isFalse();
+
+        verify(gitHub, never()).fetchPrDetail(anyString(), any());
+        verify(store, never()).saveObserved(any());
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     @Test

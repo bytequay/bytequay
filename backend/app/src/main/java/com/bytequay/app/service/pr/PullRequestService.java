@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -253,19 +254,31 @@ public class PullRequestService
         }
     }
 
-    /** Returns locally persisted detail without contacting GitHub. */
+    /** Returns persisted detail, fetching and caching it on a local miss. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
         parseRef(repo, number);
-        return snapshots.getDetail(repo, number, storedPullRequestId(repo, number));
+        Optional<PullRequestDetail> stored = findPullRequestDetail(repo, number);
+        if (stored.isPresent()) {
+            return stored.orElseThrow();
+        }
+        refreshPullRequestDetailFromGitHub(repo, number);
+        return findPullRequestDetail(repo, number)
+                .orElseThrow(() -> localSnapshotMissing("Pull request"));
     }
 
-    void refreshPullRequestDetailFromGitHub(String repo, int number)
+    boolean refreshPullRequestDetailFromGitHub(String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         String currentLogin = resolveCurrentLogin(pat);
-        PullRequest pullRequest = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
+        Optional<Long> storedId = store.findIdByRepoAndNumber(repo, number);
+        Optional<String> etag = storedId.flatMap(snapshots::findDetailEtag);
+        PullRequestFetch fetched = gitHub.getPullRequest(pat, ref, etag);
+        if (fetched.pullRequest().isEmpty()) {
+            return false;
+        }
+        PullRequest pullRequest = workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin);
         store.saveObserved(pullRequest);
 
         StoredPrDetail detail = snapshots.refreshDetail(
@@ -275,6 +288,8 @@ public class PullRequestService
                 accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo())));
         storeDetail(pullRequest, detail, currentLogin);
         syncDiffQuietly(pat, pullRequest);
+        snapshots.updateDetailEtag(pullRequest.id(), fetched.etag());
+        return true;
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */
@@ -751,6 +766,12 @@ public class PullRequestService
     {
         return store.findIdByRepoAndNumber(repo, number)
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
+    }
+
+    private Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(repo, number)
+                .flatMap(prId -> snapshots.findDetail(repo, number, prId));
     }
 
     private static ResponseStatusException localSnapshotMissing(String name)

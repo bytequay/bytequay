@@ -20,9 +20,12 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,7 +34,10 @@ import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestOverviewClient
@@ -67,6 +73,55 @@ class TestGitHubPullRequestOverviewClient
         assertThat(detail.labelColors()).containsEntry("docs", "d4c5f9");
         assertThat(detail.assignees()).containsExactly("bob");
         assertThat(detail.milestone()).isEqualTo("v1");
+        fixture.verify();
+    }
+
+    @Test
+    void conditionallyFetchesPullRequestWithTheStoredEtag()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED));
+
+        var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\""));
+
+        assertThat(fetched.pullRequest()).isEmpty();
+        assertThat(fetched.etag()).contains("\"etag-1\"");
+        fixture.verify();
+    }
+
+    @Test
+    void conditionalFetchPreservesGitHubNotFound()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND)
+                        .body("{\"message\":\"Not Found\"}")
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\"")))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        fixture.verify();
+    }
+
+    @Test
+    void storesTheEtagReturnedWithModifiedPullRequestData()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+                .andRespond(withSuccess("""
+                        {"id":12,"number":42,"title":"Title","state":"open","labels":[],
+                         "requested_reviewers":[],"draft":false}
+                        """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"etag-2\""));
+
+        var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.empty());
+
+        assertThat(fetched.pullRequest()).isPresent();
+        assertThat(fetched.etag()).contains("\"etag-2\"");
         fixture.verify();
     }
 

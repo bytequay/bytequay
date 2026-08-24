@@ -35,7 +35,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -1058,24 +1060,45 @@ public class GitHubPullRequestReadClient
             String side) {}
 
     public PullRequest getPullRequest(String pat, PullRequestRef pr) {
+        return getPullRequest(pat, pr, Optional.empty()).pullRequest()
+                .orElseThrow(() -> new IllegalStateException("Unconditional GitHub PR request returned no body"));
+    }
+
+    public PullRequestFetch getPullRequest(String pat, PullRequestRef pr, Optional<String> etag) {
         String fullName = pr.owner() + "/" + pr.repo();
+        requireNonNull(etag, "etag is null");
         try {
-            GitHubRepoPullRequestItem item =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    "/repos/{owner}/{repo}/pulls/{number}",
-                                    pr.owner(),
-                                    pr.repo(),
-                                    pr.number())
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubRepoPullRequestItem.class);
+            RestClient.RequestHeadersSpec<?> request = gitHubRestClient
+                    .get()
+                    .uri(
+                            "/repos/{owner}/{repo}/pulls/{number}",
+                            pr.owner(),
+                            pr.repo(),
+                            pr.number())
+                    .header("Authorization", authorization(pat));
+            etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+            ResponseEntity<GitHubRepoPullRequestItem> response = request
+                    .retrieve()
+                    .toEntity(GitHubRepoPullRequestItem.class);
+            Optional<String> responseEtag = Optional.ofNullable(response.getHeaders().getETag()).or(() -> etag);
+            if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                return new PullRequestFetch(Optional.empty(), responseEtag);
+            }
+            GitHubRepoPullRequestItem item = response.getBody();
             checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
-            return toPullRequest(item, fullName);
+            return new PullRequestFetch(Optional.of(toPullRequest(item, fullName)), responseEtag);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
+        }
+    }
+
+    public record PullRequestFetch(Optional<PullRequest> pullRequest, Optional<String> etag)
+    {
+        public PullRequestFetch
+        {
+            requireNonNull(pullRequest, "pullRequest is null");
+            requireNonNull(etag, "etag is null");
         }
     }
 

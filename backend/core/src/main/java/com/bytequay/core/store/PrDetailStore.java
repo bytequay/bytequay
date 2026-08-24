@@ -27,9 +27,13 @@ public interface PrDetailStore
 
     Optional<StoredPrDetail> find(long prId);
 
+    Optional<String> findEtag(long prId);
+
     void save(long prId, StoredPrDetail detail);
 
     void saveIncremental(long prId, StoredPrDetail detail);
+
+    void updateEtag(long prId, Optional<String> etag);
 
     /** Records or returns one local timeline event identified by its stable local event key. */
     PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event);

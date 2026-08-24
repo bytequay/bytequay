@@ -44,6 +44,9 @@ public class PrViewStateEntity
     @Column(name = "handled_action")
     private HandledAction handledAction;
 
+    @Column(name = "reviewed_head_sha")
+    private String reviewedHeadSha;
+
     @Column(nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant internalCreatedAt;
@@ -79,4 +82,7 @@ public class PrViewStateEntity
 
     public HandledAction getHandledAction() { return handledAction; }
     public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction; }
+
+    public String getReviewedHeadSha() { return reviewedHeadSha; }
+    public void setReviewedHeadSha(String reviewedHeadSha) { this.reviewedHeadSha = reviewedHeadSha; }
 }

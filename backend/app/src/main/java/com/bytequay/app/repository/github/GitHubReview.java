@@ -25,7 +25,8 @@ public record GitHubReview(
         String state,
         String body,
         @JsonProperty("submitted_at") Instant submittedAt,
-        @JsonProperty("html_url") String htmlUrl)
+        @JsonProperty("html_url") String htmlUrl,
+        @JsonProperty("commit_id") String commitId)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}

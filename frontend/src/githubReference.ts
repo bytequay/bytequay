@@ -88,7 +88,7 @@ export async function resolveLocalGitHubReference(reference: GitHubReference): P
   try {
     return {
       kind: 'pull',
-      detail: await window.bridge.fetchPullRequestDetail(`${reference.owner}/${reference.repo}`, reference.number),
+      detail: await window.bridge.fetchPullRequestDetailByRef(`${reference.owner}/${reference.repo}`, reference.number),
     };
   }
   catch {

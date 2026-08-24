@@ -51,6 +51,8 @@ public class PrReviewEntity
 
     private String htmlUrl;
 
+    private String commitId;
+
     @Column(name = "submitted_at")
     private Instant submittedAt;
 
@@ -81,6 +83,9 @@ public class PrReviewEntity
 
     public String getHtmlUrl() { return htmlUrl; }
     public void setHtmlUrl(String htmlUrl) { this.htmlUrl = htmlUrl; }
+
+    public String getCommitId() { return commitId; }
+    public void setCommitId(String commitId) { this.commitId = commitId; }
 
     public Instant getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }

@@ -498,6 +498,7 @@ describe('PullOverview', () => {
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'dirty' })).toBe(true);
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'blocked' })).toBe(false);
     expect(remotePullRequest(value, 'bob').origin).toBe('REVIEW_REQUESTED');
+    expect(remotePullRequest(value, 'carol').origin).toBe('OTHER');
   });
 
   it('shows who requested the current user\'s review', () => {
@@ -538,6 +539,9 @@ function pullRequest(): PullRequestDto {
     labels: ['docs'],
     labelColors: { docs: 'd4c5f9' },
     draft: false,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
     requestedReviewers: ['bob'],
     ciStatus: 'FAILING',
     additions: 10,
@@ -547,6 +551,7 @@ function pullRequest(): PullRequestDto {
     state: 'open',
     mergeable: true,
     mergeableState: 'clean',
+    headPushedAt: null,
     headRef: 'feature/overview',
   };
 }

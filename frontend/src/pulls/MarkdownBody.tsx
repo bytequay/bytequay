@@ -266,6 +266,9 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   if (existing) return existing;
   const request = resolveLocalGitHubReference(reference).catch((): null => null);
   previewRequests.set(key, request);
+  void request.then(value => {
+    if (value === null) previewRequests.delete(key);
+  });
   return request;
 }
 
@@ -300,7 +303,10 @@ function ReferenceLink({ reference, showTitle = false, children }: {
         maxHeight: Math.max(180, Math.min(440, available)),
       });
       setOpen(true);
-      if (preview === undefined) void loadPreview(reference).then(setPreview);
+      if (preview == null) {
+        setPreview(undefined);
+        void loadPreview(reference).then(setPreview);
+      }
     }, delay);
   };
   const hide = (delay = 140) => {

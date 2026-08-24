@@ -436,7 +436,8 @@ public class GitHubPullRequestReadClient
                             r.state(),
                             r.submittedAt(),
                             r.body(),
-                            r.htmlUrl()))
+                            r.htmlUrl(),
+                            r.commitId()))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
@@ -1111,7 +1112,7 @@ public class GitHubPullRequestReadClient
      * user-review-requested:@me}), so the dashboard uses this to catch what search drops. {@code
      * all=true} so an item already read but not yet acted on still comes back.
      */
-    public List<PullRequestRef> fetchAttentionPrRefs(String pat) {
+    public List<AttentionPrRef> fetchAttentionPrRefs(String pat) {
         requirePat(pat);
         try {
             List<GitHubNotification> notifications =
@@ -1146,7 +1147,7 @@ public class GitHubPullRequestReadClient
      * subject.url tail is the PR number and repository.full_name is {@code owner/repo}, so {@link
      * PullRequestRef#parse} handles the split and validation. Package-private for direct unit test.
      */
-    static Optional<PullRequestRef> attentionPrRef(GitHubNotification n) {
+    static Optional<AttentionPrRef> attentionPrRef(GitHubNotification n) {
         if (n.subject() == null
                 || !"PullRequest".equals(n.subject().type())
                 || !ATTENTION_REASONS.contains(n.reason())
@@ -1160,8 +1161,11 @@ public class GitHubPullRequestReadClient
         if (slash < 0 || slash == url.length() - 1) {
             return Optional.empty();
         }
-        return PullRequestRef.parse(n.repository().fullName() + "#" + url.substring(slash + 1));
+        return PullRequestRef.parse(n.repository().fullName() + "#" + url.substring(slash + 1))
+                .map(ref -> new AttentionPrRef(ref, "review_requested".equals(n.reason())));
     }
+
+    public record AttentionPrRef(PullRequestRef ref, boolean reviewRequested) {}
 
     private static PullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
         List<GitHubRepoPullRequestItem.Label> rawLabels =

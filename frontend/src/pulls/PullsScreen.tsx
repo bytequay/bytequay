@@ -16,7 +16,7 @@ import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDet
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
-import { PULL_TABS, reconcilePullRequestDetail, rowsForTab, type PullRow, type PullTab } from './model';
+import { PULL_TABS, pullRequestNeedsReview, reconcilePullRequestDetail, rowsForSearch, rowsForTab, type PullRow, type PullTab } from './model';
 import '../css/pulls.css';
 
 type DetailTab = 'overview' | 'changes';
@@ -25,6 +25,7 @@ const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
+const DETAIL_REFRESH_INTERVAL = 3_000;
 
 export default function PullsScreen({
   initialPr,
@@ -54,9 +55,28 @@ export default function PullsScreen({
   const [hasMore, setHasMore] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
   const loadingMoreRequest = useRef(false);
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
+  const detailSnapshot = useRef<string | null>(null);
+
+  const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
+    const snapshot = JSON.stringify(value);
+    if (detailSnapshot.current === snapshot) return false;
+    detailSnapshot.current = snapshot;
+    setDetail(value);
+    setPrs(current => current.map(pr => pr.id === prId
+      ? reconcilePullRequestDetail(pr, value)
+      : pr));
+    if (refreshDiff) {
+      setDiffs(null);
+      setDiffCommits([]);
+      setDiffRange(null);
+    }
+    return true;
+  }, []);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     setPrs(result.pullRequests);
@@ -68,8 +88,8 @@ export default function PullsScreen({
   }, []);
 
   const loadFirstPage = useCallback(async () => {
-    applyPage(await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE));
-  }, [applyPage, repositoryScope?.workspaceId]);
+    applyPage(await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query));
+  }, [applyPage, query, repositoryScope?.workspaceId]);
 
   const loadList = useCallback(async () => {
     setError(null);
@@ -100,15 +120,23 @@ export default function PullsScreen({
   }, [loadFirstPage, repositoryScope?.workspaceId]);
 
   useEffect(() => {
+    setLoading(true);
+    setHasMore(false);
+    setPage(0);
     void loadList();
   }, [loadList]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setQuery(search.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;
     loadingMoreRequest.current = true;
     setLoadingMore(true);
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE);
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE, query);
       setPrs(current => {
         const loaded = new Set(current.map(pr => pr.id));
         return [...current, ...result.pullRequests.filter(pr => !loaded.has(pr.id))];
@@ -123,7 +151,7 @@ export default function PullsScreen({
       loadingMoreRequest.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, page, repositoryScope?.workspaceId]);
+  }, [hasMore, page, query, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const marker = loadMoreMarker.current;
@@ -148,50 +176,79 @@ export default function PullsScreen({
     }
     let cancelled = false;
     Promise.all([
-      window.bridge.refreshPullRequestDetail(initialPr.repo, initialPr.number),
+      window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number),
       window.bridge.getUserProfile().catch((): null => null),
     ]).then(([value, profile]) => {
       if (cancelled) return;
       const remote = remotePullRequest(value, profile?.login);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
-      setDetail(value);
+      applyDetail(remote.id, value, false);
       setSelected(remote.id);
     }).catch(e => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
     });
     return () => { cancelled = true; };
-  }, [initialPr, loading, prs]);
+  }, [applyDetail, initialPr, loading, prs]);
 
-  const rows = useMemo(() => rowsForTab(prs, tab), [prs, tab]);
+  const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab), [prs, query, tab]);
   const selectedPr = prs.find(pr => pr.id === selected) ?? null;
+  const selectedPrId = selectedPr?.id;
+  const selectedPrNumber = selectedPr?.number;
+  const selectedPrRepo = selectedPr?.repo;
 
   useEffect(() => {
-    if (!selectedPr) {
+    if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) {
+      detailSnapshot.current = null;
       setDetail(null);
       return;
     }
-    if (detail?.repo.toLowerCase() === selectedPr.repo.toLowerCase()
-        && detail.number === selectedPr.number) return;
     let cancelled = false;
+    let refreshTimer: number | undefined;
+    detailSnapshot.current = null;
+    setDetail(null);
     setDetailLoading(true);
     setError(null);
-    window.bridge.fetchPullRequestDetail(selectedPr.repo, selectedPr.number)
-      .then(value => {
+    const fetchSelectedDetail = () => selectedPrId > 0
+      ? window.bridge.fetchPullRequestDetail(selectedPrId)
+      : window.bridge.fetchPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
+    const refreshSelectedDetail = () => selectedPrId > 0
+      ? window.bridge.refreshPullRequestDetail(selectedPrId)
+      : window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
+
+    const poll = async (): Promise<void> => {
+      try {
+        const value = await refreshSelectedDetail();
         if (!cancelled) {
-          setDetail(value);
-          setPrs(current => current.map(pr => pr.id === selectedPr.id
-            ? reconcilePullRequestDetail(pr, value)
-            : pr));
+          applyDetail(selectedPrId, value, true);
+          setError(null);
         }
+      }
+      catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+      finally {
+        if (!cancelled) refreshTimer = window.setTimeout((): void => { void poll(); }, DETAIL_REFRESH_INTERVAL);
+      }
+    };
+
+    fetchSelectedDetail()
+      .then(value => {
+        if (!cancelled) applyDetail(selectedPrId, value, false);
       })
       .catch(e => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (!cancelled) setDetailLoading(false);
+        if (!cancelled) {
+          setDetailLoading(false);
+          refreshTimer = window.setTimeout((): void => { void poll(); }, 0);
+        }
       });
-    return () => { cancelled = true; };
-  }, [selectedPr, detail?.repo, detail?.number]);
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
+  }, [applyDetail, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
@@ -242,14 +299,11 @@ export default function PullsScreen({
     if (!selectedPr) return;
     setDetailLoading(true);
     try {
-      const value = await window.bridge.refreshPullRequestDetail(selectedPr.repo, selectedPr.number);
-      setDetail(value);
-      setPrs(current => current.map(pr => pr.id === selectedPr.id
-        ? reconcilePullRequestDetail(pr, value)
-        : pr));
-      setDiffs(null);
-      setDiffCommits([]);
-      setDiffRange(null);
+      const value = selectedPr.id > 0
+        ? await window.bridge.refreshPullRequestDetail(selectedPr.id)
+        : await window.bridge.refreshPullRequestDetailByRef(selectedPr.repo, selectedPr.number);
+      applyDetail(selectedPr.id, value, true);
+      await loadFirstPage();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -297,8 +351,8 @@ export default function PullsScreen({
             <button
               key={item.key}
               type="button"
-              className={tab === item.key ? 'is-active' : ''}
-              onClick={() => setTab(item.key)}
+              className={!query && tab === item.key ? 'is-active' : ''}
+              onClick={() => { setTab(item.key); setSearch(''); setQuery(''); }}
             >
               {item.label}
             </button>
@@ -325,6 +379,16 @@ export default function PullsScreen({
             <PaneIcon />
           </button>
         </header>
+        <div className="pulls-search">
+          <SearchIcon />
+          <input
+            type="search"
+            value={search}
+            placeholder="Search pull requests by title or #number"
+            aria-label="Search pull requests by title or number"
+            onChange={event => setSearch(event.target.value)}
+          />
+        </div>
         <div className="pulls-list__rows">
           {loading && <div className="hp-loading">Loading…</div>}
           {!loading && error && rows.length === 0 && (
@@ -334,7 +398,9 @@ export default function PullsScreen({
           )}
           {!loading && !error && rows.length === 0 && (
             <div className="hp-empty">
-              No pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''} in this view.
+              {query
+                ? `No pull requests match “${query}”.`
+                : `No pull requests${repositoryScope ? ` for ${repositoryScope.repository}` : ''} in this view.`}
             </div>
           )}
           {rows.map(row => (
@@ -395,6 +461,9 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
   const key = `${detail.repo.toLowerCase()}#${detail.number}`;
   let hash = 0;
   for (const character of key) hash = ((hash * 31) + character.charCodeAt(0)) | 0;
+  const origin = viewerLogin && detail.author?.toLowerCase() === viewerLogin.toLowerCase()
+    ? 'AUTHORED'
+    : isReviewRequestedForViewer(detail, viewerLogin ?? null) ? 'REVIEW_REQUESTED' : 'OTHER';
   return {
     id: -(Math.abs(hash) || 1),
     repo: detail.repo,
@@ -404,12 +473,13 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
     htmlUrl: detail.htmlUrl ?? `https://github.com/${detail.repo}/pull/${detail.number}`,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date(0).toISOString(),
-    origin: viewerLogin && detail.author?.toLowerCase() !== viewerLogin.toLowerCase()
-      ? 'REVIEW_REQUESTED'
-      : 'AUTHORED',
+    origin,
     labels: detail.labels.map(label => label.name),
     labelColors: Object.fromEntries(detail.labels.map(label => [label.name, label.color ?? 'd0d7de'])),
     draft: detail.draft,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
     requestedReviewers: detail.reviewers.map(reviewer => reviewer.login),
     ciStatus: detail.ciStatus,
     additions: detail.additions,
@@ -420,6 +490,7 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
     state: detail.state,
     mergeable: detail.mergeable,
     mergeableState: detail.mergeableState,
+    headPushedAt: null,
     headRef: detail.headRef,
   };
 }
@@ -563,7 +634,7 @@ export function ReviewRequestNotice({ pr, detail, onReview }: {
 }
 
 export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
-  return pr.origin === 'REVIEW_REQUESTED' && detail?.state?.toLowerCase() === 'open';
+  return pullRequestNeedsReview(pr) && detail?.state?.toLowerCase() === 'open';
 }
 
 export function isReviewRequestedForViewer(detail: PullRequestDetailDto | null, viewerLogin: string | null) {
@@ -911,6 +982,15 @@ export function RefreshIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 7v5h-5M4 17v-5h5" /><path d="M7.1 7.1a7 7 0 0 1 11.4 2.3M16.9 16.9a7 7 0 0 1-11.4-2.3" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
     </svg>
   );
 }

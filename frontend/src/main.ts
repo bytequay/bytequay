@@ -522,12 +522,13 @@ function registerIpc(): void {
     return true;
   });
 
-  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {
+  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {
     const url = new URL(workspaceId
       ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
       : '/prs', BACKEND_BASE);
     url.searchParams.set('page', String(page));
     url.searchParams.set('size', String(pageSize));
+    if (search?.trim()) url.searchParams.set('search', search.trim());
     return backendJson(url);
   });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
@@ -536,7 +537,9 @@ function registerIpc(): void {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
-  ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
+  ipcMain.handle('prs:detail', (_event, prId: number) =>
+    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail`));
+  ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
   ipcMain.handle('prs:users', (_event, repo: string) => {
     const url = new URL('/prs/users', BACKEND_BASE);
@@ -576,7 +579,9 @@ function registerIpc(): void {
     url.searchParams.set('branch', branch);
     return backendJson(url);
   });
-  ipcMain.handle('prs:detail:refresh', (_event, repo: string, number: number) => {
+  ipcMain.handle('prs:detail:refresh', (_event, prId: number) =>
+    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail/refresh`, { method: 'POST' }));
+  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh', repo, number);
     return backendJson(url, { method: 'POST' });
   });

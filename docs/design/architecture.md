@@ -238,13 +238,26 @@ child declares only the dependencies it uses.
 
 Display and refresh are separate paths:
 
-1. A frontend display request reads PR rows, detail, diff metadata, or stored file content through
-   a `core` storage port and returns the local SQLite snapshot. Display GETs never call GitHub.
-2. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
+1. A frontend display request for a stored PR ID reads detail, diff metadata, or stored file content
+   through a `core` storage port and returns the local SQLite snapshot.
+2. A direct repository-and-number detail request also reads SQLite first, but fetches that exact PR
+   from GitHub on a local miss. This establishes a directly opened row or preserves GitHub's
+   authoritative `404` when the PR does not exist.
+3. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
    response to `core` values, and writes through `persistence-sqlite`.
-3. An explicit refresh returns only after persistence completes; the frontend then uses the normal
-   display GET to read the newly persisted snapshot. Scheduled refreshes leave the same snapshot
-   ready for the next display request.
+4. Selecting a stored PR requests detail by its stable GitHub PR ID. The backend resolves the
+   repository and number from SQLite, renders persisted detail first, then the frontend immediately
+   starts a non-overlapping three-second refresh loop by that same ID. The exact GitHub PR request
+   sends the ETag stored with `pr_detail`; a `304 Not Modified` keeps the current snapshot, while a
+   changed response refreshes the aggregate, persists it, and returns it so the frontend can update
+   the view automatically.
+
+Repository refresh discovers every pull request updated within 30 days without filtering by state,
+plus older pull requests that remain open. Search results can add or update rows but their absence
+never deletes a row. A known row omitted by the current search is reconciled through GitHub's exact
+repository-and-number endpoint before retention runs. Closed rows expire only after both their close
+time and last GitHub update are older than 30 days. Changed PRs refresh their aggregate immediately;
+unchanged open PRs get a full fallback refresh hourly, while closed or merged PRs get one daily.
 
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are

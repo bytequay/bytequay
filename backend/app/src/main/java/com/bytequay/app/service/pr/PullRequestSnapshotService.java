@@ -178,6 +178,13 @@ public class PullRequestSnapshotService
         details.updateEtag(prId, etag);
     }
 
+    Optional<String> findHeadSha(long prId)
+    {
+        return details.find(prId)
+                .map(StoredPrDetail::raw)
+                .map(raw -> raw.headSha());
+    }
+
     void patchDetail(long prId, UnaryOperator<StoredPrDetail> patcher)
     {
         requireNonNull(patcher, "patcher is null");

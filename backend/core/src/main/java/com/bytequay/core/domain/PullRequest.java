@@ -90,6 +90,7 @@ public record PullRequest(
     public enum Origin
     {
         AUTHORED,
-        REVIEW_REQUESTED
+        REVIEW_REQUESTED,
+        OTHER
     }
 }

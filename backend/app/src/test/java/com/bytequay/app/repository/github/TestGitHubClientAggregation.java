@@ -38,9 +38,10 @@ class TestGitHubClientAggregation
         assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "review_requested", "PullRequest", "acme/widget",
                 "https://api.github.com/repos/acme/widget/pulls/3405")))
-                .hasValueSatisfying(ref -> {
-                    assertThat(ref.repoFullName()).isEqualTo("acme/widget");
-                    assertThat(ref.number()).isEqualTo(3405);
+                .hasValueSatisfying(attention -> {
+                    assertThat(attention.ref().repoFullName()).isEqualTo("acme/widget");
+                    assertThat(attention.ref().number()).isEqualTo(3405);
+                    assertThat(attention.reviewRequested()).isTrue();
                 });
     }
 
@@ -50,7 +51,10 @@ class TestGitHubClientAggregation
         assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
                 "mention", "PullRequest", "owner/repo",
                 "https://api.github.com/repos/owner/repo/pulls/7")))
-                .hasValueSatisfying(ref -> assertThat(ref.number()).isEqualTo(7));
+                .hasValueSatisfying(attention -> {
+                    assertThat(attention.ref().number()).isEqualTo(7);
+                    assertThat(attention.reviewRequested()).isFalse();
+                });
     }
 
     @Test

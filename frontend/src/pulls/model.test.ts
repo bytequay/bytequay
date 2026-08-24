@@ -29,6 +29,9 @@ function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
     labels: [],
     labelColors: null,
     draft: false,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
     requestedReviewers: [],
     ciStatus: 'PASSING',
     additions: 1,
@@ -38,18 +41,39 @@ function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
     state: 'open',
     mergeable: true,
     mergeableState: 'clean',
+    headPushedAt: null,
     headRef: 'feature',
     ...overrides,
   };
 }
 
 describe('rowsForTab', () => {
-  it('keeps authored and review-requested pull requests in their direct views', () => {
+  it('keeps only actual review work in Needs review', () => {
     const authored = pr({ id: 1, origin: 'AUTHORED' });
     const requested = pr({ id: 2, origin: 'REVIEW_REQUESTED' });
+    const unrelated = pr({ id: 3, origin: 'OTHER' });
+    const followUp = pr({ id: 4, origin: 'OTHER', reviewedAt: '2026-08-21T09:00:00Z' });
 
     expect(rowsForTab([authored, requested], 'active').map(row => row.id)).toEqual([1]);
-    expect(rowsForTab([authored, requested], 'req').map(row => row.id)).toEqual([2]);
+    expect(rowsForTab([authored, requested, unrelated, followUp], 'req').map(row => row.id)).toEqual([2, 4]);
+  });
+
+  it('moves handled reviews from Needs review to Reviewed newest review first', () => {
+    const waiting = pr({
+      id: 2,
+      origin: 'REVIEW_REQUESTED',
+      reviewedAt: '2026-08-21T09:00:00Z',
+      handledAction: 'COMMENTED',
+    });
+    const latest = pr({
+      id: 3,
+      origin: 'OTHER',
+      reviewedAt: '2026-08-22T09:00:00Z',
+      handledAction: 'APPROVED',
+    });
+
+    expect(rowsForTab([waiting, latest], 'req')).toEqual([]);
+    expect(rowsForTab([waiting, latest], 'reviewed').map(row => row.id)).toEqual([3, 2]);
   });
 
   it('puts merged and closed pull requests in Done', () => {
@@ -69,6 +93,7 @@ describe('rowsForTab', () => {
     expect(rowsForTab([updated], 'all')).toEqual([]);
     expect(rowsForTab([updated], 'active')).toEqual([]);
     expect(rowsForTab([updated], 'req')).toEqual([]);
+    expect(rowsForTab([updated], 'reviewed')).toEqual([]);
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');
   });
 });

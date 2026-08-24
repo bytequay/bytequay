@@ -14,11 +14,12 @@
 import type { PullRequestDetailDto, PullRequestDto } from '../types';
 import { relativeTime } from '../relativeTime';
 
-export type PullTab = 'all' | 'active' | 'req' | 'done';
+export type PullTab = 'all' | 'active' | 'req' | 'reviewed' | 'done';
 export const PULL_TABS: { key: PullTab; label: string }[] = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: 'Open' },
   { key: 'active', label: 'My PRs' },
-  { key: 'req', label: 'Review' },
+  { key: 'req', label: 'Needs review' },
+  { key: 'reviewed', label: 'Reviewed' },
   { key: 'done', label: 'Done' },
 ];
 
@@ -36,9 +37,10 @@ export type PullRow = {
   additions: number;
   deletions: number;
   comments: number;
+  review: string | null;
 };
 
-function toRow(pr: PullRequestDto): PullRow {
+function toRow(pr: PullRequestDto, reviewedTime = false): PullRow {
   const kind = pullRequestKind(pr.state);
   return {
     id: pr.id,
@@ -46,7 +48,9 @@ function toRow(pr: PullRequestDto): PullRow {
     num: pr.number,
     title: pr.title,
     author: (pr.author ?? 'unknown').replace(/^@/, ''),
-    time: relativeTime(pr.updatedAt),
+    time: reviewedTime && pr.reviewedAt
+      ? `Reviewed ${relativeTime(pr.reviewedAt)}`
+      : relativeTime(pr.updatedAt),
     kind,
     labels: pr.labels,
     labelColors: pr.labelColors,
@@ -56,6 +60,7 @@ function toRow(pr: PullRequestDto): PullRow {
     additions: pr.additions,
     deletions: pr.deletions,
     comments: pr.commentCount,
+    review: reviewLabel(pr),
   };
 }
 
@@ -63,14 +68,31 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
   return prs
     .filter(pr => {
       const done = pullRequestKind(pr.state) !== 'open';
+      const reviewed = pr.origin !== 'AUTHORED' && pr.handledAction !== null;
       if (tab === 'done') return done;
       if (done) return false;
       if (tab === 'active') return pr.origin === 'AUTHORED';
-      if (tab === 'req') return pr.origin === 'REVIEW_REQUESTED';
+      if (tab === 'req') return pullRequestNeedsReview(pr);
+      if (tab === 'reviewed') return reviewed;
       return true;
     })
+    .sort((a, b) => Date.parse(
+      tab === 'reviewed' ? b.reviewedAt ?? b.updatedAt : b.updatedAt,
+    ) - Date.parse(
+      tab === 'reviewed' ? a.reviewedAt ?? a.updatedAt : a.updatedAt,
+    ))
+    .map(pr => toRow(pr, tab === 'reviewed'));
+}
+
+export function pullRequestNeedsReview(pr: PullRequestDto) {
+  return pr.handledAction === null
+    && (pr.origin === 'REVIEW_REQUESTED' || pr.origin === 'OTHER' && pr.reviewedAt !== null);
+}
+
+export function rowsForSearch(prs: PullRequestDto[]): PullRow[] {
+  return [...prs]
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-    .map(toRow);
+    .map(pr => toRow(pr));
 }
 
 export function reconcilePullRequestDetail(
@@ -85,4 +107,14 @@ export function reconcilePullRequestDetail(
 function pullRequestKind(state: string | null): PullRow['kind'] {
   const normalized = state?.toLowerCase();
   return normalized === 'merged' ? 'merged' : normalized === 'closed' ? 'closed' : 'open';
+}
+
+function reviewLabel(pr: PullRequestDto) {
+  if (pullRequestKind(pr.state) !== 'open') return null;
+  switch (pr.handledAction) {
+    case 'APPROVED': return 'Approved';
+    case 'CHANGES_REQUESTED': return 'Changes requested';
+    case 'COMMENTED': return 'Reviewed';
+    default: return null;
+  }
 }

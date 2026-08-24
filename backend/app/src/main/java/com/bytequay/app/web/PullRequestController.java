@@ -55,9 +55,10 @@ public class PullRequestController
     @GetMapping("/prs")
     public PullRequestPage list(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size)
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String search)
     {
-        return pullRequests.listPullRequests(page, size);
+        return pullRequests.listPullRequests(page, size, search);
     }
 
     @GetMapping("/prs/users")
@@ -87,12 +88,24 @@ public class PullRequestController
         return pullRequests.getPullRequestDetail(repo, number);
     }
 
+    @GetMapping("/prs/{prId}/detail")
+    public PullRequestDetail detail(@PathVariable long prId)
+    {
+        return pullRequests.getPullRequestDetail(prId);
+    }
+
     @PostMapping("/prs/detail/refresh")
     public PullRequestDetail refreshDetail(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
         return refreshService.refreshDetail(repo, number);
+    }
+
+    @PostMapping("/prs/{prId}/detail/refresh")
+    public PullRequestDetail refreshDetail(@PathVariable long prId)
+    {
+        return refreshService.refreshDetail(prId);
     }
 
     @GetMapping("/prs/diffFiles")

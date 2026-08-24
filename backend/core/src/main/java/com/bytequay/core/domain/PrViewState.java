@@ -20,4 +20,5 @@ public record PrViewState(
         long prId,
         Instant viewedAt,
         Instant reviewedAt,
-        HandledAction handledAction) {}
+        HandledAction handledAction,
+        String reviewedHeadSha) {}

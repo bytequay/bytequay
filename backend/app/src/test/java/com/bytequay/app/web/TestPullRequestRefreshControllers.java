@@ -54,6 +54,20 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void selectedPullRequestDetailUsesItsStoredId()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, refresh);
+
+        controller.detail(12L);
+        controller.refreshDetail(12L);
+
+        verify(pullRequests).getPullRequestDetail(12L);
+        verify(refresh).refreshDetail(12L);
+    }
+
+    @Test
     void workspaceRefreshCompletesBeforeTheRequestReturns()
     {
         RepoRef repository = RepoRef.of("upstream", "project");

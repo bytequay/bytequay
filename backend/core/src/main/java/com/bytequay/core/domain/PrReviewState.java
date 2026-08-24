@@ -32,17 +32,18 @@ public record PrReviewState(
         String state,
         Instant submittedAt,
         String body,
-        String htmlUrl)
+        String htmlUrl,
+        String commitId)
 {
     /** Convenience for call sites (mostly tests) that don't care about
      *  the submission timestamp. Equivalent to passing null. */
     public PrReviewState(String login, String state)
     {
-        this(null, login, null, login != null && login.endsWith("[bot]"), state, null, null, null);
+        this(null, login, null, login != null && login.endsWith("[bot]"), state, null, null, null, null);
     }
 
     public PrReviewState(String login, String state, Instant submittedAt)
     {
-        this(null, login, null, login != null && login.endsWith("[bot]"), state, submittedAt, null, null);
+        this(null, login, null, login != null && login.endsWith("[bot]"), state, submittedAt, null, null, null);
     }
 }

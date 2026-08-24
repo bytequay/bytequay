@@ -17,9 +17,10 @@ import type { Bridge, InAppNavState } from './types';
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
-  fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),
+  fetchPrs: (workspaceId, page, pageSize, search) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize, search),
   syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
-  fetchPullRequestDetail: (repo, number) => ipcRenderer.invoke('prs:detail', repo, number),
+  fetchPullRequestDetail: prId => ipcRenderer.invoke('prs:detail', prId),
+  fetchPullRequestDetailByRef: (repo, number) => ipcRenderer.invoke('prs:detail:by-ref', repo, number),
   fetchRepoUsers: (repo, workspaceId) => ipcRenderer.invoke('prs:users', repo, workspaceId),
   fetchRepoLabels: repo => ipcRenderer.invoke('prs:labels', repo),
   updatePrMetadata: (repo, number, assignees, labels) =>
@@ -27,8 +28,9 @@ const bridge: Bridge = {
   updatePrReviewer: (repo, number, login, requested) =>
     ipcRenderer.invoke('prs:reviewer:update', repo, number, login, requested),
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
-  refreshPullRequestDetail: (repo, number) =>
-    ipcRenderer.invoke('prs:detail:refresh', repo, number),
+  refreshPullRequestDetail: prId => ipcRenderer.invoke('prs:detail:refresh', prId),
+  refreshPullRequestDetailByRef: (repo, number) =>
+    ipcRenderer.invoke('prs:detail:refresh:by-ref', repo, number),
   fetchPrDiffFiles: (repo, number, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff', repo, number, baseSha, headSha),
   refreshPrDiffFiles: (repo, number, baseSha, headSha) =>

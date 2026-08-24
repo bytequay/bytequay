@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.AttentionPrRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -56,6 +57,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -73,6 +75,7 @@ import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
+import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -91,6 +94,9 @@ public class PullRequestService
     // Throttling each such PR to one backfill attempt per this interval
     // keeps the safety net while cutting the steady-state cost ~15x.
     private static final Duration BACKFILL_RECHECK_INTERVAL = Duration.ofMinutes(15);
+    private static final Duration OPEN_DETAIL_REFRESH_INTERVAL = Duration.ofHours(1);
+    private static final Duration CLOSED_DETAIL_REFRESH_INTERVAL = Duration.ofDays(1);
+    private static final int CLOSED_RETENTION_DAYS = 30;
 
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
@@ -136,24 +142,44 @@ public class PullRequestService
 
     public PullRequestPage listPullRequests(int page, int pageSize)
     {
+        return listPullRequests(page, pageSize, null);
+    }
+
+    public PullRequestPage listPullRequests(int page, int pageSize, String search)
+    {
         checkPage(page, pageSize);
-        return store.findPage(page, pageSize);
+        return store.findPage(page, pageSize, validateSearch(search));
     }
 
     /** Returns the existing local PR rows restricted to one repository. */
     public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize)
     {
+        return listPullRequests(repository, page, pageSize, null);
+    }
+
+    public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize, String search)
+    {
         checkPage(page, pageSize);
         return store.findRepositoryPage(
-                requireNonNull(repository, "repository is null").fullName(), page, pageSize);
+                requireNonNull(repository, "repository is null").fullName(), page, pageSize, validateSearch(search));
+    }
+
+    private static String validateSearch(String search)
+    {
+        String value = search == null ? "" : search.trim();
+        if (value.length() > 200) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "search must not exceed 200 characters");
+        }
+        return value;
     }
 
     /**
      * Refreshes the local workspace projection for one monitored repository.
      *
-     * <p>The refresh loads all open and recently closed pull requests, preserves the repository's
-     * global-dashboard membership, and refreshes detail only for new or changed rows. The caller
-     * resolves whether a workspace monitors its selected repository or an upstream repository.</p>
+     * <p>The refresh discovers pull requests regardless of state, preserves rows omitted from
+     * GitHub's eventually-consistent search, and refreshes detail by pull-request identity only
+     * for new or changed rows. The caller resolves whether a workspace monitors its selected
+     * repository or an upstream repository.</p>
      */
     public void syncRepository(RepoRef repository)
     {
@@ -162,16 +188,21 @@ public class PullRequestService
         String currentLogin = resolveCurrentLogin(pat);
         String syncMarker = java.util.UUID.randomUUID().toString();
         String qualifier = " repo:" + repository.fullName();
+        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
         syncRepositoryQuery(
-                pat, repository, currentLogin, syncMarker, "is:pr is:open" + qualifier);
-        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
+                pat, repository, currentLogin, syncMarker, "is:pr updated:>=" + sinceDate + qualifier, false);
+        syncRepositoryQuery(
+                pat, repository, currentLogin, syncMarker, "is:pr is:open" + qualifier, false);
         syncRepositoryQuery(
                 pat,
                 repository,
                 currentLogin,
                 syncMarker,
-                "is:pr is:closed closed:>=" + sinceDate + qualifier);
-        deleteDetails(store.completeRepositorySync(repository.fullName(), syncMarker));
+                "is:pr is:open user-review-requested:@me" + qualifier,
+                true);
+        reconcileRepositorySearchMisses(pat, repository, currentLogin, syncMarker);
+        deleteDetails(store.completeRepositorySync(
+                repository.fullName(), Instant.now().minus(CLOSED_RETENTION_DAYS, ChronoUnit.DAYS)));
     }
 
     public List<RepoUser> listRepositoryUsers(String repo)
@@ -208,7 +239,7 @@ public class PullRequestService
         String syncMarker = java.util.UUID.randomUUID().toString();
         Set<String> seen = new HashSet<>();
         syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED);
-        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
+        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
         syncDashboardQuery(
                 pat,
                 currentLogin,
@@ -219,7 +250,7 @@ public class PullRequestService
         syncDashboardQuery(
                 pat, currentLogin, syncMarker, seen, "is:pr is:open user-review-requested:@me", REVIEW_REQUESTED);
         syncDashboardQuery(
-                pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", REVIEW_REQUESTED);
+                pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER);
         syncNotificationPullRequests(pat, currentLogin, syncMarker, seen);
         deleteDetails(store.completeDashboardSync(syncMarker));
     }
@@ -267,6 +298,12 @@ public class PullRequestService
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
     }
 
+    public PullRequestDetail getPullRequestDetail(long prId)
+    {
+        PullRequestRef ref = storedPullRequestRef(prId);
+        return getPullRequestDetail(ref.repoFullName(), ref.number());
+    }
+
     boolean refreshPullRequestDetailFromGitHub(String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
@@ -290,6 +327,12 @@ public class PullRequestService
         syncDiffQuietly(pat, pullRequest);
         snapshots.updateDetailEtag(pullRequest.id(), fetched.etag());
         return true;
+    }
+
+    boolean refreshPullRequestDetailFromGitHub(long prId)
+    {
+        PullRequestRef ref = storedPullRequestRef(prId);
+        return refreshPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */
@@ -436,7 +479,7 @@ public class PullRequestService
     {
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.approve(pat, parseRef(repo, number));
-        viewStateStore.markReviewed(prId, HandledAction.APPROVED);
+        viewStateStore.markReviewed(prId, HandledAction.APPROVED, currentHeadSha(prId));
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -454,12 +497,7 @@ public class PullRequestService
 
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.submitReview(pat, parseRef(repo, number), normalizedEvent, reviewBody);
-        if ("APPROVE".equals(normalizedEvent)) {
-            viewStateStore.markReviewed(prId, HandledAction.APPROVED);
-        }
-        else if ("REQUEST_CHANGES".equals(normalizedEvent)) {
-            viewStateStore.markReviewed(prId, HandledAction.CHANGES_REQUESTED);
-        }
+        markReviewed(prId, normalizedEvent);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -486,13 +524,23 @@ public class PullRequestService
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.submitReview(
                 pat, parseRef(repo, number), normalizedEvent, reviewBody, reviewComments);
-        if ("APPROVE".equals(normalizedEvent)) {
-            viewStateStore.markReviewed(prId, HandledAction.APPROVED);
-        }
-        else if ("REQUEST_CHANGES".equals(normalizedEvent)) {
-            viewStateStore.markReviewed(prId, HandledAction.CHANGES_REQUESTED);
-        }
+        markReviewed(prId, normalizedEvent);
         invalidatePullRequestCaches(repo, number);
+    }
+
+    private void markReviewed(long prId, String event)
+    {
+        HandledAction action = switch (event) {
+            case "APPROVE" -> HandledAction.APPROVED;
+            case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
+            default -> HandledAction.COMMENTED;
+        };
+        viewStateStore.markReviewed(prId, action, currentHeadSha(prId));
+    }
+
+    private String currentHeadSha(long prId)
+    {
+        return snapshots.findHeadSha(prId).orElse(null);
     }
 
     private static void validateReviewComment(InlineReviewComment comment, boolean requireCommit)
@@ -536,7 +584,7 @@ public class PullRequestService
             }
             throw e;
         }
-        viewStateStore.markReviewed(prId, HandledAction.MERGED);
+        viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId));
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync
@@ -618,7 +666,8 @@ public class PullRequestService
                     Instant updatedAt = previous.get(pullRequest.id());
                     return updatedAt == null
                             || !Objects.equals(updatedAt, pullRequest.updatedAt())
-                            || missingEnrichment.contains(pullRequest.id()) && backfillDue(pullRequest, now);
+                            || missingEnrichment.contains(pullRequest.id()) && backfillDue(pullRequest, now)
+                            || detailRefreshDue(pullRequest, now);
                 })
                 .collect(toImmutableList()));
     }
@@ -628,25 +677,57 @@ public class PullRequestService
             RepoRef repository,
             String currentLogin,
             String syncMarker,
-            String query)
+            String query,
+            boolean reviewRequested)
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
             List<PullRequest> fresh = result.items().stream()
-                    .map(pullRequest -> workspaceOrigin(pullRequest, currentLogin))
+                    .map(pullRequest -> reviewRequested
+                            ? withOrigin(pullRequest, REVIEW_REQUESTED)
+                            : workspaceOrigin(pullRequest, currentLogin))
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
                 Set<Long> ids = fresh.stream().map(PullRequest::id).collect(toImmutableSet());
                 Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
                 store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
+                Instant now = Instant.now();
                 syncDetails(pat, currentLogin, fresh.stream()
-                        .filter(pullRequest -> !Objects.equals(previous.get(pullRequest.id()), pullRequest.updatedAt()))
+                        .filter(pullRequest -> !Objects.equals(previous.get(pullRequest.id()), pullRequest.updatedAt())
+                                || detailRefreshDue(pullRequest, now))
                         .collect(toImmutableList()));
             }
             if (!result.hasMore()) {
                 break;
             }
+        }
+    }
+
+    private void reconcileRepositorySearchMisses(
+            String pat, RepoRef repository, String currentLogin, String syncMarker)
+    {
+        List<PullRequest> refreshed = new ArrayList<>();
+        List<PullRequest> changed = new ArrayList<>();
+        for (PullRequest stored : store.findRepositoryRowsMissingSync(repository.fullName(), syncMarker)) {
+            PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), stored.number());
+            try {
+                PullRequest exact = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
+                if (stored.origin() == REVIEW_REQUESTED) {
+                    exact = withOrigin(exact, REVIEW_REQUESTED);
+                }
+                refreshed.add(exact);
+                if (!Objects.equals(stored.updatedAt(), exact.updatedAt())) {
+                    changed.add(exact);
+                }
+            }
+            catch (RuntimeException failure) {
+                log.info("search-missing PR {} fetch failed: {}", ref.fullName(), failure.getMessage());
+            }
+        }
+        if (!refreshed.isEmpty()) {
+            store.saveRepositorySyncPage(repository.fullName(), refreshed, syncMarker);
+            syncDetails(pat, currentLogin, changed);
         }
     }
 
@@ -656,7 +737,8 @@ public class PullRequestService
             String syncMarker,
             Set<String> seen)
     {
-        for (PullRequestRef ref : gitHub.fetchAttentionPrRefs(pat)) {
+        for (AttentionPrRef attention : gitHub.fetchAttentionPrRefs(pat)) {
+            PullRequestRef ref = attention.ref();
             if (!seen.add(ref.repoFullName() + "#" + ref.number())) {
                 continue;
             }
@@ -667,7 +749,9 @@ public class PullRequestService
                             pat,
                             currentLogin,
                             syncMarker,
-                            ImmutableList.of(withOrigin(pullRequest, REVIEW_REQUESTED)));
+                            ImmutableList.of(attention.reviewRequested()
+                                    ? withOrigin(pullRequest, REVIEW_REQUESTED)
+                                    : workspaceOrigin(pullRequest, currentLogin)));
                 }
             }
             catch (RuntimeException failure) {
@@ -681,6 +765,24 @@ public class PullRequestService
         return snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number())
                 .map(syncedAt -> syncedAt.isBefore(now.minus(BACKFILL_RECHECK_INTERVAL)))
                 .orElse(true);
+    }
+
+    private boolean detailRefreshDue(PullRequest pullRequest, Instant now)
+    {
+        Duration interval = detailRefreshInterval(pullRequest.state());
+        return snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number())
+                .map(syncedAt -> !syncedAt.isAfter(now.minus(interval)))
+                .orElse(true);
+    }
+
+    static Duration detailRefreshInterval(String state)
+    {
+        return isClosed(state) ? CLOSED_DETAIL_REFRESH_INTERVAL : OPEN_DETAIL_REFRESH_INTERVAL;
+    }
+
+    private static boolean isClosed(String state)
+    {
+        return "closed".equalsIgnoreCase(state) || "merged".equalsIgnoreCase(state);
     }
 
     private void deleteDetails(Set<Long> pullRequestIds)
@@ -721,6 +823,11 @@ public class PullRequestService
         updateListState(prId, detail);
         PrViewState viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         reconcileHandledActionFromReviews(prId, detail.reviews(), currentLogin, viewState);
+        viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
+        if (needsReviewAgain(pullRequest, detail, currentLogin, viewState)) {
+            viewStateStore.markNeedsReview(prId);
+            viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
+        }
         Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
         store.updateEnrichment(
                 prId,
@@ -768,6 +875,12 @@ public class PullRequestService
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
     }
 
+    private PullRequestRef storedPullRequestRef(long prId)
+    {
+        return store.findRefById(prId)
+                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+    }
+
     private Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number)
@@ -800,40 +913,46 @@ public class PullRequestService
      */
     private void reconcileHandledActionFromReviews(long prId, List<PrReviewState> reviews, String currentLogin, PrViewState existing)
     {
-        HandledAction derived = deriveHandledActionFromReviews(reviews, currentLogin);
-        if (derived == null) {
+        PrReviewState review = latestHandledReview(reviews, currentLogin);
+        if (review == null) {
             return;
         }
         if (existing != null && existing.handledAction() != null) {
             return;
         }
-        viewStateStore.markReviewed(prId, derived);
+        viewStateStore.markReviewed(prId, handledAction(review), review.commitId());
     }
 
     /**
      * Pure-logic version of the review→handled-action mapping, exposed
      * package-private for unit tests. Returns the action implied by the
-     * current user's latest review, or {@code null} if no conclusive
-     * APPROVED / CHANGES_REQUESTED review exists. Drive-by COMMENTED reviews
-     * and standalone DISMISSED entries are intentionally ignored — GitHub
-     * surfaces them in the review list but they don't mean the user has
-     * "handled" the PR.
+     * current user's latest review, or {@code null} if no review remains after
+     * a dismissal.
      */
     static HandledAction deriveHandledActionFromReviews(List<PrReviewState> reviews, String currentLogin)
+    {
+        PrReviewState review = latestHandledReview(reviews, currentLogin);
+        return review == null ? null : handledAction(review);
+    }
+
+    private static PrReviewState latestHandledReview(List<PrReviewState> reviews, String currentLogin)
     {
         if (currentLogin == null || reviews == null || reviews.isEmpty()) {
             return null;
         }
-        HandledAction derived = null;
+        PrReviewState derived = null;
         for (PrReviewState r : reviews) {
             if (r == null || !currentLogin.equalsIgnoreCase(r.login())) {
                 continue;
             }
             if (GithubReviewState.APPROVED.equals(r.state())) {
-                derived = HandledAction.APPROVED;
+                derived = r;
             }
             else if (GithubReviewState.CHANGES_REQUESTED.equals(r.state())) {
-                derived = HandledAction.CHANGES_REQUESTED;
+                derived = r;
+            }
+            else if (GithubReviewState.COMMENTED.equals(r.state())) {
+                derived = r;
             }
             else if ("DISMISSED".equals(r.state())) {
                 // A later DISMISSED resets the derived state — if nothing
@@ -842,6 +961,89 @@ public class PullRequestService
             }
         }
         return derived;
+    }
+
+    private static HandledAction handledAction(PrReviewState review)
+    {
+        if (GithubReviewState.APPROVED.equals(review.state())) {
+            return HandledAction.APPROVED;
+        }
+        if (GithubReviewState.CHANGES_REQUESTED.equals(review.state())) {
+            return HandledAction.CHANGES_REQUESTED;
+        }
+        return HandledAction.COMMENTED;
+    }
+
+    static boolean needsReviewAgain(
+            PullRequest pullRequest,
+            StoredPrDetail detail,
+            String currentLogin,
+            PrViewState viewState)
+    {
+        if (viewState == null || viewState.handledAction() == null || viewState.reviewedAt() == null) {
+            return false;
+        }
+        String currentHeadSha = detail.raw().headSha();
+        if (viewState.reviewedHeadSha() != null && currentHeadSha != null
+                && !viewState.reviewedHeadSha().equals(currentHeadSha)) {
+            return true;
+        }
+        if (viewState.reviewedHeadSha() == null) {
+            Instant latestPush = PullRequestDetailMapper.latestPushAt(detail.timeline());
+            if (latestPush != null && latestPush.isAfter(viewState.reviewedAt())) {
+                return true;
+            }
+        }
+        if (currentLogin != null && detail.raw().requestedReviewers().stream()
+                .anyMatch(currentLogin::equalsIgnoreCase)
+                && hasEventAfter(detail.timeline(), "review_requested", viewState.reviewedAt())) {
+            return true;
+        }
+        if (currentLogin != null && pullRequest.author() != null
+                && hasAuthorReplyAfter(detail.timeline(), currentLogin, pullRequest.author(), viewState.reviewedAt())) {
+            return true;
+        }
+        return latestReviewState(detail.reviews(), currentLogin)
+                .map("DISMISSED"::equalsIgnoreCase)
+                .orElse(false);
+    }
+
+    private static boolean hasEventAfter(List<PrTimelineEvent> timeline, String event, Instant reviewedAt)
+    {
+        return timeline.stream().anyMatch(item -> event.equals(item.event())
+                && item.timestamp() != null
+                && item.timestamp().isAfter(reviewedAt));
+    }
+
+    private static boolean hasAuthorReplyAfter(
+            List<PrTimelineEvent> timeline,
+            String currentLogin,
+            String author,
+            Instant reviewedAt)
+    {
+        return timeline.stream()
+                .filter(item -> "review_thread".equals(item.event()))
+                .filter(item -> item.payload().comments().stream().anyMatch(comment -> comment.inReplyToId() == null
+                        && currentLogin.equalsIgnoreCase(comment.actor())))
+                .flatMap(item -> item.payload().comments().stream())
+                .anyMatch(comment -> comment.inReplyToId() != null
+                        && author.equalsIgnoreCase(comment.actor())
+                        && comment.timestamp() != null
+                        && comment.timestamp().isAfter(reviewedAt));
+    }
+
+    private static Optional<String> latestReviewState(List<PrReviewState> reviews, String currentLogin)
+    {
+        if (currentLogin == null) {
+            return Optional.empty();
+        }
+        String state = null;
+        for (PrReviewState review : reviews) {
+            if (review != null && currentLogin.equalsIgnoreCase(review.login())) {
+                state = review.state();
+            }
+        }
+        return Optional.ofNullable(state);
     }
 
     private void invalidatePullRequestDetail(String repo, int number)
@@ -897,12 +1099,18 @@ public class PullRequestService
                 pr.headRef());
     }
 
-    private static PullRequest workspaceOrigin(PullRequest pullRequest, String currentLogin)
+    static PullRequest workspaceOrigin(PullRequest pullRequest, String currentLogin)
     {
-        PullRequest.Origin origin = currentLogin != null
-                && currentLogin.equalsIgnoreCase(pullRequest.author())
-                ? AUTHORED
-                : REVIEW_REQUESTED;
+        PullRequest.Origin origin;
+        if (currentLogin != null && currentLogin.equalsIgnoreCase(pullRequest.author())) {
+            origin = AUTHORED;
+        }
+        else if (currentLogin != null && pullRequest.requestedReviewers().stream().anyMatch(currentLogin::equalsIgnoreCase)) {
+            origin = REVIEW_REQUESTED;
+        }
+        else {
+            origin = OTHER;
+        }
         return withOrigin(pullRequest, origin);
     }
 }

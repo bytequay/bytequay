@@ -513,7 +513,7 @@ function PrPanel({ slug, number }: { slug: string | null; number: number | null 
     setError(null);
     if (slug === null || number === null) return;
     let cancelled = false;
-    window.bridge.fetchPullRequestDetail(slug, number)
+    window.bridge.fetchPullRequestDetailByRef(slug, number)
       .then(value => { if (!cancelled) setDetail(value); })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
@@ -539,7 +539,7 @@ function PrPanel({ slug, number }: { slug: string | null; number: number | null 
         pr={remotePullRequest(detail)}
         detail={detail}
         onRefresh={async () => {
-          setDetail(await window.bridge.refreshPullRequestDetail(slug, number));
+          setDetail(await window.bridge.refreshPullRequestDetailByRef(slug, number));
         }}
       />
       <div className="cmt-pr-footnote">

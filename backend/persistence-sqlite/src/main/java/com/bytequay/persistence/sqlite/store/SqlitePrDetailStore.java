@@ -251,7 +251,8 @@ public class SqlitePrDetailStore
                 entity.getState(),
                 entity.getSubmittedAt(),
                 entity.getBody(),
-                entity.getHtmlUrl());
+                entity.getHtmlUrl(),
+                entity.getCommitId());
     }
 
     private static PrReviewEntity toEntity(long prId, PrReviewState review)
@@ -266,6 +267,7 @@ public class SqlitePrDetailStore
         entity.setSubmittedAt(review.submittedAt());
         entity.setBody(review.body());
         entity.setHtmlUrl(review.htmlUrl());
+        entity.setCommitId(review.commitId());
         return entity;
     }
 

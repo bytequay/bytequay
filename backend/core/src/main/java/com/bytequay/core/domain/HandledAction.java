@@ -15,12 +15,12 @@ package com.bytequay.core.domain;
 
 /**
  * How a pull request came to be marked as handled.
- * APPROVED / MERGED come from actions in the app; CHANGES_REQUESTED is
- * reconciled from reviews submitted elsewhere.
+ * Review submissions and merges recorded for the current user.
  */
 public enum HandledAction
 {
     APPROVED,
     MERGED,
-    CHANGES_REQUESTED
+    CHANGES_REQUESTED,
+    COMMENTED
 }

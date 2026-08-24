@@ -22,10 +22,13 @@ export type PullRequestDto = {
   htmlUrl: string;
   createdAt: string | null;
   updatedAt: string;
-  origin: 'AUTHORED' | 'REVIEW_REQUESTED';
+  origin: 'AUTHORED' | 'REVIEW_REQUESTED' | 'OTHER';
   labels: string[];
   labelColors: Record<string, string> | null;
   draft: boolean;
+  viewedAt: string | null;
+  reviewedAt: string | null;
+  handledAction: 'APPROVED' | 'MERGED' | 'CHANGES_REQUESTED' | 'COMMENTED' | null;
   requestedReviewers: string[];
   ciStatus: CiStatus | null;
   additions: number;
@@ -35,6 +38,7 @@ export type PullRequestDto = {
   state: string | null;
   mergeable: boolean | null;
   mergeableState: string | null;
+  headPushedAt: string | null;
   headRef: string | null;
 };
 
@@ -665,15 +669,17 @@ export type GitWorktreeStatusDto = {
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
-  fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
+  fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number, search?: string) => Promise<PullRequestPageDto>;
   syncPrs: (workspaceId?: string) => Promise<void>;
-  fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  fetchPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
+  fetchPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
   fetchRepoLabels: (repo: string) => Promise<RepoLabelDto[]>;
   updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[]) => Promise<void>;
   updatePrReviewer: (repo: string, number: number, login: string, requested: boolean) => Promise<void>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
-  refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  refreshPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
+  refreshPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (
     repo: string,
     number: number,

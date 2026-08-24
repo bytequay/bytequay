@@ -44,6 +44,12 @@ public class PullRequestRefreshService
         return pullRequests.getPullRequestDetail(repo, number);
     }
 
+    public PullRequestDetail refreshDetail(long prId)
+    {
+        pullRequests.refreshPullRequestDetailFromGitHub(prId);
+        return pullRequests.getPullRequestDetail(prId);
+    }
+
     /** Refreshes one diff snapshot and returns the newly persisted files. */
     public List<DiffFile> refreshDiffFiles(
             String repo,

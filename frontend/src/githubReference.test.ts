@@ -38,7 +38,7 @@ describe('GitHub references', () => {
     vi.stubGlobal('window', {
       bridge: {
         listWorkspaces: vi.fn().mockResolvedValue([]),
-        fetchPullRequestDetail: vi.fn().mockResolvedValue({ title: 'Stored pull request' }),
+        fetchPullRequestDetailByRef: vi.fn().mockResolvedValue({ title: 'Stored pull request' }),
         openInAppBrowser,
       },
       location: { hash: '' },

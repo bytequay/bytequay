@@ -29,6 +29,7 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
@@ -53,6 +54,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -156,8 +158,44 @@ class TestPullRequestService
 
         service.syncRepository(repository);
 
-        verify(store).completeRepositorySync(eq("owner/repo"), anyString());
+        verify(store).completeRepositorySync(eq("owner/repo"), any(Instant.class));
         verify(store, never()).saveDashboardSyncPage(any(), anyString());
+        ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
+        verify(gitHub, org.mockito.Mockito.times(3)).searchPullRequestsPaged(
+                eq("pat"), queries.capture(), anyInt(), anyInt(), eq("updated"), eq("desc"));
+        assertThat(queries.getAllValues()).hasSize(3);
+        assertThat(queries.getAllValues().get(0))
+                .startsWith("is:pr updated:>=")
+                .endsWith(" repo:owner/repo")
+                .doesNotContain("is:open", "is:closed");
+        assertThat(queries.getAllValues().subList(1, 3)).containsExactly(
+                "is:pr is:open repo:owner/repo",
+                "is:pr is:open user-review-requested:@me repo:owner/repo");
+    }
+
+    @Test
+    void workspaceSyncRefreshesSearchMissingPullRequestByExactReference()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        PullRequest stored = pullRequest();
+        PullRequest closed = pullRequest(
+                "closed", Instant.parse("2026-08-22T00:00:00Z"), Instant.parse("2026-08-22T00:00:00Z"));
+        when(gitHub.searchPullRequestsPaged(
+                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
+                eq("updated"), eq("desc")))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
+        when(store.findRepositoryRowsMissingSync(eq("owner/repo"), anyString()))
+                .thenReturn(ImmutableList.of(stored));
+        when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7)))
+                .thenReturn(closed);
+
+        service.syncRepository(repository);
+
+        verify(gitHub).getPullRequest("pat", PullRequestRef.of("owner", "repo", 7));
+        ArgumentCaptor<List<PullRequest>> saved = ArgumentCaptor.forClass(List.class);
+        verify(store).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
+        assertThat(saved.getValue()).extracting(PullRequest::state).containsExactly("closed");
+        verify(gitHub).fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7));
     }
 
     @Test
@@ -174,6 +212,31 @@ class TestPullRequestService
         assertThat(result.viewerCanWrite()).isTrue();
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(credentialService, never()).resolveGitHubToken();
+    }
+
+    @Test
+    void readsCachedDetailByPullRequestId()
+    {
+        when(store.findRefById(12L)).thenReturn(Optional.of(PullRequestRef.of("owner", "repo", 7)));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+
+        assertThat(service.getPullRequestDetail(12L).body()).isEqualTo("body");
+
+        verify(gitHub, never()).getPullRequest(anyString(), any(PullRequestRef.class), any());
+    }
+
+    @Test
+    void unknownPullRequestIdDoesNotContactGitHub()
+    {
+        when(store.findRefById(12L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getPullRequestDetail(12L))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        verify(gitHub, never()).getPullRequest(anyString(), any(PullRequestRef.class), any());
     }
 
     @Test
@@ -274,6 +337,14 @@ class TestPullRequestService
     }
 
     @Test
+    void refreshesOpenPullRequestDetailsMoreOftenThanClosedPullRequests()
+    {
+        assertThat(PullRequestService.detailRefreshInterval("open")).isEqualTo(Duration.ofHours(1));
+        assertThat(PullRequestService.detailRefreshInterval("closed")).isEqualTo(Duration.ofDays(1));
+        assertThat(PullRequestService.detailRefreshInterval("merged")).isEqualTo(Duration.ofDays(1));
+    }
+
+    @Test
     void postsCommentAndPatchesCachedTimeline()
     {
         PrTimelineEvent posted = new PrTimelineEvent(99L, "commented", "me", Instant.now(), "hello", Optional.empty());
@@ -317,11 +388,12 @@ class TestPullRequestService
     void approvesAndMarksReviewed()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
 
         service.approvePullRequest("owner/repo", 7, 12L);
 
         verify(writes).approve("pat", PullRequestRef.of("owner", "repo", 7));
-        verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED);
+        verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED, "head");
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -329,13 +401,24 @@ class TestPullRequestService
     void submitsReviewVerdictsAndInvalidatesDetail()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
 
         service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this");
 
         verify(writes).submitReview(
                 "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this");
-        verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED);
+        verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED, "head");
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
+    void marksACommentReviewAsHandled()
+    {
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+
+        service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note");
+
+        verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
     }
 
     @Test
@@ -351,13 +434,14 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.merged()).isTrue();
-        verify(viewStateStore).markReviewed(12L, HandledAction.MERGED);
+        verify(viewStateStore).markReviewed(12L, HandledAction.MERGED, "head");
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -375,7 +459,7 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.queued()).isTrue();
-        verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any());
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -391,7 +475,7 @@ class TestPullRequestService
 
         assertThat(result.queued()).isTrue();
         verify(merges, never()).mergePullRequest(anyString(), any(), any());
-        verify(viewStateStore, never()).markReviewed(any(Long.class), any(HandledAction.class));
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any());
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -417,6 +501,29 @@ class TestPullRequestService
                 new PrReviewState("me", "DISMISSED"),
                 new PrReviewState("me", "CHANGES_REQUESTED")), "me"))
                 .isEqualTo(HandledAction.CHANGES_REQUESTED);
+        assertThat(PullRequestService.deriveHandledActionFromReviews(
+                ImmutableList.of(new PrReviewState("me", "COMMENTED")), "me"))
+                .isEqualTo(HandledAction.COMMENTED);
+    }
+
+    @Test
+    void doesNotTreatEveryRepositoryPullRequestAsAReviewRequest()
+    {
+        assertThat(PullRequestService.workspaceOrigin(pullRequest(), "me").origin())
+                .isEqualTo(PullRequest.Origin.OTHER);
+    }
+
+    @Test
+    void requiresAnotherReviewWhenTheHeadChanges()
+    {
+        PrViewState reviewed = new PrViewState(
+                12L,
+                Instant.parse("2026-08-20T09:00:00Z"),
+                Instant.parse("2026-08-20T10:00:00Z"),
+                HandledAction.APPROVED,
+                "previous-head");
+
+        assertThat(PullRequestService.needsReviewAgain(pullRequest(), stored(), "me", reviewed)).isTrue();
     }
 
     private static StoredPrDetail stored()
@@ -437,6 +544,11 @@ class TestPullRequestService
 
     private static PullRequest pullRequest()
     {
+        return pullRequest("open", Instant.parse("2026-08-21T00:00:00Z"), null);
+    }
+
+    private static PullRequest pullRequest(String state, Instant updatedAt, Instant closedAt)
+    {
         return new PullRequest(
                 12,
                 "owner/repo",
@@ -445,7 +557,7 @@ class TestPullRequestService
                 "alice",
                 "https://github.com/owner/repo/pull/7",
                 Instant.parse("2026-08-20T00:00:00Z"),
-                Instant.parse("2026-08-21T00:00:00Z"),
+                updatedAt,
                 PullRequest.Origin.AUTHORED,
                 ImmutableList.of(),
                 ImmutableMap.of(),
@@ -459,8 +571,8 @@ class TestPullRequestService
                 0,
                 0,
                 null,
-                "open",
-                null,
+                state,
+                closedAt,
                 null,
                 null,
                 null,

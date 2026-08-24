@@ -48,6 +48,19 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void idDetailRefreshPersistsBeforeReading()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+
+        assertThat(service.refreshDetail(12L)).isNull();
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).refreshPullRequestDetailFromGitHub(12L);
+        order.verify(pullRequests).getPullRequestDetail(12L);
+    }
+
+    @Test
     void directDiffRefreshPersistsBeforeReading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);

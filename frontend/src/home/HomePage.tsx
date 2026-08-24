@@ -19,6 +19,7 @@ import { groupRecentEvents } from '../activityNarrative';
 import ContributionCard from './ContributionCard';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
+import { pullRequestNeedsReview } from '../pulls/model';
 import {
   workspaceFromDto,
   workspaceIsUpdating,
@@ -171,7 +172,7 @@ function HomePage({
     for (const pr of prs) {
       if (pr.state !== 'open') continue;
       if (pr.origin === 'AUTHORED') mine++;
-      else if (pr.origin === 'REVIEW_REQUESTED') awaiting++;
+      else if (pullRequestNeedsReview(pr)) awaiting++;
       if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
     }
     return { mine, awaiting, flagged };

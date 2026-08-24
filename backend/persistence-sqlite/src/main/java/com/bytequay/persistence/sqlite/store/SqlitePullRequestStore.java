@@ -18,6 +18,7 @@ import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
@@ -70,11 +71,36 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    public PullRequestPage findPage(int page, int pageSize, String search)
+    {
+        String term = normalizeSearch(search);
+        if (term.isEmpty()) {
+            return findPage(page, pageSize);
+        }
+        Integer number = pullRequestNumber(term);
+        Page<PullRequestEntity> rows = jpaRepository.searchDashboardPage(term, number, pageRequest(page, pageSize));
+        return toPage(rows, page, pageSize, jpaRepository.countOpenDashboardSearch(term, number));
+    }
+
+    @Override
     public PullRequestPage findRepositoryPage(String repository, int page, int pageSize)
     {
         requireNonNull(repository, "repository is null");
         Page<PullRequestEntity> rows = jpaRepository.findWorkspacePage(repository, pageRequest(page, pageSize));
         return toPage(rows, page, pageSize, jpaRepository.countOpenWorkspace(repository));
+    }
+
+    @Override
+    public PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search)
+    {
+        requireNonNull(repository, "repository is null");
+        String term = normalizeSearch(search);
+        if (term.isEmpty()) {
+            return findRepositoryPage(repository, page, pageSize);
+        }
+        Integer number = pullRequestNumber(term);
+        Page<PullRequestEntity> rows = jpaRepository.searchWorkspacePage(repository, term, number, pageRequest(page, pageSize));
+        return toPage(rows, page, pageSize, jpaRepository.countOpenWorkspaceSearch(repository, term, number));
     }
 
     @Override
@@ -162,6 +188,17 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker)
+    {
+        requireNonNull(repository, "repository is null");
+        requireNonNull(syncMarker, "syncMarker is null");
+        return jpaRepository.findWorkspaceRowsMissingSync(repository, syncMarker).stream()
+                .map(entity -> toDomain(entity, null))
+                .collect(toImmutableList());
+    }
+
+    @Override
     @Transactional
     public void saveObserved(PullRequest pullRequest)
     {
@@ -180,11 +217,11 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public Set<Long> completeRepositorySync(String repository, String syncMarker)
+    public Set<Long> completeRepositorySync(String repository, Instant retentionCutoff)
     {
         requireNonNull(repository, "repository is null");
-        requireNonNull(syncMarker, "syncMarker is null");
-        jpaRepository.hideStaleWorkspaceRows(repository, syncMarker);
+        requireNonNull(retentionCutoff, "retentionCutoff is null");
+        jpaRepository.hideExpiredWorkspaceRows(repository, retentionCutoff);
         return deleteInvisibleRows();
     }
 
@@ -212,6 +249,22 @@ public class SqlitePullRequestStore
                 Sort.Order.desc("id")));
     }
 
+    private static String normalizeSearch(String search)
+    {
+        return search == null ? "" : search.trim();
+    }
+
+    private static Integer pullRequestNumber(String search)
+    {
+        String value = search.startsWith("#") ? search.substring(1) : search;
+        try {
+            return Integer.valueOf(value);
+        }
+        catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private Map<Long, PullRequestEntity> existingById(List<PullRequest> pullRequests)
     {
         return jpaRepository.findAllById(pullRequests.stream()
@@ -233,6 +286,13 @@ public class SqlitePullRequestStore
     public Optional<Long> findIdByRepoAndNumber(String repo, int number)
     {
         return jpaRepository.findIdByRepoAndNumber(repo, number);
+    }
+
+    @Override
+    public Optional<PullRequestRef> findRefById(long prId)
+    {
+        return jpaRepository.findById(prId)
+                .flatMap(entity -> PullRequestRef.parse(entity.getRepo() + "#" + entity.getNumber()));
     }
 
     @Override

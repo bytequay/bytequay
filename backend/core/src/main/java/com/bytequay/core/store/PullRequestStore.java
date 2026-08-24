@@ -17,6 +17,7 @@ import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
+import com.bytequay.core.domain.PullRequestRef;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +29,11 @@ public interface PullRequestStore
 {
     PullRequestPage findPage(int page, int pageSize);
 
+    PullRequestPage findPage(int page, int pageSize, String search);
+
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
+
+    PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);
 
     Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids);
 
@@ -40,12 +45,16 @@ public interface PullRequestStore
 
     void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker);
 
+    List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker);
+
     /** Stores a pull request opened directly by the user until normal sync reconciliation runs. */
     void saveObserved(PullRequest pullRequest);
 
-    Set<Long> completeRepositorySync(String repository, String syncMarker);
+    Set<Long> completeRepositorySync(String repository, Instant retentionCutoff);
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
+
+    Optional<PullRequestRef> findRefById(long prId);
 
     void updateState(long prId, String state, Instant updatedAt, Instant mergedAt);
 

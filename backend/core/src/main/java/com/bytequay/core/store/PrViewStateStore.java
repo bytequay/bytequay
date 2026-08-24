@@ -23,5 +23,7 @@ public interface PrViewStateStore
 {
     Map<Long, PrViewState> findByPrIds(Set<Long> prIds);
 
-    void markReviewed(long prId, HandledAction action);
+    void markReviewed(long prId, HandledAction action, String headSha);
+
+    void markNeedsReview(long prId);
 }

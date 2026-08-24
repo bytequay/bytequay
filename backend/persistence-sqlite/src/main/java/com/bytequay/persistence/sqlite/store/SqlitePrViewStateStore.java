@@ -55,12 +55,13 @@ public class SqlitePrViewStateStore
                                 e.getPrId(),
                                 e.getViewedAt(),
                                 e.getReviewedAt(),
-                                e.getHandledAction())));
+                                e.getHandledAction(),
+                                e.getReviewedHeadSha())));
     }
 
     /** Records that the user handled this PR with the given action. */
     @Override
-    public void markReviewed(long prId, HandledAction action)
+    public void markReviewed(long prId, HandledAction action, String headSha)
     {
         requireNonNull(action, "action is null");
         PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
@@ -70,6 +71,18 @@ public class SqlitePrViewStateStore
         }
         entity.setReviewedAt(now);
         entity.setHandledAction(action);
+        entity.setReviewedHeadSha(headSha);
+        jpaRepository.save(entity);
+    }
+
+    @Override
+    public void markNeedsReview(long prId)
+    {
+        PrViewStateEntity entity = jpaRepository.findById(prId).orElse(null);
+        if (entity == null) {
+            return;
+        }
+        entity.setHandledAction(null);
         jpaRepository.save(entity);
     }
 

@@ -100,6 +100,7 @@ function Meta({ row }: { row: PullRow }) {
       <span className="pull-row__meta-name" title={row.author}>{row.author}</span>
       <span>·</span>
       <span className="pull-row__meta-time">{row.time}</span>
+      {row.review && <><span>·</span><span className="pull-row__review">{row.review}</span></>}
     </span>
   );
 }

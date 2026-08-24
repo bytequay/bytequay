@@ -127,11 +127,12 @@ public class WorkspaceController
     public PullRequestPage pullRequests(
             @PathVariable String workspaceId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size)
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String search)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         return pullRequests.listPullRequests(RepoRef.of(
-                workspace.monitoredOwner(), workspace.monitoredRepo()), page, size);
+                workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, search);
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")

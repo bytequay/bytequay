@@ -72,7 +72,7 @@ class TestGitBrowseController
     void resolvesOnlyTheRequestedWorkspaceManagedRepository()
             throws Exception
     {
-        when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
+        when(workspaces.requireReadableRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
         when(git.overview(REPOSITORY_A)).thenReturn(new RepoOverview("main", ImmutableList.of("main"), ImmutableList.of()));
 
         mvc.perform(get("/api/workspaces/workspace-a/git/overview")
@@ -88,8 +88,8 @@ class TestGitBrowseController
     void reportsPendingAndFailedClonesWithTheStableNotReadyResponse()
             throws Exception
     {
-        when(workspaces.requireReadyRepository("pending")).thenThrow(WorkspaceException.repositoryNotReady());
-        when(workspaces.requireReadyRepository("failed")).thenThrow(WorkspaceException.repositoryNotReady());
+        when(workspaces.requireReadableRepository("pending")).thenThrow(WorkspaceException.repositoryNotReady());
+        when(workspaces.requireReadableRepository("failed")).thenThrow(WorkspaceException.repositoryNotReady());
 
         for (String workspaceId : ImmutableList.of("pending", "failed")) {
             mvc.perform(get("/api/workspaces/{workspaceId}/git/status", workspaceId))
@@ -105,6 +105,7 @@ class TestGitBrowseController
     {
         WorkspaceRepositoryContext context = context("workspace-a", REPOSITORY_A);
         when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context);
+        when(workspaces.requireReadableRepository("workspace-a")).thenReturn(context);
 
         mvc.perform(post("/api/workspaces/workspace-a/git/fetch")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -122,7 +123,7 @@ class TestGitBrowseController
     void readsDiffContextFromTheManagedRepository()
             throws Exception
     {
-        when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
+        when(workspaces.requireReadableRepository("workspace-a")).thenReturn(context("workspace-a", REPOSITORY_A));
         when(git.diffFileContent(REPOSITORY_A, "base", "head", "src/App.java"))
                 .thenReturn(new FileContent(Optional.of("old\n"), Optional.of("new\n")));
 

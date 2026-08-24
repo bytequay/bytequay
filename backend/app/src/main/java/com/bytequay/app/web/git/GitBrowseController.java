@@ -66,13 +66,13 @@ public class GitBrowseController
     @GetMapping("/overview")
     public RepoOverview overview(@PathVariable String workspaceId)
     {
-        return service.overview(context(workspaceId).repository());
+        return service.overview(readContext(workspaceId).repository());
     }
 
     @GetMapping("/branches")
     public List<String> remoteBranches(@PathVariable String workspaceId, @RequestParam String remote)
     {
-        WorkspaceRepositoryContext context = context(workspaceId);
+        WorkspaceRepositoryContext context = readContext(workspaceId);
         return service.remoteBranches(context.repository(), allowedRemote(context, remote));
     }
 
@@ -96,7 +96,7 @@ public class GitBrowseController
             @RequestParam String base,
             @RequestParam String head)
     {
-        return service.diff(context(workspaceId).repository(), revision(base), revision(head));
+        return service.diff(readContext(workspaceId).repository(), revision(base), revision(head));
     }
 
     @GetMapping("/diff-content")
@@ -107,13 +107,13 @@ public class GitBrowseController
             @RequestParam String path)
     {
         return service.diffFileContent(
-                context(workspaceId).repository(), revision(base), revision(head), path);
+                readContext(workspaceId).repository(), revision(base), revision(head), path);
     }
 
     @GetMapping("/status")
     public WorktreeStatus status(@PathVariable String workspaceId)
     {
-        return service.status(context(workspaceId).repository());
+        return service.status(readContext(workspaceId).repository());
     }
 
     @PostMapping("/fetch")
@@ -159,6 +159,18 @@ public class GitBrowseController
                 request.message()));
     }
 
+    /**
+     * Reads work while a synchronized repository re-syncs (git supports
+     * concurrent readers during a fetch); the commits endpoint already
+     * behaves this way, and a stricter gate here made the diff pane error
+     * while the commit list loaded.
+     */
+    private WorkspaceRepositoryContext readContext(String workspaceId)
+    {
+        return workspaces.requireReadableRepository(workspaceId);
+    }
+
+    /** Mutations and explicit fetches still require a fully READY repository. */
     private WorkspaceRepositoryContext context(String workspaceId)
     {
         return workspaces.requireReadyRepository(workspaceId);

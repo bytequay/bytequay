@@ -13,32 +13,22 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.CodeState;
-import com.bytequay.core.domain.Workspace.MetadataState;
-import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
-import java.time.Instant;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,8 +38,7 @@ class TestPullRequestRefreshService
     void directDetailRefreshPersistsBeforeReading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = service(
-                pullRequests, mock(WorkspaceStore.class), Runnable::run);
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
 
         assertThat(service.refreshDetail("owner/repo", 7)).isNull();
 
@@ -65,8 +54,7 @@ class TestPullRequestRefreshService
         DiffFile file = new DiffFile("src/App.java", "modified", 1, 1, "patch");
         when(pullRequests.getPullRequestDiffFiles("owner/repo", 7, "base", "head"))
                 .thenReturn(ImmutableList.of(file));
-        PullRequestRefreshService service = service(
-                pullRequests, mock(WorkspaceStore.class), Runnable::run);
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
 
         assertThat(service.refreshDiffFiles("owner/repo", 7, "base", "head"))
                 .containsExactly(file);
@@ -79,34 +67,45 @@ class TestPullRequestRefreshService
     }
 
     @Test
-    void refreshesGlobalAndDistinctWorkspaceRepositories()
+    void refreshesTheDashboardBeforeReturning()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        RepoRef shared = RepoRef.of("upstream", "shared");
-        RepoRef other = RepoRef.of("owner", "other");
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(
-                workspace("first", 1, shared), workspace("second", 2, shared), workspace("other", 3, other)));
-        AtomicReference<Runnable> submitted = new AtomicReference<>();
-        PullRequestRefreshService service = service(pullRequests, workspaces, submitted::set);
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
 
-        service.requestRefresh();
-        submitted.get().run();
+        service.refreshDashboard();
 
-        InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).syncFromGitHub();
-        order.verify(pullRequests).syncRepository(shared);
-        order.verify(pullRequests).syncRepository(other);
-        verify(pullRequests, times(1)).syncRepository(shared);
+        verify(pullRequests).syncFromGitHub();
     }
 
     @Test
-    void repositoryRequestDuringRefreshRunsAfterTheActiveBatch()
+    void refreshesOneRepositoryBeforeReturning()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        RepoRef repository = RepoRef.of("owner", "repo");
+
+        service.refreshRepository(repository);
+
+        verify(pullRequests).syncRepository(repository);
+    }
+
+    @Test
+    void refreshFailureIsReturnedToTheCaller()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        doThrow(new IllegalStateException("provider unavailable")).when(pullRequests).syncFromGitHub();
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+
+        assertThatThrownBy(service::refreshDashboard)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("provider unavailable");
+    }
+
+    @Test
+    void serializesDashboardAndRepositoryRefreshes()
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of());
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch repositoryRefreshed = new CountDownLatch(1);
@@ -122,69 +121,18 @@ class TestPullRequestRefreshService
         }).when(pullRequests).syncRepository(repository);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            PullRequestRefreshService service = service(pullRequests, workspaces, executor);
-            service.requestRefresh();
+            PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+            var dashboard = executor.submit(service::refreshDashboard);
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            service.requestRefresh(repository);
+            var repositoryRefresh = executor.submit(() -> service.refreshRepository(repository));
+            assertThat(repositoryRefreshed.await(100, TimeUnit.MILLISECONDS)).isFalse();
             release.countDown();
+            dashboard.get(5, TimeUnit.SECONDS);
+            repositoryRefresh.get(5, TimeUnit.SECONDS);
             assertThat(repositoryRefreshed.await(5, TimeUnit.SECONDS)).isTrue();
         }
 
-        verify(pullRequests, times(1)).syncFromGitHub();
+        verify(pullRequests).syncFromGitHub();
         verify(pullRequests).syncRepository(repository);
-    }
-
-    @Test
-    void repositoryRefreshIsQueued()
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        AtomicReference<Runnable> submitted = new AtomicReference<>();
-        PullRequestRefreshService service = service(pullRequests, mock(WorkspaceStore.class), submitted::set);
-        RepoRef repository = RepoRef.of("owner", "repo");
-
-        service.requestRefresh(repository);
-
-        verify(pullRequests, never()).syncRepository(repository);
-        submitted.get().run();
-        verify(pullRequests).syncRepository(repository);
-    }
-
-    private static PullRequestRefreshService service(
-            PullRequestService pullRequests,
-            WorkspaceStore workspaces,
-            Executor executor)
-    {
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        return new PullRequestRefreshService(pullRequests, credentials, workspaces, executor);
-    }
-
-    private static Workspace workspace(String id, long repositoryId, RepoRef repository)
-    {
-        Instant now = Instant.parse("2026-08-22T00:00:00Z");
-        return new Workspace(
-                id,
-                id,
-                repositoryId,
-                repository,
-                Optional.empty(),
-                Optional.empty(),
-                repositoryId,
-                repository,
-                Topology.DIRECT,
-                "main",
-                "https://github.com/" + repository.fullName() + ".git",
-                Optional.empty(),
-                Optional.empty(),
-                "/tmp/bytequay-pr-refresh/" + id,
-                CodeState.READY,
-                MetadataState.READY,
-                Optional.of(now),
-                Optional.of(now),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                now,
-                now);
     }
 }

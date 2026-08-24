@@ -71,12 +71,6 @@ public final class DefaultWorkspaceMetadataService
     public WorkspaceMetadataSyncResult synchronize(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
-        workspaces.save(workspace.withMetadataState(
-                MetadataState.SYNCING,
-                workspace.lastMetadataSyncAt(),
-                Optional.empty(),
-                clock.instant()));
-
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
         try {

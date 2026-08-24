@@ -198,7 +198,7 @@ Workspace
   upstreamCloneUrl           nullable when unlinked
   localRepositoryPath        backend-owned path
   codeState                  PENDING | CLONING | READY | SYNCING | FAILED
-  metadataState              PENDING | SYNCING | READY | FAILED
+  metadataState              PENDING | READY | FAILED; legacy SYNCING rows are recovered
   lastCodeSyncAt
   lastMetadataSyncAt
   codeError                  nullable, sanitized
@@ -449,6 +449,11 @@ Store the provider's stable IDs and use upserts rather than destructive replacem
 periodic sweep or workspace access may request refresh, but the service checks the timestamp so
 multiple workspaces linked to the same upstream do not multiply GitHub calls.
 
+Metadata refresh does not persist an in-progress state. A running refresh retains the previous
+durable state while the caller owns any spinner, then saves `READY` or `FAILED` with the completed
+outcome. `PENDING` remains durable for initial workspace preparation and crash recovery. Startup
+may still recover an older `SYNCING` row, but current code does not create one.
+
 Issues and pull requests are active repository data, not part of this slow reference-metadata
 cache. They keep their own refresh policy. `WorkspaceIssueRefreshService` refreshes the open-issue
 projection for scheduled and explicit requests and refreshes one selected issue's activity and
@@ -473,14 +478,16 @@ persisted upstream snapshot. The workspace tab must never show PRs from another 
 global Pull Requests page remains unchanged and continues to show its complete account-centric
 list.
 
-`PullRequestRefreshService` is the single synchronization coordinator. It refreshes the
-account-centric dashboard and each distinct monitored workspace repository under one overlap
-guard. The refresh updates PR rows, changed PR details, and the derived local view state through
-the existing `PullRequestService` and stores. `PullRequestSnapshotService` owns the local detail
-and diff snapshot boundary, including the remote fetch-and-persist operations used by refresh.
-`PullRequestSyncJob` owns only the periodic timer
-and quiet-hours policy; workspace and frontend actions request refresh directly from the service.
-Requests arriving during a refresh are coalesced and run afterward rather than being discarded.
+`PullRequestRefreshService` is the single synchronous refresh boundary. Its dashboard and
+repository methods update PR rows, changed PR details, and derived local view state through the
+existing `PullRequestService` and stores before returning. One process-local lock prevents
+overlapping PR refreshes; there is no refresh queue or persisted in-progress state.
+`PullRequestSnapshotService` owns the local detail and diff snapshot boundary, including the
+remote fetch-and-persist operations used by refresh. `PullRequestSyncJob` owns the periodic timer,
+quiet-hours policy, and iteration over distinct monitored repositories. The scheduled thread calls
+the same refresh methods synchronously and handles failure per scope. A frontend refresh endpoint
+waits for the requested refresh and persistence to complete; the renderer then reloads the first
+page through the normal SQLite-backed display endpoint.
 Opening `PullsScreen`, PR detail, checks, activity, and diff views reads the local projection
 without triggering another GitHub refresh. The default diff snapshot refreshes with changed PR
 detail. A user-selected commit range or expanded full file body is an explicit refresh request;
@@ -612,7 +619,9 @@ the workspace UI must use workspace-scoped endpoints. New renderer requests must
 `repositoryPath` or `worktreeParent`.
 
 The workspace pull-request list endpoint returns the existing `PullRequest` DTO filtered by the
-workspace's monitored repository. Existing detail/diff/comment/review/merge code remains the
+workspace's monitored repository. Its refresh endpoint waits for remote synchronization and
+persistence, returns no body, and is followed by a normal local list request. Existing
+detail/diff/comment/review/merge code remains the
 implementation behind workspace interactions; do not create parallel workspace PR DTOs, tables,
 or detail components unless an actual incompatible requirement appears.
 

@@ -248,7 +248,7 @@ public class DefaultWorkspaceRepositoryService
         if (!metadataBusy) {
             submit(() -> metadata.synchronize(workspaceId), workspaceId);
         }
-        pullRequestRefresh.requestRefresh(workspace.monitoredRepository());
+        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspaceId);
         return accepted;
     }
 
@@ -574,7 +574,7 @@ public class DefaultWorkspaceRepositoryService
                 || workspace.metadataState() == MetadataState.SYNCING) {
             submit(() -> metadata.synchronize(workspace.id()), workspace.id());
         }
-        pullRequestRefresh.requestRefresh(workspace.monitoredRepository());
+        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspace.id());
     }
 
     private void submit(Runnable task, String workspaceId)

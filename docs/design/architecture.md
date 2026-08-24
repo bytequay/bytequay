@@ -242,8 +242,9 @@ Display and refresh are separate paths:
    a `core` storage port and returns the local SQLite snapshot. Display GETs never call GitHub.
 2. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
    response to `core` values, and writes through `persistence-sqlite`.
-3. An explicit refresh returns data by reading the newly persisted snapshot. Scheduled refreshes
-   leave the same snapshot ready for the next display request.
+3. An explicit refresh returns only after persistence completes; the frontend then uses the normal
+   display GET to read the newly persisted snapshot. Scheduled refreshes leave the same snapshot
+   ready for the next display request.
 
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are

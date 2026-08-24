@@ -76,7 +76,7 @@ public class PullRequestController
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void triggerSync()
     {
-        refreshService.requestRefresh();
+        refreshService.refreshDashboard();
     }
 
     @GetMapping("/prs/detail")

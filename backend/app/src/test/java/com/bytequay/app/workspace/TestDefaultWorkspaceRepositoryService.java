@@ -233,7 +233,7 @@ class TestDefaultWorkspaceRepositoryService
         watch(service, 100);
 
         assertThat(observed).hasValue(CodeState.PENDING);
-        verify(pullRequestRefresh).requestRefresh(RepoRef.of("owner", "project"));
+        verify(pullRequestRefresh).refreshRepository(RepoRef.of("owner", "project"));
     }
 
     private static DefaultWorkspaceRepositoryService service(

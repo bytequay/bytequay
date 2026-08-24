@@ -13,10 +13,22 @@
  */
 package com.bytequay.app.scheduler;
 
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.domain.Workspace.CodeState;
+import com.bytequay.core.domain.Workspace.MetadataState;
+import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.Optional;
+
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,14 +37,26 @@ import static org.mockito.Mockito.when;
 class TestPullRequestSyncJob
 {
     @Test
-    void refreshesPullRequestsOnSchedule()
+    void refreshesDashboardAndDistinctWorkspaceRepositoriesOnSchedule()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
-        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, mock(AppSettingsService.class));
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        CredentialService credentials = configuredCredentials();
+        RepoRef shared = RepoRef.of("upstream", "shared");
+        RepoRef other = RepoRef.of("owner", "other");
+        Workspace first = workspace("first", 1, shared);
+        Workspace second = workspace("second", 2, shared);
+        Workspace third = workspace("third", 3, other);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(first, second, third));
+        PullRequestSyncJob job = new PullRequestSyncJob(
+                refreshService, workspaces, credentials, mock(AppSettingsService.class));
 
         job.tick();
 
-        verify(refreshService).requestRefresh();
+        var order = inOrder(refreshService);
+        order.verify(refreshService).refreshDashboard();
+        order.verify(refreshService).refreshRepository(shared);
+        order.verify(refreshService).refreshRepository(other);
     }
 
     @Test
@@ -41,10 +65,62 @@ class TestPullRequestSyncJob
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.inQuietHours()).thenReturn(true);
-        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, appSettings);
+        PullRequestSyncJob job = new PullRequestSyncJob(
+                refreshService, mock(WorkspaceStore.class), configuredCredentials(), appSettings);
 
         job.tick();
 
-        verify(refreshService, never()).requestRefresh();
+        verify(refreshService, never()).refreshDashboard();
+    }
+
+    @Test
+    void skipsRefreshWithoutGitHubCredentials()
+    {
+        PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        PullRequestSyncJob job = new PullRequestSyncJob(
+                refreshService,
+                mock(WorkspaceStore.class),
+                mock(CredentialService.class),
+                mock(AppSettingsService.class));
+
+        job.tick();
+
+        verify(refreshService, never()).refreshDashboard();
+    }
+
+    private static CredentialService configuredCredentials()
+    {
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        return credentials;
+    }
+
+    private static Workspace workspace(String id, long repositoryId, RepoRef repository)
+    {
+        Instant now = Instant.parse("2026-08-22T00:00:00Z");
+        return new Workspace(
+                id,
+                id,
+                repositoryId,
+                repository,
+                Optional.empty(),
+                Optional.empty(),
+                repositoryId,
+                repository,
+                Topology.DIRECT,
+                "main",
+                "https://github.com/" + repository.fullName() + ".git",
+                Optional.empty(),
+                Optional.empty(),
+                "/tmp/bytequay-pr-refresh/" + id,
+                CodeState.READY,
+                MetadataState.READY,
+                Optional.of(now),
+                Optional.of(now),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                now,
+                now);
     }
 }

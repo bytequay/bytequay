@@ -135,12 +135,12 @@ public class WorkspaceController
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")
-    @ResponseStatus(HttpStatus.ACCEPTED)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void syncPullRequests(@PathVariable String workspaceId)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
         RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequestRefresh.requestRefresh(repository);
+        pullRequestRefresh.refreshRepository(repository);
     }
 
     @GetMapping("/{workspaceId}/metadata")

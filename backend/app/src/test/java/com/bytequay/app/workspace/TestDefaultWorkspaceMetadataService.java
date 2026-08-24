@@ -130,6 +130,7 @@ class TestDefaultWorkspaceMetadataService
         assertThat(result.state()).isEqualTo(MetadataState.READY);
         assertThat(result.contributorCount()).isEqualTo(1);
         assertThat(workspaces.get("direct").codeState()).isEqualTo(CodeState.READY);
+        verify(workspaceStore).save(org.mockito.ArgumentMatchers.any());
         verify(gitHub).fetchContributors("token", DIRECT);
         verify(gitHub).fetchLabels("token", DIRECT);
         verify(gitHub).fetchTopics("token", DIRECT);

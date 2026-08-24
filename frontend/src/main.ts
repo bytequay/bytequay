@@ -532,7 +532,10 @@ function registerIpc(): void {
   });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
     ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
-    : `${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' }));
+    : `${BACKEND_BASE}/api/settings/sync/trigger`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(15 * 60_000),
+    }));
   ipcMain.handle('prs:detail', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
   ipcMain.handle('prs:users', (_event, repo: string) => {

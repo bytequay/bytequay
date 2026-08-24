@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../types';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
@@ -58,16 +58,23 @@ export default function PullsScreen({
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
 
+  const applyPage = useCallback((result: PullRequestPageDto) => {
+    setPrs(result.pullRequests);
+    setPage(result.page);
+    setHasMore(result.hasMore);
+    setSelected(current => result.pullRequests.some(pr => pr.id === current)
+      ? current
+      : result.pullRequests[0]?.id ?? null);
+  }, []);
+
+  const loadFirstPage = useCallback(async () => {
+    applyPage(await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE));
+  }, [applyPage, repositoryScope?.workspaceId]);
+
   const loadList = useCallback(async () => {
     setError(null);
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE);
-      setPrs(result.pullRequests);
-      setPage(result.page);
-      setHasMore(result.hasMore);
-      setSelected(current => result.pullRequests.some(pr => pr.id === current)
-        ? current
-        : result.pullRequests[0]?.id ?? null);
+      await loadFirstPage();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -75,7 +82,22 @@ export default function PullsScreen({
     finally {
       setLoading(false);
     }
-  }, [repositoryScope?.workspaceId]);
+  }, [loadFirstPage]);
+
+  const refreshList = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await window.bridge.syncPrs(repositoryScope?.workspaceId);
+      await loadFirstPage();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setLoading(false);
+    }
+  }, [loadFirstPage, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     void loadList();
@@ -288,10 +310,7 @@ export default function PullsScreen({
             title="Sync pull requests"
             aria-label="Sync pull requests"
             disabled={loading}
-            onClick={() => { setLoading(true); void window.bridge.syncPrs(repositoryScope?.workspaceId).then(loadList).catch(e => {
-              setError(e instanceof Error ? e.message : String(e));
-              setLoading(false);
-            }); }}
+            onClick={() => { void refreshList(); }}
           >
             <RefreshIcon />
           </button>

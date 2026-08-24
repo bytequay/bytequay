@@ -320,7 +320,10 @@ public class PullRequestService
         if (fetched.pullRequest().isEmpty()) {
             return false;
         }
-        PullRequest pullRequest = workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin);
+        PullRequest fetchedPullRequest = workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin);
+        PullRequest pullRequest = storedId
+                .map(fetchedPullRequest::withId)
+                .orElse(fetchedPullRequest);
         store.saveObserved(pullRequest);
 
         StoredPrDetail detail = snapshots.refreshDetail(
@@ -661,6 +664,9 @@ public class PullRequestService
         if (pullRequests.isEmpty()) {
             return;
         }
+        pullRequests = pullRequests.stream()
+                .map(this::preserveStoredId)
+                .collect(toImmutableList());
         Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
         Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
         store.saveDashboardSyncPage(pullRequests, syncMarker);
@@ -682,6 +688,7 @@ public class PullRequestService
                     .map(pullRequest -> reviewRequested
                             ? withOrigin(pullRequest, REVIEW_REQUESTED)
                             : workspaceOrigin(pullRequest, currentLogin))
+                    .map(this::preserveStoredId)
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
                 Set<Long> ids = fresh.stream().map(PullRequest::id).collect(toImmutableSet());
@@ -707,6 +714,7 @@ public class PullRequestService
                 if (stored.origin() == REVIEW_REQUESTED) {
                     exact = withOrigin(exact, REVIEW_REQUESTED);
                 }
+                exact = exact.withId(stored.id());
                 refreshed.add(exact);
                 if (!Objects.equals(stored.updatedAt(), exact.updatedAt())) {
                     changed.add(exact);
@@ -1142,6 +1150,13 @@ public class PullRequestService
                 pr.headPushedAt(),
                 pr.reviewerVerdicts(),
                 pr.headRef());
+    }
+
+    private PullRequest preserveStoredId(PullRequest pullRequest)
+    {
+        return store.findIdByRepoAndNumber(pullRequest.repo(), pullRequest.number())
+                .map(pullRequest::withId)
+                .orElse(pullRequest);
     }
 
     static PullRequest workspaceOrigin(PullRequest pullRequest, String currentLogin)

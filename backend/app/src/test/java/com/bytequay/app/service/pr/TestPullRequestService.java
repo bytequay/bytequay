@@ -179,6 +179,7 @@ class TestPullRequestService
         RepoRef repository = RepoRef.of("owner", "repo");
         PullRequest stored = pullRequest();
         PullRequest closed = pullRequest(
+                99,
                 "closed", Instant.parse("2026-08-22T00:00:00Z"), Instant.parse("2026-08-22T00:00:00Z"));
         when(gitHub.searchPullRequestsPaged(
                 eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
@@ -195,6 +196,7 @@ class TestPullRequestService
         ArgumentCaptor<List<PullRequest>> saved = ArgumentCaptor.forClass(List.class);
         verify(store).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
         assertThat(saved.getValue()).extracting(PullRequest::state).containsExactly("closed");
+        assertThat(saved.getValue()).extracting(PullRequest::id).containsExactly(12L);
         verify(gitHub).fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7));
     }
 
@@ -285,12 +287,14 @@ class TestPullRequestService
     }
 
     @Test
-    void explicitDetailRefreshStoresThePullRequestDetailAndDefaultDiff()
+    void explicitDetailRefreshPreservesTheStoredIdentityAcrossGitHubResponseShapes()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PullRequest pullRequest = pullRequest();
+        PullRequest pullRequest = pullRequest(
+                99, "open", Instant.parse("2026-08-21T00:00:00Z"), null);
         List<DiffFile> files = ImmutableList.of(
                 new DiffFile("a.txt", "modified", 1, 0, "+line"));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(gitHub.getPullRequest("pat", ref, Optional.empty()))
                 .thenReturn(new PullRequestFetch(Optional.of(pullRequest), Optional.of("\"etag-1\"")));
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
@@ -305,19 +309,21 @@ class TestPullRequestService
                 .thenAnswer(invocation -> invocation.getArgument(2));
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
                 .thenReturn(ImmutableList.of());
-        when(viewStateStore.findByPrIds(ImmutableSet.of(pullRequest.id())))
+        when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
                 .thenReturn(ImmutableMap.of());
         when(gitHub.fetchPrDiffFiles("pat", ref)).thenReturn(files);
         when(gitHub.fetchPrDiffCommits("pat", ref)).thenReturn(ImmutableList.of());
 
         assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isTrue();
 
-        verify(store).saveObserved(any(PullRequest.class));
+        ArgumentCaptor<PullRequest> observed = ArgumentCaptor.forClass(PullRequest.class);
+        verify(store).saveObserved(observed.capture());
+        assertThat(observed.getValue().id()).isEqualTo(12L);
         ArgumentCaptor<StoredPrDetail> detail = ArgumentCaptor.forClass(StoredPrDetail.class);
-        verify(detailStore).save(eq(pullRequest.id()), detail.capture());
+        verify(detailStore).save(eq(12L), detail.capture());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
-        verify(detailStore).updateEtag(pullRequest.id(), Optional.of("\"etag-1\""));
-        verify(diffStore).save(eq(pullRequest.id()), eq(null), eq(null), any(StoredPrDiff.class));
+        verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
+        verify(diffStore).save(eq(12L), eq(null), eq(null), any(StoredPrDiff.class));
     }
 
     @Test
@@ -622,7 +628,12 @@ class TestPullRequestService
 
     private static PullRequest pullRequest(String state, Instant updatedAt, Instant closedAt)
     {
-        return pullRequest(state, updatedAt, closedAt, null, null);
+        return pullRequest(12, state, updatedAt, closedAt);
+    }
+
+    private static PullRequest pullRequest(long id, String state, Instant updatedAt, Instant closedAt)
+    {
+        return pullRequest(id, state, updatedAt, closedAt, null, null);
     }
 
     private static PullRequest pullRequest(
@@ -632,8 +643,19 @@ class TestPullRequestService
             Boolean mergeable,
             String mergeableState)
     {
+        return pullRequest(12, state, updatedAt, closedAt, mergeable, mergeableState);
+    }
+
+    private static PullRequest pullRequest(
+            long id,
+            String state,
+            Instant updatedAt,
+            Instant closedAt,
+            Boolean mergeable,
+            String mergeableState)
+    {
         return new PullRequest(
-                12,
+                id,
                 "owner/repo",
                 7,
                 "Title",

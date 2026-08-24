@@ -245,12 +245,16 @@ Display and refresh are separate paths:
    authoritative `404` when the PR does not exist.
 3. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
    response to `core` values, and writes through `persistence-sqlite`.
-4. Selecting a stored PR requests detail by its stable GitHub PR ID. The backend resolves the
+4. Selecting a stored PR requests detail by its stable local row ID. The backend resolves the
    repository and number from SQLite, renders persisted detail first, then the frontend immediately
    starts a non-overlapping three-second refresh loop by that same ID. The exact GitHub PR request
    sends the ETag stored with `pr_detail`; a `304 Not Modified` keeps the current snapshot, while a
    changed response refreshes the aggregate, persists it, and returns it so the frontend can update
    the view automatically.
+
+The normalized repository name and PR number uniquely identify a pull request in SQLite. GitHub's
+search and pull-request endpoints expose different numeric IDs for the same PR, so ingestion retains
+the existing local row ID whenever either endpoint returns that repository-and-number pair.
 
 Repository refresh discovers every pull request updated within 30 days without filtering by state,
 plus older pull requests that remain open. Search results can add or update rows but their absence

@@ -110,7 +110,6 @@ public interface PullRequestJpaRepository
             + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false)")
     int deleteInvisibleRows();
 
-    /** Returns the GitHub PR id for the given repo + number pair. */
-    @Query("SELECT e.id FROM PullRequestEntity e WHERE e.repo = :repo AND e.number = :number")
+    @Query("SELECT e.id FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.number = :number")
     Optional<Long> findIdByRepoAndNumber(@Param("repo") String repo, @Param("number") int number);
 }

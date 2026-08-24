@@ -93,4 +93,38 @@ public record PullRequest(
         REVIEW_REQUESTED,
         OTHER
     }
+
+    public PullRequest withId(long id)
+    {
+        return new PullRequest(
+                id,
+                repo,
+                number,
+                title,
+                author,
+                htmlUrl,
+                createdAt,
+                updatedAt,
+                origin,
+                labels,
+                labelColors,
+                draft,
+                viewedAt,
+                reviewedAt,
+                handledAction,
+                requestedReviewers,
+                ciStatus,
+                additions,
+                deletions,
+                commentCount,
+                attentionReason,
+                state,
+                closedAt,
+                mergedAt,
+                mergeable,
+                mergeableState,
+                headPushedAt,
+                reviewerVerdicts,
+                headRef);
+    }
 }

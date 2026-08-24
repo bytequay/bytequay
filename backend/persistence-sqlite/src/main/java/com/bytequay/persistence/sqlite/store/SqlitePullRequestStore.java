@@ -130,6 +130,7 @@ public class SqlitePullRequestStore
     {
         requireNonNull(pullRequests, "pullRequests is null");
         requireNonNull(syncMarker, "syncMarker is null");
+        pullRequests = preserveStoredIds(pullRequests);
         Instant now = Instant.now();
         Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
         jpaRepository.saveAll(pullRequests.stream()
@@ -169,6 +170,7 @@ public class SqlitePullRequestStore
         requireNonNull(repository, "repository is null");
         requireNonNull(pullRequests, "pullRequests is null");
         requireNonNull(syncMarker, "syncMarker is null");
+        pullRequests = preserveStoredIds(pullRequests);
         Instant now = Instant.now();
         Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
         jpaRepository.saveAll(pullRequests.stream()
@@ -203,6 +205,7 @@ public class SqlitePullRequestStore
     public void saveObserved(PullRequest pullRequest)
     {
         requireNonNull(pullRequest, "pullRequest is null");
+        pullRequest = preserveStoredId(pullRequest);
         PullRequestEntity previous = jpaRepository.findById(pullRequest.id()).orElse(null);
         PullRequestEntity entity = toEntity(pullRequest, Instant.now());
         entity.setDashboardVisible(true);
@@ -273,6 +276,20 @@ public class SqlitePullRequestStore
                 .collect(toImmutableMap(PullRequestEntity::getId, entity -> entity));
     }
 
+    private List<PullRequest> preserveStoredIds(List<PullRequest> pullRequests)
+    {
+        return pullRequests.stream()
+                .map(this::preserveStoredId)
+                .collect(toImmutableList());
+    }
+
+    private PullRequest preserveStoredId(PullRequest pullRequest)
+    {
+        return findIdByRepoAndNumber(pullRequest.repo(), pullRequest.number())
+                .map(pullRequest::withId)
+                .orElse(pullRequest);
+    }
+
     private Set<Long> deleteInvisibleRows()
     {
         Set<Long> removed = ImmutableSet.copyOf(jpaRepository.findInvisibleIds());
@@ -285,6 +302,7 @@ public class SqlitePullRequestStore
     @Override
     public Optional<Long> findIdByRepoAndNumber(String repo, int number)
     {
+        requireNonNull(repo, "repo is null");
         return jpaRepository.findIdByRepoAndNumber(repo, number);
     }
 

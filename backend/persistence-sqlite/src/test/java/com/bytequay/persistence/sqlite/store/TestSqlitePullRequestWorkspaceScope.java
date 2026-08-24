@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -44,6 +45,9 @@ class TestSqlitePullRequestWorkspaceScope
 
     @Autowired
     private SqlitePullRequestStore store;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -133,6 +137,31 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findIdByRepoAndNumber("external/project", 12)).contains(91L);
         assertThat(store.findRefById(91L)).contains(PullRequestRef.of("external", "project", 12));
         assertThat(store.findPage(0, 50).pullRequests()).containsExactly(observed);
+    }
+
+    @Test
+    void updatesByRepositoryAndNumberWhenGitHubApisReturnDifferentIds()
+    {
+        PullRequest searchResult = pullRequest(91, "external/project", 12);
+        PullRequest pullEndpointResult = pullRequest(92, "external/project", 12);
+        store.saveObserved(searchResult);
+        store.saveObserved(pullEndpointResult);
+
+        assertThat(store.findIdByRepoAndNumber("EXTERNAL/PROJECT", 12)).contains(91L);
+        assertThat(store.findPage(0, 50).pullRequests())
+                .extracting(PullRequest::id)
+                .containsExactly(91L);
+    }
+
+    @Test
+    void schemaEnforcesRepositoryAndNumberUniqueness()
+    {
+        Integer matchingIndexes = jdbc.queryForObject(
+                "SELECT count(*) FROM pragma_index_list('pull_requests') "
+                        + "WHERE name = 'uq_pull_requests_repo_number' AND \"unique\" = 1",
+                Integer.class);
+
+        assertThat(matchingIndexes).isOne();
     }
 
     @Test

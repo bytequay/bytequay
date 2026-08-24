@@ -30,6 +30,7 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Entity
@@ -162,6 +163,7 @@ public class PullRequestEntity
     @PrePersist
     public void prePersist()
     {
+        this.repo = repo.toLowerCase(Locale.ROOT);
         Instant now = Instant.now();
         this.internalCreatedAt = now;
         this.internalUpdatedAt = now;
@@ -170,6 +172,7 @@ public class PullRequestEntity
     @PreUpdate
     public void preUpdate()
     {
+        this.repo = repo.toLowerCase(Locale.ROOT);
         this.internalUpdatedAt = Instant.now();
     }
 

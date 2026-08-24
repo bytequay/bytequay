@@ -663,9 +663,9 @@
 
 .pr-thread-row { margin-left: 43px; overflow: hidden; border: 1px solid #e4e8ec; border-radius: 10px; background: #f6f8fa; }
 .pr-thread-row + .pr-thread-row { margin-top: 12px; }
-.pr-thread-row summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 14px; color: #59636e; cursor: pointer; list-style: none; }
-.pr-thread-row summary::-webkit-details-marker { display: none; }
-.pr-thread-row summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.pr-thread-row > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 14px; color: #59636e; cursor: pointer; list-style: none; }
+.pr-thread-row > summary::-webkit-details-marker { display: none; }
+.pr-thread-row > summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .pr-thread-row__resolved { display: inline-flex; align-items: center; gap: 5px; }
 .pr-thread-row__resolved svg { color: #8250df; }
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }

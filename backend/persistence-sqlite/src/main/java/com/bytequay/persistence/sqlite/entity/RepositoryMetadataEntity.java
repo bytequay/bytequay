@@ -47,10 +47,10 @@ public class RepositoryMetadataEntity
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "stargazers_count", nullable = false)
+    @Column(name = "stargazers_count", nullable = false, columnDefinition = "INTEGER DEFAULT 0")
     private int stargazersCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT DEFAULT '{}'")
     @Convert(converter = StringLongMapConverter.class)
     private Map<String, Long> languages;
 

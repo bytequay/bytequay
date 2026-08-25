@@ -440,7 +440,7 @@
 
 .cmt-commit-title {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 400;
   color: #1f2328;
   white-space: nowrap;
   overflow: hidden;
@@ -471,7 +471,8 @@
   overflow: hidden;
 }
 
-.cmt-commit-meta strong { color: #24292f; font-weight: 600; }
+.cmt-commit-byline strong { font-weight: 400; }
+.cmt-commit-meta strong { color: #24292f; }
 .cmt-commit-byline { flex: none; }
 
 .cmt-commit-pr {
@@ -599,7 +600,7 @@
 
 .cmt-view-title {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 400;
   color: #1f2328;
   white-space: nowrap;
   overflow: hidden;

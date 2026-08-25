@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import Avatar from '../Avatar';
-import CommitsTab from '../commits/CommitsTab';
+import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import PullsScreen from '../pulls/PullsScreen';
 import type { PullTab } from '../pulls/model';
@@ -46,6 +46,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [openPullRequestNumber, setOpenPullRequestNumber] = useState<number | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
+  const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
   const [initialPullsTab, setInitialPullsTab] = useState<PullTab | null>(null);
 
   // Home-card jumps are one-shot: leaving the target tab forgets them, so the
@@ -78,6 +79,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         workspace={workspace}
         initialExecutionId={openExecutionId}
         initialRepo={initialCommitsRepo ?? undefined}
+        initialSourceSelection={commitSourceSelection}
+        onSourceSelectionChange={setCommitSourceSelection}
         onOpenPullRequest={number => {
           setOpenPullRequestNumber(number);
           onSelectTab('prs');

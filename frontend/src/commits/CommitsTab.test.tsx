@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { CommitRefreshStatusDto } from '../types';
 import type { Workspace } from '../workspaces/model';
 import CommitsTab, {
+  availableCommitSource,
   commitRefreshRefs,
   commitSyncLabel,
   selectableCommitSources,
@@ -25,6 +26,7 @@ describe('workspace commits tab', () => {
   it('keeps the workspace branch separate from the remote source switcher', () => {
     const html = renderToStaticMarkup(<CommitsTab
       workspace={workspace()}
+      onSourceSelectionChange={() => {}}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
     />);
@@ -46,7 +48,31 @@ describe('workspace commits tab', () => {
     ]);
   });
 
-  it('opens on the upstream browser when asked to start there', () => {
+  it('discards a remembered source that is no longer configured', () => {
+    const remotes = ['upstream', 'oss'];
+
+    expect(availableCommitSource('oss', remotes, true)).toBe('oss');
+    expect(availableCommitSource('upstream', [], true)).toBe('upstream');
+    expect(availableCommitSource('removed', remotes, true)).toBeNull();
+    expect(availableCommitSource('upstream', remotes, false)).toBe('oss');
+  });
+
+  it('keeps a remembered remote source while validating it', () => {
+    const html = renderToStaticMarkup(<CommitsTab
+      workspace={workspace()}
+      initialSourceSelection={{ source: 'oss', viewingSource: true }}
+      onSourceSelectionChange={() => {}}
+      onOpenPullRequest={() => {}}
+      onOpenSettings={() => {}}
+    />);
+
+    expect(html).toContain('Source: oss');
+    expect(html).toContain('title="Branch of the selected source"');
+    expect(html).not.toContain('cmt-split-chip is-active');
+    expect(html).not.toContain('read-only');
+  });
+
+  it('opens on the linked upstream browser when asked to start there', () => {
     const linked: Workspace = {
       ...workspace(),
       upstreamDefaultBranch: 'main',
@@ -59,6 +85,7 @@ describe('workspace commits tab', () => {
     const html = renderToStaticMarkup(<CommitsTab
       workspace={linked}
       initialRepo="upstream"
+      onSourceSelectionChange={() => {}}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
     />);

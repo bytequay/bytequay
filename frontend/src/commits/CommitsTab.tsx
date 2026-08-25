@@ -20,6 +20,7 @@ import type {
   CommitRefreshStatusDto,
   GitCommitDto,
   GitOverviewDto,
+  WorkspaceRemoteDto,
 } from '../types';
 import { githubSlug, type Workspace } from '../workspaces/model';
 import ChangesView from './ChangesView';
@@ -32,6 +33,11 @@ import '../css/commits.css';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
+
+export type CommitSourceSelection = {
+  source: string | null;
+  viewingSource: boolean;
+};
 
 export function commitRefreshRefs(
   branch: string,
@@ -66,20 +72,42 @@ export function selectableCommitSources(
   return remotes.filter(remote => remote.name !== originRemote);
 }
 
-export default function CommitsTab({ workspace, initialExecutionId, initialRepo, onOpenPullRequest, onOpenSettings }: {
+export function availableCommitSource(
+  source: string | null,
+  remoteNames: readonly string[],
+  hasUpstream: boolean,
+): string | null {
+  if (source === null) return null;
+  if (source === 'upstream') {
+    return hasUpstream ? source : remoteNames.find(name => name !== 'upstream') ?? null;
+  }
+  return remoteNames.includes(source) ? source : null;
+}
+
+export default function CommitsTab({ workspace, initialExecutionId, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }: {
   workspace: Workspace;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
   /** Open on the upstream commit browser (from the Home cherry-pick card). */
   initialRepo?: 'workspace' | 'upstream';
+  initialSourceSelection?: CommitSourceSelection;
+  onSourceSelectionChange: (selection: CommitSourceSelection) => void;
   onOpenPullRequest: (number: number) => void;
   onOpenSettings: () => void;
 }) {
+  const initialSource = initialRepo === undefined
+    ? initialSourceSelection?.source ?? null
+    : initialRepo === 'upstream' ? 'upstream' : null;
+  const initialViewingSource = initialRepo === undefined
+    ? initialSourceSelection?.viewingSource ?? false
+    : initialRepo === 'upstream';
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
+  const [configuredRemotes, setConfiguredRemotes] = useState<WorkspaceRemoteDto[] | null>(null);
+  const [remoteSettingsFailed, setRemoteSettingsFailed] = useState(false);
   const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : 'commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
-  const [source, setSource] = useState<string | null>(initialRepo === 'upstream' ? 'upstream' : null);
-  const [viewingSource, setViewingSource] = useState(initialRepo === 'upstream');
+  const [source, setSource] = useState<string | null>(initialSource);
+  const [viewingSource, setViewingSource] = useState(initialViewingSource);
   const [branch, setBranch] = useState(workspace.defaultBranch);
   const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
   const [branchMenu, setBranchMenu] = useState(false);
@@ -109,9 +137,24 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const autoSyncAttempt = useRef<string | null>(null);
 
   const hasUpstream = workspace.upstreamRepositoryId !== null;
-  const remoteSources = selectableCommitSources(overview?.remotes ?? [], workspace.originRemote);
+  const observedRemoteSources = selectableCommitSources(overview?.remotes ?? [], workspace.originRemote);
+  const observedFallbackReady = remoteSettingsFailed && overview !== null;
+  const persistedRemoteSources = configuredRemotes?.filter(remote => remote.role !== 'ORIGIN') ?? null;
+  const remoteSources = persistedRemoteSources
+    ?.map(remote => ({
+      name: remote.name,
+      url: remote.url,
+      headBranch: observedRemoteSources.find(observed => observed.name === remote.name)?.headBranch ?? null,
+    })) ?? (observedFallbackReady ? observedRemoteSources : []);
+  const configuredRemoteNames = persistedRemoteSources?.map(remote => remote.name)
+    ?? (observedFallbackReady ? observedRemoteSources.map(remote => remote.name) : null);
+  const availableSource = configuredRemoteNames === null
+    ? source
+    : availableCommitSource(source, configuredRemoteNames, hasUpstream);
   /** A non-origin remote being browsed read-only, or null for the local checkout. */
-  const activeRemote = viewingSource ? source : null;
+  const sourceReady = (source === 'upstream' && hasUpstream)
+    || (configuredRemoteNames !== null && availableSource === source);
+  const activeRemote = viewingSource && sourceReady ? source : null;
   const isRemote = activeRemote !== null;
   const isUpstream = activeRemote === 'upstream' && hasUpstream;
   const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
@@ -122,10 +165,10 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const firstExtraRemote = remoteSources.find(remote => remote.name !== 'upstream')?.name ?? null;
   const activeRemoteUrl = activeRemote === null
     ? null
-    : overview?.remotes.find(remote => remote.name === activeRemote)?.url ?? null;
+    : remoteSources.find(remote => remote.name === activeRemote)?.url ?? null;
   const activeRemoteHead = activeRemote === null
     ? null
-    : overview?.remotes.find(remote => remote.name === activeRemote)?.headBranch ?? null;
+    : remoteSources.find(remote => remote.name === activeRemote)?.headBranch ?? null;
   const sourceSlug = activeRemoteUrl ? githubSlug(activeRemoteUrl) : null;
   const logRef = isRemote ? `${activeRemote}/${upBranch}` : branch;
   const historySource: CommitHistorySourceDto = isUpstream ? 'UPSTREAM' : isRemote ? 'REMOTE' : 'WORKSPACE';
@@ -141,18 +184,35 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
 
   useEffect(() => {
-    if (!hasUpstream && source === 'upstream') {
-      setSource(firstExtraRemote);
-      setViewingSource(firstExtraRemote !== null);
-      return;
-    }
+    let cancelled = false;
+    window.bridge.getWorkspaceSettings(workspace.id)
+      .then(settings => {
+        if (!cancelled) {
+          setConfiguredRemotes(settings.remotes);
+        }
+      })
+      .catch(() => { if (!cancelled) setRemoteSettingsFailed(true); });
+    return () => { cancelled = true; };
+  }, [workspace.id]);
+
+  useEffect(() => {
     setUpBranch(source === 'upstream'
       ? workspace.upstreamDefaultBranch ?? workspace.defaultBranch
       : workspace.defaultBranch);
     setUpBranches([]);
     setUpBranchPicked(false);
     setCheckedUp(new Set());
-  }, [hasUpstream, source, firstExtraRemote, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
+  }, [source, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
+
+  useEffect(() => {
+    if (availableSource === source) return;
+    setSource(availableSource);
+    if (availableSource === null) setViewingSource(false);
+  }, [availableSource, source]);
+
+  useEffect(() => {
+    onSourceSelectionChange({ source, viewingSource });
+  }, [onSourceSelectionChange, source, viewingSource]);
 
   // Menus close on any outside press; the chip wrappers stop propagation.
   useEffect(() => {
@@ -348,11 +408,10 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
     setSourceMenu(false);
   };
 
-  // Choosing a source flows straight into choosing its branch.
   const pickSource = (name: string) => {
     setScreen('commits');
     setSourceMenu(false);
-    setSourceBranchMenu(true);
+    setSourceBranchMenu(false);
     setSource(name);
     setViewingSource(true);
     setCommitsView('history');
@@ -478,8 +537,8 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
                     <span className="cmt-source-desc">{remoteDescription(remote.name, remote.url)}</span>
                   </button>
                 ))}
-                {overview === null && <div className="cmt-menu-label">Loading remotes…</div>}
-                {overview !== null && remoteSources.length === 0 && (
+                {configuredRemoteNames === null && <div className="cmt-menu-label">Loading remotes…</div>}
+                {configuredRemoteNames !== null && remoteSources.length === 0 && (
                   <div className="cmt-menu-label">No remote sources configured</div>
                 )}
                 <div className="cmt-menu-divider" />

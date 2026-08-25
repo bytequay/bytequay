@@ -67,10 +67,10 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
           <h1>{title}</h1>
-        </div>
-        <div className="pr-overview__number">
-          <span>#{detail.number}</span>
-          <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />
+          <div className="pr-overview__number">
+            <span>#{detail.number}</span>
+            <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />
+          </div>
         </div>
         <div className="pr-overview__branches">
           <span className={`pr-state is-${displayState.toLowerCase()}`}>

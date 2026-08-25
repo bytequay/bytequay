@@ -493,10 +493,11 @@
 .pr-overview__summary { padding: 0 2px; }
 .pull-request-overview .pr-overview__summary { padding: 0; }
 .pr-overview__title { display: flex; align-items: center; gap: 9px; }
+.pull-request-overview .pr-overview__title { align-items: baseline; }
 .pr-overview__title h2 { min-width: 0; margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; }
 .pull-request-overview .pr-overview__title h1 { min-width: 0; margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; }
 .pr-overview__title h2 span { color: #59636e; font-weight: 400; }
-.pr-overview__number { display: flex; align-items: center; gap: 9px; margin-top: 8px; color: #59636e; font-size: 22px; line-height: 1.3; }
+.pr-overview__number { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; color: #59636e; font-size: 22px; line-height: 1.3; white-space: nowrap; }
 .pr-overview__title button,
 .pr-overview__number button,
 .pr-overview__branches button { display: grid; width: 26px; height: 26px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #59636e; }

@@ -175,8 +175,7 @@ describe('PullOverview', () => {
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={detail()} onRefresh={async () => {}} />);
 
-    expect(html).toContain('<div class="pr-overview__title"><h1>Example pull request</h1></div>');
-    expect(html).toContain('<div class="pr-overview__number"><span>#42</span>');
+    expect(html).toContain('<div class="pr-overview__title"><h1>Example pull request</h1><div class="pr-overview__number"><span>#42</span>');
     expect(html).toContain(' Open</span>');
     expect(html).toContain('main');
     expect(html).toContain('feature/overview');

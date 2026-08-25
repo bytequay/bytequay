@@ -711,8 +711,8 @@ export type Bridge = {
     repo: string,
     number: number,
     comment: InlineReviewCommentDto,
-  ) => Promise<void>;
-  commentPr: (repo: string, number: number, body: string) => Promise<void>;
+  ) => Promise<PullRequestDetailDto>;
+  commentPr: (repo: string, number: number, body: string) => Promise<PullRequestDetailDto>;
   addPrReaction: (
     repo: string,
     number: number,

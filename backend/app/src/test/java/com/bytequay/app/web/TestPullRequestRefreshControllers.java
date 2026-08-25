@@ -24,18 +24,27 @@ import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
+import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Instant;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
@@ -89,6 +98,54 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isNoContent());
 
         verify(pullRequests).addReaction("owner/repo", 7, "issue_comment", 41L, "heart");
+    }
+
+    @Test
+    void returnsTheDetailProducedByCommentWrites()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestDetail detail = detail();
+        InlineReviewComment inline = new InlineReviewComment(
+                "src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha");
+        when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
+        when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(detail);
+
+        assertThat(controller.comment(
+                "owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
+        assertThat(controller.reviewComment("owner/repo", 7, inline)).isSameAs(detail);
+    }
+
+    @Test
+    void reportsAnUncertainReviewCommentTimeout()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+        doThrow(new ResourceAccessException("Operation timed out"))
+                .when(pullRequests).createReviewComment(any(), anyInt(), any());
+
+        standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build()
+                .perform(post("/prs/review-comment")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "path":"src/Main.java",
+                                  "body":"Please simplify this",
+                                  "line":18,
+                                  "side":"RIGHT",
+                                  "commitId":"head-sha"
+                                }
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value(
+                        "GitHub did not respond. Refresh before retrying; a submitted action may already have completed."));
     }
 
     @Test
@@ -166,5 +223,39 @@ class TestPullRequestRefreshControllers
                 "https://github.com/upstream/project.git",
                 NOW,
                 NOW);
+    }
+
+    private static PullRequestDetail detail()
+    {
+        return new PullRequestDetail(
+                "owner/repo",
+                7,
+                "Title",
+                "https://github.test/owner/repo/pull/7",
+                "open",
+                false,
+                true,
+                "clean",
+                "me",
+                "https://avatars.test/me",
+                NOW,
+                NOW,
+                null,
+                "main",
+                "feature",
+                "body",
+                ImmutableList.of(),
+                ImmutableList.of(),
+                null,
+                ImmutableList.of(),
+                1,
+                1,
+                1,
+                0,
+                PullRequestDetail.CiStatus.NONE,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                true);
     }
 }

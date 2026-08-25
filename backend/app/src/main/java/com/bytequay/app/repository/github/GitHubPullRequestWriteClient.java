@@ -73,7 +73,7 @@ public class GitHubPullRequestWriteClient
                         HttpStatusCode.valueOf(502),
                         "Empty response from GitHub when posting issue comment");
             }
-            return toTimelineEvent(posted);
+            return GitHubPullRequestReadClient.toCommentedTimelineEvent(posted);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -294,18 +294,24 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    public void createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
+    public PrTimelineEvent createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
     {
         try {
             Map<String, Object> request = toReviewCommentRequest(comment);
             request.put("commit_id", comment.commitId());
-            gitHubRestClient.post()
+            GitHubReviewComment posted = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/comments", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(GitHubReviewComment.class);
+            if (posted == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when posting review comment");
+            }
+            return GitHubPullRequestReadClient.toReviewThreadEvent(posted);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -403,17 +409,6 @@ public class GitHubPullRequestWriteClient
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
-    }
-
-    private static PrTimelineEvent toTimelineEvent(GitHubIssueComment comment)
-    {
-        return new PrTimelineEvent(
-                comment.id(),
-                "commented",
-                Optional.ofNullable(comment.user()).map(GitHubIssueComment.User::login).orElse(null),
-                comment.createdAt(),
-                comment.body(),
-                Optional.empty());
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

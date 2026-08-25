@@ -242,6 +242,7 @@ export default function ProgressView({
   const empty = execution.items.filter(item => item.result === 'EMPTY_SKIPPED').length;
 
   const active = state === 'running' || state === 'paused';
+  const pullRequestNumber = delivery?.pullRequest?.number ?? selected?.item.pullRequestNumber ?? null;
 
   return (
     <div
@@ -496,9 +497,10 @@ export default function ProgressView({
 
       <div className="cmt-prog-pr">
         <PrPanel
+          key={`${upstreamSlug ?? ''}#${pullRequestNumber ?? ''}`}
           workspaceId={workspaceId}
           slug={upstreamSlug}
-          number={delivery?.pullRequest?.number ?? selected?.item.pullRequestNumber ?? null}
+          number={pullRequestNumber}
         />
       </div>
     </div>
@@ -543,6 +545,7 @@ function PrPanel({ workspaceId, slug, number }: { workspaceId: string; slug: str
         onRefresh={async () => {
           setDetail(await window.bridge.refreshAllPullRequestDetailByRef(slug, number));
         }}
+        onDetailChange={setDetail}
       />
       <div className="cmt-pr-footnote">
         Showing the pull request for the selected commit — pick another commit on the left to switch.

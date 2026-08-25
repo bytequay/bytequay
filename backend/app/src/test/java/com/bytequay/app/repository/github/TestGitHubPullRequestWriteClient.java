@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
@@ -126,14 +127,59 @@ class TestGitHubPullRequestWriteClient
                           "commit_id":"head-sha"
                         }
                         """))
-                .andRespond(withSuccess());
+                .andRespond(withSuccess("""
+                        {
+                          "id":91,
+                          "user":{
+                            "login":"me",
+                            "avatar_url":"https://avatars.test/me",
+                            "type":"User"
+                          },
+                          "body":"Please simplify this",
+                          "created_at":"2026-08-25T05:00:00Z",
+                          "html_url":"https://github.test/upstream/project/pull/12#discussion_r91",
+                          "pull_request_review_id":77,
+                          "path":"src/Main.java",
+                          "diff_hunk":"@@ -16,3 +16,3 @@",
+                          "line":18,
+                          "original_line":18,
+                          "start_line":16,
+                          "original_start_line":16,
+                          "side":"RIGHT",
+                          "reactions":{"eyes":1}
+                        }
+                        """, MediaType.APPLICATION_JSON));
 
-        client.createReviewComment(
+        PrTimelineEvent posted = client.createReviewComment(
                 "pat",
                 PullRequestRef.of("upstream", "project", 12),
                 new InlineReviewComment(
                         "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha"));
 
+        assertThat(posted.githubId()).isEqualTo(91);
+        assertThat(posted.event()).isEqualTo("review_thread");
+        assertThat(posted.actor()).isEqualTo("me");
+        assertThat(posted.timestamp()).isEqualTo(java.time.Instant.parse("2026-08-25T05:00:00Z"));
+        assertThat(posted.payload().actorAvatarUrl()).isEqualTo("https://avatars.test/me");
+        assertThat(posted.payload().htmlUrl())
+                .isEqualTo("https://github.test/upstream/project/pull/12#discussion_r91");
+        assertThat(posted.payload().path()).isEqualTo("src/Main.java");
+        assertThat(posted.payload().diffHunk()).isEqualTo("@@ -16,3 +16,3 @@");
+        assertThat(posted.payload().line()).isEqualTo(18);
+        assertThat(posted.payload().startLine()).isEqualTo(16);
+        assertThat(posted.payload().side()).isEqualTo("RIGHT");
+        assertThat(posted.payload().resolved()).isFalse();
+        assertThat(posted.payload().outdated()).isFalse();
+        assertThat(posted.payload().comments()).singleElement().satisfies(comment -> {
+            assertThat(comment.githubId()).isEqualTo(91);
+            assertThat(comment.actor()).isEqualTo("me");
+            assertThat(comment.body()).isEqualTo("Please simplify this");
+            assertThat(comment.reviewId()).isEqualTo(77);
+            assertThat(comment.reactions()).singleElement().satisfies(reaction -> {
+                assertThat(reaction.content()).isEqualTo("eyes");
+                assertThat(reaction.count()).isEqualTo(1);
+            });
+        });
         server.verify();
     }
 

@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -69,6 +69,18 @@ describe('PullOverview', () => {
     expect(addPrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes');
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(order).toEqual(['write', 'refresh']);
+  });
+
+  it('applies the successful comment response without requesting a full refresh', async () => {
+    const updated = detail();
+    const commentPr = vi.fn(async () => updated);
+    const onDetailChange = vi.fn();
+
+    await submitPullRequestComment(
+      { commentPr }, 'owner/repo', 42, 'Looks good to me', onDetailChange);
+
+    expect(commentPr).toHaveBeenCalledWith('owner/repo', 42, 'Looks good to me');
+    expect(onDetailChange).toHaveBeenCalledWith(updated);
   });
 
   it('wires reactions only to supported pull request targets', () => {

@@ -42,11 +42,12 @@ const HIDDEN_TIMELINE_EVENTS = new Set([
   'unsubscribed',
 ]);
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailChange?: (detail: PullRequestDetailDto) => void;
 }) {
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const title = detail.title ?? pr.title;
@@ -113,8 +114,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
             }
           : undefined}
         onSubmit={async body => {
-          await window.bridge.commentPr(pr.repo, pr.number, body);
-          await onRefresh();
+          await submitPullRequestComment(window.bridge, pr.repo, pr.number, body, onDetailChange);
         }}
       />
     </div>
@@ -1185,6 +1185,16 @@ export async function submitPullReaction(
 ) {
   await bridge.addPrReaction(action.repo, action.number, action.target, action.commentId, content);
   await action.onRefresh();
+}
+
+export async function submitPullRequestComment(
+  bridge: Pick<Bridge, 'commentPr'>,
+  repo: string,
+  number: number,
+  body: string,
+  onDetailChange: (detail: PullRequestDetailDto) => void,
+) {
+  onDetailChange(await bridge.commentPr(repo, number, body));
 }
 
 function Reactions({ reactions, reaction, alwaysShowPicker = false }: {

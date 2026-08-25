@@ -261,10 +261,12 @@ public class PullRequestSnapshotService
                 .map(raw -> raw.headSha());
     }
 
-    void patchDetail(long prId, UnaryOperator<StoredPrDetail> patcher)
+    Optional<StoredPrDetail> patchDetail(long prId, UnaryOperator<StoredPrDetail> patcher)
     {
         requireNonNull(patcher, "patcher is null");
-        details.find(prId).map(patcher).ifPresent(detail -> details.save(prId, detail));
+        Optional<StoredPrDetail> patched = details.find(prId).map(patcher);
+        patched.ifPresent(detail -> details.save(prId, detail));
+        return patched;
     }
 
     void delete(Set<Long> prIds)

@@ -73,7 +73,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.function.UnaryOperator;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
@@ -451,36 +450,24 @@ public class PullRequestService
                 pat, ref, storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
-    public void createReviewComment(String repo, int number, InlineReviewComment comment)
+    public PullRequestDetail createReviewComment(String repo, int number, InlineReviewComment comment)
     {
         validateReviewComment(comment, true);
         String pat = credentialService.resolveGitHubToken();
-        pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
-        invalidatePullRequestCaches(repo, number);
+        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+        PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
+        PullRequestDetail detail = patchCachedTimeline(repo, number, prId, created);
+        prId.ifPresent(id -> markReviewed(id, "COMMENT"));
+        return detail;
     }
 
-    public void commentOnPullRequest(String repo, int number, String body)
+    public PullRequestDetail commentOnPullRequest(String repo, int number, String body)
     {
         requireNotBlank(body, "comment body must not be blank");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
-        if (created != null) {
-            patchCachedDetail(store.findIdByRepoAndNumber(repo, number), cached -> {
-                List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
-                timeline.removeIf(event -> event.githubId() != null
-                        && event.githubId().equals(created.githubId())
-                        && "commented".equals(event.event()));
-                timeline.add(created);
-                return new StoredPrDetail(
-                        cached.raw(),
-                        cached.reviews(),
-                        ImmutableList.copyOf(timeline),
-                        cached.checkRuns(),
-                        cached.unavailableSections(),
-                        cached.viewerCanWrite());
-            });
-        }
+        return patchCachedTimeline(repo, number, store.findIdByRepoAndNumber(repo, number), created);
     }
 
     public void addReaction(String repo, int number, String target, Long commentId, String content)
@@ -1200,12 +1187,30 @@ public class PullRequestService
         invalidatePullRequestDetail(repo, number);
     }
 
-    private void patchCachedDetail(
+    private PullRequestDetail patchCachedTimeline(
+            String repo,
+            int number,
             Optional<Long> prId,
-            UnaryOperator<StoredPrDetail> patcher)
+            PrTimelineEvent created)
     {
-        requireNonNull(patcher, "patcher is null");
-        prId.ifPresent(id -> snapshots.patchDetail(id, patcher));
+        requireNonNull(created, "created is null");
+        Optional<StoredPrDetail> patched = prId.flatMap(id -> snapshots.patchDetail(id, cached -> {
+            List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
+            timeline.removeIf(event -> created.githubId() != null
+                    && created.githubId().equals(event.githubId())
+                    && created.event().equals(event.event()));
+            timeline.add(created);
+            return new StoredPrDetail(
+                    cached.raw(),
+                    cached.reviews(),
+                    ImmutableList.copyOf(timeline),
+                    cached.checkRuns(),
+                    cached.unavailableSections(),
+                    cached.viewerCanWrite());
+        }));
+        return patched
+                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(repo, number, detail, detail.viewerCanWrite()))
+                .orElseGet(() -> getPullRequestDetail(repo, number));
     }
 
     private static PullRequest withOrigin(PullRequest pr, PullRequest.Origin origin)

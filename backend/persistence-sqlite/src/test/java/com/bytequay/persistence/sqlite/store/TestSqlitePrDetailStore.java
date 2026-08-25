@@ -118,6 +118,35 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void savesPatchedCachedTimelineWithoutReinsertingLocalEvents()
+    {
+        PrTimelineEvent first = remote(1, NOW);
+        store.save(PR_ID, detail(first));
+        PrTimelineEvent local = new PrTimelineEvent(
+                null,
+                "ci_autofix",
+                "author",
+                NOW.plusSeconds(1),
+                "verified push facts",
+                Optional.of("ci-autofix:patch:sha"));
+        store.recordLocalTimelineEvent(PULL_REQUEST, local);
+
+        StoredPrDetail cached = store.find(PR_ID).orElseThrow();
+        PrTimelineEvent second = remote(2, NOW.plusSeconds(2));
+        store.save(PR_ID, withTimeline(cached, second));
+        StoredPrDetail patched = store.find(PR_ID).orElseThrow();
+        PrTimelineEvent third = remote(3, NOW.plusSeconds(3));
+        store.saveIncremental(PR_ID, withTimeline(patched, third));
+
+        assertThat(store.find(PR_ID).orElseThrow().timeline())
+                .extracting(PrTimelineEvent::githubId)
+                .containsExactlyInAnyOrder(null, 1L, 2L, 3L);
+        assertThat(store.find(PR_ID).orElseThrow().timeline())
+                .extracting(PrTimelineEvent::localEventKey)
+                .containsOnlyOnce(Optional.of("ci-autofix:patch:sha"));
+    }
+
+    @Test
     void deletingPullRequestDetailsAlsoDeletesLocalTimelineEvents()
     {
         store.save(PR_ID, detail(remote(1, NOW)));
@@ -222,6 +251,17 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(),
                 ImmutableList.of(event),
                 ImmutableList.of());
+    }
+
+    private static StoredPrDetail withTimeline(StoredPrDetail detail, PrTimelineEvent event)
+    {
+        return new StoredPrDetail(
+                detail.raw(),
+                detail.reviews(),
+                ImmutableList.<PrTimelineEvent>builder().addAll(detail.timeline()).add(event).build(),
+                detail.checkRuns(),
+                detail.unavailableSections(),
+                detail.viewerCanWrite());
     }
 
     private static PrTimelineEvent remote(long githubId, Instant timestamp)

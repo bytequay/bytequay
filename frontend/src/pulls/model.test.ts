@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto } from '../types';
-import { reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
+import { reconcilePostedComment, reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
 
 function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
   return {
@@ -89,12 +89,7 @@ describe('rowsForTab', () => {
     const current = pr({ id: 1, origin: 'REVIEW_REQUESTED' });
     const waiting = pr({ id: 2, origin: 'REVIEW_REQUESTED' });
     const selected = visibleSelectedId(rowsForTab([current, waiting], 'req'), null);
-    const commented = pr({
-      id: 1,
-      origin: 'REVIEW_REQUESTED',
-      handledAction: 'COMMENTED',
-      reviewedAt: '2026-08-25T00:00:00Z',
-    });
+    const commented = reconcilePostedComment(current, current, 'review', '2026-08-25T00:00:00Z');
     const needsReview = rowsForTab([commented, waiting], 'req');
 
     expect(selected).toBe(current.id);
@@ -102,6 +97,17 @@ describe('rowsForTab', () => {
     expect(visibleSelectedId(needsReview, selected)).toBe(commented.id);
     expect(visibleSelectedId(needsReview, null)).toBe(waiting.id);
     expect(rowsForTab([commented, waiting], 'reviewed').map(row => row.id)).toEqual([commented.id]);
+  });
+
+  it('increments the row comment count after a successful discussion post', () => {
+    const commented = reconcilePostedComment(
+      pr({ commentCount: 4 }),
+      { state: 'open', updatedAt: '2026-08-25T01:00:00Z' },
+      'discussion',
+      '2026-08-25T01:00:00Z',
+    );
+
+    expect(commented.commentCount).toBe(5);
   });
 
   it('moves a stale open row to Done when detail reports it merged', () => {

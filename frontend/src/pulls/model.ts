@@ -113,6 +113,18 @@ export function reconcilePullRequestDetail(
   return state === pr.state && updatedAt === pr.updatedAt ? pr : { ...pr, state, updatedAt };
 }
 
+export function reconcilePostedComment(
+  pr: PullRequestDto,
+  detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>,
+  kind: 'discussion' | 'review',
+  postedAt: string,
+): PullRequestDto {
+  const updated = reconcilePullRequestDetail(pr, detail);
+  return kind === 'discussion'
+    ? { ...updated, commentCount: updated.commentCount + 1 }
+    : { ...updated, handledAction: 'COMMENTED', reviewedAt: postedAt };
+}
+
 function pullRequestKind(state: string | null): PullRow['kind'] {
   const normalized = state?.toLowerCase();
   return normalized === 'merged' ? 'merged' : normalized === 'closed' ? 'closed' : 'open';

@@ -661,7 +661,7 @@ function registerIpc(): void {
     repo: string,
     number: number,
     comment: import('./types').InlineReviewCommentDto,
-  ) => backendVoid(prUrl('/prs/review-comment', repo, number), {
+  ) => backendJson(prUrl('/prs/review-comment', repo, number), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(comment),
@@ -673,7 +673,7 @@ function registerIpc(): void {
     body: string,
   ) => {
     const url = prUrl('/prs/comment', repo, number);
-    return backendVoid(url, {
+    return backendJson(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),

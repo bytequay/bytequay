@@ -116,7 +116,10 @@ public class SqlitePrDetailStore
         reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
 
         timelineRepo.deleteRemoteByPrId(prId);
-        timelineRepo.saveAll(detail.timeline().stream().map(event -> toEntity(prId, event)).collect(toImmutableList()));
+        timelineRepo.saveAll(detail.timeline().stream()
+                .filter(event -> event.localEventKey().isEmpty())
+                .map(event -> toEntity(prId, event))
+                .collect(toImmutableList()));
 
         checkRunRepo.deleteByPrId(prId);
         checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
@@ -167,6 +170,7 @@ public class SqlitePrDetailStore
 
         Set<Long> existingIds = new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
         timelineRepo.saveAll(detail.timeline().stream()
+                .filter(event -> event.localEventKey().isEmpty())
                 .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
                 .map(event -> toEntity(prId, event))
                 .collect(toImmutableList()));

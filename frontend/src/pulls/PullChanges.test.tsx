@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import type { DiffCommitDto, DiffFileDto } from '../types';
-import { DiffViewer, draggedLineSelection, nextLineSelection } from './PullChanges';
+import { describe, expect, it, vi } from 'vitest';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto } from '../types';
+import { DiffViewer, draggedLineSelection, nextLineSelection, submitInlineReviewComment } from './PullChanges';
 
 const commits: DiffCommitDto[] = [
   { sha: '1111111', parentSha: '0000000', message: 'First', author: 'alice', authoredAt: null },
@@ -47,7 +47,7 @@ describe('DiffViewer', () => {
         canReview: true,
         pendingComments: [],
         onPendingCommentsChange: () => {},
-        onReviewPosted: async () => {},
+        onDetailChange: () => {},
       }}
       loadFileContent={async () => ({ oldContent: '', newContent: '' })}
     />);
@@ -93,5 +93,26 @@ describe('DiffViewer', () => {
 
     expect(draggedLineSelection(anchor, null, 316)).toEqual({ side: 'RIGHT', start: 303, end: 316 });
     expect(draggedLineSelection({ ...anchor, oldLine: 303, newLine: null }, null, 316)).toBeNull();
+  });
+
+  it('applies the successful inline-comment response without refreshing files', async () => {
+    const updated = {} as PullRequestDetailDto;
+    const comment: InlineReviewCommentDto = {
+      path: 'src/Example.java',
+      body: 'Please simplify this',
+      line: 18,
+      side: 'RIGHT',
+      startLine: null,
+      startSide: null,
+      commitId: 'head-sha',
+    };
+    const postPrReviewComment = vi.fn(async () => updated);
+    const onDetailChange = vi.fn();
+
+    await submitInlineReviewComment(
+      { postPrReviewComment }, 'owner/repo', 42, comment, onDetailChange);
+
+    expect(postPrReviewComment).toHaveBeenCalledWith('owner/repo', 42, comment);
+    expect(onDetailChange).toHaveBeenCalledWith(updated);
   });
 });

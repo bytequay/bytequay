@@ -39,6 +39,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -63,6 +64,16 @@ public class GlobalExceptionHandler
         }
         String message = exception.getReason() != null ? exception.getReason() : statusCode.toString();
         return errorResponse(statusCode.value(), message, request.getRequestURI());
+    }
+
+    @ExceptionHandler(ResourceAccessException.class)
+    public ResponseEntity<ErrorResponse> handleResourceAccessException(ResourceAccessException exception, HttpServletRequest request)
+    {
+        log.warn("GitHub did not respond: {} ({})", request.getRequestURI(), exception.getMessage());
+        return errorResponse(
+                HttpStatus.SERVICE_UNAVAILABLE.value(),
+                "GitHub did not respond. Refresh before retrying; a submitted action may already have completed.",
+                request.getRequestURI());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

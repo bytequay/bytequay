@@ -223,13 +223,12 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/comment")
-    public Map<String, String> comment(
+    public PullRequestDetail comment(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody CommentRequest request)
     {
-        pullRequests.commentOnPullRequest(repo, number, request.body());
-        return ImmutableMap.of("result", "commented");
+        return pullRequests.commentOnPullRequest(repo, number, request.body());
     }
 
     @PostMapping("/prs/reactions")
@@ -310,13 +309,12 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/review-comment")
-    public Map<String, String> reviewComment(
+    public PullRequestDetail reviewComment(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody InlineReviewComment comment)
     {
-        pullRequests.createReviewComment(repo, number, comment);
-        return ImmutableMap.of("result", "commented");
+        return pullRequests.createReviewComment(repo, number, comment);
     }
 
     @PostMapping("/prs/merge")

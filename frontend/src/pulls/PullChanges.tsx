@@ -14,12 +14,15 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import type {
+  Bridge,
   DiffCommitDto,
   DiffFileContentDto,
   DiffFileDto,
   InlineReviewCommentDto,
+  PullRequestDetailDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
+import { remoteErrorMessage } from './PullOverview';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -34,7 +37,7 @@ type PullChangesProps = {
   pendingComments: InlineReviewCommentDto[];
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
-  onReviewPosted: () => Promise<void>;
+  onDetailChange: (detail: PullRequestDetailDto) => void;
 };
 
 type ReviewOptions = {
@@ -43,7 +46,7 @@ type ReviewOptions = {
   canReview: boolean;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
-  onReviewPosted: () => Promise<void>;
+  onDetailChange: (detail: PullRequestDetailDto) => void;
 };
 
 export type DiffViewerProps = {
@@ -71,7 +74,7 @@ export default function PullChanges({
   pendingComments,
   onCommitRangeChange,
   onPendingCommentsChange,
-  onReviewPosted,
+  onDetailChange,
 }: PullChangesProps) {
   return (
     <DiffViewer
@@ -86,7 +89,7 @@ export default function PullChanges({
         canReview,
         pendingComments,
         onPendingCommentsChange,
-        onReviewPosted,
+        onDetailChange,
       }}
       loadFileContent={(path, baseSha, headSha) =>
         window.bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha)}
@@ -412,13 +415,13 @@ function DiffFileCard({
     setPosting(true);
     setReviewError(null);
     try {
-      await window.bridge.postPrReviewComment(review.repo, review.number, value);
+      await submitInlineReviewComment(
+        window.bridge, review.repo, review.number, value, review.onDetailChange);
       setReviewBody('');
       setSelection(null);
-      await review.onReviewPosted();
     }
     catch (error) {
-      setReviewError(error instanceof Error ? error.message : String(error));
+      setReviewError(remoteErrorMessage(error));
     }
     finally {
       setPosting(false);
@@ -586,6 +589,16 @@ function DiffFileCard({
       )}
     </article>
   );
+}
+
+export async function submitInlineReviewComment(
+  bridge: Pick<Bridge, 'postPrReviewComment'>,
+  repo: string,
+  number: number,
+  comment: InlineReviewCommentDto,
+  onDetailChange: (detail: PullRequestDetailDto) => void,
+) {
+  onDetailChange(await bridge.postPrReviewComment(repo, number, comment));
 }
 
 type ReviewSide = 'LEFT' | 'RIGHT';

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay, returnedFromInAppBrowser } from './PullsScreen';
+import { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay, returnedFromInAppBrowser, showBlockingDetailLoading } from './PullsScreen';
 
 describe('mergePullRequestDetailStatus', () => {
   it('changes only mergeability and CI fields', () => {
@@ -52,5 +52,11 @@ describe('mergePullRequestDetailStatus', () => {
     expect(returnedFromInAppBrowser(false, true)).toBe(false);
     expect(returnedFromInAppBrowser(true, true)).toBe(false);
     expect(returnedFromInAppBrowser(true, false)).toBe(true);
+  });
+
+  it('keeps existing detail visible while it refreshes', () => {
+    expect(showBlockingDetailLoading(true, false)).toBe(true);
+    expect(showBlockingDetailLoading(true, true)).toBe(false);
+    expect(showBlockingDetailLoading(false, false)).toBe(false);
   });
 });

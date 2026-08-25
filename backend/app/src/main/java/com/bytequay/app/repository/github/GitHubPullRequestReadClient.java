@@ -731,7 +731,7 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    private static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c) {
+    static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c) {
         GitHubIssueComment.User user = c.user();
         return new PrTimelineEvent(
                 c.id(),
@@ -1021,6 +1021,11 @@ public class GitHubPullRequestReadClient
                         ImmutableList.of(),
                         replies),
                 Optional.empty());
+    }
+
+    static PrTimelineEvent toReviewThreadEvent(GitHubReviewComment comment)
+    {
+        return toReviewThreadEvent(ImmutableList.of(comment), null);
     }
 
     private static PrTimelineComment toTimelineComment(GitHubReviewComment comment)

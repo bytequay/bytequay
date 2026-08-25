@@ -32,6 +32,7 @@ import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.HandledAction;
+import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -540,11 +541,49 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
 
-        service.commentOnPullRequest("owner/repo", 7, "hello");
+        PullRequestDetail detail = service.commentOnPullRequest("owner/repo", 7, "hello");
 
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(12L), saved.capture());
         assertThat(saved.getValue().timeline()).contains(posted);
+        assertThat(detail.recentActivity())
+                .extracting(PullRequestDetail.ActivityItem::githubId)
+                .containsExactly(99L);
+        verify(detailStore, never()).deleteByPrIds(any());
+        verifyNoInteractions(diffStore, gitHub);
+    }
+
+    @Test
+    void postsInlineCommentAndReturnsPatchedCachedTimeline()
+    {
+        InlineReviewComment comment = new InlineReviewComment(
+                "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head");
+        PrTimelineEvent posted = new PrTimelineEvent(
+                99L, "review_thread", "me", Instant.now(), null, Optional.empty());
+        StoredPrDetail cached = stored();
+        cached = new StoredPrDetail(
+                cached.raw(),
+                cached.reviews(),
+                ImmutableList.of(posted),
+                cached.checkRuns(),
+                cached.unavailableSections(),
+                cached.viewerCanWrite());
+        when(writes.createReviewComment("pat", PullRequestRef.of("owner", "repo", 7), comment))
+                .thenReturn(posted);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(cached));
+
+        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, comment);
+
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(12L), saved.capture());
+        assertThat(saved.getValue().timeline()).containsExactly(posted);
+        assertThat(detail.recentActivity())
+                .extracting(PullRequestDetail.ActivityItem::githubId)
+                .containsExactly(99L);
+        verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
+        verify(detailStore, never()).deleteByPrIds(any());
+        verifyNoInteractions(diffStore, gitHub);
     }
 
     @Test

@@ -20,6 +20,7 @@ import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import {
   PULL_TABS,
   pullRequestNeedsReview,
+  reconcilePostedComment,
   reconcilePullRequestDetail,
   rowsForSearch,
   rowsForTab,
@@ -52,6 +53,10 @@ export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()
 
 export function returnedFromInAppBrowser(wasOpen: boolean, isOpen: boolean) {
   return wasOpen && !isOpen;
+}
+
+export function showBlockingDetailLoading(loading: boolean, hasDetail: boolean) {
+  return loading && !hasDetail;
 }
 
 export default function PullsScreen({
@@ -93,6 +98,7 @@ export default function PullsScreen({
   const openedInitialPr = useRef<string | null>(null);
   const routingInitialPr = useRef<string | null>(null);
   const detailSnapshot = useRef<string | null>(null);
+  const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
@@ -255,6 +261,9 @@ export default function PullsScreen({
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
   const selectedPrRepo = selectedPr?.repo;
+  selectedPullRequest.current = selectedPr === null
+    ? null
+    : { id: selectedPr.id, key: `${selectedPr.repo.toLowerCase()}#${selectedPr.number}` };
 
   useEffect(() => {
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) return;
@@ -407,6 +416,16 @@ export default function PullsScreen({
     }
   }, [applyDetail, applyPage, query, repositoryScope?.workspaceId, selectedPr]);
 
+  const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
+    const current = selectedPullRequest.current;
+    if (current?.key === `${value.repo.toLowerCase()}#${value.number}`) {
+      applyDetail(current.id, value, false);
+      setPrs(rows => rows.map(pr => pr.id === current.id
+        ? reconcilePostedComment(pr, value, kind, new Date().toISOString())
+        : pr));
+    }
+  }, [applyDetail]);
+
   useEffect(() => {
     const returned = returnedFromInAppBrowser(browserWasOpen.current, browserOpen);
     browserWasOpen.current = browserOpen;
@@ -532,7 +551,7 @@ export default function PullsScreen({
             onPendingCommentsChange={setPendingReviewComments}
           />
           {error && <div className="pull-detail__error">{error}</div>}
-          {detailLoading ? (
+          {showBlockingDetailLoading(detailLoading, detail !== null) ? (
             <div className="pull-detail__loading">Loading details…</div>
           ) : detail === null ? (
             !error && <div className="pull-detail__loading">Select a pull request.</div>
@@ -550,6 +569,8 @@ export default function PullsScreen({
               onPendingCommentsChange={setPendingReviewComments}
               contributorsWorkspaceId={repositoryScope?.workspaceId}
               onRefresh={refresh}
+              onDiscussionPosted={value => applyPostedDetail(value, 'discussion')}
+              onReviewPosted={value => applyPostedDetail(value, 'review')}
             />
           )}
         </section>
@@ -1045,6 +1066,8 @@ function DetailBody({
   onPendingCommentsChange,
   contributorsWorkspaceId,
   onRefresh,
+  onDiscussionPosted,
+  onReviewPosted,
 }: {
   tab: DetailTab;
   pr: PullRequestDto;
@@ -1058,6 +1081,8 @@ function DetailBody({
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDiscussionPosted: (detail: PullRequestDetailDto) => void;
+  onReviewPosted: (detail: PullRequestDetailDto) => void;
 }) {
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
@@ -1072,7 +1097,7 @@ function DetailBody({
       pendingComments={pendingComments}
       onCommitRangeChange={onCommitRangeChange}
       onPendingCommentsChange={onPendingCommentsChange}
-      onReviewPosted={onRefresh}
+      onDetailChange={onReviewPosted}
     /></div>;
   }
   return <div className="pull-detail__body"><PullOverview
@@ -1080,6 +1105,7 @@ function DetailBody({
     detail={detail}
     contributorsWorkspaceId={contributorsWorkspaceId}
     onRefresh={onRefresh}
+    onDetailChange={onDiscussionPosted}
   /></div>;
 }
 

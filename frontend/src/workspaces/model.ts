@@ -41,6 +41,9 @@ export type Workspace = {
 
 export type WorkspacePhase = 'preparing' | 'ready';
 
+export type WorkspaceTab =
+  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'memory' | 'settings';
+
 export function workspaceFromDto(dto: WorkspaceDto): Workspace {
   return {
     id: dto.id,
@@ -91,26 +94,36 @@ export function workspaceHasReadableCode(workspace: Workspace): boolean {
   return workspace.lastCodeSyncAt !== null;
 }
 
-export function workspaceRoute(workspaceId: string): string {
-  return `#/workspaces/${encodeURIComponent(workspaceId)}`;
+export function workspaceRoute(workspaceId: string, tab: WorkspaceTab = 'home'): string {
+  const base = `#/workspaces/${encodeURIComponent(workspaceId)}`;
+  return tab === 'home' ? base : `${base}/${tab}`;
 }
 
 export function workspaceIssueRoute(workspaceId: string, issueNumber: number): string {
-  return `${workspaceRoute(workspaceId)}/issues/${issueNumber}`;
+  return `${workspaceRoute(workspaceId, 'issues')}/${issueNumber}`;
+}
+
+export function workspacePullRequestRoute(workspaceId: string, pullRequestNumber: number): string {
+  return `${workspaceRoute(workspaceId, 'prs')}/${pullRequestNumber}`;
 }
 
 export function workspaceLocationFromRoute(hash: string): {
   workspaceId: string;
-  tab: 'issues' | null;
+  tab: WorkspaceTab | null;
+  pullRequestNumber: number | null;
   issueNumber: number | null;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(issues)(?:\/(\d+))?)?$/.exec(hash);
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|memory|settings)(?:\/(\d+))?)?$/.exec(hash);
   if (!match) return null;
+  const tab = match[2] as WorkspaceTab | undefined;
+  const number = match[3] ? Number(match[3]) : null;
+  if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
   try {
     return {
       workspaceId: decodeURIComponent(match[1]),
-      tab: match[2] === 'issues' ? 'issues' : null,
-      issueNumber: match[3] ? Number(match[3]) : null,
+      tab: tab ?? null,
+      pullRequestNumber: tab === 'prs' ? number : null,
+      issueNumber: tab === 'issues' ? number : null,
     };
   }
   catch {

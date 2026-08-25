@@ -75,7 +75,10 @@ describe('watched repository workspace UI', () => {
       workspace: value,
       onSelectTab: () => {},
       onWorkspaceChanged: () => {},
+      initialPullRequestNumber: null as number | null,
       initialIssueNumber: null as number | null,
+      onSelectPullRequest: () => {},
+      onSelectIssue: () => {},
       onRemoved: () => {},
     };
 

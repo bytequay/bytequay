@@ -14,8 +14,7 @@
 import { useState, type ReactNode } from 'react';
 import Avatar from './Avatar';
 import { useResizablePane } from './useResizablePane';
-import type { WorkspaceTab } from './workspaces/WorkspaceShell';
-import { workspaceHasReadableCode, workspacePhaseColor, type Workspace } from './workspaces/model';
+import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, type Workspace, type WorkspaceTab } from './workspaces/model';
 
 export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
 
@@ -37,12 +36,20 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
 export default function AppSidebar({
   page,
   onNavigate,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
   workspace,
   workspaceTab,
   onWorkspaceTab,
 }: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
   workspace: Workspace | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
@@ -134,6 +141,10 @@ export default function AppSidebar({
           </>
         )}
       </div>
+      <div className="app-sidebar__history" role="group" aria-label="View history">
+        <button type="button" aria-label="Back" title="Back (⌘[)" disabled={!canGoBack} onClick={onBack}>‹</button>
+        <button type="button" aria-label="Forward" title="Forward (⌘])" disabled={!canGoForward} onClick={onForward}>›</button>
+      </div>
       {workspace === null ? (
         <>
           <div className="app-sidebar__brand app-sidebar__label">BYTEQUAY</div>
@@ -152,9 +163,11 @@ export default function AppSidebar({
             <span
               className="app-sidebar__ws-dot"
               style={{ background: workspacePhaseColor(workspace) }}
-              aria-hidden="true"
+              role="img"
+              aria-label={`Workspace ${workspacePhaseLabel(workspace).toLowerCase()}`}
+              title={`Workspace ${workspacePhaseLabel(workspace).toLowerCase()}`}
             />
-            <span className="app-sidebar__ws-name app-sidebar__label">{workspace.name}</span>
+            <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </div>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}

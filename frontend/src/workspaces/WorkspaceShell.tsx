@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Avatar from '../Avatar';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
+import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
@@ -28,28 +29,31 @@ import {
   workspacePhaseColor,
   workspacePhaseLabel,
   type Workspace,
+  type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
 
-export type WorkspaceTab =
-  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'memory' | 'settings';
-
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialIssueNumber, browserOpen = false, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, browserOpen = false, onSelectPullRequest, onSelectIssue, onRemoved }: {
   workspace: Workspace;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: Workspace) => void;
+  initialPullRequestNumber: number | null;
   initialIssueNumber: number | null;
   browserOpen?: boolean;
+  onSelectPullRequest: (number: number, mode: NavigationMode) => void;
+  onSelectIssue: (number: number, mode: NavigationMode) => void;
   onRemoved: () => void;
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
-  const [openPullRequestNumber, setOpenPullRequestNumber] = useState<number | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
   const [initialPullsTab, setInitialPullsTab] = useState<PullTab | null>(null);
+  const selectScopedPullRequest = useCallback((reference: { number: number }, mode: NavigationMode) => {
+    onSelectPullRequest(reference.number, mode);
+  }, [onSelectPullRequest]);
 
-  // Home-card jumps are one-shot: leaving the target tab forgets them, so the
+  // Cross-tab jumps are one-shot: leaving the target tab forgets them, so the
   // next visit starts on that tab's default view again.
   useEffect(() => {
     if (tab !== 'commits') {
@@ -82,8 +86,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         initialSourceSelection={commitSourceSelection}
         onSourceSelectionChange={setCommitSourceSelection}
         onOpenPullRequest={number => {
-          setOpenPullRequestNumber(number);
-          onSelectTab('prs');
+          onSelectPullRequest(number, 'push');
         }}
         onOpenSettings={() => onSelectTab('settings')}
       />
@@ -93,12 +96,13 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
     return (
       <PullsScreen
-        initialPr={openPullRequestNumber === null
+        initialPr={initialPullRequestNumber === null
           ? undefined
-          : { repo: repository, number: openPullRequestNumber }}
+          : { repo: repository, number: initialPullRequestNumber }}
         initialTab={initialPullsTab ?? undefined}
         repositoryScope={{ workspaceId: workspace.id, repository }}
         browserOpen={browserOpen}
+        onSelectPullRequest={selectScopedPullRequest}
       />
     );
   }
@@ -107,6 +111,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       workspaceId={workspace.id}
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       initialIssueNumber={initialIssueNumber}
+      onSelectIssue={onSelectIssue}
     />;
   }
   if (tab === 'tasks') {

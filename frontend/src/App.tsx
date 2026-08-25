@@ -11,22 +11,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import HomePage from './home/HomePage';
 import { pullRequestFromRoute, pullRequestRoute } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
+import {
+  canGoBack,
+  canGoForward,
+  INITIAL_NAVIGATION,
+  navigationIndex,
+  navigationShortcutDirection,
+  popNavigation,
+  pushNavigation,
+  stampNavigationState,
+  type NavigationMode,
+} from './navigationHistory';
 import OnboardingScreen from './OnboardingScreen';
 import PullsScreen from './pulls/PullsScreen';
 import SettingsShell from './settings/SettingsShell';
 import WorkspacesPage from './workspaces/WorkspacesPage';
-import WorkspaceShell, { type WorkspaceTab } from './workspaces/WorkspaceShell';
+import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
   workspaceFromDto,
+  workspaceIssueRoute,
   workspaceLocationFromRoute,
+  workspacePullRequestRoute,
   workspaceRoute,
   type Workspace,
+  type WorkspaceTab,
 } from './workspaces/model';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
@@ -42,9 +56,42 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
+  const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
+  const workspaceRef = useRef(workspace);
+  const navigationSession = useRef(crypto.randomUUID());
+  const navigationRef = useRef(INITIAL_NAVIGATION);
+  const [navigation, setNavigation] = useState(INITIAL_NAVIGATION);
+
+  const updateWorkspace = useCallback((next: Workspace | null) => {
+    workspaceRef.current = next;
+    setWorkspace(next);
+  }, []);
+
+  const replaceCurrentRoute = useCallback((hash: string) => {
+    if (window.location.hash === hash) return;
+    window.history.replaceState(
+      stampNavigationState(window.history.state, navigationSession.current, navigationRef.current.index, hash),
+      '',
+      hash,
+    );
+  }, []);
+
+  const navigateTo = useCallback((hash: string, mode: NavigationMode) => {
+    if (mode === 'replace') replaceCurrentRoute(hash);
+    else if (window.location.hash !== hash) window.location.hash = hash;
+  }, [replaceCurrentRoute]);
+
+  useEffect(() => {
+    const hash = window.location.hash || '#/home';
+    window.history.replaceState(
+      stampNavigationState(window.history.state, navigationSession.current, 0, hash),
+      '',
+      hash,
+    );
+  }, []);
 
   useEffect(() => {
     void window.bridge.hasPat().then(hasPat => setStatus(hasPat ? 'ready' : 'needs-pat'));
@@ -64,7 +111,8 @@ export default function App() {
       const workspaceLocation = workspaceLocationFromRoute(window.location.hash);
       if (!workspaceLocation) {
         request++;
-        setWorkspace(null);
+        updateWorkspace(null);
+        setInitialWorkspacePrNumber(null);
         setInitialIssueNumber(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
         setInitialPr(pullRequest ?? undefined);
@@ -73,24 +121,83 @@ export default function App() {
       }
       const current = ++request;
       setPage('workspaces');
-      setWorkspace(null);
+      setInitialPr(undefined);
       setWorkspaceTab(workspaceLocation.tab ?? 'home');
+      setInitialWorkspacePrNumber(workspaceLocation.pullRequestNumber);
       setInitialIssueNumber(workspaceLocation.issueNumber);
+      if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
+      updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
         .then(details => {
-          if (request === current) setWorkspace(workspaceFromDto(details.summary));
+          if (request === current) updateWorkspace(workspaceFromDto(details.summary));
         })
         .catch(() => {
-          if (request === current) window.location.hash = '#/workspaces';
+          if (request === current) {
+            updateWorkspace(null);
+            setWorkspaceTab('home');
+            setInitialWorkspacePrNumber(null);
+            setInitialIssueNumber(null);
+            replaceCurrentRoute('#/workspaces');
+          }
         });
     };
+    const applyHistoryRoute = () => {
+      const hash = window.location.hash || '#/home';
+      const index = navigationIndex(window.history.state, navigationSession.current, hash);
+      const next = index === null
+        ? pushNavigation(navigationRef.current)
+        : popNavigation(navigationRef.current, index);
+      if (index === null) {
+        window.history.replaceState(
+          stampNavigationState(window.history.state, navigationSession.current, next.index, hash),
+          '',
+          hash,
+        );
+      }
+      navigationRef.current = next;
+      setNavigation(next);
+      applyRoute();
+    };
     applyRoute();
-    window.addEventListener('hashchange', applyRoute);
+    window.addEventListener('hashchange', applyHistoryRoute);
     return () => {
       request++;
-      window.removeEventListener('hashchange', applyRoute);
+      window.removeEventListener('hashchange', applyHistoryRoute);
     };
-  }, [status]);
+  }, [replaceCurrentRoute, status, updateWorkspace]);
+
+  useEffect(() => {
+    if (status !== 'ready' || browserUrl !== null) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const direction = navigationShortcutDirection(event);
+      if (direction === 0) return;
+      event.preventDefault();
+      if (direction < 0 && canGoBack(navigationRef.current)) window.history.back();
+      if (direction > 0 && canGoForward(navigationRef.current)) window.history.forward();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [browserUrl, status]);
+
+  const selectGlobalPullRequest = useCallback((reference: { repo: string; number: number }, mode: NavigationMode) => {
+    const slash = reference.repo.indexOf('/');
+    if (slash < 1) return;
+    navigateTo(pullRequestRoute({
+      owner: reference.repo.slice(0, slash),
+      repo: reference.repo.slice(slash + 1),
+      number: reference.number,
+    }), mode);
+  }, [navigateTo]);
+
+  const selectWorkspacePullRequest = useCallback((number: number, mode: NavigationMode) => {
+    const current = workspaceRef.current;
+    if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
+  }, [navigateTo]);
+
+  const selectWorkspaceIssue = useCallback((number: number, mode: NavigationMode) => {
+    const current = workspaceRef.current;
+    if (current) navigateTo(workspaceIssueRoute(current.id, number), mode);
+  }, [navigateTo]);
 
   if (status === 'checking') return <LogoLoading />;
   if (status === 'needs-pat') {
@@ -99,7 +206,7 @@ export default function App() {
 
   const openPr = (owner: string, repo: string, number?: number) => {
     setInitialPr(number === undefined ? undefined : { repo: `${owner}/${repo}`, number });
-    setWorkspace(null);
+    updateWorkspace(null);
     setPage('pulls');
     window.location.hash = number === undefined
       ? '#/pulls'
@@ -112,12 +219,12 @@ export default function App() {
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
   const selectWorkspaceTab = (next: WorkspaceTab) => {
+    if (next === workspaceTab) return;
     setWorkspaceTab(next);
+    setInitialWorkspacePrNumber(null);
     setInitialIssueNumber(null);
     if (workspace) {
-      window.history.replaceState(null, '', next === 'issues'
-        ? `${workspaceRoute(workspace.id)}/issues`
-        : workspaceRoute(workspace.id));
+      window.location.hash = workspaceRoute(workspace.id, next);
     }
   };
 
@@ -125,9 +232,14 @@ export default function App() {
     <div className="app-shell">
       <AppSidebar
         page={page}
+        canGoBack={canGoBack(navigation)}
+        canGoForward={canGoForward(navigation)}
+        onBack={() => window.history.back()}
+        onForward={() => window.history.forward()}
         onNavigate={next => {
+          if (next === page && workspace === null) return;
           setPage(next);
-          setWorkspace(null);
+          updateWorkspace(null);
           window.location.hash = `#/${next}`;
         }}
         workspace={inWorkspace ? workspace : null}
@@ -146,7 +258,13 @@ export default function App() {
             onOpenWorkspace={openWorkspace}
           />
         )}
-        {page === 'pulls' && <PullsScreen initialPr={initialPr} browserOpen={browserUrl !== null} />}
+        {page === 'pulls' && (
+          <PullsScreen
+            initialPr={initialPr}
+            browserOpen={browserUrl !== null}
+            onSelectPullRequest={selectGlobalPullRequest}
+          />
+        )}
         {page === 'workspaces' && workspace === null && (
           <WorkspacesPage
             onOpen={openWorkspace}
@@ -158,9 +276,12 @@ export default function App() {
             workspace={workspace}
             tab={workspaceTab}
             onSelectTab={selectWorkspaceTab}
-            onWorkspaceChanged={setWorkspace}
+            onWorkspaceChanged={updateWorkspace}
+            initialPullRequestNumber={initialWorkspacePrNumber}
             initialIssueNumber={initialIssueNumber}
             browserOpen={browserUrl !== null}
+            onSelectPullRequest={selectWorkspacePullRequest}
+            onSelectIssue={selectWorkspaceIssue}
             onRemoved={() => { window.location.hash = '#/workspaces'; }}
           />
         )}

@@ -20,6 +20,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
+import type { NavigationMode } from '../navigationHistory';
 import MarkdownBody from '../pulls/MarkdownBody';
 import {
   CardHeader,
@@ -52,10 +53,11 @@ const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue }: {
   workspaceId: string;
   repository: string;
   initialIssueNumber: number | null;
+  onSelectIssue: (number: number, mode: NavigationMode) => void;
 }) {
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
@@ -73,6 +75,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
+  const routingInitialIssue = useRef<number | null>(null);
 
   const apply = useCallback((value: RepositoryIssueSnapshotDto) => {
     setSnapshot(value);
@@ -190,8 +193,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   }, [apply, workspaceId]);
 
   useEffect(() => {
-    if (loading || initialIssueNumber === null || openedInitialIssue.current === initialIssueNumber) return;
+    if (initialIssueNumber === null) {
+      routingInitialIssue.current = null;
+      return;
+    }
+    if (loading || openedInitialIssue.current === initialIssueNumber) return;
     openedInitialIssue.current = initialIssueNumber;
+    routingInitialIssue.current = initialIssueNumber;
     const local = snapshot?.issues.find(issue => issue.number === initialIssueNumber);
     if (local) {
       setSelectedId(local.id);
@@ -241,6 +249,15 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
 
   const selected = snapshot?.issues.find(issue => issue.id === selectedId) ?? null;
   const selectedNumber = selected?.number ?? null;
+
+  useEffect(() => {
+    if (selectedNumber === null) return;
+    if (routingInitialIssue.current !== null) {
+      if (routingInitialIssue.current === selectedNumber) routingInitialIssue.current = null;
+      return;
+    }
+    onSelectIssue(selectedNumber, 'replace');
+  }, [onSelectIssue, selectedNumber]);
 
   useEffect(() => {
     setTimeline([]);
@@ -315,7 +332,11 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           {!loading && snapshot?.issues.length === 0 && <div className="hp-empty">No open issues for {repository}.</div>}
           {snapshot?.issues.map(issue => (
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
-              selected={issue.id === selectedId} onPick={() => { setSelectedId(issue.id); setPaneOpen(true); }} />
+              selected={issue.id === selectedId} onPick={() => {
+                onSelectIssue(issue.number, 'push');
+                setSelectedId(issue.id);
+                setPaneOpen(true);
+              }} />
           ))}
           {loadingMore && <div className="issues-page-loading">Loading more…</div>}
         </div>

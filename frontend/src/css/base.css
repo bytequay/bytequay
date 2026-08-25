@@ -569,6 +569,36 @@ samp {
 }
 
 .app-sidebar__toggle:hover { color: var(--text-2); }
+
+.app-sidebar__history {
+  display: flex;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 4px;
+  -webkit-app-region: no-drag;
+}
+
+.app-sidebar__history button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.app-sidebar__history button:hover:not(:disabled) { background: var(--left-nav-hover-bg); }
+.app-sidebar__history button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.app-sidebar__history button:disabled { color: var(--text-4); cursor: default; }
+
 .app-sidebar__nav {
   display: flex;
   flex-direction: column;
@@ -656,7 +686,7 @@ samp {
 
 .app-sidebar__ws-name {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
@@ -670,5 +700,7 @@ samp {
 .app-sidebar.is-collapsed .app-sidebar__ws-head { justify-content: center; padding: 8px 0 10px; }
 .app-sidebar.is-collapsed .app-sidebar__traffic { justify-content: center; padding: 0; }
 .app-sidebar.is-collapsed .app-sidebar__toggle { margin-left: 0; }
+.app-sidebar.is-collapsed .app-sidebar__history { justify-content: center; padding-right: 3px; padding-left: 3px; }
+.app-sidebar.is-collapsed .app-sidebar__history button { width: 20px; }
 .app-sidebar.is-collapsed .app-sidebar__nav { padding: 6px; }
 .app-sidebar.is-collapsed .app-sidebar__item { justify-content: center; gap: 0; padding: 7px 0; }

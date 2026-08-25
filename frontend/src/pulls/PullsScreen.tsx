@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import type { NavigationMode } from '../navigationHistory';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
@@ -58,12 +59,14 @@ export default function PullsScreen({
   initialTab,
   repositoryScope,
   browserOpen = false,
+  onSelectPullRequest,
 }: {
   initialPr?: { repo: string; number: number };
   /** Filter tab to open on (from the Home review card). */
   initialTab?: PullTab;
   repositoryScope?: { workspaceId: string; repository: string };
   browserOpen?: boolean;
+  onSelectPullRequest: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
@@ -88,6 +91,7 @@ export default function PullsScreen({
   const loadingMoreRequest = useRef(false);
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
+  const routingInitialPr = useRef<string | null>(null);
   const detailSnapshot = useRef<string | null>(null);
   const listRequest = useRef(0);
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
@@ -212,10 +216,15 @@ export default function PullsScreen({
   }, [hasMore, loadMore]);
 
   useEffect(() => {
-    if (!initialPr || loading) return;
+    if (!initialPr) {
+      routingInitialPr.current = null;
+      return;
+    }
+    if (loading) return;
     const initialPrKey = `${initialPr.repo.toLowerCase()}#${initialPr.number}`;
     if (openedInitialPr.current === initialPrKey) return;
     openedInitialPr.current = initialPrKey;
+    routingInitialPr.current = initialPrKey;
     const match = prs.find(pr => pr.repo.toLowerCase() === initialPr.repo.toLowerCase()
       && pr.number === initialPr.number);
     if (match) {
@@ -246,6 +255,16 @@ export default function PullsScreen({
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
   const selectedPrRepo = selectedPr?.repo;
+
+  useEffect(() => {
+    if (selectedPrNumber === undefined || selectedPrRepo === undefined) return;
+    const selectedKey = `${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
+    if (routingInitialPr.current !== null) {
+      if (routingInitialPr.current === selectedKey) routingInitialPr.current = null;
+      return;
+    }
+    onSelectPullRequest({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
+  }, [onSelectPullRequest, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) {
@@ -327,6 +346,7 @@ export default function PullsScreen({
   }, [detailTab, selectedPr, diffs]);
 
   const pick = (row: PullRow) => {
+    onSelectPullRequest({ repo: row.repo, number: row.num }, 'push');
     setSelected(row.id);
     setDetailTab('overview');
     setDiffs(null);

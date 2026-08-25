@@ -20,6 +20,7 @@ import {
   workspaceIssueRoute,
   workspaceLocationFromRoute,
   workspacePhaseLabel,
+  workspacePullRequestRoute,
   workspaceRoute,
 } from './model';
 
@@ -74,8 +75,30 @@ describe('workspaceFromDto', () => {
     expect(workspaceLocationFromRoute(issueRoute)).toEqual({
       workspaceId: 'workspace/id',
       tab: 'issues',
+      pullRequestNumber: null,
       issueNumber: 42,
     });
+
+    const pullRequestRoute = workspacePullRequestRoute('workspace/id', 7);
+    expect(pullRequestRoute).toBe('#/workspaces/workspace%2Fid/prs/7');
+    expect(workspaceLocationFromRoute(pullRequestRoute)).toEqual({
+      workspaceId: 'workspace/id',
+      tab: 'prs',
+      pullRequestNumber: 7,
+      issueNumber: null,
+    });
+  });
+
+  it('round-trips every workspace tab through the renderer route', () => {
+    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits', 'memory', 'settings'] as const) {
+      const route = workspaceRoute('workspace/id', tab);
+      expect(workspaceLocationFromRoute(route)).toEqual({
+        workspaceId: 'workspace/id',
+        tab: tab === 'home' ? null : tab,
+        pullRequestNumber: null,
+        issueNumber: null,
+      });
+    }
   });
 });
 

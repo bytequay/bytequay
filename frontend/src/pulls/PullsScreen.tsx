@@ -101,6 +101,7 @@ export default function PullsScreen({
   const detailSnapshot = useRef<string | null>(null);
   const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
+  const diffRequest = useRef(0);
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
 
@@ -113,9 +114,11 @@ export default function PullsScreen({
       ? reconcilePullRequestDetail(pr, value)
       : pr));
     if (refreshDiff) {
+      diffRequest.current += 1;
       setDiffs(null);
       setDiffCommits([]);
       setDiffRange(null);
+      setDiffLoading(false);
     }
     return true;
   }, []);
@@ -346,26 +349,34 @@ export default function PullsScreen({
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
+    const request = ++diffRequest.current;
     setDiffLoading(true);
     Promise.all([
       window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number),
       window.bridge.fetchPrDiffCommits(selectedPr.repo, selectedPr.number),
     ])
       .then(([files, commits]) => {
+        if (request !== diffRequest.current) return;
         setDiffs(files);
         setDiffCommits(commits);
       })
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setDiffLoading(false));
+      .catch(e => {
+        if (request === diffRequest.current) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (request === diffRequest.current) setDiffLoading(false);
+      });
   }, [detailTab, selectedPr, diffs]);
 
   const pick = (row: PullRow) => {
     onSelectPullRequest({ repo: row.repo, number: row.num }, 'push');
+    diffRequest.current += 1;
     setSelected(row.id);
     setDetailTab('overview');
     setDiffs(null);
     setDiffCommits([]);
     setDiffRange(null);
+    setDiffLoading(false);
     setPendingReviewComments([]);
   };
 
@@ -378,16 +389,24 @@ export default function PullsScreen({
       return;
     }
     setDiffRange(range);
+    setDiffs([]);
     setPendingReviewComments([]);
     setDiffLoading(true);
     setError(null);
-    const request = range === null
+    const request = ++diffRequest.current;
+    const filesRequest = range === null
       ? window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number)
       : window.bridge.refreshPrDiffFiles(selectedPr.repo, selectedPr.number, start?.parentSha, end?.sha);
-    request
-      .then(setDiffs)
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setDiffLoading(false));
+    filesRequest
+      .then(files => {
+        if (request === diffRequest.current) setDiffs(files);
+      })
+      .catch(e => {
+        if (request === diffRequest.current) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (request === diffRequest.current) setDiffLoading(false);
+      });
   };
 
   const refresh = useCallback(async () => {

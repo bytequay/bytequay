@@ -22,7 +22,7 @@ import type {
   PullRequestDetailDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
-import { remoteErrorMessage } from './PullOverview';
+import { relativeTime, remoteErrorMessage } from './PullOverview';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -244,46 +244,71 @@ function CommitPicker({ commits, range, onChange }: {
   onChange: (range: CommitRange) => void;
 }) {
   if (commits.length === 0) return null;
-  const start = range?.start ?? 0;
-  const end = range?.end ?? commits.length - 1;
-  const label = range === null
-    ? 'All commits'
-    : start === end
-      ? commits[start].sha.slice(0, 7)
-      : `${commits[start].sha.slice(0, 7)}…${commits[end].sha.slice(0, 7)}`;
+  const selectedCount = range === null ? commits.length : range.end - range.start + 1;
 
   return (
     <details className="pull-commit-picker">
-      <summary>Commits: {label}</summary>
+      <summary aria-label={`Choose commits, ${selectedCount} selected`}>
+        <CommitPickerIcon />
+        <span>Commits</span>
+        <span>{selectedCount}</span>
+      </summary>
       <div className="pull-commit-picker__menu">
-        <button type="button" className={range === null ? 'is-active' : ''} onClick={() => onChange(null)}>
-          All commits
+        <button
+          type="button"
+          className="pull-commit-picker__all"
+          aria-pressed={range === null}
+          onClick={() => { if (range !== null) onChange(null); }}
+        >
+          <span className="pull-commit-picker__check" aria-hidden="true">
+            {range === null && <CheckIcon />}
+          </span>
+          <span>All commits</span>
+          <span>{commits.length} {commits.length === 1 ? 'commit' : 'commits'}</span>
         </button>
-        <label>
-          From
-          <select value={start} onChange={event => {
-            const nextStart = Number(event.target.value);
-            onChange({ start: nextStart, end: Math.max(nextStart, end) });
-          }}>
-            {commits.map((commit, index) => (
-              <option value={index} key={commit.sha}>{index + 1}. {commit.message ?? commit.sha.slice(0, 7)}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          To
-          <select value={end} onChange={event => onChange({ start, end: Number(event.target.value) })}>
-            {commits.map((commit, index) => (
-              <option value={index} disabled={index < start} key={commit.sha}>
-                {index + 1}. {commit.message ?? commit.sha.slice(0, 7)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <small>Commit ranges are consecutive.</small>
+        <div className="pull-commit-picker__divider" />
+        <div className="pull-commit-picker__list" role="group"
+          aria-label="Select a consecutive commit range; commits between selected endpoints are included">
+          {commits.map((commit, index) => {
+            const selected = range !== null && index >= range.start && index <= range.end;
+            const subject = commit.message?.split(/\r?\n/, 1)[0].trim() || 'Untitled commit';
+            const age = relativeTime(commit.authoredAt);
+            return (
+              <label className={`pull-commit-picker__row${selected ? ' is-selected' : ''}`} key={commit.sha}
+                title={subject}>
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  aria-label={`${selected ? 'Deselect' : 'Select'} ${commit.sha.slice(0, 7)}: ${subject}`}
+                  onChange={() => {
+                    const next = nextCommitRange(range, index, commits.length);
+                    if (next !== range) onChange(next);
+                  }}
+                />
+                <code>{commit.sha.slice(0, 7)}</code>
+                <span>{subject}</span>
+                {commit.authoredAt && <time dateTime={commit.authoredAt}>{age}</time>}
+              </label>
+            );
+          })}
+        </div>
       </div>
     </details>
   );
+}
+
+export function nextCommitRange(range: CommitRange, index: number, commitCount: number): CommitRange {
+  if (!Number.isInteger(index) || index < 0 || index >= commitCount) return range;
+  if (range === null) return { start: index, end: index };
+  if (index < range.start) return { start: index, end: range.end };
+  if (index > range.end) return { start: range.start, end: index };
+  if (range.start === range.end) return null;
+  if (index === range.start) return { start: range.start + 1, end: range.end };
+  if (index === range.end) return { start: range.start, end: range.end - 1 };
+  // Clearing an interior commit trims the nearer side because the diff API cannot represent a gap.
+  return index - range.start <= range.end - index
+    ? { start: index + 1, end: range.end }
+    : { start: range.start, end: index - 1 };
 }
 
 function DiffFileCard({
@@ -666,6 +691,24 @@ function PanelIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M9 4v16" />
+    </svg>
+  );
+}
+
+function CommitPickerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+      <path d="M2 8h3m6 0h3" /><circle cx="8" cy="8" r="2.5" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3 8.5 3 3 7-7" />
     </svg>
   );
 }

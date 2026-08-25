@@ -14,12 +14,18 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto } from '../types';
-import { DiffViewer, draggedLineSelection, nextLineSelection, submitInlineReviewComment } from './PullChanges';
+import {
+  DiffViewer,
+  draggedLineSelection,
+  nextCommitRange,
+  nextLineSelection,
+  submitInlineReviewComment,
+} from './PullChanges';
 
 const commits: DiffCommitDto[] = [
-  { sha: '1111111', parentSha: '0000000', message: 'First', author: 'alice', authoredAt: null },
-  { sha: '2222222', parentSha: '1111111', message: 'Second', author: 'bob', authoredAt: null },
-  { sha: '3333333', parentSha: '2222222', message: 'Third', author: 'carol', authoredAt: null },
+  { sha: '1111111', parentSha: '0000000', message: 'First', author: 'alice', authoredAt: '2026-08-25T10:00:00Z' },
+  { sha: '2222222', parentSha: '1111111', message: 'Second', author: 'bob', authoredAt: '2026-06-20T10:00:00Z' },
+  { sha: '3333333', parentSha: '2222222', message: 'Third', author: 'carol', authoredAt: '2026-08-26T09:00:00Z' },
 ];
 
 const file: DiffFileDto = {
@@ -60,18 +66,25 @@ describe('DiffViewer', () => {
     expect(html.match(/pull-diff-code__line-column/g)).toHaveLength(2);
   });
 
-  it('offers all commits or a consecutive commit range', () => {
+  it('offers a Copilot-style consecutive commit range', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-26T10:00:00Z'));
     const html = renderToStaticMarkup(<DiffViewer
       files={[file]}
       commits={commits}
       commitRange={{ start: 1, end: 2 }}
       onCommitRangeChange={() => {}}
     />);
+    now.mockRestore();
 
-    expect(html).toContain('Commits: 2222222…3333333');
-    expect(html).toContain('All commits');
-    expect(html).toContain('Commit ranges are consecutive.');
-    expect(html).toContain('<option value="0" disabled="">1. First</option>');
+    expect(html).toContain('aria-label="Choose commits, 2 selected"');
+    expect(html).toContain('<span>Commits</span><span>2</span>');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('<span>3 commits</span>');
+    expect(html).toContain('role="group" aria-label="Select a consecutive commit range; commits between selected endpoints are included"');
+    expect(html).toContain('<code>2222222</code><span>Second</span><time dateTime="2026-06-20T10:00:00Z">2mo ago</time>');
+    expect(html.match(/type="checkbox"/g)).toHaveLength(3);
+    expect(html.match(/checked=""/g)).toHaveLength(2);
+    expect(html).not.toContain('<select');
   });
 
   it('selects a consecutive range on one side of the diff', () => {
@@ -114,5 +127,30 @@ describe('DiffViewer', () => {
 
     expect(postPrReviewComment).toHaveBeenCalledWith('owner/repo', 42, comment);
     expect(onDetailChange).toHaveBeenCalledWith(updated);
+  });
+});
+
+describe('nextCommitRange', () => {
+  it('starts a range and expands it through every commit between its endpoints', () => {
+    expect(nextCommitRange(null, 2, 5)).toEqual({ start: 2, end: 2 });
+    expect(nextCommitRange({ start: 2, end: 2 }, 4, 5)).toEqual({ start: 2, end: 4 });
+    expect(nextCommitRange({ start: 2, end: 4 }, 0, 5)).toEqual({ start: 0, end: 4 });
+  });
+
+  it('shrinks range endpoints and returns a single selection to all commits', () => {
+    expect(nextCommitRange({ start: 1, end: 3 }, 1, 5)).toEqual({ start: 2, end: 3 });
+    expect(nextCommitRange({ start: 1, end: 3 }, 3, 5)).toEqual({ start: 1, end: 2 });
+    expect(nextCommitRange({ start: 2, end: 2 }, 2, 5)).toBeNull();
+  });
+
+  it('trims the nearer edge when an interior commit is deselected', () => {
+    expect(nextCommitRange({ start: 0, end: 4 }, 1, 5)).toEqual({ start: 2, end: 4 });
+    expect(nextCommitRange({ start: 0, end: 4 }, 3, 5)).toEqual({ start: 0, end: 2 });
+  });
+
+  it('ignores an invalid commit', () => {
+    const range = { start: 0, end: 3 };
+
+    expect(nextCommitRange(range, 5, 5)).toBe(range);
   });
 });

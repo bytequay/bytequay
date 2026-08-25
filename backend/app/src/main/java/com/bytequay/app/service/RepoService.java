@@ -112,7 +112,7 @@ public class RepoService
 
     public UserProfile getUserProfile()
     {
-        return accounts.fetchUserProfile(credentialService.resolveGitHubToken());
+        return credentialService.resolveGitHubCredential().profile();
     }
 
     public PullRequest getRepoPullRequest(String owner, String repo, int number)

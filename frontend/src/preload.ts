@@ -31,6 +31,9 @@ const bridge: Bridge = {
   refreshPullRequestDetail: prId => ipcRenderer.invoke('prs:detail:refresh', prId),
   refreshPullRequestDetailByRef: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh:by-ref', repo, number),
+  refreshAllPullRequestDetail: prId => ipcRenderer.invoke('prs:detail:refresh-all', prId),
+  refreshAllPullRequestDetailByRef: (repo, number) =>
+    ipcRenderer.invoke('prs:detail:refresh-all:by-ref', repo, number),
   fetchPrDiffFiles: (repo, number, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff', repo, number, baseSha, headSha),
   refreshPrDiffFiles: (repo, number, baseSha, headSha) =>

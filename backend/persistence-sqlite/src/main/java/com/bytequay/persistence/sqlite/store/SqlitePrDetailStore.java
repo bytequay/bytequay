@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -91,6 +92,18 @@ public class SqlitePrDetailStore
     public Optional<String> findEtag(long prId)
     {
         return detailRepo.findById(prId).map(PrDetailEntity::getEtag);
+    }
+
+    @Override
+    public Optional<String> findCheckRunsEtag(long prId)
+    {
+        return detailRepo.findById(prId).map(PrDetailEntity::getCheckRunsEtag);
+    }
+
+    @Override
+    public Optional<String> findCommitStatusesEtag(long prId)
+    {
+        return detailRepo.findById(prId).map(PrDetailEntity::getCommitStatusesEtag);
     }
 
     @Override
@@ -172,6 +185,19 @@ public class SqlitePrDetailStore
 
     @Override
     @Transactional
+    public void updateStatusEtags(long prId, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag)
+    {
+        requireNonNull(checkRunsEtag, "checkRunsEtag is null");
+        requireNonNull(commitStatusesEtag, "commitStatusesEtag is null");
+        detailRepo.findById(prId).ifPresent(detail -> {
+            detail.setCheckRunsEtag(checkRunsEtag.orElse(null));
+            detail.setCommitStatusesEtag(commitStatusesEtag.orElse(null));
+            detailRepo.save(detail);
+        });
+    }
+
+    @Override
+    @Transactional
     public void deleteByPrIds(Set<Long> prIds)
     {
         if (prIds.isEmpty()) {
@@ -189,6 +215,10 @@ public class SqlitePrDetailStore
     {
         PrRawDetail raw = detail.raw();
         PrDetailEntity entity = detailRepo.findById(prId).orElseGet(PrDetailEntity::new);
+        if (!Objects.equals(entity.getHeadSha(), raw.headSha())) {
+            entity.setCheckRunsEtag(null);
+            entity.setCommitStatusesEtag(null);
+        }
         entity.setPrId(prId);
         entity.setTitle(raw.title());
         entity.setHtmlUrl(raw.htmlUrl());

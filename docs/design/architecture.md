@@ -243,14 +243,17 @@ Display and refresh are separate paths:
 2. A direct repository-and-number detail request also reads SQLite first, but fetches that exact PR
    from GitHub on a local miss. This establishes a directly opened row or preserves GitHub's
    authoritative `404` when the PR does not exist.
-3. A scheduled or explicit refresh calls a GitHub client using the selected credential, maps the
-   response to `core` values, and writes through `persistence-sqlite`.
+3. `CredentialService` binds the resolved token to its GitHub user profile in one in-memory account
+   record. Repeated profile, PR-sync, and CI-autofix reads reuse that record; changing the resolved
+   token invalidates it and resolves `/user` once for the new credential.
 4. Selecting a stored PR requests detail by its stable local row ID. The backend resolves the
-   repository and number from SQLite, renders persisted detail first, then the frontend immediately
-   starts a non-overlapping three-second refresh loop by that same ID. The exact GitHub PR request
-   sends the ETag stored with `pr_detail`; a `304 Not Modified` keeps the current snapshot, while a
-   changed response refreshes the aggregate, persists it, and returns it so the frontend can update
-   the view automatically.
+   repository and number from SQLite, renders persisted detail first, then the frontend starts a
+   non-overlapping six-second conditional refresh loop. An unchanged PR ETag refreshes only CI and
+   mergeability and returns a status-only response; a changed PR ETag rebuilds and returns the full
+   UI detail snapshot. Check runs and combined commit statuses carry their own stored ETags. An
+   exhausted GitHub rate limit pauses the loop until GitHub's reported reset time.
+5. The user-triggered detail refresh bypasses the PR ETag, rebuilds the complete local detail and
+   default diff snapshots, and returns the full detail response.
 
 The normalized repository name and PR number uniquely identify a pull request in SQLite. GitHub's
 search and pull-request endpoints expose different numeric IDs for the same PR, so ingestion retains

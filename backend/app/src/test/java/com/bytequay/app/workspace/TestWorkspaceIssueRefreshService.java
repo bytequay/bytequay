@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -140,6 +141,16 @@ class TestWorkspaceIssueRefreshService
                 org.mockito.ArgumentMatchers.any(),
                 anyString(),
                 org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void preservesRateLimitFailures()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        GitHubRateLimitException rateLimit = new GitHubRateLimitException("core", NOW.plusSeconds(60).getEpochSecond());
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1)).thenThrow(rateLimit);
+
+        assertThatThrownBy(() -> service.refreshIssues("direct")).isSameAs(rateLimit);
     }
 
     @Test

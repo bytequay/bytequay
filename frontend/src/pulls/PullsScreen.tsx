@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto } from '../types';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
-import PullOverview, { isQueued } from './PullOverview';
+import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { PULL_TABS, pullRequestNeedsReview, reconcilePullRequestDetail, rowsForSearch, rowsForTab, type PullRow, type PullTab } from './model';
 import '../css/pulls.css';
@@ -26,6 +26,18 @@ const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const DETAIL_REFRESH_INTERVAL = 6_000;
+
+export function mergePullRequestDetailStatus<T>(current: T, status: PullRequestStatusRefreshDto): T & PullRequestStatusRefreshDto {
+  return { ...current, ...status };
+}
+
+export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()) {
+  const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
+  const resetAt = match ? Date.parse(match[1]) : Number.NaN;
+  return Number.isNaN(resetAt)
+    ? DETAIL_REFRESH_INTERVAL
+    : Math.max(DETAIL_REFRESH_INTERVAL, resetAt - now + 1_000);
+}
 
 export default function PullsScreen({
   initialPr,
@@ -77,6 +89,23 @@ export default function PullsScreen({
     }
     return true;
   }, []);
+
+  const applyDetailRefresh = useCallback((prId: number, value: PullRequestDetailRefreshDto) => {
+    if (value.full) {
+      applyDetail(prId, value.detail, true);
+      return;
+    }
+    const status = value.status;
+    setDetail(current => {
+      if (current === null) return current;
+      const next = mergePullRequestDetailStatus(current, status);
+      detailSnapshot.current = JSON.stringify(next);
+      return next;
+    });
+    setPrs(current => current.map(pr => pr.id === prId
+      ? { ...pr, ciStatus: status.ciStatus, mergeable: status.mergeable, mergeableState: status.mergeableState }
+      : pr));
+  }, [applyDetail]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     setPrs(result.pullRequests);
@@ -214,20 +243,21 @@ export default function PullsScreen({
     const refreshSelectedDetail = () => selectedPrId > 0
       ? window.bridge.refreshPullRequestDetail(selectedPrId)
       : window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
-
     const poll = async (): Promise<void> => {
+      let nextDelay = DETAIL_REFRESH_INTERVAL;
       try {
         const value = await refreshSelectedDetail();
         if (!cancelled) {
-          applyDetail(selectedPrId, value, true);
+          applyDetailRefresh(selectedPrId, value);
           setError(null);
         }
       }
       catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        nextDelay = pullRequestDetailRefreshDelay(e);
+        if (!cancelled) setError(remoteErrorMessage(e));
       }
       finally {
-        if (!cancelled) refreshTimer = window.setTimeout((): void => { void poll(); }, DETAIL_REFRESH_INTERVAL);
+        if (!cancelled) refreshTimer = window.setTimeout((): void => { void poll(); }, nextDelay);
       }
     };
 
@@ -248,7 +278,7 @@ export default function PullsScreen({
       cancelled = true;
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
     };
-  }, [applyDetail, selectedPrId, selectedPrNumber, selectedPrRepo]);
+  }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
@@ -300,8 +330,8 @@ export default function PullsScreen({
     setDetailLoading(true);
     try {
       const value = selectedPr.id > 0
-        ? await window.bridge.refreshPullRequestDetail(selectedPr.id)
-        : await window.bridge.refreshPullRequestDetailByRef(selectedPr.repo, selectedPr.number);
+        ? await window.bridge.refreshAllPullRequestDetail(selectedPr.id)
+        : await window.bridge.refreshAllPullRequestDetailByRef(selectedPr.repo, selectedPr.number);
       applyDetail(selectedPr.id, value, true);
       await loadFirstPage();
     }

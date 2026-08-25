@@ -143,6 +143,17 @@ export type PullRequestDetailDto = {
   viewerCanWrite: boolean;
 };
 
+export type PullRequestStatusRefreshDto = Pick<PullRequestDetailDto,
+  'mergeable' | 'mergeableState' | 'ciStatus' | 'checkRuns' | 'unavailableSections'>;
+
+export type PullRequestDetailRefreshDto =
+  | { full: true; detail: PullRequestDetailDto; status: null }
+  | {
+      full: false;
+      detail: null;
+      status: PullRequestStatusRefreshDto;
+    };
+
 export type PullReactionDto = { content: string; count: number };
 
 export type PullTimelineCommentDto = {
@@ -674,8 +685,10 @@ export type Bridge = {
   updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[]) => Promise<void>;
   updatePrReviewer: (repo: string, number: number, login: string, requested: boolean) => Promise<void>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
-  refreshPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
-  refreshPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  refreshPullRequestDetail: (prId: number) => Promise<PullRequestDetailRefreshDto>;
+  refreshPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailRefreshDto>;
+  refreshAllPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
+  refreshAllPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (
     repo: string,
     number: number,

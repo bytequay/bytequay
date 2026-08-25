@@ -15,6 +15,7 @@ package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +44,7 @@ public class CredentialService
     private final WorkspaceCredentialStore workspaceCredentials;
     private final GhCliService ghCli;
     private final GitHubAccountClient gitHubAccount;
+    private GitHubCredential cachedGitHubCredential;
 
     public CredentialService(
             CredentialStore credentialStore,
@@ -56,9 +58,15 @@ public class CredentialService
         this.gitHubAccount = requireNonNull(gitHubAccount, "gitHubAccount is null");
     }
 
-    public void saveGitHubToken(String token)
+    public synchronized void saveGitHubToken(String token)
     {
-        credentialStore.save(token, null);
+        String trimmed = requireNonNull(token, "token is null").trim();
+        if (!isNotBlank(trimmed)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
+        }
+        UserProfile profile = gitHubAccount.fetchUserProfile(trimmed);
+        credentialStore.save(trimmed, null);
+        cachedGitHubCredential = new GitHubCredential(trimmed, profile);
     }
 
     public boolean isGitHubAccountConfigured()
@@ -78,6 +86,15 @@ public class CredentialService
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(401),
                         "GitHub PAT not configured. Add it in Settings → GitHub token."));
+    }
+
+    public synchronized GitHubCredential resolveGitHubCredential()
+    {
+        String token = resolveGitHubToken();
+        if (cachedGitHubCredential == null || !cachedGitHubCredential.token().equals(token)) {
+            cachedGitHubCredential = new GitHubCredential(token, gitHubAccount.fetchUserProfile(token));
+        }
+        return cachedGitHubCredential;
     }
 
     /**
@@ -132,9 +149,10 @@ public class CredentialService
         return credentialStore.exists() ? Optional.of(resolveGitHubToken()) : Optional.empty();
     }
 
-    public void deleteGitHubToken()
+    public synchronized void deleteGitHubToken()
     {
         credentialStore.delete();
+        cachedGitHubCredential = null;
     }
 
     /**
@@ -174,11 +192,13 @@ public class CredentialService
 
     public record WorkspaceToken(String maskedToken, String login) {}
 
-    public String importGitHubCliToken()
+    public synchronized String importGitHubCliToken()
     {
         GhCliService.CliCredential credential = ghCli.readCredential();
+        UserProfile profile = gitHubAccount.fetchUserProfile(credential.token());
         credentialStore.save(credential.token(), GITHUB_CLI_SOURCE);
-        return credential.login();
+        cachedGitHubCredential = new GitHubCredential(credential.token(), profile);
+        return profile.login();
     }
 
     public boolean isGitHubCliAvailable()
@@ -198,6 +218,15 @@ public class CredentialService
     {
         return credentialStore.getSecret()
                 .filter(value -> isNotBlank(value));
+    }
+
+    public record GitHubCredential(String token, UserProfile profile)
+    {
+        public GitHubCredential
+        {
+            requireNonNull(token, "token is null");
+            requireNonNull(profile, "profile is null");
+        }
     }
 
     private static String authenticationBase(String remoteUrl)

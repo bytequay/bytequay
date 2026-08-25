@@ -585,6 +585,12 @@ function registerIpc(): void {
     const url = prUrl('/prs/detail/refresh', repo, number);
     return backendJson(url, { method: 'POST' });
   });
+  ipcMain.handle('prs:detail:refresh-all', (_event, prId: number) =>
+    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail/refresh-all`, { method: 'POST' }));
+  ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number) => {
+    const url = prUrl('/prs/detail/refresh-all', repo, number);
+    return backendJson(url, { method: 'POST' });
+  });
   ipcMain.handle('prs:diff', (
     _event,
     repo: string,

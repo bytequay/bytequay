@@ -21,6 +21,7 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -95,7 +96,7 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/detail/refresh")
-    public PullRequestDetail refreshDetail(
+    public PullRequestDetailRefresh refreshDetail(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
@@ -103,9 +104,23 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/{prId}/detail/refresh")
-    public PullRequestDetail refreshDetail(@PathVariable long prId)
+    public PullRequestDetailRefresh refreshDetail(@PathVariable long prId)
     {
         return refreshService.refreshDetail(prId);
+    }
+
+    @PostMapping("/prs/detail/refresh-all")
+    public PullRequestDetail refreshAllDetail(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return refreshService.refreshAllDetail(repo, number);
+    }
+
+    @PostMapping("/prs/{prId}/detail/refresh-all")
+    public PullRequestDetail refreshAllDetail(@PathVariable long prId)
+    {
+        return refreshService.refreshAllDetail(prId);
     }
 
     @GetMapping("/prs/diffFiles")

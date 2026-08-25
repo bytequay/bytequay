@@ -21,12 +21,14 @@ import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -44,6 +46,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -106,6 +109,8 @@ class TestPullRequestService
                 gitHub, writes, repositories, merges, accounts, store, snapshots, viewStateStore,
                 credentialService, Runnable::run);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
+        org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
+                new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
     }
 
     @Test
@@ -357,19 +362,37 @@ class TestPullRequestService
     }
 
     @Test
-    void explicitDetailRefreshUsesTheStoredEtagAndKeepsLocalDataOnNotModified()
+    void explicitDetailRefreshUsesTheStoredEtagAndRefreshesOnlyStatusesOnNotModified()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"etag-1\"")));
+        when(actions.refreshPrCheckRuns(
+                eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.of("\"checks\""), Optional.of("\"statuses\"")));
 
         assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isFalse();
 
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(store, never()).saveObserved(any());
         verify(detailStore, never()).save(anyLong(), any());
+        verify(detailStore).saveStatus(eq(12L), any());
+    }
+
+    @Test
+    void manualDetailRefreshDoesNotSendTheStoredEtag()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        IllegalStateException failure = new IllegalStateException("stop after request");
+        when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.refreshAllPullRequestDetailFromGitHub("owner/repo", 7))
+                .isSameAs(failure);
+
+        verify(detailStore, never()).findEtag(anyLong());
     }
 
     @Test
@@ -419,8 +442,9 @@ class TestPullRequestService
         when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
         when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"etag-1\"")));
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
-                .thenReturn(ImmutableList.of(latest));
+        when(actions.refreshPrCheckRuns(
+                eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(latest), Optional.of("\"checks-2\""), Optional.of("\"statuses-2\"")));
 
         StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
 
@@ -429,6 +453,7 @@ class TestPullRequestService
         assertThat(refreshed.checkRuns()).containsExactly(latest);
         verify(detailStore).saveStatus(12L, refreshed);
         verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
+        verify(detailStore).updateStatusEtags(12L, Optional.of("\"checks-2\""), Optional.of("\"statuses-2\""));
         verify(gitHub, never()).fetchPrReviews(anyString(), any());
         verify(gitHub, never()).fetchPrDiffFiles(anyString(), any());
     }
@@ -443,8 +468,9 @@ class TestPullRequestService
         when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
         when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
                 .thenReturn(new PullRequestFetch(Optional.of(conflicted), Optional.of("\"etag-2\"")));
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
-                .thenReturn(ImmutableList.of());
+        when(actions.refreshPrCheckRuns(
+                eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
 
         StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
 

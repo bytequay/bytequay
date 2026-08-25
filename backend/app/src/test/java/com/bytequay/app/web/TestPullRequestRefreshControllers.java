@@ -60,9 +60,11 @@ class TestPullRequestRefreshControllers
 
         controller.detail(12L);
         controller.refreshDetail(12L);
+        controller.refreshAllDetail(12L);
 
         verify(pullRequests).getPullRequestDetail(12L);
         verify(refresh).refreshDetail(12L);
+        verify(refresh).refreshAllDetail(12L);
     }
 
     @Test

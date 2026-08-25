@@ -35,7 +35,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -117,19 +120,69 @@ public class GitHubActionsClient
 
     public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
     {
+        return refreshPrCheckRuns(
+                pat,
+                owner,
+                repo,
+                sha,
+                ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty()).checkRuns();
+    }
+
+    public PrCheckRunsFetch refreshPrCheckRuns(
+            String pat,
+            String owner,
+            String repo,
+            String sha,
+            List<PrCheckRunState> existing,
+            Optional<String> checkRunsEtag,
+            Optional<String> commitStatusesEtag)
+    {
+        requireNonNull(existing, "existing is null");
+        requireNonNull(checkRunsEtag, "checkRunsEtag is null");
+        requireNonNull(commitStatusesEtag, "commitStatusesEtag is null");
+        Optional<String> safeCheckRunsEtag = existing.stream().filter(check -> "check_run".equals(check.source())).count() < PAGE_SIZE
+                ? checkRunsEtag
+                : Optional.empty();
+        ConditionalChecks checkRuns = fetchCheckRuns(pat, owner, repo, sha, safeCheckRunsEtag);
+        ConditionalChecks commitStatuses = fetchCommitStatuses(pat, owner, repo, sha, commitStatusesEtag);
+        List<PrCheckRunState> result = new ArrayList<>();
+        result.addAll(checkRuns.values().orElseGet(() -> checksFrom(existing, "check_run")));
+        result.addAll(commitStatuses.values().orElseGet(() -> checksFrom(existing, "status")));
+        return new PrCheckRunsFetch(result, checkRuns.etag(), commitStatuses.etag());
+    }
+
+    private ConditionalChecks fetchCheckRuns(
+            String pat,
+            String owner,
+            String repo,
+            String sha,
+            Optional<String> etag)
+    {
         List<PrCheckRunState> result = new ArrayList<>();
         int collected = 0;
+        Optional<String> responseEtag = etag;
         for (int page = 1; page <= MAX_PAGES; page++) {
             int currentPage = page;
             try {
-                GitHubCheckRunsResponse response = gitHubRestClient.get()
+                RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
                         .uri(uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/check-runs")
                                 .queryParam("per_page", PAGE_SIZE)
                                 .queryParam("page", currentPage)
                                 .build(owner, repo, sha))
-                        .header("Authorization", authorization(pat))
-                        .retrieve()
-                        .body(GitHubCheckRunsResponse.class);
+                        .header("Authorization", authorization(pat));
+                if (currentPage == 1) {
+                    etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+                }
+                ResponseEntity<GitHubCheckRunsResponse> entity = request.retrieve().toEntity(GitHubCheckRunsResponse.class);
+                if (currentPage == 1) {
+                    responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
+                    if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                        return new ConditionalChecks(Optional.empty(), responseEtag);
+                    }
+                }
+                GitHubCheckRunsResponse response = entity.getBody();
                 if (response == null || response.checkRuns() == null) {
                     break;
                 }
@@ -151,23 +204,27 @@ public class GitHubActionsClient
                 throw toReadableException(e);
             }
         }
-        result.addAll(fetchCommitStatuses(pat, owner, repo, sha));
-        return ImmutableList.copyOf(result);
+        return new ConditionalChecks(Optional.of(ImmutableList.copyOf(result)), responseEtag);
     }
 
-    private List<PrCheckRunState> fetchCommitStatuses(
+    private ConditionalChecks fetchCommitStatuses(
             String pat,
             String owner,
             String repo,
-            String sha)
+            String sha,
+            Optional<String> etag)
     {
         try {
-            GitHubCombinedStatusResponse response = gitHubRestClient.get()
+            RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/commits/{sha}/status", owner, repo, sha)
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(GitHubCombinedStatusResponse.class);
-            return Optional.ofNullable(response)
+                    .header("Authorization", authorization(pat));
+            etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+            ResponseEntity<GitHubCombinedStatusResponse> entity = request.retrieve().toEntity(GitHubCombinedStatusResponse.class);
+            Optional<String> responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
+            if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                return new ConditionalChecks(Optional.empty(), responseEtag);
+            }
+            List<PrCheckRunState> statuses = Optional.ofNullable(entity.getBody())
                     .map(GitHubCombinedStatusResponse::statuses)
                     .orElse(ImmutableList.of()).stream()
                     .map(status -> new PrCheckRunState(
@@ -182,9 +239,37 @@ public class GitHubActionsClient
                             status.targetUrl(),
                             "status"))
                     .collect(toImmutableList());
+            return new ConditionalChecks(Optional.of(statuses), responseEtag);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
+        }
+    }
+
+    private static List<PrCheckRunState> checksFrom(List<PrCheckRunState> checks, String source)
+    {
+        return checks.stream().filter(check -> source.equals(check.source())).collect(toImmutableList());
+    }
+
+    public record PrCheckRunsFetch(
+            List<PrCheckRunState> checkRuns,
+            Optional<String> checkRunsEtag,
+            Optional<String> commitStatusesEtag)
+    {
+        public PrCheckRunsFetch
+        {
+            checkRuns = ImmutableList.copyOf(requireNonNull(checkRuns, "checkRuns is null"));
+            requireNonNull(checkRunsEtag, "checkRunsEtag is null");
+            requireNonNull(commitStatusesEtag, "commitStatusesEtag is null");
+        }
+    }
+
+    private record ConditionalChecks(Optional<List<PrCheckRunState>> values, Optional<String> etag)
+    {
+        private ConditionalChecks
+        {
+            requireNonNull(values, "values is null");
+            requireNonNull(etag, "etag is null");
         }
     }
 

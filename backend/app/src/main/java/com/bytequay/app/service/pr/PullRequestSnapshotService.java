@@ -19,12 +19,12 @@ import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
@@ -154,26 +154,39 @@ public class PullRequestSnapshotService
 
     StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId)
     {
+        PullRequestFetch fetched = gitHub.getPullRequest(pat, pullRequest, details.findEtag(prId));
+        return refreshStatus(pat, pullRequest, prId, fetched);
+    }
+
+    StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId, PullRequestFetch fetched)
+    {
         StoredPrDetail existing = details.find(prId)
                 .orElseThrow(() -> missing("Pull request detail"));
-        PullRequestFetch fetched = gitHub.getPullRequest(pat, pullRequest, details.findEtag(prId));
         PrRawDetail raw = fetched.pullRequest()
                 .map(summary -> existing.raw().withMergeability(summary.mergeable(), summary.mergeableState()))
                 .orElse(existing.raw());
-        List<PrCheckRunState> checks = raw.headSha() == null
-                ? ImmutableList.of()
-                : actions.fetchPrCheckRuns(pat, pullRequest.owner(), pullRequest.repo(), raw.headSha());
+        PrCheckRunsFetch checks = raw.headSha() == null
+                ? new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty())
+                : actions.refreshPrCheckRuns(
+                        pat,
+                        pullRequest.owner(),
+                        pullRequest.repo(),
+                        raw.headSha(),
+                        existing.checkRuns(),
+                        details.findCheckRunsEtag(prId),
+                        details.findCommitStatusesEtag(prId));
         StoredPrDetail stored = new StoredPrDetail(
                 raw,
                 existing.reviews(),
                 existing.timeline(),
-                checks == null ? ImmutableList.of() : checks,
+                checks.checkRuns(),
                 existing.unavailableSections().stream()
                         .filter(section -> !"checks".equals(section))
                         .collect(ImmutableList.toImmutableList()),
                 existing.viewerCanWrite());
         details.saveStatus(prId, stored);
         details.updateEtag(prId, fetched.etag());
+        details.updateStatusEtags(prId, checks.checkRunsEtag(), checks.commitStatusesEtag());
         return stored;
     }
 

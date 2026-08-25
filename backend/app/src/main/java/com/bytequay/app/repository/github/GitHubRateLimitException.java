@@ -21,7 +21,7 @@ import java.time.Instant;
 public final class GitHubRateLimitException
         extends ResponseStatusException
 {
-    GitHubRateLimitException(String resource, long resetAtEpochSecond)
+    public GitHubRateLimitException(String resource, long resetAtEpochSecond)
     {
         super(HttpStatus.TOO_MANY_REQUESTS, "GitHub " + resource + " API rate limit reached; retry after " + Instant.ofEpochSecond(resetAtEpochSecond));
     }

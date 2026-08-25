@@ -15,7 +15,9 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -77,12 +79,36 @@ class TestCredentialService
     {
         CredentialStore store = mock(CredentialStore.class);
         GhCliService ghCli = mock(GhCliService.class);
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
         when(ghCli.readCredential()).thenReturn(new GhCliService.CliCredential("gho_secret", "octocat"));
+        when(accounts.fetchUserProfile("gho_secret")).thenReturn(profile("octocat"));
 
-        var result = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class)).importGitHubCliToken();
+        var result = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, accounts).importGitHubCliToken();
 
         assertThat(result).isEqualTo("octocat");
         verify(store).save("gho_secret", GH_CLI_SOURCE);
+    }
+
+    @Test
+    void bindsOneFetchedProfileToTheResolvedToken()
+    {
+        CredentialStore store = mock(CredentialStore.class);
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        when(store.source()).thenReturn(Optional.empty());
+        when(store.getSecret()).thenReturn(Optional.of("token"));
+        when(accounts.fetchUserProfile("token")).thenReturn(profile("octocat"));
+        CredentialService service = new CredentialService(
+                store,
+                new InMemoryWorkspaceCredentialStore(),
+                mock(GhCliService.class),
+                accounts);
+
+        GitHubCredential first = service.resolveGitHubCredential();
+        GitHubCredential second = service.resolveGitHubCredential();
+
+        assertThat(first).isSameAs(second);
+        assertThat(first.profile().login()).isEqualTo("octocat");
+        verify(accounts).fetchUserProfile("token");
     }
 
     @Test
@@ -114,5 +140,10 @@ class TestCredentialService
                 .put("GIT_CONFIG_VALUE_1", expectedHeader)
                 .buildOrThrow());
         verify(store, never()).getSecret();
+    }
+
+    private static UserProfile profile(String login)
+    {
+        return new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", "");
     }
 }

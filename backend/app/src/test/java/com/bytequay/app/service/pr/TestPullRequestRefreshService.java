@@ -14,6 +14,8 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -39,8 +41,12 @@ class TestPullRequestRefreshService
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail());
 
-        assertThat(service.refreshDetail("owner/repo", 7)).isNull();
+        PullRequestDetailRefresh result = service.refreshDetail("owner/repo", 7);
+
+        assertThat(result.full()).isFalse();
+        assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
         InOrder order = inOrder(pullRequests);
         order.verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
@@ -52,11 +58,27 @@ class TestPullRequestRefreshService
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        when(pullRequests.refreshPullRequestDetailFromGitHub(12L)).thenReturn(true);
+        when(pullRequests.getPullRequestDetail(12L)).thenReturn(detail());
 
-        assertThat(service.refreshDetail(12L)).isNull();
+        assertThat(service.refreshDetail(12L).full()).isTrue();
 
         InOrder order = inOrder(pullRequests);
         order.verify(pullRequests).refreshPullRequestDetailFromGitHub(12L);
+        order.verify(pullRequests).getPullRequestDetail(12L);
+    }
+
+    @Test
+    void manualDetailRefreshAlwaysUsesTheFullRefreshPath()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        when(pullRequests.getPullRequestDetail(12L)).thenReturn(detail());
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+
+        assertThat(service.refreshAllDetail(12L)).isEqualTo(detail());
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).refreshAllPullRequestDetailFromGitHub(12L);
         order.verify(pullRequests).getPullRequestDetail(12L);
     }
 
@@ -147,5 +169,39 @@ class TestPullRequestRefreshService
 
         verify(pullRequests).syncFromGitHub();
         verify(pullRequests).syncRepository(repository);
+    }
+
+    private static PullRequestDetail detail()
+    {
+        return new PullRequestDetail(
+                "owner/repo",
+                7,
+                "Title",
+                "https://github.test/owner/repo/pull/7",
+                "open",
+                false,
+                true,
+                "clean",
+                "alice",
+                null,
+                null,
+                null,
+                null,
+                "main",
+                "feature",
+                "Body",
+                ImmutableList.of(),
+                ImmutableList.of(),
+                null,
+                ImmutableList.of(),
+                1,
+                1,
+                1,
+                0,
+                PullRequestDetail.CiStatus.PASSING,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                true);
     }
 }

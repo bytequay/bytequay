@@ -144,6 +144,16 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void storesTheGitHubStatusEtags()
+    {
+        store.save(PR_ID, detail(remote(1, NOW)));
+        store.updateStatusEtags(PR_ID, Optional.of("\"checks-1\""), Optional.of("\"statuses-1\""));
+
+        assertThat(store.findCheckRunsEtag(PR_ID)).contains("\"checks-1\"");
+        assertThat(store.findCommitStatusesEtag(PR_ID)).contains("\"statuses-1\"");
+    }
+
+    @Test
     void statusRefreshOnlyReplacesMergeabilityAndChecks()
     {
         PrTimelineEvent comment = remote(1, NOW);

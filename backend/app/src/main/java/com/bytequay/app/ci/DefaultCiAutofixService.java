@@ -33,7 +33,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
-import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
@@ -100,7 +99,6 @@ public class DefaultCiAutofixService
     private final BranchRebaseService rebaseService;
     private final PullRequestTimelineService timelineService;
     private final CredentialService credentials;
-    private final GitHubAccountClient accounts;
     private final Clock clock;
     private final CiAutofixPromptBuilder promptBuilder = new CiAutofixPromptBuilder();
     private final Striped<Lock> advanceLocks = Striped.lock(64);
@@ -118,7 +116,6 @@ public class DefaultCiAutofixService
             BranchRebaseService rebaseService,
             PullRequestTimelineService timelineService,
             CredentialService credentials,
-            GitHubAccountClient accounts,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -133,7 +130,6 @@ public class DefaultCiAutofixService
         this.rebaseService = requireNonNull(rebaseService, "rebaseService is null");
         this.timelineService = requireNonNull(timelineService, "timelineService is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
-        this.accounts = requireNonNull(accounts, "accounts is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -1147,7 +1143,7 @@ public class DefaultCiAutofixService
 
     private String currentUser()
     {
-        String login = accounts.fetchUserProfile(credentials.resolveGitHubToken()).login();
+        String login = credentials.resolveGitHubCredential().profile().login();
         checkArgument(login != null && !login.isBlank(), "Authenticated GitHub account has no login");
         return login;
     }

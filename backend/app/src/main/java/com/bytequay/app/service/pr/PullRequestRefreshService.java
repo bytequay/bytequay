@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import org.springframework.stereotype.Service;
 
@@ -37,16 +38,31 @@ public class PullRequestRefreshService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
-    /** Refreshes one pull request and returns the newly persisted detail. */
-    public PullRequestDetail refreshDetail(String repo, int number)
+    /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
+    public PullRequestDetailRefresh refreshDetail(String repo, int number)
     {
-        pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
+        boolean full = pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
+        PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
+        return full ? PullRequestDetailRefresh.full(detail) : PullRequestDetailRefresh.status(detail);
+    }
+
+    public PullRequestDetailRefresh refreshDetail(long prId)
+    {
+        boolean full = pullRequests.refreshPullRequestDetailFromGitHub(prId);
+        PullRequestDetail detail = pullRequests.getPullRequestDetail(prId);
+        return full ? PullRequestDetailRefresh.full(detail) : PullRequestDetailRefresh.status(detail);
+    }
+
+    /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
+    public PullRequestDetail refreshAllDetail(String repo, int number)
+    {
+        pullRequests.refreshAllPullRequestDetailFromGitHub(repo, number);
         return pullRequests.getPullRequestDetail(repo, number);
     }
 
-    public PullRequestDetail refreshDetail(long prId)
+    public PullRequestDetail refreshAllDetail(long prId)
     {
-        pullRequests.refreshPullRequestDetailFromGitHub(prId);
+        pullRequests.refreshAllPullRequestDetailFromGitHub(prId);
         return pullRequests.getPullRequestDetail(prId);
     }
 

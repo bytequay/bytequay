@@ -539,7 +539,7 @@ function PrPanel({ slug, number }: { slug: string | null; number: number | null 
         pr={remotePullRequest(detail)}
         detail={detail}
         onRefresh={async () => {
-          setDetail(await window.bridge.refreshPullRequestDetailByRef(slug, number));
+          setDetail(await window.bridge.refreshAllPullRequestDetailByRef(slug, number));
         }}
       />
       <div className="cmt-pr-footnote">

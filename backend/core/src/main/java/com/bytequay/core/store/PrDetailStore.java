@@ -29,6 +29,10 @@ public interface PrDetailStore
 
     Optional<String> findEtag(long prId);
 
+    Optional<String> findCheckRunsEtag(long prId);
+
+    Optional<String> findCommitStatusesEtag(long prId);
+
     void save(long prId, StoredPrDetail detail);
 
     void saveStatus(long prId, StoredPrDetail detail);
@@ -36,6 +40,8 @@ public interface PrDetailStore
     void saveIncremental(long prId, StoredPrDetail detail);
 
     void updateEtag(long prId, Optional<String> etag);
+
+    void updateStatusEtags(long prId, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag);
 
     /** Records or returns one local timeline event identified by its stable local event key. */
     PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event);

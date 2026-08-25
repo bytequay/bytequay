@@ -106,6 +106,12 @@ public class PrDetailEntity
 
     private String etag;
 
+    @Column(name = "check_runs_etag")
+    private String checkRunsEtag;
+
+    @Column(name = "commit_statuses_etag")
+    private String commitStatusesEtag;
+
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -195,6 +201,12 @@ public class PrDetailEntity
 
     public String getEtag() { return etag; }
     public void setEtag(String etag) { this.etag = etag; }
+
+    public String getCheckRunsEtag() { return checkRunsEtag; }
+    public void setCheckRunsEtag(String checkRunsEtag) { this.checkRunsEtag = checkRunsEtag; }
+
+    public String getCommitStatusesEtag() { return commitStatusesEtag; }
+    public void setCommitStatusesEtag(String commitStatusesEtag) { this.commitStatusesEtag = commitStatusesEtag; }
 
     public Instant getSyncedAt() { return syncedAt; }
     public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

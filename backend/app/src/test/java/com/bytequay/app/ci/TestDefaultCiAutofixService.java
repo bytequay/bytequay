@@ -43,7 +43,6 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
-import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
@@ -125,7 +124,6 @@ class TestDefaultCiAutofixService
     private BranchRebaseService rebaseService;
     private PullRequestTimelineService timelineService;
     private CredentialService credentials;
-    private GitHubAccountClient accounts;
     private DefaultCiAutofixService service;
     private Path worktree;
     private TaskId taskId;
@@ -152,7 +150,6 @@ class TestDefaultCiAutofixService
         rebaseService = mock(BranchRebaseService.class);
         timelineService = mock(PullRequestTimelineService.class);
         credentials = mock(CredentialService.class);
-        accounts = mock(GitHubAccountClient.class);
         worktree = Files.createDirectory(temporaryDirectory.resolve("worktree")).toRealPath();
         taskId = TaskId.random();
         turnId = TurnId.random();
@@ -177,7 +174,8 @@ class TestDefaultCiAutofixService
                 Files.createDirectory(runtime.resolve("provider")));
 
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(accounts.fetchUserProfile("token")).thenReturn(profile("author"));
+        when(credentials.resolveGitHubCredential()).thenReturn(
+                new CredentialService.GitHubCredential("token", profile("author")));
         when(gitHub.inspect(any())).thenReturn(snapshot);
         when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(
                 Optional.of(new com.bytequay.agent.core.BlobRef(
@@ -216,7 +214,6 @@ class TestDefaultCiAutofixService
                 rebaseService,
                 timelineService,
                 credentials,
-                accounts,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -1153,7 +1150,6 @@ class TestDefaultCiAutofixService
                 rebaseService,
                 timelineService,
                 credentials,
-                accounts,
                 requestedClock);
     }
 

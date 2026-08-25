@@ -21,6 +21,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullReques
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -177,8 +178,9 @@ public class PullRequestService
     public void syncRepository(RepoRef repository)
     {
         requireNonNull(repository, "repository is null");
-        String pat = credentialService.resolveGitHubToken();
-        String currentLogin = resolveCurrentLogin(pat);
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        String pat = credential.token();
+        String currentLogin = credential.profile().login();
         String syncMarker = java.util.UUID.randomUUID().toString();
         String qualifier = " repo:" + repository.fullName();
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
@@ -232,8 +234,9 @@ public class PullRequestService
      */
     public void syncFromGitHub()
     {
-        String pat = credentialService.resolveGitHubToken();
-        String currentLogin = resolveCurrentLogin(pat);
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        String pat = credential.token();
+        String currentLogin = credential.profile().login();
         String syncMarker = java.util.UUID.randomUUID().toString();
         Set<String> seen = new HashSet<>();
         syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED);
@@ -281,20 +284,6 @@ public class PullRequestService
         CompletableFuture.allOf(statuses.toArray(CompletableFuture[]::new)).join();
     }
 
-    private String resolveCurrentLogin(String pat)
-    {
-        try {
-            return accounts.fetchUserProfile(pat).login();
-        }
-        catch (Exception e) {
-            if (e instanceof RuntimeException runtimeException && isRateLimit(e)) {
-                throw runtimeException;
-            }
-            log.warn("Could not resolve current user for sync reconciliation: {}", e.getMessage());
-            return null;
-        }
-    }
-
     /** Returns persisted detail, fetching and caching it on a local miss. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
@@ -316,15 +305,37 @@ public class PullRequestService
 
     boolean refreshPullRequestDetailFromGitHub(String repo, int number)
     {
-        String pat = credentialService.resolveGitHubToken();
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        String pat = credential.token();
         PullRequestRef ref = parseRef(repo, number);
-        String currentLogin = resolveCurrentLogin(pat);
         Optional<Long> storedId = store.findIdByRepoAndNumber(repo, number);
         Optional<String> etag = storedId.flatMap(snapshots::findDetailEtag);
         PullRequestFetch fetched = gitHub.getPullRequest(pat, ref, etag);
         if (fetched.pullRequest().isEmpty()) {
+            snapshots.refreshStatus(pat, ref, storedId.orElseThrow(), fetched);
             return false;
         }
+        storeFullRefresh(credential, ref, storedId, fetched);
+        return true;
+    }
+
+    void refreshAllPullRequestDetailFromGitHub(String repo, int number)
+    {
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        PullRequestRef ref = parseRef(repo, number);
+        Optional<Long> storedId = store.findIdByRepoAndNumber(repo, number);
+        PullRequestFetch fetched = gitHub.getPullRequest(credential.token(), ref, Optional.empty());
+        storeFullRefresh(credential, ref, storedId, fetched);
+    }
+
+    private void storeFullRefresh(
+            GitHubCredential credential,
+            PullRequestRef ref,
+            Optional<Long> storedId,
+            PullRequestFetch fetched)
+    {
+        String pat = credential.token();
+        String currentLogin = credential.profile().login();
         PullRequest fetchedPullRequest = workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin);
         PullRequest pullRequest = storedId
                 .map(fetchedPullRequest::withId)
@@ -339,13 +350,18 @@ public class PullRequestService
         storeDetail(pullRequest, detail, currentLogin);
         syncDiffQuietly(pat, pullRequest);
         snapshots.updateDetailEtag(pullRequest.id(), fetched.etag());
-        return true;
     }
 
     boolean refreshPullRequestDetailFromGitHub(long prId)
     {
         PullRequestRef ref = storedPullRequestRef(prId);
         return refreshPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
+    }
+
+    void refreshAllPullRequestDetailFromGitHub(long prId)
+    {
+        PullRequestRef ref = storedPullRequestRef(prId);
+        refreshAllPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */

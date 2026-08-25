@@ -334,6 +334,37 @@ class TestGitHubActionsClient
         fixture.verify();
     }
 
+    @Test
+    void conditionalPrChecksReuseStoredValuesOnNotModified()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"checks-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"checks-1\""));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"statuses-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"statuses-1\""));
+        List<PrCheckRunState> existing = ImmutableList.of(
+                new PrCheckRunState(1L, "build", "completed", "success", null, "check_run"),
+                new PrCheckRunState(2L, "license", "completed", "success", null, "status"));
+
+        GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(
+                "pat",
+                "owner",
+                "repo",
+                "head",
+                existing,
+                Optional.of("\"checks-1\""),
+                Optional.of("\"statuses-1\""));
+
+        assertThat(result.checkRuns()).containsExactlyElementsOf(existing);
+        assertThat(result.checkRunsEtag()).contains("\"checks-1\"");
+        assertThat(result.commitStatusesEtag()).contains("\"statuses-1\"");
+        fixture.verify();
+    }
+
     private static void expectSingleHead(
             Fixture fixture,
             String runStatus,

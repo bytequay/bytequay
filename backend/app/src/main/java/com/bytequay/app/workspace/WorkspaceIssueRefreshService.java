@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -152,8 +153,11 @@ public class WorkspaceIssueRefreshService
                 .collect(toImmutableList());
     }
 
-    private WorkspaceException refreshFailure(String workspaceId, RuntimeException failure)
+    private RuntimeException refreshFailure(String workspaceId, RuntimeException failure)
     {
+        if (isRateLimit(failure)) {
+            return failure;
+        }
         String reference = UUID.randomUUID().toString();
         log.warn("Workspace {} issue refresh failed [{}]: {}", workspaceId, reference, failure.getMessage());
         return WorkspaceException.issueSyncFailed(reference);

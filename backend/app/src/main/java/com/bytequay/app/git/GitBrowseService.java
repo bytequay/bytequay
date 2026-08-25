@@ -101,7 +101,7 @@ public class GitBrowseService
                 repository,
                 "log",
                 "--no-show-signature",
-                "--format=%H" + FIELD + "%an" + FIELD + "%aI" + FIELD + "%s" + FIELD + "%b" + RECORD,
+                "--format=%H" + FIELD + "%an" + FIELD + "%cI" + FIELD + "%s" + FIELD + "%b" + RECORD,
                 "-n", String.valueOf(limit),
                 ref,
                 "--");
@@ -408,7 +408,7 @@ public class GitBrowseService
             String title,
             String body,
             String author,
-            String authoredAt,
+            String committedAt,
             Optional<Integer> pullRequestNumber)
     {}
 

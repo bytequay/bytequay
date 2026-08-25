@@ -58,7 +58,7 @@ class TestGitBrowseService
     {
         write("a.txt", "one\n");
         git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", "First change (#412)", "-m", "Longer body\nwith two lines");
+        git(repository, "commit", "--quiet", "--date=2001-02-03T04:05:06Z", "-m", "First change (#412)", "-m", "Longer body\nwith two lines");
 
         List<Commit> commits = service.log(repository, "main", 10);
 
@@ -68,7 +68,9 @@ class TestGitBrowseService
         assertThat(commit.body()).isEqualTo("Longer body\nwith two lines");
         assertThat(commit.author()).isEqualTo("ByteQuay Test");
         assertThat(commit.pullRequestNumber()).contains(412);
-        assertThat(commit.authoredAt()).isNotBlank();
+        assertThat(commit.committedAt())
+                .isEqualTo(git(repository, "log", "-1", "--format=%cI").strip())
+                .isNotEqualTo(git(repository, "log", "-1", "--format=%aI").strip());
     }
 
     @Test

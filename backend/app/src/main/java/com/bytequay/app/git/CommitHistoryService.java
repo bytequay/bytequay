@@ -115,7 +115,7 @@ public class CommitHistoryService
                 commit.body(),
                 commit.author(),
                 enrichment.flatMap(CommitEnrichment::avatarKey).map(avatarBaseUrl::concat),
-                commit.authoredAt(),
+                commit.committedAt(),
                 pullRequestNumber,
                 enrichment.flatMap(CommitEnrichment::pullRequestTitle));
     }

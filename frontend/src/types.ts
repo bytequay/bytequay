@@ -565,7 +565,7 @@ export type GitCommitDto = {
   body: string;
   author: string;
   authorAvatarUrl?: string | null;
-  authoredAt: string;
+  committedAt: string;
   pullRequestNumber?: number | null;
   pullRequestTitle?: string | null;
 };

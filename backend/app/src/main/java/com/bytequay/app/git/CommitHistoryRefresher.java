@@ -277,14 +277,14 @@ class CommitHistoryRefresher
         if (enrichment.pullRequestNumber().isPresent()) {
             return false;
         }
-        Instant authoredAt;
+        Instant committedAt;
         try {
-            authoredAt = Instant.parse(commit.authoredAt());
+            committedAt = Instant.parse(commit.committedAt());
         }
         catch (DateTimeParseException ignored) {
-            authoredAt = now;
+            committedAt = now;
         }
-        return !authoredAt.isBefore(now.minus(NEGATIVE_RETRY_WINDOW))
+        return !committedAt.isBefore(now.minus(NEGATIVE_RETRY_WINDOW))
                 && !enrichment.associationCheckedAt().orElseThrow().isAfter(now.minus(NEGATIVE_RETRY_INTERVAL));
     }
 

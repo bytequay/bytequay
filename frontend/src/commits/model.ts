@@ -68,7 +68,7 @@ export function groupByDay(commits: GitCommitDto[]): DayGroup[] {
   const groups: DayGroup[] = [];
   let currentKey = '';
   commits.forEach((commit, index) => {
-    const date = new Date(commit.authoredAt);
+    const date = new Date(commit.committedAt);
     const key = Number.isNaN(date.getTime()) ? 'Undated' : DAY_FORMAT.format(date);
     if (key !== currentKey) {
       currentKey = key;

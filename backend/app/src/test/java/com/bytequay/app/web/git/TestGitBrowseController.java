@@ -161,6 +161,8 @@ class TestGitBrowseController
                         .param("limit", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.commits[0].author").value("Example Author"))
+                .andExpect(jsonPath("$.commits[0].committedAt").value("2026-08-22T00:00:00Z"))
+                .andExpect(jsonPath("$.commits[0].authoredAt").doesNotExist())
                 .andExpect(jsonPath("$.commits[0].authorAvatarUrl").isNotEmpty())
                 .andExpect(jsonPath("$.commits[0].pullRequestNumber").value(42))
                 .andExpect(jsonPath("$.commits[0].pullRequestTitle").value("Example pull request"));

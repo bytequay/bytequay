@@ -475,7 +475,7 @@
 .cmt-commit-byline { flex: none; }
 
 .cmt-commit-pr {
-  display: inline-flex;
+  display: flex;
   min-width: 0;
   align-items: center;
   gap: 6px;
@@ -484,12 +484,12 @@
   background: transparent;
   color: #57606a;
   font-size: 12px;
+  margin-top: 3px;
   padding: 0;
   text-align: left;
   cursor: pointer;
 }
 
-.cmt-commit-dot { color: #d0d7de; }
 .cmt-commit-pr:hover .cmt-commit-pr-title { color: #0969da; text-decoration: underline; }
 .cmt-commit-pr-title { overflow: hidden; font-size: 12px; color: #8c959f; text-overflow: ellipsis; white-space: nowrap; }
 

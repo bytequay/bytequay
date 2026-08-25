@@ -275,14 +275,14 @@ class TestCommitHistoryRefresher
                 ImmutableList.copyOf(extraRemotes)));
     }
 
-    private static Commit commit(String sha, Instant authoredAt)
+    private static Commit commit(String sha, Instant committedAt)
     {
         return new Commit(
                 sha,
                 "Example change",
                 "Example body",
                 "Example Author",
-                authoredAt.toString(),
+                committedAt.toString(),
                 Optional.empty());
     }
 

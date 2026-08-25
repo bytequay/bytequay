@@ -52,7 +52,7 @@ describe('workspace commit history', () => {
         body: '',
         author: 'example-author',
         authorAvatarUrl: null,
-        authoredAt: '2026-08-22T00:00:00Z',
+        committedAt: '2026-08-22T00:00:00Z',
       }]}
       loading={false}
       checked={new Set()}
@@ -82,7 +82,7 @@ describe('workspace commit history', () => {
     expect(html).not.toContain('Add to review');
   });
 
-  it('shows pull-request context as a link from the commit card', () => {
+  it('shows pull-request context as a bottom-row link from the commit card', () => {
     const html = renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
@@ -95,7 +95,7 @@ describe('workspace commit history', () => {
         body: '',
         author: 'example-author',
         authorAvatarUrl: 'http://127.0.0.1:48765/api/avatars/abc123',
-        authoredAt: '2026-08-22T00:00:00Z',
+        committedAt: '2026-08-22T00:00:00Z',
         pullRequestNumber: 42,
         pullRequestTitle: 'Improve commit browsing',
       }]}
@@ -110,6 +110,8 @@ describe('workspace commit history', () => {
     expect(html).toContain('Improve commit browsing');
     expect(html).toContain('Open PR #42');
     expect(html).toContain('class="cmt-commit-pr"');
+    expect(html.indexOf('class="cmt-commit-pr"'))
+      .toBeGreaterThan(html.indexOf('</div>', html.indexOf('class="cmt-commit-meta"')));
     expect(html).toContain('src="http://127.0.0.1:48765/api/avatars/abc123"');
     expect(html).toContain('class="cmt-view-author"');
     expect(html).toContain('aria-label="Copy full commit SHA 0123456789abcdef"');
@@ -140,7 +142,7 @@ describe('workspace commit history', () => {
         body: '',
         author,
         authorAvatarUrl: null,
-        authoredAt: '2026-08-22T00:00:00Z',
+        committedAt: '2026-08-22T00:00:00Z',
       }]}
       loading={false}
       checked={new Set()}

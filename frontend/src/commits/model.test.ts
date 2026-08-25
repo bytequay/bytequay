@@ -27,8 +27,8 @@ import {
   taskState,
 } from './model';
 
-function commit(sha: string, authoredAt = '2026-08-20T10:00:00Z'): GitCommitDto {
-  return { sha, title: `Commit ${sha}`, body: '', author: 'dev', authoredAt };
+function commit(sha: string, committedAt = '2026-08-20T10:00:00Z'): GitCommitDto {
+  return { sha, title: `Commit ${sha}`, body: '', author: 'dev', committedAt };
 }
 
 const COMMITS = [commit('aaaa111'), commit('bbbb222'), commit('cccc333'), commit('dddd444')];
@@ -73,7 +73,7 @@ describe('spanFromShas', () => {
 });
 
 describe('groupByDay', () => {
-  it('groups consecutive commits by authored date', () => {
+  it('groups consecutive commits by committed date', () => {
     const commits = [
       commit('a1', '2026-08-20T10:00:00Z'),
       commit('a2', '2026-08-20T08:00:00Z'),
@@ -122,7 +122,7 @@ describe('matchesCommitQuery', () => {
     title: 'Update MongoDB image versions',
     body: '',
     author: 'dev',
-    authoredAt: '2026-08-21T10:00:00Z',
+    committedAt: '2026-08-21T10:00:00Z',
     pullRequestNumber: 30825,
     pullRequestTitle: 'Update MongoDB image versions in tests',
   };

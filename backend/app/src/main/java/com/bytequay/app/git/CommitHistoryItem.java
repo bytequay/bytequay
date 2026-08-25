@@ -25,7 +25,7 @@ public record CommitHistoryItem(
         String body,
         String author,
         Optional<String> authorAvatarUrl,
-        String authoredAt,
+        String committedAt,
         Optional<Integer> pullRequestNumber,
         Optional<String> pullRequestTitle)
 {
@@ -36,13 +36,13 @@ public record CommitHistoryItem(
         requireNonNull(body, "body is null");
         requireNonNull(author, "author is null");
         requireNonNull(authorAvatarUrl, "authorAvatarUrl is null");
-        requireNonNull(authoredAt, "authoredAt is null");
+        requireNonNull(committedAt, "committedAt is null");
         requireNonNull(pullRequestNumber, "pullRequestNumber is null");
         requireNonNull(pullRequestTitle, "pullRequestTitle is null");
         checkArgument(!sha.isBlank(), "sha is blank");
         checkArgument(!title.isBlank(), "title is blank");
         checkArgument(!author.isBlank(), "author is blank");
-        checkArgument(!authoredAt.isBlank(), "authoredAt is blank");
+        checkArgument(!committedAt.isBlank(), "committedAt is blank");
         authorAvatarUrl.ifPresent(value -> checkArgument(!value.isBlank(), "authorAvatarUrl is blank"));
         pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber is not positive"));
         pullRequestTitle.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestTitle is blank"));

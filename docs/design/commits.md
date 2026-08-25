@@ -59,7 +59,7 @@ of commit enrichment and PR synchronization.
 
 | Data | Source of truth | Display read |
 | --- | --- | --- |
-| SHA, title, body, author, authored time, order | managed local Git checkout | local `git log` |
+| SHA, title, body, author, committed time, order | managed local Git checkout | local `git log` |
 | Commit-to-PR number/title/URL | SQLite commit enrichment | local store lookup |
 | Full PR list and detail | existing SQLite `PullRequestStore` and `PrDetailStore` | existing local PR service |
 | Commit avatar | application-data file cache, referenced by SQLite key | localhost avatar endpoint |
@@ -334,7 +334,7 @@ returns:
       "body": "",
       "author": "Example Author",
       "authorAvatarUrl": "http://127.0.0.1:.../api/avatars/5d8...",
-      "authoredAt": "2026-08-21T10:00:00Z",
+      "committedAt": "2026-08-21T10:00:00Z",
       "pullRequestNumber": 24123,
       "pullRequestTitle": "Update MongoDB image versions in tests"
     }
@@ -468,7 +468,7 @@ Normal tab navigation does not start refresh work or contact GitHub.
 - title and short SHA;
 - PR chip and title when `pullRequestNumber` is present;
 - locally served avatar or fixed-size initial fallback;
-- author and authored time; and
+- author and committed time; and
 - current selection/viewed-row behavior.
 
 The refresh ref list contains the currently selected workspace branch and,

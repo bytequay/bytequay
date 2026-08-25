@@ -264,28 +264,27 @@ export default function HistoryView({
                           <span className="cmt-commit-byline">
                             <strong>{commit.author}</strong>
                             {' committed '}
-                            {relativeTime(commit.authoredAt)}
+                            {relativeTime(commit.committedAt)}
                           </span>
-                          {pullRequestNumber !== null && (
-                            <button
-                              type="button"
-                              className="cmt-commit-pr"
-                              title={pullRequestTitle
-                                ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
-                                : `Open PR #${pullRequestNumber}`}
-                              onClick={event => {
-                                event.stopPropagation();
-                                onOpenPullRequest(pullRequestNumber);
-                              }}
-                            >
-                              <span className="cmt-commit-dot">·</span>
-                              <span className="cmt-chip is-pr">⑃ #{pullRequestNumber}</span>
-                              <span className="cmt-commit-pr-title">
-                                {pullRequestTitle ?? 'View pull request'}
-                              </span>
-                            </button>
-                          )}
                         </div>
+                        {pullRequestNumber !== null && (
+                          <button
+                            type="button"
+                            className="cmt-commit-pr"
+                            title={pullRequestTitle
+                              ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
+                              : `Open PR #${pullRequestNumber}`}
+                            onClick={event => {
+                              event.stopPropagation();
+                              onOpenPullRequest(pullRequestNumber);
+                            }}
+                          >
+                            <span className="cmt-chip is-pr">⑃ #{pullRequestNumber}</span>
+                            <span className="cmt-commit-pr-title">
+                              {pullRequestTitle ?? 'View pull request'}
+                            </span>
+                          </button>
+                        )}
                       </div>
                       <span className="cmt-commit-sha" title="View this commit's changes">
                         {shortSha(commit.sha)}
@@ -399,7 +398,7 @@ export default function HistoryView({
                           size={14}
                           allowGitHubFallback={isLikelyGitHubLogin(viewed.author)}
                         />
-                        {viewed.author} committed {relativeTime(viewed.authoredAt)}
+                        {viewed.author} committed {relativeTime(viewed.committedAt)}
                       </span>
                     </>
                   )

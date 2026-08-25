@@ -296,18 +296,20 @@ class TestPullRequestService
     }
 
     @Test
-    void missingDetailRefreshesAndReadsTheCachedResult()
+    void missingDetailReturnsTheFreshResultWithoutRereadingTheCache()
     {
-        StoredPrDetail stored = stored();
+        PullRequestDetail refreshed = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 7, stored(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.empty(), Optional.of(stored));
+        when(detailStore.find(12L)).thenReturn(Optional.empty());
         service = spy(service);
-        doReturn(true).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        doReturn(new PullRequestService.DetailRefresh(true, refreshed))
+                .when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
         PullRequestDetail result = service.getPullRequestDetail("owner/repo", 7);
 
         assertThat(result.body()).isEqualTo("body");
         verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(detailStore).find(12L);
     }
 
     @Test
@@ -349,7 +351,10 @@ class TestPullRequestService
         when(gitHub.fetchPrDiffFiles("pat", ref)).thenReturn(files);
         when(gitHub.fetchPrDiffCommits("pat", ref)).thenReturn(ImmutableList.of());
 
-        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isTrue();
+        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        assertThat(refreshed.full()).isTrue();
+        assertThat(refreshed.detail().body()).isEqualTo("body");
 
         ArgumentCaptor<PullRequest> observed = ArgumentCaptor.forClass(PullRequest.class);
         verify(store).saveObserved(observed.capture());
@@ -374,7 +379,10 @@ class TestPullRequestService
                 eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.of("\"checks\""), Optional.of("\"statuses\"")));
 
-        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isFalse();
+        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        assertThat(refreshed.full()).isFalse();
+        assertThat(refreshed.detail().body()).isEqualTo("body");
 
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(store, never()).saveObserved(any());

@@ -41,29 +41,25 @@ public class PullRequestRefreshService
     /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
     public PullRequestDetailRefresh refreshDetail(String repo, int number)
     {
-        boolean full = pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
-        return full ? PullRequestDetailRefresh.full(detail) : PullRequestDetailRefresh.status(detail);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
+        return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
     public PullRequestDetailRefresh refreshDetail(long prId)
     {
-        boolean full = pullRequests.refreshPullRequestDetailFromGitHub(prId);
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(prId);
-        return full ? PullRequestDetailRefresh.full(detail) : PullRequestDetailRefresh.status(detail);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(prId);
+        return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
     public PullRequestDetail refreshAllDetail(String repo, int number)
     {
-        pullRequests.refreshAllPullRequestDetailFromGitHub(repo, number);
-        return pullRequests.getPullRequestDetail(repo, number);
+        return pullRequests.refreshAllPullRequestDetailFromGitHub(repo, number);
     }
 
     public PullRequestDetail refreshAllDetail(long prId)
     {
-        pullRequests.refreshAllPullRequestDetailFromGitHub(prId);
-        return pullRequests.getPullRequestDetail(prId);
+        return pullRequests.refreshAllPullRequestDetailFromGitHub(prId);
     }
 
     /** Refreshes one diff snapshot and returns the newly persisted files. */

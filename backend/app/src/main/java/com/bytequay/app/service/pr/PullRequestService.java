@@ -292,9 +292,7 @@ public class PullRequestService
         if (stored.isPresent()) {
             return stored.orElseThrow();
         }
-        refreshPullRequestDetailFromGitHub(repo, number);
-        return findPullRequestDetail(repo, number)
-                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+        return refreshPullRequestDetailFromGitHub(repo, number).detail();
     }
 
     public PullRequestDetail getPullRequestDetail(long prId)
@@ -303,7 +301,7 @@ public class PullRequestService
         return getPullRequestDetail(ref.repoFullName(), ref.number());
     }
 
-    boolean refreshPullRequestDetailFromGitHub(String repo, int number)
+    DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
@@ -312,23 +310,23 @@ public class PullRequestService
         Optional<String> etag = storedId.flatMap(snapshots::findDetailEtag);
         PullRequestFetch fetched = gitHub.getPullRequest(pat, ref, etag);
         if (fetched.pullRequest().isEmpty()) {
-            snapshots.refreshStatus(pat, ref, storedId.orElseThrow(), fetched);
-            return false;
+            StoredPrDetail detail = snapshots.refreshStatus(pat, ref, storedId.orElseThrow(), fetched);
+            return new DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(
+                    ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite()));
         }
-        storeFullRefresh(credential, ref, storedId, fetched);
-        return true;
+        return new DetailRefresh(true, storeFullRefresh(credential, ref, storedId, fetched));
     }
 
-    void refreshAllPullRequestDetailFromGitHub(String repo, int number)
+    PullRequestDetail refreshAllPullRequestDetailFromGitHub(String repo, int number)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         PullRequestRef ref = parseRef(repo, number);
         Optional<Long> storedId = store.findIdByRepoAndNumber(repo, number);
         PullRequestFetch fetched = gitHub.getPullRequest(credential.token(), ref, Optional.empty());
-        storeFullRefresh(credential, ref, storedId, fetched);
+        return storeFullRefresh(credential, ref, storedId, fetched);
     }
 
-    private void storeFullRefresh(
+    private PullRequestDetail storeFullRefresh(
             GitHubCredential credential,
             PullRequestRef ref,
             Optional<Long> storedId,
@@ -350,18 +348,20 @@ public class PullRequestService
         storeDetail(pullRequest, detail, currentLogin);
         syncDiffQuietly(pat, pullRequest);
         snapshots.updateDetailEtag(pullRequest.id(), fetched.etag());
+        return PullRequestDetailMapper.toPullRequestDetail(
+                ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite());
     }
 
-    boolean refreshPullRequestDetailFromGitHub(long prId)
+    DetailRefresh refreshPullRequestDetailFromGitHub(long prId)
     {
         PullRequestRef ref = storedPullRequestRef(prId);
         return refreshPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
     }
 
-    void refreshAllPullRequestDetailFromGitHub(long prId)
+    PullRequestDetail refreshAllPullRequestDetailFromGitHub(long prId)
     {
         PullRequestRef ref = storedPullRequestRef(prId);
-        refreshAllPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
+        return refreshAllPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */
@@ -1200,5 +1200,13 @@ public class PullRequestService
             origin = OTHER;
         }
         return withOrigin(pullRequest, origin);
+    }
+
+    record DetailRefresh(boolean full, PullRequestDetail detail)
+    {
+        DetailRefresh
+        {
+            requireNonNull(detail, "detail is null");
+        }
     }
 }

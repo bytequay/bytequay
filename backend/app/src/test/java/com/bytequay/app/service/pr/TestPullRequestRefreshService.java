@@ -37,49 +37,44 @@ import static org.mockito.Mockito.when;
 class TestPullRequestRefreshService
 {
     @Test
-    void directDetailRefreshPersistsBeforeReading()
+    void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
-        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail());
+        when(pullRequests.refreshPullRequestDetailFromGitHub("owner/repo", 7))
+                .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service.refreshDetail("owner/repo", 7);
 
         assertThat(result.full()).isFalse();
         assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
-        InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
-        order.verify(pullRequests).getPullRequestDetail("owner/repo", 7);
+        verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
     }
 
     @Test
-    void idDetailRefreshPersistsBeforeReading()
+    void idDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
-        when(pullRequests.refreshPullRequestDetailFromGitHub(12L)).thenReturn(true);
-        when(pullRequests.getPullRequestDetail(12L)).thenReturn(detail());
+        when(pullRequests.refreshPullRequestDetailFromGitHub(12L))
+                .thenReturn(new PullRequestService.DetailRefresh(true, detail()));
 
         assertThat(service.refreshDetail(12L).full()).isTrue();
 
-        InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).refreshPullRequestDetailFromGitHub(12L);
-        order.verify(pullRequests).getPullRequestDetail(12L);
+        verify(pullRequests).refreshPullRequestDetailFromGitHub(12L);
     }
 
     @Test
     void manualDetailRefreshAlwaysUsesTheFullRefreshPath()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        when(pullRequests.getPullRequestDetail(12L)).thenReturn(detail());
+        when(pullRequests.refreshAllPullRequestDetailFromGitHub(12L)).thenReturn(detail());
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
 
         assertThat(service.refreshAllDetail(12L)).isEqualTo(detail());
 
-        InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).refreshAllPullRequestDetailFromGitHub(12L);
-        order.verify(pullRequests).getPullRequestDetail(12L);
+        verify(pullRequests).refreshAllPullRequestDetailFromGitHub(12L);
     }
 
     @Test

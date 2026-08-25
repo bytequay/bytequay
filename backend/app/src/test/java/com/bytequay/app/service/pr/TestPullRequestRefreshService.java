@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -24,6 +27,8 @@ import org.mockito.InOrder;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +36,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,7 +46,7 @@ class TestPullRequestRefreshService
     void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
         when(pullRequests.refreshPullRequestDetailFromGitHub("owner/repo", 7))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
@@ -56,7 +62,7 @@ class TestPullRequestRefreshService
     void idDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
         when(pullRequests.refreshPullRequestDetailFromGitHub(12L))
                 .thenReturn(new PullRequestService.DetailRefresh(true, detail()));
 
@@ -70,7 +76,7 @@ class TestPullRequestRefreshService
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         when(pullRequests.refreshAllPullRequestDetailFromGitHub(12L)).thenReturn(detail());
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
 
         assertThat(service.refreshAllDetail(12L)).isEqualTo(detail());
 
@@ -84,7 +90,7 @@ class TestPullRequestRefreshService
         DiffFile file = new DiffFile("src/App.java", "modified", 1, 1, "patch");
         when(pullRequests.getPullRequestDiffFiles("owner/repo", 7, "base", "head"))
                 .thenReturn(ImmutableList.of(file));
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
 
         assertThat(service.refreshDiffFiles("owner/repo", 7, "base", "head"))
                 .containsExactly(file);
@@ -100,7 +106,7 @@ class TestPullRequestRefreshService
     void refreshesTheDashboardBeforeReturning()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
 
         service.refreshDashboard();
 
@@ -108,10 +114,130 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void reusesARecentDashboardRefresh()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService service = service(pullRequests);
+
+        service.refreshDashboard();
+        service.refreshDashboard();
+
+        verify(pullRequests).syncFromGitHub();
+    }
+
+    @Test
+    void coalescesConcurrentDashboardRefreshes()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).syncFromGitHub();
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            PullRequestRefreshService service = service(pullRequests);
+            var first = executor.submit(service::refreshDashboard);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var duplicate = executor.submit(service::refreshDashboard);
+            assertThatThrownBy(() -> duplicate.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            duplicate.get(5, TimeUnit.SECONDS);
+        }
+
+        verify(pullRequests).syncFromGitHub();
+    }
+
+    @Test
+    void refreshesAgainAfterCredentialChanges()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        GitHubCredential firstCredential = credential("token-a", "alice");
+        GitHubCredential secondCredential = credential("token-b", "bob");
+        AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
+        when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials);
+
+        service.refreshDashboard();
+        current.set(secondCredential);
+        service.refreshDashboard();
+
+        verify(pullRequests, times(2)).syncFromGitHub();
+    }
+
+    @Test
+    void credentialChangeDuringRefreshRunsAgainAfterCurrentRefresh()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        GitHubCredential firstCredential = credential("token-a", "alice");
+        GitHubCredential secondCredential = credential("token-b", "bob");
+        AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
+        when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).syncFromGitHub();
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials);
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(service::refreshDashboard);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            current.set(secondCredential);
+            var second = executor.submit(service::refreshDashboard);
+            assertThatThrownBy(() -> second.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+        }
+
+        verify(pullRequests, times(2)).syncFromGitHub();
+    }
+
+    @Test
+    void recentDashboardRefreshDoesNotWaitBehindRepositoryRefresh()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        RepoRef repository = RepoRef.of("owner", "repo");
+        CountDownLatch repositoryEntered = new CountDownLatch(1);
+        CountDownLatch releaseRepository = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            repositoryEntered.countDown();
+            assertThat(releaseRepository.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).syncRepository(repository);
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            PullRequestRefreshService service = service(pullRequests);
+            service.refreshDashboard();
+            var repositoryRefresh = executor.submit(() -> service.refreshRepository(repository));
+            assertThat(repositoryEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            executor.submit(service::refreshDashboard).get(1, TimeUnit.SECONDS);
+            releaseRepository.countDown();
+            repositoryRefresh.get(5, TimeUnit.SECONDS);
+        }
+
+        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).syncRepository(repository);
+    }
+
+    @Test
     void refreshesOneRepositoryBeforeReturning()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        PullRequestRefreshService service = service(pullRequests);
         RepoRef repository = RepoRef.of("owner", "repo");
 
         service.refreshRepository(repository);
@@ -120,15 +246,20 @@ class TestPullRequestRefreshService
     }
 
     @Test
-    void refreshFailureIsReturnedToTheCaller()
+    void failedDashboardRefreshCanBeRetried()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        doThrow(new IllegalStateException("provider unavailable")).when(pullRequests).syncFromGitHub();
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+        doThrow(new IllegalStateException("provider unavailable"))
+                .doNothing()
+                .when(pullRequests).syncFromGitHub();
+        PullRequestRefreshService service = service(pullRequests);
 
         assertThatThrownBy(service::refreshDashboard)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("provider unavailable");
+        service.refreshDashboard();
+
+        verify(pullRequests, times(2)).syncFromGitHub();
     }
 
     @Test
@@ -151,7 +282,7 @@ class TestPullRequestRefreshService
         }).when(pullRequests).syncRepository(repository);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            PullRequestRefreshService service = new PullRequestRefreshService(pullRequests);
+            PullRequestRefreshService service = service(pullRequests);
             var dashboard = executor.submit(service::refreshDashboard);
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             var repositoryRefresh = executor.submit(() -> service.refreshRepository(repository));
@@ -198,5 +329,25 @@ class TestPullRequestRefreshService
                 ImmutableList.of(),
                 ImmutableList.of(),
                 true);
+    }
+
+    private static PullRequestRefreshService service(PullRequestService pullRequests)
+    {
+        return new PullRequestRefreshService(
+                pullRequests, credentials(credential("token-a", "alice")));
+    }
+
+    private static CredentialService credentials(GitHubCredential credential)
+    {
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubCredential()).thenReturn(credential);
+        return credentials;
+    }
+
+    private static GitHubCredential credential(String token, String login)
+    {
+        return new GitHubCredential(
+                token,
+                new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", ""));
     }
 }

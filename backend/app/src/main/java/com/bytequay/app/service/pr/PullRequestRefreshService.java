@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -20,6 +22,8 @@ import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -30,12 +34,17 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class PullRequestRefreshService
 {
-    private final PullRequestService pullRequests;
-    private final Lock refreshLock = new ReentrantLock();
+    private static final Duration DASHBOARD_FRESHNESS = Duration.ofMinutes(6);
 
-    public PullRequestRefreshService(PullRequestService pullRequests)
+    private final PullRequestService pullRequests;
+    private final CredentialService credentials;
+    private final Lock refreshLock = new ReentrantLock();
+    private volatile DashboardSnapshot dashboardSnapshot;
+
+    public PullRequestRefreshService(PullRequestService pullRequests, CredentialService credentials)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
@@ -91,10 +100,26 @@ public class PullRequestRefreshService
                         repo, number, path, baseSha, headSha);
     }
 
-    /** Refreshes the global dashboard before returning. */
+    /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */
     public void refreshDashboard()
     {
-        refresh(pullRequests::syncFromGitHub);
+        GitHubCredential credential = credentials.resolveGitHubCredential();
+        if (!dashboardIsFresh(credential)) {
+            refresh(this::refreshDashboardIfStale);
+        }
+    }
+
+    private void refreshDashboardIfStale()
+    {
+        GitHubCredential credential = credentials.resolveGitHubCredential();
+        if (dashboardIsFresh(credential)) {
+            return;
+        }
+        pullRequests.syncFromGitHub();
+        // A credential change during the scan must leave the new account stale.
+        if (credentials.resolveGitHubCredential() == credential) {
+            dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+        }
     }
 
     /** Refreshes one repository before returning. */
@@ -114,4 +139,15 @@ public class PullRequestRefreshService
             refreshLock.unlock();
         }
     }
+
+    private boolean dashboardIsFresh(GitHubCredential credential)
+    {
+        DashboardSnapshot snapshot = dashboardSnapshot;
+        return snapshot != null
+                // CredentialService replaces the cached record when the token generation changes.
+                && snapshot.credential() == credential
+                && snapshot.refreshedAt().isAfter(Instant.now().minus(DASHBOARD_FRESHNESS));
+    }
+
+    private record DashboardSnapshot(GitHubCredential credential, Instant refreshedAt) {}
 }

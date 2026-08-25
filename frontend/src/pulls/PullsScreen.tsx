@@ -87,11 +87,13 @@ export default function PullsScreen({
   const [detailZoomed, setDetailZoomed] = useState(false);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const loadingMoreRequest = useRef(false);
@@ -102,8 +104,10 @@ export default function PullsScreen({
   const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
   const diffRequest = useRef(0);
+  const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
+  listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
 
   const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
     const snapshot = JSON.stringify(value);
@@ -150,27 +154,35 @@ export default function PullsScreen({
   }, []);
 
   const refreshList = useCallback(async () => {
-    const request = ++listRequest.current;
-    setLoading(true);
+    const workspaceId = repositoryScope?.workspaceId;
+    let request: number | null = null;
+    setSyncing(true);
     setError(null);
+    setSyncError(null);
     try {
-      await window.bridge.syncPrs(repositoryScope?.workspaceId);
-      if (request !== listRequest.current) return;
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
+      await window.bridge.syncPrs(workspaceId);
+      const current = listContext.current;
+      if (current.workspaceId !== workspaceId) return;
+      request = ++listRequest.current;
+      const result = await window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query);
       if (request === listRequest.current) applyPage(result);
     }
     catch (e) {
-      if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
+      if (listContext.current.workspaceId === workspaceId
+        && (request === null || request === listRequest.current)) {
+        setSyncError(e instanceof Error ? e.message : String(e));
+      }
     }
     finally {
-      if (request === listRequest.current) setLoading(false);
+      setSyncing(false);
     }
-  }, [applyPage, query, repositoryScope?.workspaceId]);
+  }, [applyPage, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const request = ++listRequest.current;
     setLoading(true);
     setError(null);
+    setSyncError(null);
     setPrs([]);
     setHasMore(false);
     setPage(0);
@@ -499,11 +511,12 @@ export default function PullsScreen({
           ))}
           </nav>
           <button
-            className="pulls-toolbar-button"
+            className={`pulls-toolbar-button${syncing ? ' is-syncing' : ''}`}
             type="button"
-            title="Sync pull requests"
+            title={syncing ? 'Syncing pull requests…' : 'Sync pull requests'}
             aria-label="Sync pull requests"
-            disabled={loading}
+            aria-busy={syncing}
+            disabled={loading || syncing}
             onClick={() => { void refreshList(); }}
           >
             <RefreshIcon />
@@ -531,12 +544,17 @@ export default function PullsScreen({
         </div>
         <div className="pulls-list__rows">
           {loading && <div className="hp-loading">Loading…</div>}
+          {!loading && syncError && (
+            <div className="pulls-sync-error" role="alert">
+              Could not sync pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {syncError}
+            </div>
+          )}
           {!loading && error && rows.length === 0 && (
             <div className="hp-empty" role="alert">
               Could not load pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {error}
             </div>
           )}
-          {!loading && !error && rows.length === 0 && (
+          {!loading && !error && !syncError && rows.length === 0 && (
             <div className="hp-empty">
               {query
                 ? `No pull requests match “${query}”.`

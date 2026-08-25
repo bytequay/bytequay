@@ -269,6 +269,13 @@ refresh the full aggregate immediately. An unchanged open PR updated within the 
 refreshes only mergeability and CI when its stored status is at least six minutes old. Other unchanged
 PRs are skipped, including every unchanged closed PR and older open PR.
 
+Dashboard refresh requests for the same GitHub credential join an in-flight dashboard refresh and
+reuse a successful dashboard snapshot for six minutes after it completes. A credential change waits
+for older in-flight work and then starts a new scan. This keeps a manual refresh from queuing behind
+scheduled repository work and then repeating the same GitHub discovery scan. The frontend keeps the
+persisted list visible while a refresh is in progress, reloads the current search when it completes,
+and reports sync failures in the list without replacing cached rows.
+
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are
 persisted before they are displayed.

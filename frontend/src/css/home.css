@@ -138,7 +138,7 @@
 
 .home-cta-card__open {
   flex-shrink: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   font-weight: 500;
   color: var(--accent);
 }
@@ -167,7 +167,7 @@
 
 .hp-loading,
 .hp-empty {
-  font-size: var(--font-size-md);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   padding: 8px 0;
 }
@@ -195,7 +195,7 @@
   align-items: center;
   justify-content: center;
   color: var(--text-3);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
 }
 
 .home-heatmap--error {
@@ -209,7 +209,7 @@
   gap: var(--space-2);
   margin-bottom: var(--space-1);
   color: var(--text-3);
-  font-size: var(--font-size-xs);
+  font-size: var(--ui-font-size);
 }
 
 .home-heatmap__retry {
@@ -298,7 +298,7 @@
 }
 .home-heatmap__popover-empty {
   padding: var(--space-3);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
 }
 .home-heatmap__popover-list {
@@ -343,7 +343,7 @@
 }
 .home-heatmap__popover-msg {
   grid-column: 1 / 2;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -489,7 +489,7 @@
 }
 
 .home-following-item__text {
-  font-size: 12.5px;
+  font-size: var(--ui-font-size);
   line-height: 1.4;
   color: #57606a;
   word-break: break-word;
@@ -499,7 +499,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: 12.5px;
+  font-size: var(--ui-font-size);
   font-weight: 500;
   color: #17191c;
   cursor: pointer;
@@ -578,7 +578,7 @@
 .home-section__action {
   background: none;
   border: none;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--accent);
   cursor: pointer;
   padding: 2px 4px;
@@ -657,7 +657,7 @@
 }
 
 .home-repo-tile__desc {
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   margin: var(--space-1) 0;
   min-height: 1.4em;
@@ -762,7 +762,7 @@
 }
 
 .home-contrib__bio-text {
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   line-height: 1.45;
   margin: 0;

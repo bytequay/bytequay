@@ -172,8 +172,8 @@
 
   /* Type scale */
   --font-size-xs:  11px; /* meta, captions, badges */
-  --font-size-sm:  12px; /* default body */
-  --font-size-md:  13px; /* dense lists, secondary headings */
+  --font-size-sm:  12px; /* compact supporting text */
+  --font-size-md:  13px; /* compact titles and glyphs */
   --font-size-lg:  14px; /* section headings */
   --font-size-xl:  18px; /* page titles */
   --font-size-2xl: 24px; /* hero numbers (KPI cards) */
@@ -381,7 +381,7 @@ samp {
 }
 .onboarding__hint {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   line-height: 1.45;
 }
@@ -399,7 +399,7 @@ samp {
   border: 1px solid rgba(207, 34, 46, 0.30);
   border-radius: var(--radius-md);
   color: #cf222e;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
 }
 .onboarding__cta {
   margin-top: 8px;

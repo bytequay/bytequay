@@ -60,7 +60,7 @@
   border: 1px solid var(--border-input);
   border-radius: var(--radius-md);
   padding: 7px 12px;
-  font-size: var(--font-size-md);
+  font-size: var(--ui-font-size);
   color: var(--text-1);
   outline: none;
   font-family: inherit;
@@ -79,7 +79,7 @@
 .modal__loading,
 .modal__empty {
   padding: var(--space-4);
-  font-size: var(--font-size-md);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   text-align: center;
 }
@@ -118,7 +118,7 @@
 }
 
 .modal-repo-row__desc {
-  font-size: var(--font-size-xs);
+  font-size: var(--ui-font-size);
   color: var(--text-3);
   margin-top: 2px;
   overflow: hidden;
@@ -142,7 +142,7 @@
   border: none;
   border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -184,7 +184,7 @@
   border-radius: var(--radius-md);
   background: var(--accent-soft);
   color: var(--text-1);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   line-height: 1.45;
 }
 
@@ -205,7 +205,7 @@
   gap: var(--space-3);
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
 }
 
 .modal-preview__routing > div:last-child {
@@ -224,7 +224,7 @@
 
 .modal-preview__summary {
   color: var(--text-2);
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   line-height: 1.5;
 }
 

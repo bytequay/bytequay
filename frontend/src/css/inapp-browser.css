@@ -110,7 +110,7 @@
   height: 28px;
   padding: 0 12px;
   font: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   font-weight: 600;
   color: var(--accent);
   cursor: pointer;
@@ -131,7 +131,7 @@
   height: 28px;
   padding: 0 10px;
   font: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-1);
   cursor: pointer;
   display: inline-flex;

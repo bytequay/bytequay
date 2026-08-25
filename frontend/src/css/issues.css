@@ -8,8 +8,8 @@
 .issues-page .issues-list { min-width: 280px; }
 .issues-list__count { margin-left: 3px; border-radius: 999px; background: #eceef0; color: #59636e; padding: 1px 6px; font-size: 10.5px; font-weight: 700; }
 .issues-freshness { flex: 0 0 auto; border-bottom: 1px solid #f0f1f2; color: #8c959f; padding: 5px 12px; font-size: 11px; }
-.issues-page-loading { color: #8c959f; padding: 12px; text-align: center; font-size: 12px; }
-.issues-error { flex: 0 0 auto; background: #fff1f0; color: #cf222e; padding: 9px 12px; font-size: 12px; }
+.issues-page-loading { color: #8c959f; padding: 12px; text-align: center; font-size: var(--ui-font-size); }
+.issues-error { flex: 0 0 auto; background: #fff1f0; color: #cf222e; padding: 9px 12px; font-size: var(--ui-font-size); }
 
 .issues-row__state { color: #1a7f37; }
 .issues-row .pull-row__labels > span,

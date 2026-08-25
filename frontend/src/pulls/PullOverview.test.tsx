@@ -647,10 +647,28 @@ describe('PullOverview', () => {
       onTab={() => {}}
       onRefresh={async () => {}}
       pendingComments={[]}
+      zoomed={false}
+      onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
     expect(html).toContain('class="pull-detail__review-action"');
     expect(html).toContain('>Submit review</button>');
+    expect(html).toContain('aria-label="Zoom pull request details" aria-pressed="false"');
+  });
+
+  it('offers a restore control when pull request details are zoomed', () => {
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={pullRequest()}
+      detail={detail()}
+      tab="overview"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      pendingComments={[]}
+      zoomed
+      onZoom={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toContain('aria-label="Restore pull request details" aria-pressed="true"');
   });
 
   it('shows who requested the current user\'s review', () => {

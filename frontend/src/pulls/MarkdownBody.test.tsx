@@ -48,4 +48,13 @@ describe('MarkdownBody', () => {
     expect(html).not.toContain('`RedirectionAwareViewHandle`');
     expect(html).not.toContain('](cci:1://');
   });
+
+  it('links bare URLs in comments', () => {
+    const url = 'https://github.com/apache/avro/blob/release-1.12.2/lang/java/avro/src/main/java/org/apache/avro/util/ClassSecurityValidator.java';
+
+    const html = renderToStaticMarkup(<MarkdownBody body={`See ${url}. This validator matters.`} />);
+
+    expect(html).toContain(`<a href="${url}">${url}</a>. This validator matters.`);
+    expect(html).not.toContain(`href="${url}."`);
+  });
 });

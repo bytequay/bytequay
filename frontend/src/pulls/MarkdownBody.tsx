@@ -217,7 +217,7 @@ export function markdownBlocks(markdown: string): Block[] {
 }
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
-  const token = /(\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:issues|pull)\/[0-9]+(?:[?#][^\s<>()\]]*)?|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+  const token = /(\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
   return text.split(token).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
@@ -258,6 +258,14 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       <ReferenceLink key={key} reference={bareReference} showTitle>
         {bareReference.owner}/{bareReference.repo} <small>#{bareReference.number}</small>
       </ReferenceLink>
+    );
+    if (/^https?:\/\//i.test(part)) return (
+      <a key={key} href={part} onClick={event => {
+        event.preventDefault();
+        void window.bridge.openInAppBrowser(part);
+      }}>
+        {part}
+      </a>
     );
     if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
     return <Fragment key={key}>{part}</Fragment>;

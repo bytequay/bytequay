@@ -213,6 +213,15 @@ public class PullRequestController
         return ImmutableMap.of("result", "commented");
     }
 
+    @PostMapping("/prs/checks/rerun-failed")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void rerunFailedChecks(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        pullRequests.rerunFailedChecks(repo, number);
+    }
+
     @PostMapping("/prs/review-comments/{commentId}/replies")
     public Map<String, String> replyToReviewComment(
             @RequestParam("repo") String repo,

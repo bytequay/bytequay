@@ -13,6 +13,12 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.ci.CiHeadSnapshot;
+import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiRerunResult;
+import com.bytequay.app.ci.CiWorkflowRun;
+import com.bytequay.app.ci.InspectCiHeadQuery;
+import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubMergeClient;
@@ -145,6 +151,30 @@ class TestPullRequestService
                 .thenReturn(ImmutableList.of(label));
 
         assertThat(service.listRepositoryLabels("owner/repo")).containsExactly(label);
+    }
+
+    @Test
+    void rerunsFailedGitHubActionsForTheCurrentHead()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        String headSha = "1111111111111111111111111111111111111111";
+        CiJob failedJob = new CiJob(
+                301, 101, "test", 3, "completed", Optional.of("failure"),
+                "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
+        CiWorkflowRun failedRun = new CiWorkflowRun(
+                101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
+                "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
+        when(actions.inspect(new InspectCiHeadQuery(ref))).thenReturn(new CiHeadSnapshot(
+                ref, true, "alice", true, "feature", headSha, "main",
+                "2222222222222222222222222222222222222222",
+                "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));
+        when(actions.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+
+        service.rerunFailedChecks("owner/repo", 7);
+
+        ArgumentCaptor<RerunFailedJobsCommand> command = ArgumentCaptor.forClass(RerunFailedJobsCommand.class);
+        verify(actions).rerunFailedJobs(command.capture());
+        assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(ref, 101, headSha, 3, true));
     }
 
     @Test

@@ -122,6 +122,16 @@ describe('PullOverview', () => {
     expect(html).toContain('M10.5 7.75a2.75 2.75');
   });
 
+  it('offers failed GitHub Actions reruns to viewers with write access', () => {
+    const value = detail();
+    value.viewerCanWrite = true;
+    value.checkRuns[0].detailsUrl = 'https://github.com/owner/repo/actions/runs/101/job/301';
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('Rerun failed tests');
+  });
+
   it('groups adjacent label events from the same actor into one GitHub timeline row', () => {
     const value = detail();
     value.recentActivity = [

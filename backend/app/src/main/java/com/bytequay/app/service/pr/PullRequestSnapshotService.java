@@ -13,6 +13,11 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.ci.CiHeadSnapshot;
+import com.bytequay.app.ci.CiRerunResult;
+import com.bytequay.app.ci.CiWorkflowRun;
+import com.bytequay.app.ci.InspectCiHeadQuery;
+import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
@@ -43,6 +48,7 @@ import java.util.function.UnaryOperator;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Owns persisted pull-request detail and diff snapshots. */
@@ -78,6 +84,33 @@ public class PullRequestSnapshotService
         return details.find(prId)
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(
                         repo, number, stored, stored.viewerCanWrite()));
+    }
+
+    void rerunFailedChecks(PullRequestRef pullRequest)
+    {
+        CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(pullRequest));
+        List<CiWorkflowRun> failedRuns = head.workflowRuns().stream()
+                .filter(run -> run.jobs().stream().anyMatch(job -> job.actionableFailure()))
+                .collect(toImmutableList());
+        if (failedRuns.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No failed GitHub Actions jobs are available to rerun");
+        }
+
+        int accepted = 0;
+        String rejection = "GitHub did not accept the failed-job rerun";
+        for (CiWorkflowRun run : failedRuns) {
+            CiRerunResult result = actions.rerunFailedJobs(new RerunFailedJobsCommand(
+                    pullRequest, run.id(), head.headSha(), run.attempt(), true));
+            if (result.outcome() == CiRerunResult.Outcome.ACCEPTED) {
+                accepted++;
+            }
+            else {
+                rejection = result.reason();
+            }
+        }
+        if (accepted == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
+        }
     }
 
     List<DiffFile> getDiffFiles(long prId, String baseSha, String headSha)

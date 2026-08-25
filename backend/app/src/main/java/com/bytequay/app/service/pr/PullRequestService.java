@@ -220,6 +220,11 @@ public class PullRequestService
         return merges.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
     }
 
+    public void rerunFailedChecks(String repo, int number)
+    {
+        snapshots.rerunFailedChecks(parseRef(repo, number));
+    }
+
     /**
      * Fetches the PR list from GitHub, persists it, then refreshes detail for any PR whose
      * {@code updatedAt} changed (or is new). Stale detail for removed PRs is cleaned up.

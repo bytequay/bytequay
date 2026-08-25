@@ -97,7 +97,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
             pr={pr} onRefresh={onRefresh}
             onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         ))}
-        <ChecksCard detail={detail} />
+        <ChecksCard pr={pr} detail={detail} onRefresh={onRefresh} />
       </section>
       <DiscussionComposer
         candidates={mentionCandidates(detail)}
@@ -887,7 +887,14 @@ function CardActionsMenu({ actions }: { actions: CardActions }) {
   );
 }
 
-function ChecksCard({ detail }: { detail: PullRequestDetailDto }) {
+function ChecksCard({ pr, detail, onRefresh }: {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  onRefresh: () => Promise<void>;
+}) {
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunRequested, setRerunRequested] = useState(false);
+  const [rerunError, setRerunError] = useState<string | null>(null);
   const groups = useMemo(() => {
     const out = new Map<string, PullRequestDetailDto['checkRuns']>();
     detail.checkRuns.forEach(check => out.set(check.category, [...(out.get(check.category) ?? []), check]));
@@ -896,11 +903,36 @@ function ChecksCard({ detail }: { detail: PullRequestDetailDto }) {
       .filter(([, checks]) => checks.length > 0);
   }, [detail.checkRuns]);
   const passing = detail.ciStatus === 'PASSING';
+  const canRerun = detail.viewerCanWrite && detail.checkRuns.some(check =>
+    check.category === 'failing'
+      && check.source === 'check_run'
+      && check.detailsUrl?.includes('/actions/runs/'));
+  useEffect(() => {
+    if (detail.ciStatus !== 'FAILING') setRerunRequested(false);
+  }, [detail.ciStatus]);
+  const rerun = async () => {
+    setRerunning(true);
+    setRerunError(null);
+    try {
+      await window.bridge.rerunFailedPrChecks(pr.repo, pr.number);
+      setRerunRequested(true);
+      await onRefresh();
+    }
+    catch (failure) {
+      setRerunError(remoteErrorMessage(failure));
+    }
+    finally {
+      setRerunning(false);
+    }
+  };
   return (
     <article className="pr-checks">
       <header><span className={passing ? 'is-success' : 'is-failure'}>{passing ? <CheckIcon /> : <XIcon />}</span>
         <strong>{passing ? 'All checks have passed' : detail.ciStatus === 'FAILING' ? 'Some checks were not successful' : 'Checks are in progress'}</strong>
+        {canRerun && <button type="button" className="pr-checks__rerun" disabled={rerunning || rerunRequested}
+          onClick={() => { void rerun(); }}>{rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests'}</button>}
       </header>
+      {rerunError && <div className="pr-checks__error" role="alert">{rerunError}</div>}
       <div className="pr-checks__groups">
         {groups.length === 0 && <span>No checks reported.</span>}
         {groups.map(([category, checks], index) => (

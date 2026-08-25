@@ -698,6 +698,8 @@ function registerIpc(): void {
       body: JSON.stringify({ resolved }),
     });
   });
+  ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number) =>
+    backendVoid(prUrl('/prs/checks/rerun-failed', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:approve', (_event, prId: number, repo: string, number: number) => {
     const url = prUrl('/prs/approve', repo, number);
     url.searchParams.set('id', String(prId));

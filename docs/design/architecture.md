@@ -270,7 +270,7 @@ Default PR diff files and commit metadata refresh with changed PR detail. Commit
 full file bodies refresh only after the user requests that range or expands that file, and are
 persisted before they are displayed.
 
-GitHub writes remain behind direct comment, approve, or merge actions.
+GitHub writes remain behind direct comment, approve, failed-check rerun, or merge actions.
 
 ### 6.2 Issue flow
 

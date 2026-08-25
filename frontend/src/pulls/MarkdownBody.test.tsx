@@ -37,4 +37,15 @@ describe('MarkdownBody', () => {
     expect(html.match(/checked=""/g)).toHaveLength(2);
     expect(html).toContain('<ul><li>Dash item</li><li>Asterisk item</li></ul>');
   });
+
+  it('renders code and links nested inside bold text', () => {
+    const body = '- **`RedirectionAwareViewHandle`** — record for view redirection\n'
+      + '- **[`MetadataManager.getRedirectedViewName()`](cci:1://file:///src/MetadataManager.java:2061:4-2102:5)** — redirect resolution';
+
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+    expect(html).toContain('<strong><code>RedirectionAwareViewHandle</code></strong>');
+    expect(html).toContain('<strong><a href="cci:1://file:///src/MetadataManager.java:2061:4-2102:5"><code>MetadataManager.getRedirectedViewName()</code></a></strong>');
+    expect(html).not.toContain('`RedirectionAwareViewHandle`');
+    expect(html).not.toContain('](cci:1://');
+  });
 });

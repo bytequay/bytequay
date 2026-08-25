@@ -229,8 +229,8 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         <img src={linkedImage[2]} alt={linkedImage[1]} />
       </a>
     );
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{part.slice(2, -2)}</strong>;
-    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{part.slice(1, -1)}</em>;
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`)}</strong>;
+    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`)}</em>;
     if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;
     const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {
@@ -240,7 +240,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       const showTitle = /^https?:\/\//i.test(link[1]);
       const label = showTitle && githubReference
         ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
-        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : link[1];
+        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(link[1], `${key}-link`);
       if (githubReference) return (
         <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );

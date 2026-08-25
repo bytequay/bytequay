@@ -37,9 +37,10 @@ of commit enrichment and PR synchronization.
 - `GET .../git/commits` performs no GitHub, `gh`, or other network call.
 - Core commit facts and ordering come from the managed Git checkout. Do not
   duplicate Git objects in SQLite.
-- SQLite stores commit enrichment and completed-refresh metadata: avatar cache
-  key, commit-to-PR association, enrichment timestamps, last attempt, last
-  success, and the last failure message.
+- SQLite stores commit enrichment and completed-refresh metadata: provider
+  author/committer logins, avatar cache keys, commit-to-PR association,
+  enrichment timestamps, last attempt, last success, and the last failure
+  message.
 - Existing pull-request tables and `PullRequestService` remain the only full PR
   projection. Do not create a second PR service or copy PR details into a new
   table.
@@ -53,16 +54,17 @@ of commit enrichment and PR synchronization.
 - A linked upstream is resolved from its stable GitHub repository ID and
   persisted routing snapshot. It does not need to be a watched workspace. An
   unlinked workspace never infers an upstream from GitHub relationships.
-- Commit cards retain both the PR chip/title and author avatar presentation.
+- Commit cards retain the PR chip/title and author/committer avatar presentation.
 
 ## 3. Sources of truth
 
 | Data | Source of truth | Display read |
 | --- | --- | --- |
-| SHA, title, body, author, committed time, order | managed local Git checkout | local `git log` |
+| SHA, title, body, author/committer names, authored/committed times, order | managed local Git checkout | local `git log` |
+| GitHub author/committer logins | SQLite commit enrichment | local store lookup, with Git names as fallback |
 | Commit-to-PR number/title/URL | SQLite commit enrichment | local store lookup |
 | Full PR list and detail | existing SQLite `PullRequestStore` and `PrDetailStore` | existing local PR service |
-| Commit avatar | application-data file cache, referenced by SQLite key | localhost avatar endpoint |
+| Author/committer avatars | application-data file cache, referenced by SQLite keys | localhost avatar endpoint |
 | Completed refresh timestamps and error | SQLite | commit history response |
 | Changed files and patches | managed local Git checkout | existing local diff endpoints |
 
@@ -82,7 +84,10 @@ SHA:
 public record CommitEnrichment(
         long repositoryId,
         String sha,
+        Optional<String> authorLogin,
         Optional<String> avatarKey,
+        Optional<String> committerLogin,
+        Optional<String> committerAvatarKey,
         Optional<Integer> pullRequestNumber,
         Optional<String> pullRequestTitle,
         Optional<String> pullRequestUrl,
@@ -137,9 +142,10 @@ avatar responses under ByteQuay's application-data directory using a digest of
 the source URL as the key. Persist only that key in `CommitEnrichment`.
 
 `GET /api/avatars/{key}` validates the key, serves the local file with a stable
-content type and `ETag`, and never downloads on a cache miss. `Avatar` receives
-this localhost URL. If no key exists or the local response fails, it renders
-the existing initial placeholder without a remote fallback URL.
+content type and `ETag`, and never downloads on a cache miss. Each author or
+committer `Avatar` receives its localhost URL. If no key exists or the local
+response fails, it renders the existing initial placeholder without a remote
+fallback URL.
 
 This makes “stored locally” literal: the commit row, association metadata, and
 displayed image remain available after restart and while offline.
@@ -175,6 +181,12 @@ public class CommitHistoryService
     CommitRefreshStatus refresh(
             String workspaceId,
             List<CommitHistoryRef> refs);
+
+    /** Rechecks freshness under the workspace refresh lock, then refreshes only when due. */
+    CommitRefreshStatus refreshIfDue(
+            String workspaceId,
+            List<CommitHistoryRef> refs,
+            Instant staleBefore);
 
     /**
      * Returns current refresh state without reading Git or contacting GitHub.
@@ -244,7 +256,7 @@ executor, polling contract, or second public service. The refresher uses:
 - `WorkspaceProvisioningService.synchronizeCode(...)` for safe fetch/prune;
 - `GitBrowseService.log(...)` for local commit extraction;
 - `GitHubRepoClient.fetchCommitAvatarSnapshot(...)` for one named branch-level
-  avatar result;
+  author/committer identity and avatar result;
 - `CherryPickPullRequestLookup.lookUpResult(...)` only for associations that
   are due;
 - `CommitHistoryStore` for durable enrichment and completed metadata; and
@@ -271,8 +283,9 @@ For one accepted workspace request, the synchronous refresh call:
    changing local files.
 3. Reads up to 300 commits per requested ref from local Git.
 4. Loads all existing enrichment for those SHAs in one SQLite query.
-5. Fetches the branch avatar map once, caches new image bytes, and records local
-   avatar keys. A provider failure leaves old keys unchanged.
+5. Fetches the branch author/committer identity map once, caches new image
+   bytes, and records provider logins and local avatar keys. A provider failure
+   leaves old identities and keys unchanged.
 6. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
 7. Upserts enrichment and saves a new `lastSucceededAt` before returning.
@@ -302,15 +315,16 @@ public final class CommitHistorySyncJob
     public void tick()
     {
         // List workspaces, apply the five-minute freshness check, and
-        // call commits.refresh(...).
+        // call commits.refreshIfDue(...), which rechecks under the refresh lock.
     }
 }
 ```
 
 The scheduled thread performs each due refresh synchronously. GitHub and Git
-fetches happen no more often than the five-minute freshness interval. A fresh
-manual success therefore suppresses the next scheduled refresh. A recent
-failure is also throttled for five minutes.
+fetches happen no more often than the five-minute freshness interval. The due
+check is repeated under the same per-workspace lock used by manual refresh, so
+a queued scheduled attempt cannot run after and overwrite a fresh manual
+result. A recent failure is also throttled for five minutes.
 
 Pull-request scheduling and overlap policy remain independent. A running or
 failed PR refresh cannot block or fail commit refresh.
@@ -332,8 +346,11 @@ returns:
       "sha": "f4627c7...",
       "title": "Update MongoDB image versions in tests",
       "body": "",
-      "author": "Example Author",
+      "author": "percy-r",
       "authorAvatarUrl": "http://127.0.0.1:.../api/avatars/5d8...",
+      "committer": "ezra-b",
+      "committerAvatarUrl": "http://127.0.0.1:.../api/avatars/82a...",
+      "authoredAt": "2026-08-12T10:00:00Z",
       "committedAt": "2026-08-21T10:00:00Z",
       "pullRequestNumber": 24123,
       "pullRequestTitle": "Update MongoDB image versions in tests"
@@ -348,7 +365,18 @@ returns:
 ```
 
 The response may contain `null` avatar or PR fields when enrichment has never
-succeeded. The commit itself must still render.
+succeeded. Provider logins fall back to the corresponding local Git names. The
+commit itself must still render.
+
+### Local refresh status
+
+```http
+GET /api/workspaces/{workspaceId}/git/commits/refresh
+```
+
+returns the same SQLite-backed `CommitRefreshStatus` as a completed manual
+refresh. It reads no Git data and contacts no provider. The renderer uses this
+small response to notice background scheduler completion.
 
 ### Manual refresh
 
@@ -389,13 +417,13 @@ sequenceDiagram
 
     UI->>API: GET commits(source, branch, limit)
     API->>Service: listHistory(workspaceId, ref, limit)
+    Service->>Refresher: status(workspaceId)
+    Refresher->>Store: findRefreshMetadata(workspaceId)
+    Refresher-->>Service: completed metadata token
     Service->>Git: log(managedCheckout, validatedRef, limit)
     Git-->>Service: core commit facts
     Service->>Store: findEnrichment(repositoryId, shas)
-    Store-->>Service: avatar keys + PR associations
-    Service->>Refresher: status(workspaceId)
-    Refresher->>Store: findRefreshMetadata(workspaceId)
-    Refresher-->>Service: completed metadata
+    Store-->>Service: provider identities + avatar keys + PR associations
     Service-->>API: CommitHistorySnapshot
     API-->>UI: commits + current refresh status
     Note over UI,Store: No GitHub call and no refresh
@@ -407,7 +435,7 @@ sequenceDiagram
 sequenceDiagram
     participant UI as CommitsTab
     participant API as Commit refresh endpoint
-    participant Service as CommitHistoryService.refresh
+    participant Service as CommitHistoryService.refreshIfDue
     participant Refresher as CommitHistoryRefresher
     participant Git as WorkspaceProvisioningService
     participant GitHub as GitHub clients
@@ -420,7 +448,7 @@ sequenceDiagram
     Git-->>Refresher: fetched local checkout
     Refresher->>Refresher: GitBrowseService.log(refs)
     Refresher->>Store: findEnrichment(repositoryId, shas)
-    Refresher->>GitHub: fetch avatars and due PR associations
+    Refresher->>GitHub: fetch identities, avatars, and due PR associations
     Refresher->>Store: upsertEnrichment + save completed metadata
     Refresher-->>Service: completed status
     Service-->>UI: 200 + IDLE or FAILED
@@ -439,10 +467,10 @@ sequenceDiagram
     Job->>Workspaces: list watched workspaces
     Workspaces-->>Job: durable workspace routing
     loop each stale workspace
-        Job->>Service: refresh(workspaceId, default refs)
+        Job->>Service: refreshIfDue(workspaceId, default refs, staleBefore)
         Service-->>Job: completed status
     end
-    Note over Job,Service: Manual and scheduled work call the same synchronous method
+    Note over Job,Service: Scheduled and manual work share one per-workspace refresh lock
 ```
 
 ## 10. UI display logic
@@ -459,16 +487,21 @@ The toolbar follows these states:
 - no successful snapshot: commits still come from local Git, with `not synced
   yet` and initial/avatar/PR fields filled only where already known.
 
-The renderer does not poll. It awaits the manual refresh request, keeps the
-existing rows visible, then reloads local history when the request completes.
-Normal tab navigation does not start refresh work or contact GitHub.
+While History is visible, the renderer polls only the lightweight local refresh
+status. When `lastAttemptAt` advances, it reloads local history once so an
+already-open card picks up newly persisted identities, avatars, and PR data. A
+manual refresh still waits for completion and reloads immediately. Neither the
+status poll nor normal tab navigation starts provider work.
 
 `HistoryView` keeps the current card anatomy:
 
-- title and short SHA;
-- PR chip and title when `pullRequestNumber` is present;
-- locally served avatar or fixed-size initial fallback;
-- author and committed time; and
+- title and a short-SHA button that copies the full SHA;
+- locally served author/committer avatars or fixed-size initial fallbacks;
+- GitHub-style `author authored and committer committed 1 hour ago` metadata
+  (collapsed to `author committed …` when both identities match);
+- PR chip and title on a separate bottom row when `pullRequestNumber` is
+  present;
+- committed-day grouping; and
 - current selection/viewed-row behavior.
 
 The refresh ref list contains the currently selected workspace branch and,
@@ -482,7 +515,7 @@ upstream ref.
   the current screen.
 - Keep enrichment rows seen in an active ref. A later maintenance sweep may
   delete rows not seen for 30 days; no cleanup is required for the first slice.
-- Cache avatar files by URL digest so authors shared across commits and
+- Cache avatar files by URL digest so actors shared across commits and
   workspaces share one file. Orphan cleanup may use the same 30-day threshold.
 - A failed fetch or GitHub request retains the previous Git refs, PR rows,
   enrichment, avatar files, and successful timestamp.
@@ -528,9 +561,9 @@ upstream ref.
   clear PR chips or avatars that were previously stored.
 - A linked upstream is refreshed and displayed only through its persisted
   repository routing. Unlinking immediately removes it from refresh requests.
-- Commit-card regression tests assert both the PR chip/title and an avatar
-  `<img>` when a local avatar key exists, plus the fixed-size initial fallback
-  when it does not.
+- Commit-card regression tests assert the clickable SHA, dual-identity byline,
+  both local avatar images, separate PR bottom row, committed-day grouping, and
+  full relative time, plus the fixed-size initial fallback when no key exists.
 - The display-path backend test proves that the controller and local history
   service have no `GitHubRepoClient` or `CherryPickPullRequestLookup`
   dependency.

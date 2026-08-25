@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { CommitRefreshStatusDto, WorkspaceDto } from '../types';
 import CommitsTab, {
   availableCommitSource,
+  commitRefreshChanged,
   commitRefreshRefs,
   commitSyncLabel,
   selectableCommitSources,
@@ -114,6 +115,25 @@ describe('workspace commits tab', () => {
   it('reports the last completed refresh status', () => {
     expect(commitSyncLabel(status('FAILED'))).toBe('sync failed');
     expect(commitSyncLabel(status('IDLE'))).toBe('not synced yet');
+  });
+
+  it('reloads history only when a background refresh attempt completes', () => {
+    const previousAttempt = '2026-08-25T08:00:00Z';
+
+    expect(commitRefreshChanged(previousAttempt, {
+      ...status('IDLE'),
+      lastAttemptAt: previousAttempt,
+      lastSucceededAt: previousAttempt,
+    })).toBe(false);
+    expect(commitRefreshChanged(previousAttempt, {
+      ...status('IDLE'),
+      lastAttemptAt: '2026-08-25T08:05:00Z',
+      lastSucceededAt: '2026-08-25T08:05:00Z',
+    })).toBe(true);
+    expect(commitRefreshChanged(previousAttempt, {
+      ...status('FAILED'),
+      lastAttemptAt: '2026-08-25T08:05:00Z',
+    })).toBe(true);
   });
 });
 

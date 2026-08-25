@@ -19,12 +19,40 @@ import { DiffViewer } from '../pulls/PullChanges';
 import { useResizablePane } from '../useResizablePane';
 import {
   groupByDay,
-  isLikelyGitHubLogin,
   matchesCommitQuery,
   selectedSpan,
   shortSha,
   squashMessage,
 } from './model';
+
+function CommitByline({ commit }: { commit: GitCommitDto }) {
+  const sameActor = commit.author === commit.committer;
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={`cmt-commit-avatars${sameActor ? '' : ' is-pair'}`}
+      >
+        <Avatar login={commit.author} avatarUrl={commit.authorAvatarUrl} size={20} allowGitHubFallback={false} />
+        {!sameActor && (
+          <Avatar
+            login={commit.committer}
+            avatarUrl={commit.committerAvatarUrl}
+            size={20}
+            allowGitHubFallback={false}
+          />
+        )}
+      </span>
+      <span className="cmt-commit-byline">
+        <strong>{commit.author}</strong>
+        {sameActor ? ' committed ' : <>{' authored and '}<strong>{commit.committer}</strong>{' committed '}</>}
+        <time dateTime={commit.committedAt}>
+          {relativeTime(commit.committedAt, { style: 'long' })}
+        </time>
+      </span>
+    </>
+  );
+}
 
 export default function HistoryView({
   workspaceId,
@@ -226,7 +254,7 @@ export default function HistoryView({
             <div className="cmt-loading">No commits match “{query}”.</div>
           )}
           {visibleGroups.map(group => (
-            <div className="cmt-day-card" key={group.label}>
+            <div className="cmt-day-card" key={group.commits[0].commit.sha}>
               <div className="cmt-day-head">
                 <span className="cmt-day-icon">⑂</span>
                 <span>{group.label}</span>
@@ -252,20 +280,10 @@ export default function HistoryView({
                         onClick={event => event.stopPropagation()}
                         onChange={() => toggle(commit.sha)}
                       />
-                      <Avatar
-                        login={commit.author}
-                        avatarUrl={commit.authorAvatarUrl}
-                        size={26}
-                        allowGitHubFallback={isLikelyGitHubLogin(commit.author)}
-                      />
                       <div className="cmt-commit-main">
                         <div className="cmt-commit-title">{commit.title}</div>
                         <div className="cmt-commit-meta">
-                          <span className="cmt-commit-byline">
-                            <strong>{commit.author}</strong>
-                            {' committed '}
-                            {relativeTime(commit.committedAt)}
-                          </span>
+                          <CommitByline commit={commit} />
                         </div>
                         {pullRequestNumber !== null && (
                           <button
@@ -286,12 +304,9 @@ export default function HistoryView({
                           </button>
                         )}
                       </div>
-                      <span className="cmt-commit-sha" title="View this commit's changes">
-                        {shortSha(commit.sha)}
-                      </span>
                       <button
                         type="button"
-                        className="cmt-commit-copy"
+                        className="cmt-commit-sha"
                         title="Copy full commit SHA"
                         aria-label={`Copy full commit SHA ${commit.sha}`}
                         onClick={event => {
@@ -299,7 +314,7 @@ export default function HistoryView({
                           void navigator.clipboard.writeText(commit.sha);
                         }}
                       >
-                        ⧉
+                        {shortSha(commit.sha)}
                       </button>
                     </div>
 
@@ -392,13 +407,7 @@ export default function HistoryView({
                     <>
                       <span>{shortSha(viewed.sha)} ·</span>
                       <span className="cmt-view-author">
-                        <Avatar
-                          login={viewed.author}
-                          avatarUrl={viewed.authorAvatarUrl}
-                          size={14}
-                          allowGitHubFallback={isLikelyGitHubLogin(viewed.author)}
-                        />
-                        {viewed.author} committed {relativeTime(viewed.committedAt)}
+                        <CommitByline commit={viewed} />
                       </span>
                     </>
                   )

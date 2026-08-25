@@ -153,6 +153,8 @@ const bridge: Bridge = {
   gitDiffFileContent: (workspaceId, base, head, path) =>
     ipcRenderer.invoke('git:diff-content', workspaceId, base, head, path),
   gitStatus: workspaceId => ipcRenderer.invoke('git:status', workspaceId),
+  getCommitRefreshStatus: workspaceId =>
+    ipcRenderer.invoke('git:commit-refresh-status', workspaceId),
   refreshCommitHistory: (workspaceId, refs) =>
     ipcRenderer.invoke('git:refresh-history', workspaceId, refs),
   gitCommit: (workspaceId, summary, description) =>

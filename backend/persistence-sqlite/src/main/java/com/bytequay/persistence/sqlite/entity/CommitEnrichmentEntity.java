@@ -32,8 +32,17 @@ public class CommitEnrichmentEntity
     @EmbeddedId
     private Key id;
 
+    @Column(name = "author_login")
+    private String authorLogin;
+
     @Column(name = "avatar_key")
     private String avatarKey;
+
+    @Column(name = "committer_login")
+    private String committerLogin;
+
+    @Column(name = "committer_avatar_key")
+    private String committerAvatarKey;
 
     @Column(name = "pull_request_number")
     private Integer pullRequestNumber;
@@ -59,8 +68,17 @@ public class CommitEnrichmentEntity
     public Key getId() { return id; }
     public void setId(Key id) { this.id = id; }
 
+    public String getAuthorLogin() { return authorLogin; }
+    public void setAuthorLogin(String authorLogin) { this.authorLogin = authorLogin; }
+
     public String getAvatarKey() { return avatarKey; }
     public void setAvatarKey(String avatarKey) { this.avatarKey = avatarKey; }
+
+    public String getCommitterLogin() { return committerLogin; }
+    public void setCommitterLogin(String committerLogin) { this.committerLogin = committerLogin; }
+
+    public String getCommitterAvatarKey() { return committerAvatarKey; }
+    public void setCommitterAvatarKey(String committerAvatarKey) { this.committerAvatarKey = committerAvatarKey; }
 
     public Integer getPullRequestNumber() { return pullRequestNumber; }
     public void setPullRequestNumber(Integer pullRequestNumber) { this.pullRequestNumber = pullRequestNumber; }

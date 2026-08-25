@@ -54,7 +54,7 @@ class TestGitBrowseService
     }
 
     @Test
-    void logReportsTitleBodyAuthorAndPullRequestNumber()
+    void logReportsTitleBodyAuthorPullRequestNumberAndDistinctDates()
     {
         write("a.txt", "one\n");
         git(repository, "add", "-A");
@@ -67,10 +67,13 @@ class TestGitBrowseService
         assertThat(commit.title()).isEqualTo("First change (#412)");
         assertThat(commit.body()).isEqualTo("Longer body\nwith two lines");
         assertThat(commit.author()).isEqualTo("ByteQuay Test");
+        assertThat(commit.committer()).isEqualTo("ByteQuay Test");
         assertThat(commit.pullRequestNumber()).contains(412);
+        assertThat(commit.authoredAt())
+                .isEqualTo(git(repository, "log", "-1", "--format=%aI").strip());
         assertThat(commit.committedAt())
                 .isEqualTo(git(repository, "log", "-1", "--format=%cI").strip())
-                .isNotEqualTo(git(repository, "log", "-1", "--format=%aI").strip());
+                .isNotEqualTo(commit.authoredAt());
     }
 
     @Test

@@ -12,11 +12,18 @@
  * limitations under the License.
  */
 
-const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' });
+const formatters = {
+  narrow: new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' }),
+  long: new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'long' }),
+};
 
 export function relativeTime(
   value: string | number | null | undefined,
-  { suffix = true, now = Date.now() }: { suffix?: boolean; now?: number } = {},
+  {
+    suffix = true,
+    now = Date.now(),
+    style = 'narrow',
+  }: { suffix?: boolean; now?: number; style?: keyof typeof formatters } = {},
 ): string {
   if (value === null || value === undefined) return '';
   const elapsed = Math.max(0, now - (typeof value === 'number' ? value : Date.parse(value)));
@@ -28,5 +35,5 @@ export function relativeTime(
       : elapsed < 86_400_000
         ? [Math.floor(elapsed / 3_600_000), 'hour', 'h'] as const
         : [Math.floor(elapsed / 86_400_000), 'day', 'd'] as const;
-  return suffix ? formatter.format(-amount, unit) : amount === 0 ? short : `${amount}${short}`;
+  return suffix ? formatters[style].format(-amount, unit) : amount === 0 ? short : `${amount}${short}`;
 }

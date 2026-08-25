@@ -74,17 +74,18 @@ class TestCommitHistorySyncJob
 
         job.tick();
 
-        verify(commits).refresh("linked", ImmutableList.of(
+        Instant staleBefore = NOW.minusSeconds(300);
+        verify(commits).refreshIfDue("linked", ImmutableList.of(
                 new CommitHistoryRef(Source.WORKSPACE, "main"),
-                new CommitHistoryRef(Source.UPSTREAM, "upstream-main")));
-        verify(commits).refresh(
-                "direct", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
-        verify(commits, never()).refresh(
-                "fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
-        verify(commits, never()).refresh(
-                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
-        verify(commits).refresh(
-                "unsynced", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+                new CommitHistoryRef(Source.UPSTREAM, "upstream-main")), staleBefore);
+        verify(commits).refreshIfDue(
+                "direct", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue(
+                "fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue(
+                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits).refreshIfDue(
+                "unsynced", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
     }
 
     @Test
@@ -99,10 +100,28 @@ class TestCommitHistorySyncJob
 
         job.refreshDue();
 
-        verify(commits).refresh(
-                "due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
-        verify(commits, never()).refresh(
-                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        Instant staleBefore = NOW.minusSeconds(300);
+        verify(commits).refreshIfDue(
+                "due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue(
+                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+    }
+
+    @Test
+    void missingWorkspaceDoesNotStopLaterRefreshes()
+    {
+        WorkspaceSummary removed = workspace("removed", true, false, 900);
+        WorkspaceSummary due = workspace("due", true, false, 901);
+        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(removed, due));
+        when(commits.getRefreshStatus("removed")).thenThrow(new IllegalArgumentException("workspace removed"));
+        when(commits.getRefreshStatus("due")).thenReturn(CommitRefreshStatus.idle("due"));
+
+        job.refreshDue();
+
+        verify(commits).refreshIfDue(
+                "due",
+                ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")),
+                NOW.minusSeconds(300));
     }
 
     private static CommitRefreshStatus success(String workspaceId, Instant succeededAt)

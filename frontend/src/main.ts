@@ -373,6 +373,8 @@ function registerIpc(): void {
   ) => gitGet(workspaceId, 'diff-content', { base, head, path }));
   ipcMain.handle('git:status', (_event, workspaceId: string) =>
     gitGet(workspaceId, 'status', {}));
+  ipcMain.handle('git:commit-refresh-status', (_event, workspaceId: string) =>
+    gitGet(workspaceId, 'commits/refresh', {}));
   ipcMain.handle('git:refresh-history', (
     _event,
     workspaceId: string,

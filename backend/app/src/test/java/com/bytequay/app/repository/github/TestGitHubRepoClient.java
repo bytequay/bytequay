@@ -21,6 +21,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -106,8 +108,10 @@ class TestGitHubRepoClient
         fixture.server().expect(requestTo(
                         "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
                 .andRespond(withSuccess("""
-                        [{"sha":"abc","author":{"avatar_url":"https://avatars/alice"}},
-                         {"sha":"def","author":null}]
+                        [{"sha":"abc",
+                          "author":{"login":"percy-r","avatar_url":"https://avatars/percy-r"},
+                          "committer":{"login":"ezra-b","avatar_url":"https://avatars/ezra-b"}},
+                         {"sha":"def","author":null,"committer":null}]
                         """, MediaType.APPLICATION_JSON));
 
         CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot(
@@ -115,7 +119,12 @@ class TestGitHubRepoClient
 
         assertThat(snapshot.succeeded()).isTrue();
         assertThat(snapshot.avatars()).containsExactly(
-                new CommitAvatarSnapshot.CommitAvatar("abc", "https://avatars/alice"));
+                new CommitAvatarSnapshot.CommitAvatar(
+                        "abc",
+                        Optional.of("percy-r"),
+                        Optional.of("https://avatars/percy-r"),
+                        Optional.of("ezra-b"),
+                        Optional.of("https://avatars/ezra-b")));
         fixture.server().verify();
     }
 

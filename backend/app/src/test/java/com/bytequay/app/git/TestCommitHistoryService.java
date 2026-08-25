@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
@@ -27,6 +28,7 @@ import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -36,6 +38,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -86,13 +89,19 @@ class TestCommitHistoryService
                 "abc123",
                 "Example change",
                 "Example body",
-                "Example Author",
+                "percy-r",
                 Optional.of("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64)),
+                "ezra-b",
+                Optional.of("http://127.0.0.1:53123/api/avatars/" + "b".repeat(64)),
+                "2026-08-12T01:00:00Z",
                 "2026-08-22T01:00:00Z",
                 Optional.of(42),
                 Optional.of("Example pull request")));
         assertThat(snapshot.refresh()).isEqualTo(CommitRefreshStatus.idle(WORKSPACE_ID));
-        verify(git).log(REPOSITORY, "origin/feature", 300);
+        InOrder readOrder = inOrder(refresher, git, store);
+        readOrder.verify(refresher).status(WORKSPACE_ID);
+        readOrder.verify(git).log(REPOSITORY, "origin/feature", 300);
+        readOrder.verify(store).findEnrichment(101, ImmutableList.of("abc123"));
     }
 
     @Test
@@ -109,7 +118,10 @@ class TestCommitHistoryService
 
         assertThat(snapshot.commits()).singleElement().satisfies(item -> {
             assertThat(item.sha()).isEqualTo("def456");
+            assertThat(item.author()).isEqualTo("Example Author");
             assertThat(item.authorAvatarUrl()).isEmpty();
+            assertThat(item.committer()).isEqualTo("Example Committer");
+            assertThat(item.committerAvatarUrl()).isEmpty();
             assertThat(item.pullRequestNumber()).contains(17);
             assertThat(item.pullRequestTitle()).isEmpty();
         });
@@ -157,6 +169,18 @@ class TestCommitHistoryService
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing");
         verify(git, never()).log(REPOSITORY, "origin/main", 25);
+    }
+
+    @Test
+    void refreshStatusRejectsAMissingWorkspace()
+    {
+        when(workspaces.getWorkspace("missing")).thenThrow(WorkspaceException.notFound("missing"));
+
+        assertThatThrownBy(() -> service.getRefreshStatus("missing"))
+                .isInstanceOf(WorkspaceException.class)
+                .hasMessageContaining("Workspace not found");
+
+        verify(refresher, never()).status("missing");
     }
 
     @Test
@@ -231,6 +255,8 @@ class TestCommitHistoryService
                 "Example change",
                 "Example body",
                 "Example Author",
+                "Example Committer",
+                "2026-08-12T01:00:00Z",
                 "2026-08-22T01:00:00Z",
                 pullRequestNumber);
     }
@@ -241,7 +267,10 @@ class TestCommitHistoryService
         return new CommitEnrichment(
                 101,
                 sha,
+                Optional.of("percy-r"),
                 Optional.of("a".repeat(64)),
+                Optional.of("ezra-b"),
+                Optional.of("b".repeat(64)),
                 Optional.of(42),
                 Optional.of("Example pull request"),
                 Optional.of("https://example.invalid/pull/42"),

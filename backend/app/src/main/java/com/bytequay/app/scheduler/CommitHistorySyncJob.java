@@ -72,12 +72,12 @@ public class CommitHistorySyncJob
     {
         Instant staleBefore = clock.instant().minus(FRESHNESS);
         for (WorkspaceSummary workspace : workspaces.listWorkspaces()) {
-            CommitRefreshStatus status = commits.getRefreshStatus(workspace.id());
-            if (!due(status, staleBefore)) {
-                continue;
-            }
             try {
-                commits.refresh(workspace.id(), refs(workspace));
+                CommitRefreshStatus status = commits.getRefreshStatus(workspace.id());
+                if (!due(status, staleBefore)) {
+                    continue;
+                }
+                commits.refreshIfDue(workspace.id(), refs(workspace), staleBefore);
             }
             catch (RuntimeException failure) {
                 log.warn("Could not refresh commits for workspace {}: {}",

@@ -28,10 +28,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -49,6 +51,28 @@ class TestCommitHistoryRefreshController
         mvc = standaloneSetup(new CommitHistoryRefreshController(commits))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void returnsTheCurrentRefreshStatus()
+            throws Exception
+    {
+        CommitRefreshStatus current = new CommitRefreshStatus(
+                "workspace-id",
+                FAILED,
+                Optional.of(Instant.parse("2026-08-23T00:01:00Z")),
+                Optional.of(Instant.parse("2026-08-23T00:00:00Z")),
+                Optional.of("Commit refresh failed."));
+        when(commits.getRefreshStatus("workspace-id")).thenReturn(current);
+
+        mvc.perform(get("/api/workspaces/workspace-id/git/commits/refresh"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("FAILED"))
+                .andExpect(jsonPath("$.lastAttemptAt").value(1_787_443_260.0))
+                .andExpect(jsonPath("$.lastSucceededAt").value(1_787_443_200.0))
+                .andExpect(jsonPath("$.error").value("Commit refresh failed."));
+
+        verify(commits).getRefreshStatus("workspace-id");
     }
 
     @Test

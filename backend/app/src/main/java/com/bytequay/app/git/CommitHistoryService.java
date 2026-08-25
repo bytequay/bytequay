@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +72,9 @@ public class CommitHistoryService
         checkArgument(limit > 0, "limit must be positive");
         WorkspaceRepositoryContext context = workspaces.requireReadableRepository(workspaceId);
         ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, ref);
+        // Refresh metadata is committed after enrichment. Reading its token
+        // first guarantees a concurrent completion causes one later reload.
+        CommitRefreshStatus refresh = refresher.status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichment = resolved.repositoryId().isEmpty()
                 ? ImmutableMap.of()
@@ -83,7 +87,7 @@ public class CommitHistoryService
         for (Commit commit : commits) {
             items.add(item(commit, Optional.ofNullable(enrichment.get(commit.sha()))));
         }
-        return new CommitHistorySnapshot(items.build(), refresher.status(workspaceId));
+        return new CommitHistorySnapshot(items.build(), refresh);
     }
 
     /** Fetches, enriches, and persists commits before returning. */
@@ -91,17 +95,33 @@ public class CommitHistoryService
             String workspaceId,
             List<CommitHistoryRef> refs)
     {
+        return refresher.refresh(workspaceId, validatedRefs(workspaceId, refs));
+    }
+
+    /** Refreshes only if no manual or scheduled attempt made this workspace fresh while queued. */
+    public CommitRefreshStatus refreshIfDue(
+            String workspaceId,
+            List<CommitHistoryRef> refs,
+            Instant staleBefore)
+    {
+        requireNonNull(staleBefore, "staleBefore is null");
+        return refresher.refreshIfDue(workspaceId, validatedRefs(workspaceId, refs), staleBefore);
+    }
+
+    private List<CommitHistoryRef> validatedRefs(String workspaceId, List<CommitHistoryRef> refs)
+    {
         requireNonNull(refs, "refs is null");
         List<CommitHistoryRef> requested = refs.stream().distinct().toList();
         checkArgument(!requested.isEmpty(), "refs is empty");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         requested.forEach(ref -> CommitHistoryRouting.resolve(context, ref));
-        return refresher.refresh(workspaceId, requested);
+        return requested;
     }
 
     /** Reads the last completed refresh outcome without Git or provider access. */
     public CommitRefreshStatus getRefreshStatus(String workspaceId)
     {
+        workspaces.getWorkspace(workspaceId);
         return refresher.status(workspaceId);
     }
 
@@ -113,8 +133,11 @@ public class CommitHistoryService
                 commit.sha(),
                 commit.title(),
                 commit.body(),
-                commit.author(),
+                enrichment.flatMap(CommitEnrichment::authorLogin).orElse(commit.author()),
                 enrichment.flatMap(CommitEnrichment::avatarKey).map(avatarBaseUrl::concat),
+                enrichment.flatMap(CommitEnrichment::committerLogin).orElse(commit.committer()),
+                enrichment.flatMap(CommitEnrichment::committerAvatarKey).map(avatarBaseUrl::concat),
+                commit.authoredAt(),
                 commit.committedAt(),
                 pullRequestNumber,
                 enrichment.flatMap(CommitEnrichment::pullRequestTitle));

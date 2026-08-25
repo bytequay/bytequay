@@ -17,7 +17,6 @@ import {
   filterTasks,
   foldNav,
   groupByDay,
-  isLikelyGitHubLogin,
   matchesCommitQuery,
   orderTasks,
   remoteBranchCorrection,
@@ -27,8 +26,20 @@ import {
   taskState,
 } from './model';
 
-function commit(sha: string, committedAt = '2026-08-20T10:00:00Z'): GitCommitDto {
-  return { sha, title: `Commit ${sha}`, body: '', author: 'dev', committedAt };
+function commit(
+  sha: string,
+  authoredAt = '2026-08-20T10:00:00Z',
+  committedAt = authoredAt,
+): GitCommitDto {
+  return {
+    sha,
+    title: `Commit ${sha}`,
+    body: '',
+    author: 'dev',
+    committer: 'dev',
+    authoredAt,
+    committedAt,
+  };
 }
 
 const COMMITS = [commit('aaaa111'), commit('bbbb222'), commit('cccc333'), commit('dddd444')];
@@ -73,11 +84,11 @@ describe('spanFromShas', () => {
 });
 
 describe('groupByDay', () => {
-  it('groups consecutive commits by committed date', () => {
+  it('groups consecutive commits by committed date when author dates differ', () => {
     const commits = [
-      commit('a1', '2026-08-20T10:00:00Z'),
-      commit('a2', '2026-08-20T08:00:00Z'),
-      commit('b1', '2026-08-15T10:00:00Z'),
+      commit('a1', '2026-08-20T10:00:00Z', '2026-08-24T10:00:00Z'),
+      commit('a2', '2026-08-15T08:00:00Z', '2026-08-24T08:00:00Z'),
+      commit('b1', '2026-08-20T06:00:00Z', '2026-08-23T10:00:00Z'),
     ];
     const groups = groupByDay(commits);
     expect(groups).toHaveLength(2);
@@ -106,22 +117,14 @@ describe('remoteBranchCorrection', () => {
   });
 });
 
-describe('isLikelyGitHubLogin', () => {
-  it('accepts login-shaped names and rejects display names', () => {
-    expect(isLikelyGitHubLogin('chenjian2664')).toBe(true);
-    expect(isLikelyGitHubLogin('example-author')).toBe(true);
-    expect(isLikelyGitHubLogin('Pia Fenwick')).toBe(false);
-    expect(isLikelyGitHubLogin('张万义')).toBe(false);
-    expect(isLikelyGitHubLogin('')).toBe(false);
-  });
-});
-
 describe('matchesCommitQuery', () => {
   const subject: GitCommitDto = {
     sha: 'f4627c7abcdef',
     title: 'Update MongoDB image versions',
     body: '',
     author: 'dev',
+    committer: 'dev',
+    authoredAt: '2026-08-21T10:00:00Z',
     committedAt: '2026-08-21T10:00:00Z',
     pullRequestNumber: 30825,
     pullRequestTitle: 'Update MongoDB image versions in tests',

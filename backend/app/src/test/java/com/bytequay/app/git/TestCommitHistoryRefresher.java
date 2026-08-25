@@ -49,9 +49,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -69,6 +76,7 @@ class TestCommitHistoryRefresher
     private static final RepoRef SELECTED = RepoRef.of("example-owner", "example-repository");
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
     private static final String AVATAR_KEY = "a".repeat(64);
+    private static final String COMMITTER_AVATAR_KEY = "b".repeat(64);
 
     private WorkspaceRepositoryService workspaces;
     private WorkspaceProvisioningService provisioning;
@@ -109,8 +117,14 @@ class TestCommitHistoryRefresher
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300))
                 .thenReturn(new CommitAvatarSnapshot(
-                        ImmutableList.of(new CommitAvatar(commit.sha(), "https://avatars.example.invalid/example.png")), true));
-        when(avatars.cache("https://avatars.example.invalid/example.png")).thenReturn(Optional.of(AVATAR_KEY));
+                        ImmutableList.of(new CommitAvatar(
+                                commit.sha(),
+                                Optional.of("percy-r"),
+                                Optional.of("https://avatars.example.invalid/percy-r.png"),
+                                Optional.of("ezra-b"),
+                                Optional.of("https://avatars.example.invalid/ezra-b.png"))), true));
+        when(avatars.cache("https://avatars.example.invalid/percy-r.png")).thenReturn(Optional.of(AVATAR_KEY));
+        when(avatars.cache("https://avatars.example.invalid/ezra-b.png")).thenReturn(Optional.of(COMMITTER_AVATAR_KEY));
         PullRequestAssociation pullRequest = new PullRequestAssociation(
                 42,
                 "Example pull request",
@@ -127,7 +141,10 @@ class TestCommitHistoryRefresher
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
         assertThat(store.findRefreshMetadata(WORKSPACE_ID).lastSucceededAt()).contains(NOW);
         assertThat(store.values()).singleElement().satisfies(value -> {
+            assertThat(value.authorLogin()).contains("percy-r");
             assertThat(value.avatarKey()).contains(AVATAR_KEY);
+            assertThat(value.committerLogin()).contains("ezra-b");
+            assertThat(value.committerAvatarKey()).contains(COMMITTER_AVATAR_KEY);
             assertThat(value.pullRequestNumber()).contains(42);
             assertThat(value.pullRequestTitle()).contains("Example pull request");
         });
@@ -136,6 +153,66 @@ class TestCommitHistoryRefresher
         order.verify(git).log(REPOSITORY, "origin/main", 300);
         order.verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300);
         order.verify(pullRequests).lookUpResult(eq(SELECTED), eq(ImmutableList.of(commit.sha())), eq("main"), anyList());
+    }
+
+    @Test
+    void sameWorkspaceRefreshesDoNotOverlap()
+            throws Exception
+    {
+        successfulEmptyBranch("main");
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(provisioning.synchronizeCode(WORKSPACE_ID)).thenAnswer(ignored -> {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                if (!releaseFirst.await(5, SECONDS)) {
+                    throw new IllegalStateException("timed out waiting to release the first refresh");
+                }
+            }
+            else {
+                secondStarted.countDown();
+            }
+            return new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW));
+        });
+        List<CommitHistoryRef> refs = ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main"));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<CommitRefreshStatus> first = executor.submit(() -> service.refresh(WORKSPACE_ID, refs));
+            assertThat(firstStarted.await(5, SECONDS)).isTrue();
+            Future<CommitRefreshStatus> second = executor.submit(() -> service.refresh(WORKSPACE_ID, refs));
+
+            assertThat(secondStarted.await(250, MILLISECONDS)).isFalse();
+            releaseFirst.countDown();
+
+            assertThat(first.get(5, SECONDS).state()).isEqualTo(IDLE);
+            assertThat(second.get(5, SECONDS).state()).isEqualTo(IDLE);
+            assertThat(calls).hasValue(2);
+        }
+        finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void conditionalRefreshRechecksFreshnessAfterAcquiringTheWorkspaceLock()
+    {
+        store.saveRefreshMetadata(new CommitRefreshMetadata(
+                WORKSPACE_ID,
+                Optional.of(NOW),
+                Optional.of(NOW),
+                Optional.empty()));
+
+        CommitRefreshStatus current = service.refreshIfDue(
+                WORKSPACE_ID,
+                ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")),
+                NOW.minusSeconds(300));
+
+        assertThat(current.lastSucceededAt()).contains(NOW);
+        verify(provisioning, never()).synchronizeCode(WORKSPACE_ID);
+        verifyNoInteractions(git, gitHub, pullRequests);
     }
 
     @Test
@@ -282,6 +359,8 @@ class TestCommitHistoryRefresher
                 "Example change",
                 "Example body",
                 "Example Author",
+                "Example Committer",
+                committedAt.toString(),
                 committedAt.toString(),
                 Optional.empty());
     }
@@ -291,6 +370,9 @@ class TestCommitHistoryRefresher
         return new CommitEnrichment(
                 101,
                 sha,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.of(42),
                 Optional.of("Example pull request"),
@@ -305,6 +387,9 @@ class TestCommitHistoryRefresher
         return new CommitEnrichment(
                 101,
                 sha,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

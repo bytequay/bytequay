@@ -47,7 +47,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
@@ -72,6 +74,7 @@ class CommitHistoryRefresher
     private final CherryPickPullRequestLookup pullRequests;
     private final AvatarCache avatars;
     private final Clock clock;
+    private final Map<String, Object> workspaceRefreshLocks = new ConcurrentHashMap<>();
 
     CommitHistoryRefresher(
             WorkspaceRepositoryService workspaces,
@@ -99,17 +102,21 @@ class CommitHistoryRefresher
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(refs, "refs is null");
-        Instant attempt = clock.instant();
-        try {
-            synchronize(workspaceId, refs);
-            CommitRefreshMetadata metadata = new CommitRefreshMetadata(
-                    workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
-            store.saveRefreshMetadata(metadata);
-            return status(metadata);
-        }
-        catch (RuntimeException failure) {
-            return fail(workspaceId, attempt, failure);
-        }
+        return withWorkspaceLock(workspaceId, () -> refreshLocked(workspaceId, refs));
+    }
+
+    CommitRefreshStatus refreshIfDue(
+            String workspaceId,
+            Collection<CommitHistoryRef> refs,
+            Instant staleBefore)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        requireNonNull(refs, "refs is null");
+        requireNonNull(staleBefore, "staleBefore is null");
+        return withWorkspaceLock(workspaceId, () -> {
+            CommitRefreshStatus current = status(workspaceId);
+            return due(current, staleBefore) ? refreshLocked(workspaceId, refs) : current;
+        });
     }
 
     CommitRefreshStatus status(String workspaceId)
@@ -126,6 +133,36 @@ class CommitHistoryRefresher
                 metadata.lastAttemptAt(),
                 metadata.lastSucceededAt(),
                 metadata.error());
+    }
+
+    private CommitRefreshStatus withWorkspaceLock(String workspaceId, Supplier<CommitRefreshStatus> action)
+    {
+        Object refreshLock = workspaceRefreshLocks.computeIfAbsent(workspaceId, ignored -> new Object());
+        synchronized (refreshLock) {
+            return action.get();
+        }
+    }
+
+    private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs)
+    {
+        Instant attempt = clock.instant();
+        try {
+            synchronize(workspaceId, refs);
+            CommitRefreshMetadata metadata = new CommitRefreshMetadata(
+                    workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
+            store.saveRefreshMetadata(metadata);
+            return status(metadata);
+        }
+        catch (RuntimeException failure) {
+            return fail(workspaceId, attempt, failure);
+        }
+    }
+
+    private static boolean due(CommitRefreshStatus status, Instant staleBefore)
+    {
+        boolean successStale = status.lastSucceededAt().map(value -> value.isBefore(staleBefore)).orElse(true);
+        boolean attemptStale = status.lastAttemptAt().map(value -> value.isBefore(staleBefore)).orElse(true);
+        return successStale && attemptStale;
     }
 
     private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs)
@@ -207,8 +244,8 @@ class CommitHistoryRefresher
         if (!avatarSnapshot.succeeded()) {
             throw new IllegalStateException("commit avatar synchronization failed");
         }
-        Map<String, String> avatarSources = avatarSnapshot.avatars().stream()
-                .collect(toImmutableMap(CommitAvatar::sha, CommitAvatar::sourceUrl));
+        Map<String, CommitAvatar> identities = avatarSnapshot.avatars().stream()
+                .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
         List<String> dueAssociations = commits.stream()
                 .filter(commit -> associationDue(commit, Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
@@ -227,7 +264,7 @@ class CommitHistoryRefresher
                         repositoryId,
                         commit,
                         Optional.ofNullable(existing.get(commit.sha())),
-                        Optional.ofNullable(avatarSources.get(commit.sha())),
+                        Optional.ofNullable(identities.get(commit.sha())),
                         Optional.ofNullable(associations.get(commit.sha())),
                         dueAssociations.contains(commit.sha()),
                         now))
@@ -238,13 +275,19 @@ class CommitHistoryRefresher
             long repositoryId,
             Commit commit,
             Optional<CommitEnrichment> existing,
-            Optional<String> avatarSource,
+            Optional<CommitAvatar> identity,
             Optional<PullRequestAssociation> association,
             boolean associationChecked,
             Instant now)
     {
-        Optional<String> avatarKey = avatarSource.flatMap(avatars::cache)
+        Optional<String> authorLogin = identity.flatMap(CommitAvatar::authorLogin)
+                .or(() -> existing.flatMap(CommitEnrichment::authorLogin));
+        Optional<String> avatarKey = identity.flatMap(CommitAvatar::authorSourceUrl).flatMap(avatars::cache)
                 .or(() -> existing.flatMap(CommitEnrichment::avatarKey));
+        Optional<String> committerLogin = identity.flatMap(CommitAvatar::committerLogin)
+                .or(() -> existing.flatMap(CommitEnrichment::committerLogin));
+        Optional<String> committerAvatarKey = identity.flatMap(CommitAvatar::committerSourceUrl).flatMap(avatars::cache)
+                .or(() -> existing.flatMap(CommitEnrichment::committerAvatarKey));
         Optional<Integer> pullRequestNumber = association.map(PullRequestAssociation::number)
                 .or(() -> existing.flatMap(CommitEnrichment::pullRequestNumber));
         Optional<String> pullRequestTitle = association.map(PullRequestAssociation::title)
@@ -259,7 +302,10 @@ class CommitHistoryRefresher
         return new CommitEnrichment(
                 repositoryId,
                 commit.sha(),
+                authorLogin,
                 avatarKey,
+                committerLogin,
+                committerAvatarKey,
                 pullRequestNumber,
                 pullRequestTitle,
                 pullRequestUrl,
@@ -293,7 +339,10 @@ class CommitHistoryRefresher
         return new CommitEnrichment(
                 second.repositoryId(),
                 second.sha(),
+                second.authorLogin().or(first::authorLogin),
                 second.avatarKey().or(first::avatarKey),
+                second.committerLogin().or(first::committerLogin),
+                second.committerAvatarKey().or(first::committerAvatarKey),
                 second.pullRequestNumber().or(first::pullRequestNumber),
                 second.pullRequestTitle().or(first::pullRequestTitle),
                 second.pullRequestUrl().or(first::pullRequestUrl),

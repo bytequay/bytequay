@@ -148,8 +148,11 @@ class TestGitBrowseController
                         "abc",
                         "Example change",
                         "",
-                        "Example Author",
+                        "percy-r",
                         Optional.of("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64)),
+                        "ezra-b",
+                        Optional.of("http://127.0.0.1:53123/api/avatars/" + "b".repeat(64)),
+                        "2026-08-12T00:00:00Z",
                         "2026-08-22T00:00:00Z",
                         Optional.of(42),
                         Optional.of("Example pull request"))),
@@ -160,10 +163,12 @@ class TestGitBrowseController
                         .param("branch", "main")
                         .param("limit", "20"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.commits[0].author").value("Example Author"))
+                .andExpect(jsonPath("$.commits[0].author").value("percy-r"))
+                .andExpect(jsonPath("$.commits[0].committer").value("ezra-b"))
+                .andExpect(jsonPath("$.commits[0].authoredAt").value("2026-08-12T00:00:00Z"))
                 .andExpect(jsonPath("$.commits[0].committedAt").value("2026-08-22T00:00:00Z"))
-                .andExpect(jsonPath("$.commits[0].authoredAt").doesNotExist())
                 .andExpect(jsonPath("$.commits[0].authorAvatarUrl").isNotEmpty())
+                .andExpect(jsonPath("$.commits[0].committerAvatarUrl").isNotEmpty())
                 .andExpect(jsonPath("$.commits[0].pullRequestNumber").value(42))
                 .andExpect(jsonPath("$.commits[0].pullRequestTitle").value("Example pull request"));
         verify(commits).listHistory("workspace-a", ref, 20);

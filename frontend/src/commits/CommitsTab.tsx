@@ -34,6 +34,7 @@ import '../css/commits.css';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
+const COMMIT_REFRESH_POLL_INTERVAL_MS = 5_000;
 
 export type CommitSourceSelection = {
   source: string | null;
@@ -64,6 +65,13 @@ export function commitSyncLabel(status: CommitRefreshStatusDto | null): string {
   return status?.lastSucceededAt
     ? `synced ${relativeTime(status.lastSucceededAt)}`
     : 'not synced yet';
+}
+
+export function commitRefreshChanged(
+  knownAttemptAt: string | null | undefined,
+  status: CommitRefreshStatusDto,
+): boolean {
+  return (status.lastAttemptAt ?? null) !== (knownAttemptAt ?? null);
 }
 
 export function selectableCommitSources(
@@ -443,6 +451,37 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote);
   const filteredUpBranches = upBranches.filter(name =>
     name.toLowerCase().includes(upBranchQuery.trim().toLowerCase()));
+
+  // Scheduled enrichment is written out-of-band. Poll only its SQLite-backed
+  // status, then reload Git + enrichment once when a completed attempt changes.
+  useEffect(() => {
+    if (!historyVisible || syncing) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const knownAttemptAt = refreshStatus?.lastAttemptAt ?? null;
+    const poll = async () => {
+      try {
+        const status = await window.bridge.getCommitRefreshStatus(workspace.id);
+        if (cancelled) return;
+        if (commitRefreshChanged(knownAttemptAt, status)) {
+          setRefreshStatus(status);
+          setLogVersion(version => version + 1);
+          return;
+        }
+      }
+      catch {
+        // A transient local status read must not replace the visible history.
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(() => { void poll(); }, COMMIT_REFRESH_POLL_INTERVAL_MS);
+      }
+    };
+    timer = window.setTimeout(() => { void poll(); }, COMMIT_REFRESH_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [historyVisible, refreshStatus?.lastAttemptAt, syncing, workspace.id]);
 
   return (
     <div className="cmt-root">

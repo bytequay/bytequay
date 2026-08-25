@@ -23,7 +23,10 @@ import static java.util.Objects.requireNonNull;
 public record CommitEnrichment(
         long repositoryId,
         String sha,
+        Optional<String> authorLogin,
         Optional<String> avatarKey,
+        Optional<String> committerLogin,
+        Optional<String> committerAvatarKey,
         Optional<Integer> pullRequestNumber,
         Optional<String> pullRequestTitle,
         Optional<String> pullRequestUrl,
@@ -36,14 +39,20 @@ public record CommitEnrichment(
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         requireNonNull(sha, "sha is null");
         checkArgument(!sha.isBlank(), "sha is blank");
+        requireNonNull(authorLogin, "authorLogin is null");
         requireNonNull(avatarKey, "avatarKey is null");
+        requireNonNull(committerLogin, "committerLogin is null");
+        requireNonNull(committerAvatarKey, "committerAvatarKey is null");
         requireNonNull(pullRequestNumber, "pullRequestNumber is null");
         requireNonNull(pullRequestTitle, "pullRequestTitle is null");
         requireNonNull(pullRequestUrl, "pullRequestUrl is null");
         requireNonNull(avatarCheckedAt, "avatarCheckedAt is null");
         requireNonNull(associationCheckedAt, "associationCheckedAt is null");
         requireNonNull(lastSeenAt, "lastSeenAt is null");
+        authorLogin.ifPresent(value -> checkArgument(!value.isBlank(), "authorLogin is blank"));
         avatarKey.ifPresent(value -> checkArgument(!value.isBlank(), "avatarKey is blank"));
+        committerLogin.ifPresent(value -> checkArgument(!value.isBlank(), "committerLogin is blank"));
+        committerAvatarKey.ifPresent(value -> checkArgument(!value.isBlank(), "committerAvatarKey is blank"));
         pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber must be positive"));
         pullRequestTitle.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestTitle is blank"));
         pullRequestUrl.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestUrl is blank"));

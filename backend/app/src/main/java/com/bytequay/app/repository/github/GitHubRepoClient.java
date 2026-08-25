@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
@@ -100,9 +101,15 @@ public class GitHubRepoClient
                     break;
                 }
                 commits.stream()
-                        .filter(commit -> commit.sha() != null && commit.author() != null)
-                        .filter(commit -> commit.author().avatarUrl() != null && !commit.author().avatarUrl().isBlank())
-                        .forEach(commit -> avatars.add(new CommitAvatar(commit.sha(), commit.author().avatarUrl())));
+                        .filter(commit -> commit.sha() != null && !commit.sha().isBlank())
+                        .filter(commit -> commit.author() != null || commit.committer() != null)
+                        .map(commit -> new CommitAvatar(
+                                commit.sha(),
+                                accountValue(commit.author(), CommitAuthor::login),
+                                accountValue(commit.author(), CommitAuthor::avatarUrl),
+                                accountValue(commit.committer(), CommitAuthor::login),
+                                accountValue(commit.committer(), CommitAuthor::avatarUrl)))
+                        .forEach(avatars::add);
                 remaining -= commits.size();
                 if (commits.size() < pageSize) {
                     break;
@@ -257,6 +264,13 @@ public class GitHubRepoClient
         }
     }
 
+    private static Optional<String> accountValue(CommitAuthor account, Function<CommitAuthor, String> value)
+    {
+        return Optional.ofNullable(account)
+                .map(value)
+                .filter(result -> !result.isBlank());
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record ContributorResponse(
             long id,
@@ -317,8 +331,8 @@ public class GitHubRepoClient
     private record IssueLabel(String name) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CommitResponse(String sha, CommitAuthor author) {}
+    private record CommitResponse(String sha, CommitAuthor author, CommitAuthor committer) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CommitAuthor(@JsonProperty("avatar_url") String avatarUrl) {}
+    private record CommitAuthor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
 }

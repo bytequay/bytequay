@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
 import HistoryView from './HistoryView';
@@ -52,6 +52,9 @@ describe('workspace commit history', () => {
         body: '',
         author: 'example-author',
         authorAvatarUrl: null,
+        committer: 'example-author',
+        committerAvatarUrl: null,
+        authoredAt: '2026-08-22T00:00:00Z',
         committedAt: '2026-08-22T00:00:00Z',
       }]}
       loading={false}
@@ -83,6 +86,8 @@ describe('workspace commit history', () => {
   });
 
   it('shows pull-request context as a bottom-row link from the commit card', () => {
+    const authorAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'a'.repeat(64)}`;
+    const committerAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'b'.repeat(64)}`;
     const html = renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
@@ -93,8 +98,11 @@ describe('workspace commit history', () => {
         sha: '0123456789abcdef',
         title: 'Improve commit browsing (#42)',
         body: '',
-        author: 'example-author',
-        authorAvatarUrl: 'http://127.0.0.1:48765/api/avatars/abc123',
+        author: 'percy-r',
+        authorAvatarUrl,
+        committer: 'ezra-b',
+        committerAvatarUrl,
+        authoredAt: '2026-08-10T00:00:00Z',
         committedAt: '2026-08-22T00:00:00Z',
         pullRequestNumber: 42,
         pullRequestTitle: 'Improve commit browsing',
@@ -112,12 +120,52 @@ describe('workspace commit history', () => {
     expect(html).toContain('class="cmt-commit-pr"');
     expect(html.indexOf('class="cmt-commit-pr"'))
       .toBeGreaterThan(html.indexOf('</div>', html.indexOf('class="cmt-commit-meta"')));
-    expect(html).toContain('src="http://127.0.0.1:48765/api/avatars/abc123"');
+    expect(html).toContain(`src="${authorAvatarUrl}"`);
+    expect(html).toContain(`src="${committerAvatarUrl}"`);
+    expect(html).toContain('<strong>percy-r</strong> authored and <strong>ezra-b</strong> committed');
     expect(html).toContain('class="cmt-view-author"');
     expect(html).toContain('aria-label="Copy full commit SHA 0123456789abcdef"');
+    expect(html).toContain('<button type="button" class="cmt-commit-sha"');
+    expect(html).not.toContain('cmt-commit-copy');
     expect(html).not.toContain('cmt-view-summary');
     expect(html).toContain('cmt-commit-row is-selected is-viewed');
     expect(html).toContain('0123456');
+  });
+
+  it('groups by committed day and reports the committer-relative age', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-25T10:00:00Z'));
+    const html = renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[{
+        sha: '0123456789abcdef',
+        title: 'Separate the Git timestamps',
+        body: '',
+        author: 'example-author',
+        authorAvatarUrl: null,
+        committer: 'example-committer',
+        committerAvatarUrl: null,
+        authoredAt: '2026-08-13T10:00:00Z',
+        committedAt: '2026-08-25T09:00:00Z',
+      }]}
+      loading={false}
+      checked={new Set()}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+    now.mockRestore();
+
+    expect(html).toContain('Commits on Aug 25, 2026');
+    expect(html).not.toContain('Commits on Aug 13, 2026');
+    expect(html).toContain(
+      '<strong>example-author</strong> authored and <strong>example-committer</strong> committed <time',
+    );
+    expect(html).toContain('>1 hour ago</time>');
+    expect(html).not.toContain('committed 12 days ago');
   });
 
   it('keeps the initial fallback in the avatar slot', () => {
@@ -129,7 +177,7 @@ describe('workspace commit history', () => {
     expect(html).toContain('>?</span>');
   });
 
-  it('synthesizes a GitHub avatar only for login-like commit authors', () => {
+  it('keeps commit avatars local when no cached image exists', () => {
     const render = (author: string) => renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
@@ -142,6 +190,9 @@ describe('workspace commit history', () => {
         body: '',
         author,
         authorAvatarUrl: null,
+        committer: author,
+        committerAvatarUrl: null,
+        authoredAt: '2026-08-22T00:00:00Z',
         committedAt: '2026-08-22T00:00:00Z',
       }]}
       loading={false}
@@ -155,6 +206,10 @@ describe('workspace commit history', () => {
     expect(displayName).toContain('avatar--fallback');
     expect(displayName).not.toContain('github.com');
 
-    expect(render('example-author')).toContain('https://github.com/example-author.png');
+    const login = render('example-author');
+    expect(login).toContain('avatar--fallback');
+    expect(login).not.toContain('github.com');
+    expect(login).toContain('<strong>example-author</strong> committed <time');
+    expect(login).not.toContain('authored and');
   });
 });

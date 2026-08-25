@@ -102,17 +102,6 @@ export function remoteBranchCorrection(
   return ['main', 'master'].find(name => branches.includes(name)) ?? branches[0];
 }
 
-/**
- * True when a git author name could be a GitHub login (ASCII word, no
- * spaces), so the github.com/{name}.png avatar shorthand is worth trying for
- * commits that have no enriched avatar (e.g. extra remote sources). Display
- * names like "Pia Fenwick" or "张万义" stay on the initial fallback
- * instead of firing guaranteed-404 requests.
- */
-export function isLikelyGitHubLogin(author: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(author.trim());
-}
-
 /** Case-insensitive commit search: title, PR title, PR #number, or SHA prefix. */
 export function matchesCommitQuery(commit: GitCommitDto, query: string): boolean {
   const needle = query.trim().toLowerCase();

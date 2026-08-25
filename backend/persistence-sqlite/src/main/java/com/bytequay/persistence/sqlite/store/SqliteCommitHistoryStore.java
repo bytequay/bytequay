@@ -105,7 +105,10 @@ public class SqliteCommitHistoryStore
             entity = new CommitEnrichmentEntity();
             entity.setId(new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha()));
         }
+        entity.setAuthorLogin(value.authorLogin().orElse(entity.getAuthorLogin()));
         entity.setAvatarKey(value.avatarKey().orElse(entity.getAvatarKey()));
+        entity.setCommitterLogin(value.committerLogin().orElse(entity.getCommitterLogin()));
+        entity.setCommitterAvatarKey(value.committerAvatarKey().orElse(entity.getCommitterAvatarKey()));
         entity.setPullRequestNumber(value.pullRequestNumber().orElse(entity.getPullRequestNumber()));
         entity.setPullRequestTitle(value.pullRequestTitle().orElse(entity.getPullRequestTitle()));
         entity.setPullRequestUrl(value.pullRequestUrl().orElse(entity.getPullRequestUrl()));
@@ -120,7 +123,10 @@ public class SqliteCommitHistoryStore
         return new CommitEnrichment(
                 entity.getId().getRepositoryId(),
                 entity.getId().getSha(),
+                Optional.ofNullable(entity.getAuthorLogin()),
                 Optional.ofNullable(entity.getAvatarKey()),
+                Optional.ofNullable(entity.getCommitterLogin()),
+                Optional.ofNullable(entity.getCommitterAvatarKey()),
                 Optional.ofNullable(entity.getPullRequestNumber()),
                 Optional.ofNullable(entity.getPullRequestTitle()),
                 Optional.ofNullable(entity.getPullRequestUrl()),

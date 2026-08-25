@@ -16,7 +16,9 @@ package com.bytequay.app.repository.github;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Named result for one provider commit-avatar scan. */
@@ -27,12 +29,21 @@ public record CommitAvatarSnapshot(List<CommitAvatar> avatars, boolean succeeded
         avatars = ImmutableList.copyOf(requireNonNull(avatars, "avatars is null"));
     }
 
-    public record CommitAvatar(String sha, String sourceUrl)
+    public record CommitAvatar(
+            String sha,
+            Optional<String> authorLogin,
+            Optional<String> authorSourceUrl,
+            Optional<String> committerLogin,
+            Optional<String> committerSourceUrl)
     {
         public CommitAvatar
         {
             requireNonNull(sha, "sha is null");
-            requireNonNull(sourceUrl, "sourceUrl is null");
+            checkArgument(!sha.isBlank(), "sha is blank");
+            requireNonNull(authorLogin, "authorLogin is null");
+            requireNonNull(authorSourceUrl, "authorSourceUrl is null");
+            requireNonNull(committerLogin, "committerLogin is null");
+            requireNonNull(committerSourceUrl, "committerSourceUrl is null");
         }
     }
 }

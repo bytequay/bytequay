@@ -101,7 +101,7 @@ public class GitBrowseService
                 repository,
                 "log",
                 "--no-show-signature",
-                "--format=%H" + FIELD + "%an" + FIELD + "%cI" + FIELD + "%s" + FIELD + "%b" + RECORD,
+                "--format=%H" + FIELD + "%an" + FIELD + "%cn" + FIELD + "%aI" + FIELD + "%cI" + FIELD + "%s" + FIELD + "%b" + RECORD,
                 "-n", String.valueOf(limit),
                 ref,
                 "--");
@@ -111,18 +111,20 @@ public class GitBrowseService
             if (entry.isEmpty()) {
                 continue;
             }
-            String[] fields = entry.split(String.valueOf(FIELD), 5);
-            if (fields.length < 4) {
+            String[] fields = entry.split(String.valueOf(FIELD), 7);
+            if (fields.length < 6) {
                 continue;
             }
-            String title = fields[3];
+            String title = fields[5];
             Matcher pullRequest = PULL_REQUEST_SUFFIX.matcher(title);
             commits.add(new Commit(
                     fields[0],
                     title,
-                    fields.length > 4 ? fields[4].strip() : "",
+                    fields.length > 6 ? fields[6].strip() : "",
                     fields[1],
                     fields[2],
+                    fields[3],
+                    fields[4],
                     pullRequest.find() ? Optional.of(Integer.parseInt(pullRequest.group(1))) : Optional.empty()));
         }
         return commits.build();
@@ -408,6 +410,8 @@ public class GitBrowseService
             String title,
             String body,
             String author,
+            String committer,
+            String authoredAt,
             String committedAt,
             Optional<Integer> pullRequestNumber)
     {}

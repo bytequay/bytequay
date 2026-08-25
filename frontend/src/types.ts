@@ -550,6 +550,9 @@ export type GitCommitDto = {
   body: string;
   author: string;
   authorAvatarUrl?: string | null;
+  committer: string;
+  committerAvatarUrl?: string | null;
+  authoredAt: string;
   committedAt: string;
   pullRequestNumber?: number | null;
   pullRequestTitle?: string | null;
@@ -831,6 +834,7 @@ export type Bridge = {
     path: string,
   ) => Promise<DiffFileContentDto>;
   gitStatus: (workspaceId: string) => Promise<GitWorktreeStatusDto>;
+  getCommitRefreshStatus: (workspaceId: string) => Promise<CommitRefreshStatusDto>;
   refreshCommitHistory: (
     workspaceId: string,
     refs: CommitHistoryRefDto[],

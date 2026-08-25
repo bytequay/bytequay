@@ -15,6 +15,7 @@ package com.bytequay.app.web.git;
 
 import com.bytequay.app.git.CommitHistoryService;
 import com.bytequay.core.domain.CommitRefreshStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,6 +33,12 @@ public class CommitHistoryRefreshController
     public CommitHistoryRefreshController(CommitHistoryService commits)
     {
         this.commits = requireNonNull(commits, "commits is null");
+    }
+
+    @GetMapping("/refresh")
+    public CommitRefreshStatus status(@PathVariable String workspaceId)
+    {
+        return commits.getRefreshStatus(workspaceId);
     }
 
     @PostMapping("/refresh")

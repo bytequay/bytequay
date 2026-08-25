@@ -24,7 +24,7 @@ import type {
   PullTimelineCommentDto,
   RepoUserDto,
 } from '../types';
-import MarkdownBody from './MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink } from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
@@ -828,7 +828,7 @@ function eventText(activity: Activity) {
     case 'labeled': return <>added <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
     case 'unlabeled': return <>removed <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
     case 'renamed': return <>changed the title from <del>{p.renameFrom}</del> to <strong>{p.renameTo}</strong></>;
-    case 'cross-referenced': return <>mentioned this in <span className="md-link">{p.sourceTitle ?? `#${p.sourceNumber ?? ''}`}</span></>;
+    case 'cross-referenced': return <>mentioned this in <GitHubReferenceLink href={p.sourceUrl}>{p.sourceTitle ?? `#${p.sourceNumber ?? ''}`}</GitHubReferenceLink></>;
     case 'review_requested': return <>requested a review</>;
     case 'review_request_removed': return <>removed a review request</>;
     case 'milestoned': return <>added this to the <strong>{p.milestoneTitle}</strong> milestone</>;

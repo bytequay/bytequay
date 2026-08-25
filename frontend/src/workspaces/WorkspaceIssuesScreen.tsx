@@ -21,7 +21,7 @@ import {
 } from 'react';
 import Avatar from '../Avatar';
 import type { NavigationMode } from '../navigationHistory';
-import MarkdownBody from '../pulls/MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
 import {
   CardHeader,
   CopyLinkButton,
@@ -691,7 +691,7 @@ function issueEventText(event: WorkspaceIssueTimelineEventDto, colors: Record<st
     case 'milestoned': return <>added this to the <strong>{payload.milestoneTitle}</strong> milestone</>;
     case 'demilestoned': return <>removed this from the <strong>{payload.milestoneTitle}</strong> milestone</>;
     case 'renamed': return <>changed the title from <del>{payload.renameFrom}</del> to <strong>{payload.renameTo}</strong></>;
-    case 'cross-referenced': return <>mentioned this in <span className="md-link">{payload.sourceTitle ?? `#${payload.sourceNumber ?? ''}`}</span></>;
+    case 'cross-referenced': return <>mentioned this in <GitHubReferenceLink href={payload.sourceUrl}>{payload.sourceTitle ?? `#${payload.sourceNumber ?? ''}`}</GitHubReferenceLink></>;
     case 'closed': return <>closed this issue</>;
     case 'reopened': return <>reopened this issue</>;
     case 'locked': return <>locked this conversation</>;

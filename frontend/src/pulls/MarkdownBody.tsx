@@ -268,6 +268,13 @@ type ReferencePreview = LocalGitHubReference;
 
 const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
 
+export function GitHubReferenceLink({ href, children }: { href: string | null; children: ReactNode }) {
+  const reference = href ? parseGitHubReference(href) : null;
+  return reference
+    ? <ReferenceLink reference={reference}>{children}</ReferenceLink>
+    : <span className="md-link">{children}</span>;
+}
+
 function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
   const existing = previewRequests.get(key);

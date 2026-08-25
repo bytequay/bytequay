@@ -120,6 +120,31 @@ describe('WorkspaceIssuesScreen', () => {
     ]);
   });
 
+  it('links cross-referenced timeline events to the source preview', () => {
+    const crossReference: WorkspaceIssueTimelineEventDto = {
+      githubId: 3,
+      event: 'cross-referenced',
+      actor: 'bob',
+      timestamp: '2026-08-21T11:00:00Z',
+      body: null,
+      payload: {
+        ...payload,
+        sourceTitle: 'Related pull request',
+        sourceUrl: 'https://github.com/owner/repo/pull/8',
+        sourceNumber: 8,
+      },
+    };
+
+    const html = renderToStaticMarkup(<IssueOverview issue={issue} metadata={metadata} timeline={[crossReference]}
+      issueType={null} repository="owner/repo" workspaceId="workspace-1" timelineLoading={false}
+      onTypeChange={async () => {}} onMetadataChange={async () => {}}
+      onClose={async () => {}} onComment={async () => {}} />);
+
+    expect(html).toContain('mentioned this in <a class="md-reference is-pull"');
+    expect(html).toContain('href="https://github.com/owner/repo/pull/8"');
+    expect(html).toContain('Related pull request</a>');
+  });
+
   it('appends only the next database page without duplicate issues', () => {
     const first = {
       repositoryId: 1,

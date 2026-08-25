@@ -478,6 +478,25 @@ describe('PullOverview', () => {
     expect(html).toContain('owner/repo <small>#42</small>');
   });
 
+  it('links cross-referenced timeline events to the source preview', () => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'bob', eventType: 'cross-referenced', timestamp: '2026-08-20T09:10:00Z', body: null, githubId: 21,
+      payload: {
+        ...emptyPayload,
+        sourceTitle: 'Related issue',
+        sourceUrl: 'https://github.com/owner/repo/issues/7',
+        sourceNumber: 7,
+      },
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('mentioned this in <a class="md-reference is-issue"');
+    expect(html).toContain('href="https://github.com/owner/repo/issues/7"');
+    expect(html).toContain('Related issue</a>');
+  });
+
   it('shows reviewer identities below three people and a count from three people', () => {
     const value = detail();
     value.reviewers = [

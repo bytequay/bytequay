@@ -454,6 +454,13 @@ public class PullRequestService
         }
     }
 
+    public void closePullRequest(String repo, int number)
+    {
+        pullRequestWrites.closePullRequest(
+                credentialService.resolveGitHubToken(), parseRef(repo, number));
+        invalidatePullRequestCaches(repo, number);
+    }
+
     public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
     {
         pullRequestWrites.updateIssueMetadata(

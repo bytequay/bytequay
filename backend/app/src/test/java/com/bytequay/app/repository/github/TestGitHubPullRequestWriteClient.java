@@ -34,6 +34,25 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubPullRequestWriteClient
 {
     @Test
+    void closesPullRequest()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"state\":\"closed\"}"))
+                .andRespond(withSuccess());
+
+        client.closePullRequest("pat", PullRequestRef.of("upstream", "project", 12));
+
+        server.verify();
+    }
+
+    @Test
     void postsSingleInlineReviewComment()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

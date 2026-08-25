@@ -102,6 +102,12 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       <DiscussionComposer
         candidates={mentionCandidates(detail)}
         quotedReply={quotedReply}
+        onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
+          ? async () => {
+              await window.bridge.closePr(pr.repo, pr.number);
+              await onRefresh();
+            }
+          : undefined}
         onSubmit={async body => {
           await window.bridge.commentPr(pr.repo, pr.number, body);
           await onRefresh();
@@ -956,14 +962,16 @@ export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
-export function DiscussionComposer({ candidates, quotedReply, onSubmit }: {
+export function DiscussionComposer({ candidates, quotedReply, onClose, onSubmit }: {
   candidates: MentionCandidate[];
   quotedReply?: QuoteRequest;
+  onClose?: () => Promise<void>;
   onSubmit: (body: string) => Promise<void>;
 }) {
   const [body, setBody] = useState('');
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -999,14 +1007,17 @@ export function DiscussionComposer({ candidates, quotedReply, onSubmit }: {
     }
     finally { setPosting(false); }
   };
+  const close = async () => {
+    if (!onClose) return;
+    setClosing(true);
+    try { await onClose(); }
+    finally { setClosing(false); }
+  };
   return (
     <section className="pr-composer">
       <header>
         <button className={!preview ? 'is-active' : ''} type="button" onClick={() => setPreview(false)}>Write</button>
         <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); }}>Preview</button>
-        <span className="pr-composer__tools" aria-hidden="true">
-          <span>H</span><strong>B</strong><em>I</em><QuoteIcon /><CodeIcon /><LinkIcon /><ListIcon /><OrderedListIcon />
-        </span>
       </header>
       {preview
         ? <MarkdownBody body={body || 'Nothing to preview.'} />
@@ -1054,7 +1065,9 @@ export function DiscussionComposer({ candidates, quotedReply, onSubmit }: {
           )}
         </div>}
       <footer>
-        <button type="button" disabled={posting || !body.trim()} onClick={() => { void submit(); }}>
+        {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing}
+          onClick={() => { void close(); }}>{closing ? 'Closing…' : 'Close pull request'}</button>}
+        <button type="button" disabled={posting || closing || !body.trim()} onClick={() => { void submit(); }}>
           {posting ? 'Posting…' : 'Comment'}
         </button>
       </footer>
@@ -1283,18 +1296,6 @@ function QuoteIcon() {
   return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 4.5h4v4H4.5v3H2.8v-4c0-1.7.1-2.2.2-3ZM10 4.5h4v4h-2.5v3H9.8v-4c0-1.7.1-2.2.2-3Z" /></svg>;
 }
 
-function CodeIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4"><path d="m5.5 3-4 5 4 5M10.5 3l4 5-4 5" /></svg>;
-}
-
 function LinkIcon() {
   return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4"><path d="m6.2 9.8 3.6-3.6M5.2 11.8l-1 1a2.8 2.8 0 0 1-4-4l2.2-2.2a2.8 2.8 0 0 1 4 0M10.8 4.2l1-1a2.8 2.8 0 1 1 4 4l-2.2 2.2a2.8 2.8 0 0 1-4 0" /></svg>;
-}
-
-function ListIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><circle cx="2" cy="4" r="1" /><circle cx="2" cy="8" r="1" /><circle cx="2" cy="12" r="1" /><path d="M5 3.3h10v1.4H5zM5 7.3h10v1.4H5zM5 11.3h10v1.4H5z" /></svg>;
-}
-
-function OrderedListIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 2h2v4H2V3H1zM1 8h2.7v1.1L2.2 11H4v1H1v-1l1.6-2H1zM6 3.3h9v1.4H6zM6 8.3h9v1.4H6zM6 12.3h9v1.4H6z" /></svg>;
 }

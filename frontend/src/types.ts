@@ -722,6 +722,7 @@ export type Bridge = {
     comment: InlineReviewCommentDto,
   ) => Promise<void>;
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
+  closePr: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;

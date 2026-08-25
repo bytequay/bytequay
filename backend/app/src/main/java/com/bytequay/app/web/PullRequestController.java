@@ -228,6 +228,15 @@ public class PullRequestController
         return ImmutableMap.of("result", "commented");
     }
 
+    @PostMapping("/prs/close")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void close(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        pullRequests.closePullRequest(repo, number);
+    }
+
     @PostMapping("/prs/checks/rerun-failed")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void rerunFailedChecks(

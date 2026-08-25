@@ -676,6 +676,8 @@ function registerIpc(): void {
       body: JSON.stringify({ body }),
     });
   });
+  ipcMain.handle('prs:close', (_event, repo: string, number: number) =>
+    backendVoid(prUrl('/prs/close', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:review-comment:reply', (
     _event,
     repo: string,

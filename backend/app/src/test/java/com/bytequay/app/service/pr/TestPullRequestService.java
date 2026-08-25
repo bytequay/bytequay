@@ -496,6 +496,17 @@ class TestPullRequestService
     }
 
     @Test
+    void closesPullRequestAndInvalidatesDetail()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.closePullRequest("owner/repo", 7);
+
+        verify(writes).closePullRequest("pat", PullRequestRef.of("owner", "repo", 7));
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
     void repliesToReviewCommentAndInvalidatesDetail()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));

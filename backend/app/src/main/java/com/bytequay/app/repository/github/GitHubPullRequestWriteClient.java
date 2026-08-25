@@ -80,6 +80,22 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    public void closePullRequest(String pat, PullRequestRef pr)
+    {
+        try {
+            gitHubRestClient.patch()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("state", "closed"))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     public String updateIssueType(String pat, PullRequestRef issue, String type)
     {
         Map<String, Object> request = new LinkedHashMap<>();

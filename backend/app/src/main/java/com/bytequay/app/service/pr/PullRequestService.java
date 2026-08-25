@@ -42,6 +42,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -214,8 +215,12 @@ public class PullRequestService
     public List<RepoUser> listRepositoryUsers(String repo, String workspaceId)
     {
         PullRequestRef ref = parseRef(repo, 1);
-        if (workspaceId != null && !workspaceId.isBlank()) {
-            var snapshot = metadata.getSnapshot(workspaceId);
+        RepoRef repository = RepoRef.of(ref.owner(), ref.repo());
+        Optional<RepositoryMetadataSnapshot> localSnapshot = workspaceId != null && !workspaceId.isBlank()
+                ? Optional.of(metadata.getSnapshot(workspaceId))
+                : metadata.findSnapshot(repository);
+        if (localSnapshot.isPresent()) {
+            RepositoryMetadataSnapshot snapshot = localSnapshot.orElseThrow();
             checkArgument(
                     snapshot.repository().owner().equalsIgnoreCase(ref.owner())
                             && snapshot.repository().repo().equalsIgnoreCase(ref.repo()),
@@ -228,7 +233,7 @@ public class PullRequestService
                     .collect(toImmutableList());
         }
         String pat = credentialService.resolveGitHubToken();
-        return gitHub.fetchAssignableUsers(pat, RepoRef.of(ref.owner(), ref.repo()));
+        return gitHub.fetchAssignableUsers(pat, repository);
     }
 
     public List<RepositoryLabel> listRepositoryLabels(String repo)

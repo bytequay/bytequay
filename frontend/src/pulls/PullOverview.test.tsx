@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -539,6 +539,32 @@ describe('PullOverview', () => {
 
     expect(html).toContain('avatar--fallback');
     expect(html).not.toContain('github.com');
+  });
+
+  it('caps unselected people while retaining every selected match', () => {
+    const options = Array.from({ length: MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 5 }, (_, index) => ({
+      key: `user-${index}`,
+      label: `user-${index}`,
+      login: `user-${index}`,
+      selected: index >= MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 3,
+    }));
+
+    const displayed = displayedMetadataPickerOptions(options);
+
+    expect(displayed.filter(option => !option.selected)).toHaveLength(MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS);
+    expect(displayed.filter(option => option.selected).map(option => option.login))
+      .toEqual([`user-${MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 3}`, `user-${MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 4}`]);
+    expect(displayed.some(option => option.login === `user-${MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 2}`)).toBe(false);
+  });
+
+  it('does not cap label options', () => {
+    const options = Array.from({ length: MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS + 5 }, (_, index) => ({
+      key: `label-${index}`,
+      label: `label-${index}`,
+      selected: false,
+    }));
+
+    expect(displayedMetadataPickerOptions(options)).toHaveLength(options.length);
   });
 
   it('formats compact relative timestamps', () => {

@@ -434,6 +434,9 @@ public interface WorkspaceMetadataService
      * @return the latest contributor, picker-user, label, and topic/tag projection summary
      */
     WorkspaceMetadataSnapshot getSnapshot(String workspaceId);
+
+    /** Returns local metadata when the repository is watched, without contacting GitHub. */
+    Optional<WorkspaceMetadataSnapshot> findSnapshot(RepoRef repository);
 }
 ```
 
@@ -594,7 +597,7 @@ POST   /api/workspaces/{workspaceId}/issues/{issueNumber}/detail/refresh
 GET    /api/workspaces/{workspaceId}/pull-requests
 POST   /api/workspaces/{workspaceId}/pull-requests/sync
 GET    /api/workspaces/{workspaceId}/contributors
-GET    /prs/users?repo={owner/repo}&workspaceId={workspaceId}
+GET    /prs/users?repo={owner/repo}[&workspaceId={workspaceId}]
 
 GET    /api/workspaces/{workspaceId}/git/overview
 GET    /api/workspaces/{workspaceId}/git/branches
@@ -613,6 +616,10 @@ GET    /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/delive
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/push
 POST   /api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/pull-request
 ```
+
+Repository-user lookup validates and uses the explicit workspace when supplied. Without one, it
+still resolves a watched repository to the shared local snapshot; only genuinely unwatched
+repositories use the live GitHub fallback.
 
 The upstream request body is `{"upstreamRepositoryId": 123}` or
 `{"upstreamRepositoryId": null}` to unlink. The backend re-fetches a non-null ID through the

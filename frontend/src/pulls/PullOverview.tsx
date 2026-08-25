@@ -322,6 +322,17 @@ export type MetadataPickerOption = {
   disabledReason?: string;
 };
 
+export const MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS = 100;
+
+export function displayedMetadataPickerOptions(options: MetadataPickerOption[]) {
+  let unselectedPeople = 0;
+  return options.filter(option => {
+    if (!option.login || option.selected) return true;
+    unselectedPeople++;
+    return unselectedPeople <= MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS;
+  });
+}
+
 export function MetadataPicker({
   ariaLabel,
   placeholder,
@@ -347,13 +358,14 @@ export function MetadataPicker({
   note?: string;
   onToggle: (option: MetadataPickerOption) => void;
 }) {
+  const displayedOptions = displayedMetadataPickerOptions(options);
   return (
     <div className="pr-people-picker">
       <input autoFocus aria-label={`Search ${ariaLabel}`} placeholder={placeholder} value={query}
         onChange={event => setQuery(event.target.value)} />
       {note && <div className="pr-people-picker__note">{note}</div>}
       <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel}>
-        {options.map(option => (
+        {displayedOptions.map(option => (
           <button className={`pr-people-picker__row${option.color ? ' is-label' : ''}`} type="button"
             disabled={updating || option.disabled} aria-selected={option.selected} role="option" key={option.key}
             title={option.disabledReason} onClick={() => onToggle(option)}>

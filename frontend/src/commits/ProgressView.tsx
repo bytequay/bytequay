@@ -496,6 +496,7 @@ export default function ProgressView({
 
       <div className="cmt-prog-pr">
         <PrPanel
+          workspaceId={workspaceId}
           slug={upstreamSlug}
           number={delivery?.pullRequest?.number ?? selected?.item.pullRequestNumber ?? null}
         />
@@ -504,7 +505,7 @@ export default function ProgressView({
   );
 }
 
-function PrPanel({ slug, number }: { slug: string | null; number: number | null }) {
+function PrPanel({ workspaceId, slug, number }: { workspaceId: string; slug: string | null; number: number | null }) {
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -538,6 +539,7 @@ function PrPanel({ slug, number }: { slug: string | null; number: number | null 
       <PullOverview
         pr={remotePullRequest(detail)}
         detail={detail}
+        contributorsWorkspaceId={workspaceId}
         onRefresh={async () => {
           setDetail(await window.bridge.refreshAllPullRequestDetailByRef(slug, number));
         }}

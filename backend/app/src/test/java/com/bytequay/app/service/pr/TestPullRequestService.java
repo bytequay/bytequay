@@ -44,6 +44,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.RepositoryPickerUser;
@@ -166,23 +167,7 @@ class TestPullRequestService
     @Test
     void readsWorkspacePickerUsersAndAvatarsFromLocalMetadata()
     {
-        RepositoryMetadataSnapshot snapshot = new RepositoryMetadataSnapshot(
-                1,
-                RepoRef.of("owner", "repo"),
-                null,
-                0,
-                ImmutableMap.of(),
-                ImmutableList.of(),
-                ImmutableList.of(
-                        new RepositoryPickerUser(2, "alice", Optional.of("avatar-key"), false),
-                        new RepositoryPickerUser(3, "robot[bot]", Optional.empty(), true)),
-                ImmutableList.of(),
-                ImmutableList.of(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.of(Instant.parse("2026-08-21T00:00:00Z")),
-                Optional.empty());
-        when(metadata.getSnapshot("workspace")).thenReturn(snapshot);
+        when(metadata.getSnapshot("workspace")).thenReturn(pickerSnapshot());
 
         assertThat(service.listRepositoryUsers("owner/repo", "workspace"))
                 .extracting(user -> user.login() + ":" + user.avatarUrl() + ":" + user.bot())
@@ -190,6 +175,31 @@ class TestPullRequestService
                         "alice:http://127.0.0.1:53123/api/avatars/avatar-key:false",
                         "robot[bot]:null:true");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
+    }
+
+    @Test
+    void readsWatchedRepositoryPickerUsersFromLocalMetadataWithoutWorkspaceId()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        when(metadata.findSnapshot(repository)).thenReturn(Optional.of(pickerSnapshot()));
+
+        assertThat(service.listRepositoryUsers("owner/repo", null))
+                .extracting(RepoUser::login)
+                .containsExactly("alice", "robot[bot]");
+        verify(credentialService, never()).resolveGitHubToken();
+        verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
+    }
+
+    @Test
+    void fetchesPickerUsersFromGitHubForUnwatchedRepository()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        RepoUser user = new RepoUser("alice", "https://avatars.example/alice", false);
+        when(metadata.findSnapshot(repository)).thenReturn(Optional.empty());
+        when(gitHub.fetchAssignableUsers("pat", repository)).thenReturn(ImmutableList.of(user));
+
+        assertThat(service.listRepositoryUsers("owner/repo", null)).containsExactly(user);
+        verify(gitHub).fetchAssignableUsers("pat", repository);
     }
 
     @Test
@@ -751,6 +761,26 @@ class TestPullRequestService
                 ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")),
                 ImmutableList.of(),
                 true);
+    }
+
+    private static RepositoryMetadataSnapshot pickerSnapshot()
+    {
+        return new RepositoryMetadataSnapshot(
+                1,
+                RepoRef.of("owner", "repo"),
+                null,
+                0,
+                ImmutableMap.of(),
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new RepositoryPickerUser(2, "alice", Optional.of("avatar-key"), false),
+                        new RepositoryPickerUser(3, "robot[bot]", Optional.empty(), true)),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Instant.parse("2026-08-21T00:00:00Z")),
+                Optional.empty());
     }
 
     private static PrRawDetail raw()

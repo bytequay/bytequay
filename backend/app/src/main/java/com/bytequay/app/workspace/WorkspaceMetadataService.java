@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+
+import java.util.Optional;
 
 public interface WorkspaceMetadataService
 {
@@ -44,4 +47,12 @@ public interface WorkspaceMetadataService
      * @return latest snapshot, possibly empty or stale
      */
     RepositoryMetadataSnapshot getSnapshot(String workspaceId);
+
+    /**
+     * Reads local metadata when the repository belongs to a watched workspace.
+     *
+     * @param repository monitored repository identity
+     * @return latest local snapshot, or empty when the repository is not watched
+     */
+    Optional<RepositoryMetadataSnapshot> findSnapshot(RepoRef repository);
 }

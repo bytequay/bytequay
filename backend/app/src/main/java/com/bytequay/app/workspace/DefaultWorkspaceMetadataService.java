@@ -136,6 +136,13 @@ public final class DefaultWorkspaceMetadataService
         return snapshot(requireWorkspace(workspaceId));
     }
 
+    @Override
+    public Optional<RepositoryMetadataSnapshot> findSnapshot(RepoRef repository)
+    {
+        requireNonNull(repository, "repository is null");
+        return findWorkspace(repository).map(this::snapshot);
+    }
+
     private void refreshExpired(Workspace workspace)
     {
         Instant now = clock.instant();
@@ -266,11 +273,17 @@ public final class DefaultWorkspaceMetadataService
 
     private Workspace requireWorkspace(RepoRef repository)
     {
+        return findWorkspace(repository)
+                .orElseThrow(() -> WorkspaceException.repositoryNotFound(repository.owner(), repository.repo()));
+    }
+
+    private Optional<Workspace> findWorkspace(RepoRef repository)
+    {
+        requireNonNull(repository, "repository is null");
         return workspaces.findAll().stream()
                 .filter(workspace -> workspace.monitoredRepository().owner().equalsIgnoreCase(repository.owner())
                         && workspace.monitoredRepository().repo().equalsIgnoreCase(repository.repo()))
-                .findFirst()
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(repository.owner(), repository.repo()));
+                .findFirst();
     }
 
     private static boolean expired(Optional<Instant> syncedAt, Instant now, Duration ttl)

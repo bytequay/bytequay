@@ -34,12 +34,13 @@ import '../css/workspaces.css';
 export type WorkspaceTab =
   | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'memory' | 'settings';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialIssueNumber, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialIssueNumber, browserOpen = false, onRemoved }: {
   workspace: Workspace;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: Workspace) => void;
   initialIssueNumber: number | null;
+  browserOpen?: boolean;
   onRemoved: () => void;
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
@@ -94,6 +95,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           : { repo: repository, number: openPullRequestNumber }}
         initialTab={initialPullsTab ?? undefined}
         repositoryScope={{ workspaceId: workspace.id, repository }}
+        browserOpen={browserOpen}
       />
     );
   }

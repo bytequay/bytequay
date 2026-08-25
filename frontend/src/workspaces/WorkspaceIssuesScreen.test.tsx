@@ -101,7 +101,7 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).toContain('class="pr-copy-button"');
     expect(html).toContain('aria-label="Copy issue link"');
     expect(html).not.toContain('issue-rail');
-    expect(html.match(/aria-label="Add reaction"/g)).toHaveLength(2);
+    expect(html).not.toContain('aria-label="Add reaction"');
     expect(html).toContain('class="pr-composer"');
   });
 

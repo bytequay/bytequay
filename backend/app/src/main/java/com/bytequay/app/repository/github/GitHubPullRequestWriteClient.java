@@ -80,6 +80,55 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    public void addPullRequestReaction(String pat, PullRequestRef pr, String content)
+    {
+        addReaction(
+                pat,
+                "/repos/{owner}/{repo}/issues/{number}/reactions",
+                content,
+                pr.owner(),
+                pr.repo(),
+                pr.number());
+    }
+
+    public void addIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
+    {
+        addReaction(
+                pat,
+                "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions",
+                content,
+                pr.owner(),
+                pr.repo(),
+                commentId);
+    }
+
+    public void addReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
+    {
+        addReaction(
+                pat,
+                "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions",
+                content,
+                pr.owner(),
+                pr.repo(),
+                commentId);
+    }
+
+    private void addReaction(String pat, String uri, String content, Object... uriVariables)
+    {
+        try {
+            gitHubRestClient.post()
+                    .uri(uri, uriVariables)
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("content", content))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     public void closePullRequest(String pat, PullRequestRef pr)
     {
         try {

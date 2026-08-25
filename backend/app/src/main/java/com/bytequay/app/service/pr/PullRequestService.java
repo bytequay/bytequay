@@ -91,6 +91,8 @@ public class PullRequestService
     private static final Duration STATUS_REFRESH_INTERVAL = Duration.ofMinutes(6);
     private static final Duration ACTIVE_PULL_REQUEST_WINDOW = Duration.ofHours(6);
     private static final int CLOSED_RETENTION_DAYS = 30;
+    private static final Set<String> REACTION_CONTENTS = ImmutableSet.of(
+            "+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
 
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
@@ -451,6 +453,39 @@ public class PullRequestService
                         cached.unavailableSections(),
                         cached.viewerCanWrite());
             });
+        }
+    }
+
+    public void addReaction(String repo, int number, String target, Long commentId, String content)
+    {
+        requireNotBlank(target, "reaction target must not be blank");
+        requireNotBlank(content, "reaction content must not be blank");
+        String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
+        String normalizedContent = content.trim().toLowerCase(Locale.ROOT);
+        if (!REACTION_CONTENTS.contains(normalizedContent)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction content");
+        }
+        switch (normalizedTarget) {
+            case "pull_request" -> {
+                if (commentId != null) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pull request reaction must not include a comment id");
+                }
+            }
+            case "issue_comment", "review_comment" -> {
+                if (commentId == null || commentId <= 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment reaction requires a positive comment id");
+                }
+            }
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
+        }
+
+        PullRequestRef ref = parseRef(repo, number);
+        String pat = credentialService.resolveGitHubToken();
+        switch (normalizedTarget) {
+            case "pull_request" -> pullRequestWrites.addPullRequestReaction(pat, ref, normalizedContent);
+            case "issue_comment" -> pullRequestWrites.addIssueCommentReaction(pat, ref, commentId, normalizedContent);
+            case "review_comment" -> pullRequestWrites.addReviewCommentReaction(pat, ref, commentId, normalizedContent);
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
         }
     }
 

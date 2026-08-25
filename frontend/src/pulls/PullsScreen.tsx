@@ -49,15 +49,21 @@ export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()
     : Math.max(DETAIL_REFRESH_INTERVAL, resetAt - now + 1_000);
 }
 
+export function returnedFromInAppBrowser(wasOpen: boolean, isOpen: boolean) {
+  return wasOpen && !isOpen;
+}
+
 export default function PullsScreen({
   initialPr,
   initialTab,
   repositoryScope,
+  browserOpen = false,
 }: {
   initialPr?: { repo: string; number: number };
   /** Filter tab to open on (from the Home review card). */
   initialTab?: PullTab;
   repositoryScope?: { workspaceId: string; repository: string };
+  browserOpen?: boolean;
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
@@ -85,6 +91,7 @@ export default function PullsScreen({
   const detailSnapshot = useRef<string | null>(null);
   const listRequest = useRef(0);
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
+  const browserWasOpen = useRef(browserOpen);
 
   const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
     const snapshot = JSON.stringify(value);
@@ -349,7 +356,7 @@ export default function PullsScreen({
       .finally(() => setDiffLoading(false));
   };
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!selectedPr) return;
     const listVersion = listRequest.current;
     setDetailLoading(true);
@@ -374,7 +381,13 @@ export default function PullsScreen({
     finally {
       setDetailLoading(false);
     }
-  };
+  }, [applyDetail, applyPage, query, repositoryScope?.workspaceId, selectedPr]);
+
+  useEffect(() => {
+    const returned = returnedFromInAppBrowser(browserWasOpen.current, browserOpen);
+    browserWasOpen.current = browserOpen;
+    if (returned) void refresh();
+  }, [browserOpen, refresh]);
 
   const resizeDetail = (event: ReactMouseEvent) => {
     event.preventDefault();

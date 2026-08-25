@@ -53,6 +53,38 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void postsReactionsToEachSupportedGitHubResource()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"content\":\"heart\"}"))
+                .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41/reactions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"content\":\"+1\"}"))
+                .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42/reactions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"content\":\"eyes\"}"))
+                .andRespond(withSuccess());
+
+        PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
+        client.addPullRequestReaction("pat", pullRequest, "heart");
+        client.addIssueCommentReaction("pat", pullRequest, 41, "+1");
+        client.addReviewCommentReaction("pat", pullRequest, 42, "eyes");
+
+        server.verify();
+    }
+
+    @Test
     void postsSingleInlineReviewComment()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

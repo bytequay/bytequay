@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -51,6 +51,64 @@ describe('PullOverview', () => {
     expect(remoteErrorMessage(new Error(
       "Error invoking remote method 'prs:metadata:update': Error: Grant it access to this repository",
     ))).toBe('Grant it access to this repository');
+  });
+
+  it('writes a reaction before refreshing the full pull request detail', async () => {
+    const order: string[] = [];
+    const addPrReaction = vi.fn(async () => { order.push('write'); });
+    const onRefresh = vi.fn(async () => { order.push('refresh'); });
+
+    await submitPullReaction({ addPrReaction }, {
+      repo: 'owner/repo',
+      number: 42,
+      target: 'issue_comment',
+      commentId: 71,
+      onRefresh,
+    }, 'eyes');
+
+    expect(addPrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes');
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(order).toEqual(['write', 'refresh']);
+  });
+
+  it('wires reactions only to supported pull request targets', () => {
+    const value = detail();
+    value.recentActivity = [
+      {
+        actor: 'bob', eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', githubId: 71,
+        payload: { ...emptyPayload, reactions: [{ content: '+1', count: 1 }] },
+      },
+      {
+        actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', githubId: 72,
+        payload: { ...emptyPayload, reactions: [{ content: 'heart', count: 1 }] },
+      },
+      {
+        actor: 'dave', eventType: 'review_thread', timestamp: '2026-08-20T09:30:00Z', body: null, githubId: 74,
+        payload: {
+          ...emptyPayload,
+          comments: [{
+            githubId: 73,
+            actor: 'dave',
+            actorAvatarUrl: null,
+            actorBot: false,
+            timestamp: '2026-08-20T09:30:00Z',
+            body: 'Inline review comment',
+            htmlUrl: null,
+            reviewId: 9,
+            inReplyToId: null,
+            reactions: [{ content: 'eyes', count: 1 }],
+          }],
+        },
+      },
+    ];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html.match(/data-reaction-target="pull_request"/g)).toHaveLength(2);
+    expect(html.match(/data-reaction-target="issue_comment" data-reaction-comment-id="71"/g)).toHaveLength(2);
+    expect(html.match(/data-reaction-target="review_comment" data-reaction-comment-id="73"/g)).toHaveLength(2);
+    expect(html).not.toContain('data-reaction-comment-id="72"');
+    expect(html).not.toContain('class="is-active" role="menuitem"');
   });
 
   it('renders review submission as an overlay without replacing the pull request', () => {

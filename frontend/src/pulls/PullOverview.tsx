@@ -14,7 +14,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from '../Avatar';
 import type {
+  Bridge,
+  PullReactionContent,
   PullReactionDto,
+  PullReactionTarget,
   PullRequestDetailDto,
   PullRequestDto,
   RepoLabelDto,
@@ -91,6 +94,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
 
       <section className="pr-timeline" aria-label="Pull request activity">
         <DescriptionCard detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
+          onRefresh={onRefresh}
           onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
           <TimelineItem activities={activities} key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
@@ -416,21 +420,24 @@ export function peoplePickerCandidates(
   return result;
 }
 
-function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onQuote }: {
+function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onRefresh, onQuote }: {
   detail: PullRequestDetailDto;
   fallbackAuthor: string | null;
   fallbackUrl: string;
+  onRefresh: () => Promise<void>;
   onQuote: (body: string) => void;
 }) {
   const actor = detail.author ?? fallbackAuthor ?? 'Unknown author';
   const body = detail.body || 'No description provided.';
   const reactions = detail.recentActivity.find(activity => activity.eventType === 'description_reactions')?.payload.reactions ?? [];
+  const reaction = reactionAction(detail.repo, detail.number, 'pull_request', null, onRefresh);
   return (
     <article className="pr-card pr-description">
       <CardHeader actor={actor} avatarUrl={detail.authorAvatarUrl} timestamp={detail.createdAt}
+        reaction={reaction}
         actions={{ link: detail.htmlUrl ?? fallbackUrl, markdown: body, onQuote: () => onQuote(body) }} />
       <MarkdownBody body={body} />
-      <Reactions reactions={reactions} alwaysShowPicker />
+      <Reactions reactions={reactions} reaction={reaction} alwaysShowPicker />
     </article>
   );
 }
@@ -449,7 +456,7 @@ function TimelineItem({ activities, pr, onRefresh, onQuote }: {
     return <ReviewThread activity={activity} pr={pr} onRefresh={onRefresh} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
-    return <CommentCard activity={activity} fallbackUrl={pr.htmlUrl} onQuote={onQuote} />;
+    return <CommentCard activity={activity} pr={pr} onRefresh={onRefresh} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
   return <CompactEvent activities={activities} />;
@@ -530,14 +537,18 @@ function CommitEvent({ activity }: { activity: Activity }) {
   );
 }
 
-function CommentCard({ activity, fallbackUrl, onQuote }: {
+function CommentCard({ activity, pr, onRefresh, onQuote }: {
   activity: Activity;
-  fallbackUrl: string;
+  pr: PullRequestDto;
+  onRefresh: () => Promise<void>;
   onQuote: (body: string) => void;
 }) {
   const state = activity.payload.state?.toUpperCase();
   const actor = displayActor(activity.actor || 'github');
   const body = activity.body?.trim() ? activity.body : null;
+  const reaction = activity.eventType === 'commented' && activity.githubId !== null
+    ? reactionAction(pr.repo, pr.number, 'issue_comment', activity.githubId, onRefresh)
+    : undefined;
   const header = (
     <CardHeader
       actor={actor}
@@ -545,8 +556,9 @@ function CommentCard({ activity, fallbackUrl, onQuote }: {
       bot={activity.payload.actorBot}
       timestamp={activity.timestamp}
       badge={reviewBadge(state)}
+      reaction={reaction}
       actions={body ? {
-        link: activity.payload.htmlUrl ?? fallbackUrl,
+        link: activity.payload.htmlUrl ?? pr.htmlUrl,
         markdown: body,
         onQuote: () => onQuote(body),
       } : undefined}
@@ -559,7 +571,7 @@ function CommentCard({ activity, fallbackUrl, onQuote }: {
     <article className="pr-card pr-comment-card">
       {header}
       <MarkdownBody body={body} />
-      <Reactions reactions={activity.payload.reactions} />
+      <Reactions reactions={activity.payload.reactions} reaction={reaction} />
     </article>
   );
 }
@@ -685,7 +697,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
         </summary>
         <div className="pr-thread-row__comments">
           {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
-            onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+            pr={pr} onRefresh={onRefresh} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
           {controls}
         </div>
       </details>
@@ -699,17 +711,22 @@ function ReviewThread({ activity, pr, onRefresh }: {
       </header>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
-        onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+        pr={pr} onRefresh={onRefresh} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
     </article>
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, onQuote }: {
+function ThreadComment({ comment, fallbackUrl, pr, onRefresh, onQuote }: {
   comment: PullTimelineCommentDto;
   fallbackUrl: string;
+  pr: PullRequestDto;
+  onRefresh: () => Promise<void>;
   onQuote: (body: string) => void;
 }) {
+  const reaction = comment.githubId === null
+    ? undefined
+    : reactionAction(pr.repo, pr.number, 'review_comment', comment.githubId, onRefresh);
   return (
     <div className="pr-thread-comment">
       <div className="pr-thread-comment__author">
@@ -717,14 +734,14 @@ function ThreadComment({ comment, fallbackUrl, onQuote }: {
         <strong>{comment.actor ?? 'github'}</strong>
         {comment.actorBot && <span className="pr-bot">Bot</span>}
         <time>{relativeTime(comment.timestamp)}</time>
-        <div className="pr-thread-comment__menu"><ReactionPicker />{comment.body && <CardActionsMenu actions={{
+        <div className="pr-thread-comment__menu">{reaction && <ReactionPicker action={reaction} />}{comment.body && <CardActionsMenu actions={{
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,
           onQuote: () => onQuote(comment.body ?? ''),
         }} />}</div>
       </div>
       {comment.body && <MarkdownBody body={comment.body} />}
-      <Reactions reactions={comment.reactions} />
+      <Reactions reactions={comment.reactions} reaction={reaction} />
     </div>
   );
 }
@@ -835,12 +852,13 @@ type CardActions = {
   onQuote: () => void;
 };
 
-export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, actions }: {
+export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, actions }: {
   actor: string;
   avatarUrl?: string | null;
   bot?: boolean;
   timestamp: string | null;
   badge?: { text: string; className: string } | null;
+  reaction?: ReactionAction;
   actions?: CardActions;
 }) {
   return (
@@ -850,7 +868,10 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, ac
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
-      <div className="pr-card__menu"><ReactionPicker />{actions && <CardActionsMenu actions={actions} />}</div>
+      {(reaction || actions) && <div className="pr-card__menu">
+        {reaction && <ReactionPicker action={reaction} />}
+        {actions && <CardActionsMenu actions={actions} />}
+      </div>}
     </header>
   );
 }
@@ -1115,11 +1136,42 @@ export function appendQuotedReply(draft: string, body: string) {
   return `${existing}${existing ? '\n\n' : ''}${quote}\n\n`;
 }
 
-function Reactions({ reactions, alwaysShowPicker = false }: { reactions: PullReactionDto[]; alwaysShowPicker?: boolean }) {
-  if (reactions.length === 0 && !alwaysShowPicker) return null;
+type ReactionAction = {
+  repo: string;
+  number: number;
+  target: PullReactionTarget;
+  commentId: number | null;
+  onRefresh: () => Promise<void>;
+};
+
+function reactionAction(
+  repo: string,
+  number: number,
+  target: PullReactionTarget,
+  commentId: number | null,
+  onRefresh: () => Promise<void>,
+): ReactionAction {
+  return { repo, number, target, commentId, onRefresh };
+}
+
+export async function submitPullReaction(
+  bridge: Pick<Bridge, 'addPrReaction'>,
+  action: ReactionAction,
+  content: PullReactionContent,
+) {
+  await bridge.addPrReaction(action.repo, action.number, action.target, action.commentId, content);
+  await action.onRefresh();
+}
+
+function Reactions({ reactions, reaction, alwaysShowPicker = false }: {
+  reactions: PullReactionDto[];
+  reaction?: ReactionAction;
+  alwaysShowPicker?: boolean;
+}) {
+  if (reactions.length === 0 && (!alwaysShowPicker || !reaction)) return null;
   return <div className="pr-reactions">{reactions.map(reaction => (
     <span key={reaction.content}>{reactionEmoji(reaction.content)} {reaction.count}</span>
-  ))}<ReactionPicker compact /></div>;
+  ))}{reaction && <ReactionPicker action={reaction} compact key="add-reaction" />}</div>;
 }
 
 const REACTION_CHOICES = [
@@ -1133,17 +1185,19 @@ const REACTION_CHOICES = [
   ['eyes', '👀', 'eyes'],
 ] as const;
 
-function ReactionPicker({ compact = false }: { compact?: boolean }) {
+function ReactionPicker({ action, compact = false }: { action: ReactionAction; compact?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!saving && !pickerRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (!saving && event.key === 'Escape') setOpen(false);
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
@@ -1151,21 +1205,39 @@ function ReactionPicker({ compact = false }: { compact?: boolean }) {
       document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [open]);
+  }, [open, saving]);
+
+  const choose = async (content: PullReactionContent) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await submitPullReaction(window.bridge, action, content);
+      setOpen(false);
+    }
+    catch (failure) {
+      setError(`Could not add reaction. ${remoteErrorMessage(failure)}`);
+    }
+    finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div ref={pickerRef} className={`pr-reaction-picker${compact ? ' is-compact' : ''}${open ? ' is-open' : ''}`}>
+    <div ref={pickerRef} className={`pr-reaction-picker${compact ? ' is-compact' : ''}${open ? ' is-open' : ''}`}
+      data-reaction-target={action.target} data-reaction-comment-id={action.commentId ?? undefined}>
       <button type="button" className="pr-reaction-picker__trigger" aria-label="Add reaction" title="Add reaction"
-        aria-expanded={open} onClick={() => setOpen(value => !value)}><ReactionMenuIcon /></button>
-      <span className="pr-reaction-picker__menu" role="menu" aria-label="Choose a reaction">
-        {REACTION_CHOICES.map(([content, emoji, label], index) => (
-          <button type="button" className={index === 0 ? 'is-active' : ''} role="menuitem"
+        aria-expanded={open} disabled={saving}
+        onClick={() => { setError(null); setOpen(value => !value); }}><ReactionMenuIcon /></button>
+      <div className="pr-reaction-picker__menu" role="menu" aria-label="Choose a reaction" aria-busy={saving}>
+        {REACTION_CHOICES.map(([content, emoji, label]) => (
+          <button type="button" role="menuitem" disabled={saving}
             aria-label={`Add ${label} reaction`} key={content}
-            onClick={() => setOpen(false)}>
+            onClick={() => { void choose(content); }}>
             {emoji}
           </button>
         ))}
-      </span>
+        {error && <div className="pr-reaction-picker__error" role="alert">{error}</div>}
+      </div>
     </div>
   );
 }

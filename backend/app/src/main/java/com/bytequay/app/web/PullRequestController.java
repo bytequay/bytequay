@@ -196,6 +196,8 @@ public class PullRequestController
 
     public record ReviewerRequest(String login, boolean requested) {}
 
+    public record ReactionRequest(String target, Long commentId, String content) {}
+
     @PatchMapping("/prs/metadata")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateMetadata(
@@ -226,6 +228,17 @@ public class PullRequestController
     {
         pullRequests.commentOnPullRequest(repo, number, request.body());
         return ImmutableMap.of("result", "commented");
+    }
+
+    @PostMapping("/prs/reactions")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addReaction(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody ReactionRequest request)
+    {
+        requireNonNull(request, "body is required");
+        pullRequests.addReaction(repo, number, request.target(), request.commentId(), request.content());
     }
 
     @PostMapping("/prs/close")

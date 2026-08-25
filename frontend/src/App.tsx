@@ -146,7 +146,7 @@ export default function App() {
             onOpenWorkspace={openWorkspace}
           />
         )}
-        {page === 'pulls' && <PullsScreen initialPr={initialPr} />}
+        {page === 'pulls' && <PullsScreen initialPr={initialPr} browserOpen={browserUrl !== null} />}
         {page === 'workspaces' && workspace === null && (
           <WorkspacesPage
             onOpen={openWorkspace}
@@ -160,6 +160,7 @@ export default function App() {
             onSelectTab={selectWorkspaceTab}
             onWorkspaceChanged={setWorkspace}
             initialIssueNumber={initialIssueNumber}
+            browserOpen={browserUrl !== null}
             onRemoved={() => { window.location.hash = '#/workspaces'; }}
           />
         )}

@@ -80,6 +80,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -501,6 +502,36 @@ class TestPullRequestService
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(12L), saved.capture());
         assertThat(saved.getValue().timeline()).contains(posted);
+    }
+
+    @Test
+    void routesEachSupportedReactionTarget()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+
+        service.addReaction("owner/repo", 7, " pull_request ", null, " HEART ");
+        service.addReaction("owner/repo", 7, "issue_comment", 41L, "+1");
+        service.addReaction("owner/repo", 7, "review_comment", 42L, "eyes");
+
+        verify(writes).addPullRequestReaction("pat", ref, "heart");
+        verify(writes).addIssueCommentReaction("pat", ref, 41, "+1");
+        verify(writes).addReviewCommentReaction("pat", ref, 42, "eyes");
+    }
+
+    @Test
+    void rejectsInvalidReactionTargetsAndContentBeforeWriting()
+    {
+        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "pull_request", null, "smile"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "pull_request", 41L, "heart"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "issue_comment", null, "heart"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "review_comment", 0L, "heart"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "commit", 41L, "heart"))
+                .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(writes);
     }
 
     @Test

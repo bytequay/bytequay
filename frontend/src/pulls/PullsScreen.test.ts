@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay } from './PullsScreen';
+import { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay, returnedFromInAppBrowser } from './PullsScreen';
 
 describe('mergePullRequestDetailStatus', () => {
   it('changes only mergeability and CI fields', () => {
@@ -45,5 +45,12 @@ describe('mergePullRequestDetailStatus', () => {
     expect(pullRequestDetailRefreshDelay(new Error(
       'GitHub core API rate limit reached; retry after 2026-08-24T17:33:20Z',
     ), now)).toBe(resetAt - now + 1_000);
+  });
+
+  it('forces a full refresh only when returning from the in-app browser', () => {
+    expect(returnedFromInAppBrowser(false, false)).toBe(false);
+    expect(returnedFromInAppBrowser(false, true)).toBe(false);
+    expect(returnedFromInAppBrowser(true, true)).toBe(false);
+    expect(returnedFromInAppBrowser(true, false)).toBe(true);
   });
 });

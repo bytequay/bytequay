@@ -676,6 +676,18 @@ function registerIpc(): void {
       body: JSON.stringify({ body }),
     });
   });
+  ipcMain.handle('prs:reaction:add', (
+    _event,
+    repo: string,
+    number: number,
+    target: import('./types').PullReactionTarget,
+    commentId: number | null,
+    content: import('./types').PullReactionContent,
+  ) => backendVoid(prUrl('/prs/reactions', repo, number), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, commentId, content }),
+  }));
   ipcMain.handle('prs:close', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/close', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:review-comment:reply', (

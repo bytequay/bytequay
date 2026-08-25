@@ -27,6 +27,7 @@ import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 
 import java.time.Instant;
 
@@ -34,6 +35,9 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class TestPullRequestRefreshControllers
 {
@@ -65,6 +69,26 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).getPullRequestDetail(12L);
         verify(refresh).refreshDetail(12L);
         verify(refresh).refreshAllDetail(12L);
+    }
+
+    @Test
+    void forwardsPullRequestReactionRequest()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+
+        standaloneSetup(controller).build().perform(post("/prs/reactions")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"target":"issue_comment","commentId":41,"content":"heart"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        verify(pullRequests).addReaction("owner/repo", 7, "issue_comment", 41L, "heart");
     }
 
     @Test

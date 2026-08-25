@@ -156,6 +156,9 @@ export type PullRequestDetailRefreshDto =
 
 export type PullReactionDto = { content: string; count: number };
 
+export type PullReactionTarget = 'pull_request' | 'issue_comment' | 'review_comment';
+export type PullReactionContent = '+1' | '-1' | 'laugh' | 'hooray' | 'confused' | 'heart' | 'rocket' | 'eyes';
+
 export type PullTimelineCommentDto = {
   githubId: number | null;
   actor: string | null;
@@ -722,6 +725,13 @@ export type Bridge = {
     comment: InlineReviewCommentDto,
   ) => Promise<void>;
   commentPr: (repo: string, number: number, body: string) => Promise<void>;
+  addPrReaction: (
+    repo: string,
+    number: number,
+    target: PullReactionTarget,
+    commentId: number | null,
+    content: PullReactionContent,
+  ) => Promise<void>;
   closePr: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;

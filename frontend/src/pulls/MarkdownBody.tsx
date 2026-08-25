@@ -25,6 +25,7 @@ import { relativeTime } from '../relativeTime';
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'paragraph'; text: string }
+  | { kind: 'task'; checked: boolean; text: string }
   | { kind: 'code'; language: string; text: string }
   | { kind: 'list'; ordered: boolean; items: string[] }
   | { kind: 'table'; headers: string[]; rows: string[][]; aligns: Array<'left' | 'center' | 'right'> }
@@ -173,6 +174,13 @@ export function markdownBlocks(markdown: string): Block[] {
       blocks.push({ kind: 'rule' });
       continue;
     }
+    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX])\)|\[([ xX])\])\s+(.+)$/);
+    if (task) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'task', checked: (task[1] ?? task[2]).toLowerCase() === 'x', text: task[3] });
+      continue;
+    }
     const item = line.match(/^\s*(?:(\d+)\.|[-*+])\s+(.+)$/);
     if (item) {
       flushParagraph();
@@ -180,12 +188,6 @@ export function markdownBlocks(markdown: string): Block[] {
       if (list && list.ordered !== ordered) flushList();
       if (!list) list = { ordered, items: [] };
       list.items.push(item[2]);
-      continue;
-    }
-    if (/^\s*\([ xX]\)\s+/.test(line)) {
-      flushParagraph();
-      flushList();
-      blocks.push({ kind: 'paragraph', text: line.trim() });
       continue;
     }
     const alert = line.match(/^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i);
@@ -480,6 +482,9 @@ function MarkdownBlocks({ markdown }: { markdown: string }) {
           return <Heading key={key}>{inline(block.text, key)}</Heading>;
         }
         if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key)}</p>;
+        if (block.kind === 'task') return (
+          <p key={key}><label><input type="checkbox" checked={block.checked} disabled readOnly /> {inline(block.text, key)}</label></p>
+        );
         if (block.kind === 'code') {
           const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
           return (

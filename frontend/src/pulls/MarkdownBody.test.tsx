@@ -16,18 +16,25 @@ import { describe, expect, it } from 'vitest';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 
 describe('MarkdownBody', () => {
-  it('renders parenthesized checkbox options on separate lines', () => {
-    const body = '( ) No release notes are required.\n'
-      + '( ) Please propose a release note for me.\n'
-      + '(x) Release notes are required, with the following suggested text:';
+  it('renders checkbox and unordered-list markers', () => {
+    const body = '( ) Parenthesized unchecked\n'
+      + '[x] Square checked\n'
+      + '- [x] Dash checked\n'
+      + '* [ ] Asterisk unchecked\n\n'
+      + '- Dash item\n'
+      + '* Asterisk item';
 
     expect(markdownBlocks(body)).toEqual([
-      { kind: 'paragraph', text: '( ) No release notes are required.' },
-      { kind: 'paragraph', text: '( ) Please propose a release note for me.' },
-      { kind: 'paragraph', text: '(x) Release notes are required, with the following suggested text:' },
+      { kind: 'task', checked: false, text: 'Parenthesized unchecked' },
+      { kind: 'task', checked: true, text: 'Square checked' },
+      { kind: 'task', checked: true, text: 'Dash checked' },
+      { kind: 'task', checked: false, text: 'Asterisk unchecked' },
+      { kind: 'list', ordered: false, items: ['Dash item', 'Asterisk item'] },
     ]);
 
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
-    expect(html).toContain('<p>( ) No release notes are required.</p><p>( ) Please propose a release note for me.</p><p>(x) Release notes are required');
+    expect(html.match(/type="checkbox"/g)).toHaveLength(4);
+    expect(html.match(/checked=""/g)).toHaveLength(2);
+    expect(html).toContain('<ul><li>Dash item</li><li>Asterisk item</li></ul>');
   });
 });

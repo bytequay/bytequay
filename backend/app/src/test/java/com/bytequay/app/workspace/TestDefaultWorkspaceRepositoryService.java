@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -235,6 +236,51 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(requested.lastMetadataSyncAt()).contains(staleMetadata);
         verify(provisioning).synchronizeCode(ready.id());
         verify(metadata).synchronize(ready.id());
+    }
+
+    @Test
+    void startupRecoveryUsesTheSameFreshnessAndSchedulingPath()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "pending")));
+        when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(direct(200, "syncing")));
+        when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "fresh")));
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubToken()).thenReturn("token");
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+                store,
+                mock(WatchedRepoStore.class),
+                mock(CherryPickExecutionStore.class),
+                new InMemoryRemoteSourceStore(),
+                new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
+                gitHub,
+                credentials,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new WorkspacePaths("/tmp/bytequay-workspaces"),
+                provisioning,
+                metadata,
+                mock(PullRequestRefreshService.class),
+                Runnable::run);
+        Workspace pending = watch(service, 100);
+        Workspace syncing = store.save(watch(service, 200)
+                .withCodeSyncAt(Optional.of(NOW.minusSeconds(301)), NOW));
+        Workspace fresh = store.save(watch(service, 300)
+                .withCodeSyncAt(Optional.of(NOW), NOW)
+                .withMetadataSyncAt(Optional.of(NOW), NOW));
+        reset(provisioning, metadata);
+
+        service.recoverIncompleteWork();
+
+        verify(provisioning).provision(pending.id());
+        verify(provisioning).synchronizeCode(syncing.id());
+        verify(metadata).synchronize(pending.id());
+        verify(metadata).synchronize(syncing.id());
+        verify(provisioning, never()).provision(fresh.id());
+        verify(provisioning, never()).synchronizeCode(fresh.id());
+        verify(metadata, never()).synchronize(fresh.id());
     }
 
     @Test

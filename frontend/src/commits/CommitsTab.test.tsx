@@ -13,8 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { CommitRefreshStatusDto } from '../types';
-import type { Workspace } from '../workspaces/model';
+import type { CommitRefreshStatusDto, WorkspaceDto } from '../types';
 import CommitsTab, {
   availableCommitSource,
   commitRefreshRefs,
@@ -73,10 +72,9 @@ describe('workspace commits tab', () => {
   });
 
   it('opens on the linked upstream browser when asked to start there', () => {
-    const linked: Workspace = {
+    const linked: WorkspaceDto = {
       ...workspace(),
       upstreamDefaultBranch: 'main',
-      upstreamRemote: 'upstream',
       upstreamRepositoryId: 200,
       upstreamOwner: 'upstream',
       upstreamRepo: 'project',
@@ -129,21 +127,20 @@ function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto 
   };
 }
 
-function workspace(): Workspace {
+function workspace(): WorkspaceDto {
   return {
     id: 'workspace-id',
     name: 'example/project',
-    path: '/managed/workspace-id/repository',
+    localRepositoryPath: '/managed/workspace-id/repository',
     defaultBranch: 'main',
     upstreamDefaultBranch: null,
-    originRemote: 'origin',
-    upstreamRemote: null,
     selectedRepositoryId: 100,
     selectedOwner: 'example',
     selectedRepo: 'project',
     upstreamRepositoryId: null,
     upstreamOwner: null,
     upstreamRepo: null,
+    monitoredRepositoryId: 100,
     monitoredOwner: 'example',
     monitoredRepo: 'project',
     topology: 'DIRECT',

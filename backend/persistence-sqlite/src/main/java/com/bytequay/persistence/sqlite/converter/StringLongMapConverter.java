@@ -21,7 +21,7 @@ import java.util.Map;
 
 /**
  * JPA attribute converter that serializes {@code Map<String, Long>} to
- * a JSON text column. Used for the {@code repo_meta.languages} column
+ * a JSON text column. Used for the {@code repository_metadata.languages} column
  * (language name → byte count, from GitHub's {@code /languages}).
  */
 @Converter

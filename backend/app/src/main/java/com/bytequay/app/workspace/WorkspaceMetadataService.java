@@ -29,6 +29,15 @@ public interface WorkspaceMetadataService
     WorkspaceMetadataSyncResult synchronize(String workspaceId);
 
     /**
+     * Returns Home's cached repository overview, refreshing a missing row immediately and a stale row in the background.
+     *
+     * @param owner monitored repository owner
+     * @param repo monitored repository name
+     * @return stable-ID metadata snapshot containing the Home overview
+     */
+    RepositoryMetadataSnapshot getHomeSnapshot(String owner, String repo);
+
+    /**
      * Reads the latest local metadata without contacting GitHub.
      *
      * @param workspaceId workspace whose monitored repository identifies the shared cache

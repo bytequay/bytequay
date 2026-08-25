@@ -329,24 +329,9 @@ export type WorkspaceIssueDetailDto = {
 };
 
 export type RepoMetaDto = {
-  fullName: string;
-  htmlUrl: string;
   description: string | null;
-  defaultBranch: string | null;
-  license: string | null;
   stargazersCount: number;
-  forksCount: number;
-  watchersCount: number;
-  openIssuesCount: number;
-  sizeKb: number;
-  createdAt: string | null;
-  pushedAt: string | null;
-  topics: string[];
   languages: Record<string, number>;
-  ownerAvatarUrl: string | null;
-  parentOwner: string | null;
-  parentName: string | null;
-  parentDefaultBranch: string | null;
 };
 
 export type UserProfileDto = {

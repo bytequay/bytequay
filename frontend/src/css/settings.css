@@ -36,7 +36,6 @@
 .sets-badge.is-neutral { color: #57606a; background: #eceff2; }
 .sets-badge.is-danger { color: #cf222e; background: #ffebe9; }
 .sets-main-badge { font-size: 10.5px; font-weight: 700; color: #fff; background: #0969da; border-radius: 10px; padding: 2px 9px; white-space: nowrap; }
-.sets-soon { font-size: 10px; font-weight: 600; color: #57606a; background: #eceff2; border-radius: 8px; padding: 1px 6px; }
 .sets-spinner { width: 9px; height: 9px; flex: none; border: 2px solid #c9d0d6; border-top-color: #57606a; border-radius: 50%; display: inline-block; animation: sets-spin 1s linear infinite; }
 @keyframes sets-spin { to { transform: rotate(360deg); } }
 
@@ -71,20 +70,6 @@
 .sets-key-form input, .sets-key-form select { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 12.5px; }
 .sets-grow { flex: 1; min-width: 130px; }
 .sets-grow-more { flex: 1.4; min-width: 170px; }
-
-.sets-theme-row { display: flex; gap: 12px; padding: 14px; }
-.sets-theme { width: 150px; border: 1px solid #e3e3e6; border-radius: 8px; padding: 8px; }
-.sets-theme.is-selected { border: 2px solid #0969da; padding: 7px; }
-.sets-theme.is-disabled { opacity: .55; }
-.sets-theme-preview { height: 52px; border: 1px solid #e3e3e6; border-radius: 5px; overflow: hidden; position: relative; }
-.sets-theme-preview.is-light { background: #fff; }
-.sets-theme-preview.is-dark { background: #22272e; border-color: #3d444d; }
-.sets-theme-bar { height: 10px; background: #f7f7f8; border-bottom: 1px solid #ececef; }
-.sets-theme-preview.is-dark .sets-theme-bar { background: #2d333b; border-color: #3d444d; }
-.sets-theme-side { position: absolute; top: 10px; bottom: 0; left: 0; width: 26%; background: #f7f7f8; border-right: 1px solid #ececef; }
-.sets-theme-preview.is-dark .sets-theme-side { background: #2d333b; border-color: #3d444d; }
-.sets-theme-name { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 12.5px; font-weight: 600; }
-.sets-theme-name .sets-soon { margin-left: auto; }
 
 .sets-token-row { display: flex; align-items: center; gap: 10px; }
 .sets-token { flex: 1; font-size: 12.5px; color: #1f2328; background: #f6f8fa; border: 1px solid #e3e3e6; border-radius: 6px; padding: 7px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

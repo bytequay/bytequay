@@ -15,16 +15,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
 import type {
   ModelSettingsDto,
+  WorkspaceDto,
   WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
-import { workspaceFromDto, type Workspace } from './model';
 import '../css/settings.css';
 import '../css/workspaces.css';
 
 export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRemoved }: {
-  workspace: Workspace;
-  onWorkspaceChanged: (workspace: Workspace) => void;
+  workspace: WorkspaceDto;
+  onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   onRemoved: () => void;
 }) {
   const [settings, setSettings] = useState<WorkspaceSettingsDto | null>(null);
@@ -84,7 +84,7 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
           onChanged={load}
           onUnlinkUpstream={async () => {
             const changed = await window.bridge.setWorkspaceUpstream(workspace.id, null);
-            onWorkspaceChanged(workspaceFromDto(changed));
+            onWorkspaceChanged(changed);
             load();
           }}
           onError={report}
@@ -122,8 +122,8 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
 }
 
 function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
-  workspace: Workspace;
-  onWorkspaceChanged: (workspace: Workspace) => void;
+  workspace: WorkspaceDto;
+  onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   onError: (failure: unknown) => void;
 }) {
   const [name, setName] = useState(workspace.name);
@@ -137,7 +137,7 @@ function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
       return;
     }
     try {
-      onWorkspaceChanged(workspaceFromDto(await window.bridge.renameWorkspace(workspace.id, trimmed)));
+      onWorkspaceChanged(await window.bridge.renameWorkspace(workspace.id, trimmed));
     }
     catch (failure) {
       setName(workspace.name);
@@ -159,7 +159,7 @@ function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
           onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
         />
         <span className="wss-label">Local path</span>
-        <input value={workspace.path} readOnly className="wss-input is-wide sets-mono" aria-label="Local path" />
+        <input value={workspace.localRepositoryPath} readOnly className="wss-input is-wide sets-mono" aria-label="Local path" />
         <span className="wss-label">Default branch</span>
         <input value={workspace.defaultBranch} readOnly className="wss-input is-narrow sets-mono" aria-label="Default branch" />
       </div>
@@ -168,7 +168,7 @@ function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
 }
 
 function RemoteSourcesCard({ workspace, remotes, onChanged, onUnlinkUpstream, onError }: {
-  workspace: Workspace;
+  workspace: WorkspaceDto;
   remotes: WorkspaceRemoteDto[] | null;
   onChanged: () => void;
   onUnlinkUpstream: () => Promise<void>;

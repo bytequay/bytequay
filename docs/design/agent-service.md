@@ -707,8 +707,8 @@ public interface AgentEventSink
 These interfaces are internal to `agent-cli`. They are shared by the Codex
 and Claude drivers but are not exposed to future HTTP API drivers.
 
-The existing `BoundedProcessRunner` remains in `app` for short-lived
-`gh` commands. It merges stdout and stderr and has no streaming stdin, so it
+The existing `GitCommandRunner` in `app` also handles short-lived `gh`
+commands. It merges stdout and stderr and has no streaming stdin, so it
 must not be stretched into the long-lived agent runtime.
 
 ### 5.1 ProcessSupervisor

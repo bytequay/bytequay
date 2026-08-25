@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
-import com.bytequay.core.domain.RepoMeta;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -131,7 +130,7 @@ public class GitHubRepoClient
                 .collect(toImmutableList());
     }
 
-    public List<String> fetchTopics(String pat, RepoRef repo)
+    public RepositoryOverview fetchOverview(String pat, RepoRef repo)
     {
         try {
             GitHubRepoResponse response = gitHubRestClient
@@ -144,7 +143,11 @@ public class GitHubRepoClient
                 throw new ResponseStatusException(
                         HttpStatusCode.valueOf(502), "Empty response from GitHub /repos");
             }
-            return ImmutableList.copyOf(Optional.ofNullable(response.topics()).orElse(ImmutableList.of()));
+            return new RepositoryOverview(
+                    response.description(),
+                    response.stargazersCount(),
+                    Optional.ofNullable(response.topics()).orElse(ImmutableList.of()),
+                    fetchLanguages(pat, repo));
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -238,58 +241,6 @@ public class GitHubRepoClient
         return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
-    public RepoMeta fetchRepoMeta(String pat, RepoRef repo)
-    {
-        try {
-            GitHubRepoResponse response = gitHubRestClient
-                    .get()
-                    .uri("/repos/{owner}/{repo}", repo.owner(), repo.repo())
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(GitHubRepoResponse.class);
-            if (response == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub /repos");
-            }
-
-            Map<String, Long> languages = fetchLanguages(pat, repo);
-            String licenseName = Optional.ofNullable(response.license())
-                    .map(GitHubRepoResponse.License::spdxId)
-                    .orElseGet(() -> Optional.ofNullable(response.license())
-                            .map(GitHubRepoResponse.License::name)
-                            .orElse(null));
-            GitHubRepoResponse.Parent parent = response.parent();
-            String parentOwner = parent == null ? null : Optional.ofNullable(parent.owner())
-                    .map(GitHubRepoResponse.Owner::login)
-                    .orElse(null);
-
-            return new RepoMeta(
-                    response.fullName(),
-                    response.htmlUrl(),
-                    response.description(),
-                    response.defaultBranch(),
-                    licenseName,
-                    response.stargazersCount(),
-                    response.forksCount(),
-                    response.subscribersCount(),
-                    response.openIssuesCount(),
-                    response.size(),
-                    response.createdAt(),
-                    response.pushedAt(),
-                    Optional.ofNullable(response.topics()).orElse(ImmutableList.of()),
-                    languages,
-                    Optional.ofNullable(response.owner())
-                            .map(GitHubRepoResponse.Owner::avatarUrl)
-                            .orElse(null),
-                    parentOwner,
-                    parent == null ? null : parent.name(),
-                    parent == null ? null : parent.defaultBranch());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-    }
-
     private Map<String, Long> fetchLanguages(String pat, RepoRef repo)
     {
         try {
@@ -318,6 +269,20 @@ public class GitHubRepoClient
         public IssuePage
         {
             issues = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
+        }
+    }
+
+    public record RepositoryOverview(
+            String description,
+            int stargazersCount,
+            List<String> topics,
+            Map<String, Long> languages)
+    {
+        public RepositoryOverview
+        {
+            checkArgument(stargazersCount >= 0, "stargazersCount is negative");
+            topics = ImmutableList.copyOf(requireNonNull(topics, "topics is null"));
+            languages = ImmutableMap.copyOf(requireNonNull(languages, "languages is null"));
         }
     }
 

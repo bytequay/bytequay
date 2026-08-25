@@ -1,7 +1,6 @@
 # Watched Repository / Workspace Design
 
-Status: implemented through Checkpoint 8. Verification and handoff progress is tracked in
-[watched-repo-impl-tmp.md](watched-repo-impl-tmp.md).
+Status: implemented through Checkpoint 8.
 
 This design connects the existing watched-repository entry point to the existing workspace
 commits and cherry-pick experience. A watched GitHub repository becomes a durable ByteQuay

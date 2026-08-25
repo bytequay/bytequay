@@ -20,6 +20,7 @@ import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -68,6 +69,14 @@ class TestSqliteRepositoryMetadataStore
     @Test
     void upsertsProviderIdsWithoutDuplicatingTheRepositoryProjection()
     {
+        store.upsertOverview(
+                100,
+                REPOSITORY,
+                "Description",
+                7,
+                ImmutableList.of("java"),
+                ImmutableMap.of("Java", 100L),
+                NOW);
         store.upsertContributors(
                 100,
                 REPOSITORY,
@@ -94,6 +103,9 @@ class TestSqliteRepositoryMetadataStore
                 .containsExactly("new-avatar", "bob-avatar");
         assertThat(snapshot.labels()).extracting(RepositoryLabel::id).containsExactly(10L);
         assertThat(snapshot.topics()).containsExactly("java");
+        assertThat(snapshot.description()).isEqualTo("Description");
+        assertThat(snapshot.stargazersCount()).isEqualTo(7);
+        assertThat(snapshot.languages()).containsEntry("Java", 100L);
     }
 
     @Test

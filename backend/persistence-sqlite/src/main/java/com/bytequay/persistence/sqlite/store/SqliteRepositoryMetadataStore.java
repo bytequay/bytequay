@@ -21,6 +21,7 @@ import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.persistence.sqlite.entity.RepositoryMetadataEntity;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,6 +48,28 @@ public class SqliteRepositoryMetadataStore
     public Optional<RepositoryMetadataSnapshot> find(long repositoryId)
     {
         return repository.findById(repositoryId).map(SqliteRepositoryMetadataStore::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public void upsertOverview(
+            long repositoryId,
+            RepoRef repositoryRef,
+            String description,
+            int stargazersCount,
+            List<String> topics,
+            Map<String, Long> languages,
+            Instant syncedAt)
+    {
+        requireNonNull(topics, "topics is null");
+        requireNonNull(languages, "languages is null");
+        RepositoryMetadataEntity entity = entity(repositoryId, repositoryRef);
+        entity.setDescription(description);
+        entity.setStargazersCount(stargazersCount);
+        entity.setTopics(ImmutableList.copyOf(topics));
+        entity.setLanguages(ImmutableMap.copyOf(languages));
+        entity.setOverviewSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
+        repository.save(entity);
     }
 
     @Override
@@ -99,6 +122,9 @@ public class SqliteRepositoryMetadataStore
         if (entity.getContributors() == null) {
             entity.setContributors(ImmutableList.of());
         }
+        if (entity.getLanguages() == null) {
+            entity.setLanguages(ImmutableMap.of());
+        }
         if (entity.getLabels() == null) {
             entity.setLabels(ImmutableList.of());
         }
@@ -113,9 +139,13 @@ public class SqliteRepositoryMetadataStore
         return new RepositoryMetadataSnapshot(
                 entity.getRepositoryId(),
                 RepoRef.of(entity.getOwner(), entity.getRepo()),
+                entity.getDescription(),
+                entity.getStargazersCount(),
+                entity.getLanguages(),
                 entity.getContributors(),
                 entity.getLabels(),
                 entity.getTopics(),
+                Optional.ofNullable(entity.getOverviewSyncedAt()),
                 Optional.ofNullable(entity.getContributorsSyncedAt()),
                 Optional.ofNullable(entity.getLabelsTopicsSyncedAt()));
     }

@@ -14,10 +14,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import WatchedReposGrid from '../home/WatchedReposGrid';
+import type { WorkspaceDto } from '../types';
 import { WorkspaceCards } from './WorkspacesPage';
 import WorkspaceSettings from './WorkspaceSettings';
 import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
-import type { Workspace } from './model';
 
 describe('watched repository workspace UI', () => {
   it('shows the same durable ID and state on Home and Workspaces', () => {
@@ -41,7 +41,7 @@ describe('watched repository workspace UI', () => {
     }
   });
 
-  it('shows the hero, action cards, and quick links on Workspace Home', () => {
+  it('shows only implemented actions on Workspace Home', () => {
     const html = renderToStaticMarkup(<WorkspaceHome
       workspace={workspace('FORK')}
       onCherryPickUpstream={() => {}}
@@ -52,10 +52,12 @@ describe('watched repository workspace UI', () => {
     expect(html).toContain('What should we do?');
     expect(html).toContain('contributor/project');
     expect(html).toContain('upstream upstream/project linked');
-    expect(html).toContain('Explore and understand code');
+    expect(html).toContain('Cherry-pick from upstream');
     expect(html).toContain('Review a pull request');
-    expect(html).toContain('4 open pull requests');
-    expect(html).toContain('Do anything in this workspace…');
+    expect(html).toContain('Fix issues and failures');
+    expect(html).not.toContain('Explore and understand code');
+    expect(html).not.toContain('4 open pull requests');
+    expect(html).not.toContain('Do anything in this workspace…');
   });
 
   it('omits the upstream note for a direct repository', () => {
@@ -105,22 +107,21 @@ describe('watched repository workspace UI', () => {
   });
 });
 
-function workspace(topology: Workspace['topology']): Workspace {
+function workspace(topology: WorkspaceDto['topology']): WorkspaceDto {
   const linked = topology === 'FORK';
   return {
     id: 'workspace-id',
     name: 'contributor/project',
-    path: '/managed/workspace-id/repository',
+    localRepositoryPath: '/managed/workspace-id/repository',
     defaultBranch: 'main',
     upstreamDefaultBranch: linked ? 'main' : null,
-    originRemote: 'origin',
-    upstreamRemote: linked ? 'upstream' : null,
     selectedRepositoryId: 100,
     selectedOwner: 'contributor',
     selectedRepo: 'project',
     upstreamRepositoryId: linked ? 200 : null,
     upstreamOwner: linked ? 'upstream' : null,
     upstreamRepo: linked ? 'project' : null,
+    monitoredRepositoryId: linked ? 200 : 100,
     monitoredOwner: linked ? 'upstream' : 'contributor',
     monitoredRepo: 'project',
     topology,

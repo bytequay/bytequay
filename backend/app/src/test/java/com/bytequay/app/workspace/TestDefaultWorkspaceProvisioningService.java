@@ -48,8 +48,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestDefaultWorkspaceProvisioningService
@@ -259,36 +257,6 @@ class TestDefaultWorkspaceProvisioningService
         Workspace renamed = store.findById(workspace.id()).orElseThrow();
         assertThat(renamed.selectedRepository()).isEqualTo(RepoRef.of("new-owner", "project"));
         assertThat(git(directPath(workspace), "remote", "get-url", "origin")).isEqualTo(renamedUrl);
-    }
-
-    @Test
-    void startupRecoverySchedulesMissingAndStaleData()
-    {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace pending = store.createOrGet(workspace("pending", false));
-        Workspace syncing = store.createOrGet(workspace("syncing", true));
-        store.save(syncing.withCodeSyncAt(Optional.of(NOW.minusSeconds(301)), NOW));
-        Workspace fresh = store.save(workspace("fresh", false)
-                .withCodeSyncAt(Optional.of(NOW), NOW)
-                .withMetadataSyncAt(Optional.of(NOW), NOW));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
-        WorkspaceProvisioningRecovery recovery = new WorkspaceProvisioningRecovery(
-                store,
-                provisioning,
-                metadata,
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                Runnable::run);
-
-        recovery.recover();
-
-        verify(provisioning).provision(pending.id());
-        verify(provisioning).synchronizeCode(syncing.id());
-        verify(metadata).synchronize(pending.id());
-        verify(metadata).synchronize(syncing.id());
-        verify(provisioning, never()).provision(fresh.id());
-        verify(provisioning, never()).synchronizeCode(fresh.id());
-        verify(metadata, never()).synchronize(fresh.id());
     }
 
     @Test

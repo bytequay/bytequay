@@ -14,83 +14,34 @@
 
 import type { WorkspaceDto } from '../types';
 
-/** Renderer projection of the backend-owned watched repository workspace. */
-export type Workspace = {
-  id: string;
-  name: string;
-  path: string;
-  defaultBranch: string;
-  upstreamDefaultBranch: string | null;
-  /** Remote the workspace pushes to; the cherry-pick target. */
-  originRemote: string;
-  /** Read-only cherry-pick source, or null when nothing is linked. */
-  upstreamRemote: string | null;
-  selectedRepositoryId: number;
-  selectedOwner: string;
-  selectedRepo: string;
-  upstreamRepositoryId: number | null;
-  upstreamOwner: string | null;
-  upstreamRepo: string | null;
-  monitoredOwner: string;
-  monitoredRepo: string;
-  topology: WorkspaceDto['topology'];
-  lastCodeSyncAt: string | null;
-  lastMetadataSyncAt: string | null;
-  displayOrder: number;
-};
-
 export type WorkspacePhase = 'preparing' | 'ready';
 
 export type WorkspaceTab =
-  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'memory' | 'settings';
+  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'settings';
 
-export function workspaceFromDto(dto: WorkspaceDto): Workspace {
-  return {
-    id: dto.id,
-    name: dto.name,
-    path: dto.localRepositoryPath,
-    defaultBranch: dto.defaultBranch,
-    upstreamDefaultBranch: dto.upstreamDefaultBranch,
-    originRemote: 'origin',
-    upstreamRemote: dto.upstreamRepositoryId === null ? null : 'upstream',
-    selectedRepositoryId: dto.selectedRepositoryId,
-    selectedOwner: dto.selectedOwner,
-    selectedRepo: dto.selectedRepo,
-    upstreamRepositoryId: dto.upstreamRepositoryId,
-    upstreamOwner: dto.upstreamOwner,
-    upstreamRepo: dto.upstreamRepo,
-    monitoredOwner: dto.monitoredOwner,
-    monitoredRepo: dto.monitoredRepo,
-    topology: dto.topology,
-    lastCodeSyncAt: dto.lastCodeSyncAt,
-    lastMetadataSyncAt: dto.lastMetadataSyncAt,
-    displayOrder: dto.displayOrder,
-  };
-}
-
-export function workspacePhase(workspace: Workspace): WorkspacePhase {
+export function workspacePhase(workspace: WorkspaceDto): WorkspacePhase {
   return workspaceHasReadableCode(workspace) ? 'ready' : 'preparing';
 }
 
-export function workspacePhaseLabel(workspace: Workspace): string {
+export function workspacePhaseLabel(workspace: WorkspaceDto): string {
   return {
     preparing: 'Preparing',
     ready: 'Ready',
   }[workspacePhase(workspace)];
 }
 
-export function workspacePhaseColor(workspace: Workspace): string {
+export function workspacePhaseColor(workspace: WorkspaceDto): string {
   return {
     preparing: '#9a6700',
     ready: '#1a7f37',
   }[workspacePhase(workspace)];
 }
 
-export function workspaceIsUpdating(workspace: Workspace): boolean {
+export function workspaceIsUpdating(workspace: WorkspaceDto): boolean {
   return !workspaceHasReadableCode(workspace);
 }
 
-export function workspaceHasReadableCode(workspace: Workspace): boolean {
+export function workspaceHasReadableCode(workspace: WorkspaceDto): boolean {
   return workspace.lastCodeSyncAt !== null;
 }
 
@@ -113,7 +64,7 @@ export function workspaceLocationFromRoute(hash: string): {
   pullRequestNumber: number | null;
   issueNumber: number | null;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|memory|settings)(?:\/(\d+))?)?$/.exec(hash);
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|settings)(?:\/(\d+))?)?$/.exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
   const number = match[3] ? Number(match[3]) : null;

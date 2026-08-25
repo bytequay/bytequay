@@ -20,11 +20,21 @@ import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface RepositoryMetadataStore
 {
     Optional<RepositoryMetadataSnapshot> find(long repositoryId);
+
+    void upsertOverview(
+            long repositoryId,
+            RepoRef repository,
+            String description,
+            int stargazersCount,
+            List<String> topics,
+            Map<String, Long> languages,
+            Instant syncedAt);
 
     void upsertContributors(
             long repositoryId,

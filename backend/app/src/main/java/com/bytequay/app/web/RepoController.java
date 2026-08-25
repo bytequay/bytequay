@@ -15,12 +15,13 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.workspace.RepositorySearchResult;
+import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentEvent;
-import com.bytequay.core.domain.RepoMeta;
+import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
@@ -44,11 +45,16 @@ public class RepoController
 {
     private final RepoService repos;
     private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceMetadataService metadata;
 
-    public RepoController(RepoService repos, WorkspaceRepositoryService workspaces)
+    public RepoController(
+            RepoService repos,
+            WorkspaceRepositoryService workspaces,
+            WorkspaceMetadataService metadata)
     {
         this.repos = requireNonNull(repos, "repos is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
     }
 
     @GetMapping("/repos")
@@ -98,9 +104,9 @@ public class RepoController
     }
 
     @GetMapping("/repos/{owner}/{repo}/meta")
-    public RepoMeta getRepoMeta(@PathVariable String owner, @PathVariable String repo)
+    public RepositoryMetadataSnapshot getRepoMeta(@PathVariable String owner, @PathVariable String repo)
     {
-        return repos.getRepoMeta(owner, repo);
+        return metadata.getHomeSnapshot(owner, repo);
     }
 
     @GetMapping("/repository-search")

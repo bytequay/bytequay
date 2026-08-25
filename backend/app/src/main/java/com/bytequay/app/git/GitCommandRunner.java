@@ -34,7 +34,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Component
-public final class GitCommandRunner
+public class GitCommandRunner
 {
     public static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
@@ -94,24 +94,53 @@ public final class GitCommandRunner
                 .add(executable, "-C", worktree.toString())
                 .addAll(arguments)
                 .build();
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.environment().put("GIT_TERMINAL_PROMPT", "0");
+        builder.environment().put("LC_ALL", "C");
+        builder.environment().putAll(environment);
+        try {
+            return execute(builder, timeout, MAXIMUM_OUTPUT_BYTES, "Git");
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Result.failed("Git was interrupted");
+        }
+    }
+
+    /** Runs an arbitrary argv-based command in one working directory. */
+    public Result runCommand(Path workingDirectory, List<String> command, Duration timeout, int maximumOutputBytes)
+            throws InterruptedException
+    {
+        requireNonNull(workingDirectory, "workingDirectory is null");
+        requireNonNull(command, "command is null");
+        checkArgument(!command.isEmpty(), "command is empty");
+        requireNonNull(timeout, "timeout is null");
+        checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
+        checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
+        return execute(
+                new ProcessBuilder(command).directory(workingDirectory.toFile()),
+                timeout,
+                maximumOutputBytes,
+                "Command");
+    }
+
+    private static Result execute(ProcessBuilder builder, Duration timeout, int maximumOutputBytes, String name)
+            throws InterruptedException
+    {
         Process process;
         try {
-            ProcessBuilder builder = new ProcessBuilder(command)
-                    .redirectErrorStream(true);
-            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-            builder.environment().put("LC_ALL", "C");
-            builder.environment().putAll(environment);
+            builder.redirectErrorStream(true);
             process = builder.start();
             process.getOutputStream().close();
         }
         catch (IOException | RuntimeException failure) {
-            return Result.failed("Git could not start: " + message(failure));
+            return Result.failed(name + " could not start: " + message(failure));
         }
 
         CompletableFuture<CapturedOutput> output = new CompletableFuture<>();
-        Thread.ofVirtual().name("bytequay-git-output").start(() -> {
+        Thread.ofVirtual().name("bytequay-command-output").start(() -> {
             try {
-                output.complete(capture(process.getInputStream()));
+                output.complete(capture(process.getInputStream(), maximumOutputBytes));
             }
             catch (RuntimeException failure) {
                 output.completeExceptionally(failure);
@@ -119,31 +148,39 @@ public final class GitCommandRunner
         });
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                return Result.failed("Git timed out");
+                terminate(process);
+                return Result.failed(name + " timed out");
             }
             CapturedOutput captured = output.get(DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
             return new Result(process.exitValue(), captured.text(), captured.truncated());
         }
         catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             process.destroyForcibly();
-            return Result.failed("Git was interrupted");
+            throw e;
         }
         catch (ExecutionException | TimeoutException e) {
             process.destroyForcibly();
-            return Result.failed("Git output could not be read: " + message(e));
+            return Result.failed(name + " output could not be read: " + message(e));
         }
     }
 
-    private static CapturedOutput capture(InputStream input)
+    private static void terminate(Process process)
+            throws InterruptedException
+    {
+        process.destroy();
+        if (!process.waitFor(DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+            process.destroyForcibly();
+        }
+    }
+
+    private static CapturedOutput capture(InputStream input, int maximumOutputBytes)
     {
         try (input; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];
             boolean truncated = false;
             int read;
             while ((read = input.read(buffer)) >= 0) {
-                int remaining = MAXIMUM_OUTPUT_BYTES - output.size();
+                int remaining = maximumOutputBytes - output.size();
                 if (remaining > 0) {
                     output.write(buffer, 0, Math.min(read, remaining));
                 }
@@ -152,7 +189,7 @@ public final class GitCommandRunner
             return new CapturedOutput(output.toString(StandardCharsets.UTF_8), truncated);
         }
         catch (IOException e) {
-            throw new IllegalStateException("Cannot read Git output", e);
+            throw new IllegalStateException("Cannot read command output", e);
         }
     }
 

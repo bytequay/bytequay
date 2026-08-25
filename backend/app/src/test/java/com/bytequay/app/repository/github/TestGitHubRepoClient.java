@@ -32,7 +32,7 @@ class TestGitHubRepoClient
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "repo");
 
     @Test
-    void fetchesContributorLabelAndTopicProjections()
+    void fetchesContributorLabelAndOverviewProjections()
     {
         Fixture fixture = fixture();
         fixture.server().expect(requestTo(
@@ -47,7 +47,11 @@ class TestGitHubRepoClient
                         """, MediaType.APPLICATION_JSON));
         fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo"))
                 .andRespond(withSuccess("""
-                        {"topics":["java","github"]}
+                        {"description":"Description","stargazers_count":7,"topics":["java","github"]}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/languages"))
+                .andRespond(withSuccess("""
+                        {"Java":100}
                         """, MediaType.APPLICATION_JSON));
 
         assertThat(fixture.client().fetchContributors("pat", REPOSITORY))
@@ -56,7 +60,13 @@ class TestGitHubRepoClient
         assertThat(fixture.client().fetchLabels("pat", REPOSITORY))
                 .extracting(RepositoryLabel::id)
                 .containsExactly(2L);
-        assertThat(fixture.client().fetchTopics("pat", REPOSITORY)).containsExactly("java", "github");
+        assertThat(fixture.client().fetchOverview("pat", REPOSITORY))
+                .satisfies(overview -> {
+                    assertThat(overview.description()).isEqualTo("Description");
+                    assertThat(overview.stargazersCount()).isEqualTo(7);
+                    assertThat(overview.topics()).containsExactly("java", "github");
+                    assertThat(overview.languages()).containsEntry("Java", 100L);
+                });
         fixture.server().verify();
     }
 

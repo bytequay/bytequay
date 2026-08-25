@@ -13,8 +13,9 @@
  */
 import { useState, type ReactNode } from 'react';
 import Avatar from './Avatar';
+import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
-import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, type Workspace, type WorkspaceTab } from './workspaces/model';
+import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, type WorkspaceTab } from './workspaces/model';
 
 export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
 
@@ -30,7 +31,6 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
   { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
   { tab: 'commits', label: 'Commits', icon: <CommitsIcon /> },
-  { tab: 'memory', label: 'Memory', icon: <MemoryIcon /> },
 ];
 
 export default function AppSidebar({
@@ -50,7 +50,7 @@ export default function AppSidebar({
   canGoForward: boolean;
   onBack: () => void;
   onForward: () => void;
-  workspace: Workspace | null;
+  workspace: WorkspaceDto | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
 }) {
@@ -158,7 +158,7 @@ export default function AppSidebar({
         </>
       ) : (
         <>
-          <div className="app-sidebar__ws-head" title={workspace.path}>
+          <div className="app-sidebar__ws-head" title={workspace.localRepositoryPath}>
             <Avatar login={workspace.selectedOwner} size={18} />
             <span
               className="app-sidebar__ws-dot"
@@ -250,14 +250,6 @@ function CommitsIcon() {
       <circle cx="6" cy="19.5" r="2" />
       <circle cx="6" cy="4.5" r="2" />
       <circle cx="18" cy="14" r="2" />
-    </Icon>
-  );
-}
-
-function MemoryIcon() {
-  return (
-    <Icon>
-      <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
     </Icon>
   );
 }

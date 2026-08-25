@@ -31,15 +31,14 @@ import {
 import OnboardingScreen from './OnboardingScreen';
 import PullsScreen from './pulls/PullsScreen';
 import SettingsShell from './settings/SettingsShell';
+import type { WorkspaceDto } from './types';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
-  workspaceFromDto,
   workspaceIssueRoute,
   workspaceLocationFromRoute,
   workspacePullRequestRoute,
   workspaceRoute,
-  type Workspace,
   type WorkspaceTab,
 } from './workspaces/model';
 
@@ -53,7 +52,7 @@ function pageFromRoute(hash: string): AppPage {
 export default function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [page, setPage] = useState<AppPage>('home');
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
@@ -65,7 +64,7 @@ export default function App() {
   const navigationRef = useRef(INITIAL_NAVIGATION);
   const [navigation, setNavigation] = useState(INITIAL_NAVIGATION);
 
-  const updateWorkspace = useCallback((next: Workspace | null) => {
+  const updateWorkspace = useCallback((next: WorkspaceDto | null) => {
     workspaceRef.current = next;
     setWorkspace(next);
   }, []);
@@ -129,7 +128,7 @@ export default function App() {
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
         .then(details => {
-          if (request === current) updateWorkspace(workspaceFromDto(details.summary));
+          if (request === current) updateWorkspace(details.summary);
         })
         .catch(() => {
           if (request === current) {

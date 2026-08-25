@@ -14,7 +14,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceDto } from '../types';
 import {
-  workspaceFromDto,
   workspaceHasReadableCode,
   workspaceIdFromRoute,
   workspaceIssueRoute,
@@ -24,29 +23,9 @@ import {
   workspaceRoute,
 } from './model';
 
-describe('workspaceFromDto', () => {
-  it('preserves the backend identity and maps an explicit upstream link', () => {
-    const workspace = workspaceFromDto(dto('FORK'));
-
-    expect(workspace.id).toBe('workspace-id');
-    expect(workspace.path).toBe('/managed/workspace-id/repository');
-    expect(workspace.originRemote).toBe('origin');
-    expect(workspace.upstreamRemote).toBe('upstream');
-    expect(workspace.upstreamOwner).toBe('upstream');
-    expect(workspace.monitoredOwner).toBe('upstream');
-    expect(workspacePhaseLabel(workspace)).toBe('Preparing');
-  });
-
-  it('does not invent an upstream for a direct workspace', () => {
-    expect(workspaceFromDto(dto('DIRECT')).upstreamRemote).toBeNull();
-  });
-
-  it('does not infer an upstream from GitHub fork topology', () => {
-    expect(workspaceFromDto(dto('FORK', false)).upstreamRemote).toBeNull();
-  });
-
+describe('workspace model', () => {
   it('uses one status rule for every workspace list', () => {
-    const workspace = workspaceFromDto(dto('DIRECT'));
+    const workspace = dto('DIRECT');
     expect(workspacePhaseLabel(workspace)).toBe('Preparing');
     expect(workspacePhaseLabel({
       ...workspace,
@@ -55,7 +34,7 @@ describe('workspaceFromDto', () => {
   });
 
   it('uses the last successful code sync to decide whether the checkout is readable', () => {
-    const workspace = workspaceFromDto(dto('DIRECT'));
+    const workspace = dto('DIRECT');
 
     expect(workspaceHasReadableCode(workspace)).toBe(false);
     expect(workspaceHasReadableCode({
@@ -90,7 +69,7 @@ describe('workspaceFromDto', () => {
   });
 
   it('round-trips every workspace tab through the renderer route', () => {
-    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits', 'memory', 'settings'] as const) {
+    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits', 'settings'] as const) {
       const route = workspaceRoute('workspace/id', tab);
       expect(workspaceLocationFromRoute(route)).toEqual({
         workspaceId: 'workspace/id',

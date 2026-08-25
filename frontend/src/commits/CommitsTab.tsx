@@ -20,9 +20,10 @@ import type {
   CommitRefreshStatusDto,
   GitCommitDto,
   GitOverviewDto,
+  WorkspaceDto,
   WorkspaceRemoteDto,
 } from '../types';
-import { githubSlug, type Workspace } from '../workspaces/model';
+import { githubSlug } from '../workspaces/model';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';
 import HistoryView from './HistoryView';
@@ -85,7 +86,7 @@ export function availableCommitSource(
 }
 
 export default function CommitsTab({ workspace, initialExecutionId, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }: {
-  workspace: Workspace;
+  workspace: WorkspaceDto;
   /** Jump straight to a task's progress page (from the shell's Tasks tab). */
   initialExecutionId?: string | null;
   /** Open on the upstream commit browser (from the Home cherry-pick card). */
@@ -137,7 +138,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const autoSyncAttempt = useRef<string | null>(null);
 
   const hasUpstream = workspace.upstreamRepositoryId !== null;
-  const observedRemoteSources = selectableCommitSources(overview?.remotes ?? [], workspace.originRemote);
+  const observedRemoteSources = selectableCommitSources(overview?.remotes ?? [], 'origin');
   const observedFallbackReady = remoteSettingsFailed && overview !== null;
   const persistedRemoteSources = configuredRemotes?.filter(remote => remote.role !== 'ORIGIN') ?? null;
   const remoteSources = persistedRemoteSources
@@ -160,7 +161,7 @@ export default function CommitsTab({ workspace, initialExecutionId, initialRepo,
   const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
     ? `${workspace.upstreamOwner}/${workspace.upstreamRepo}`
     : null;
-  const originUrl = overview?.remotes.find(remote => remote.name === workspace.originRemote)?.url ?? null;
+  const originUrl = overview?.remotes.find(remote => remote.name === 'origin')?.url ?? null;
   const originSlug = originUrl ? githubSlug(originUrl) : null;
   const firstExtraRemote = remoteSources.find(remote => remote.name !== 'upstream')?.name ?? null;
   const activeRemoteUrl = activeRemote === null

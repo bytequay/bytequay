@@ -12,24 +12,23 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import type { WorkspaceDto } from '../types';
 import {
-  workspaceFromDto,
   workspaceIsUpdating,
   workspacePhase,
   workspacePhaseLabel,
-  type Workspace,
 } from './model';
 import '../css/workspaces.css';
 
 export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: string) => void }) {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     window.bridge.listWorkspaces()
-      .then(rows => { if (!cancelled) setWorkspaces(rows.map(workspaceFromDto)); })
+      .then(rows => { if (!cancelled) setWorkspaces(rows); })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       })
@@ -41,7 +40,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
     if (!workspaces.some(workspaceIsUpdating)) return;
     const timer = window.setTimeout(() => {
       void window.bridge.listWorkspaces()
-        .then(rows => setWorkspaces(rows.map(workspaceFromDto)))
+        .then(setWorkspaces)
         .catch(() => {});
     }, 1500);
     return () => window.clearTimeout(timer);
@@ -75,7 +74,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
 }
 
 export function WorkspaceCards({ workspaces, onOpen }: {
-  workspaces: Workspace[];
+  workspaces: WorkspaceDto[];
   onOpen: (workspaceId: string) => void;
 }) {
   return (

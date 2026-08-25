@@ -12,22 +12,21 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { RecentEventDto, RepoMetaDto } from '../types';
+import type { RecentEventDto, RepoMetaDto, WorkspaceDto } from '../types';
 import Avatar from '../Avatar';
 import {
   workspacePhase,
   workspacePhaseLabel,
-  type Workspace,
 } from '../workspaces/model';
 
 type Props = {
-  workspaces: Workspace[];
+  workspaces: WorkspaceDto[];
   loading: boolean;
   /** Recent GitHub events — powers the per-repo "active today" chip. */
   events: RecentEventDto[];
   onOpenWorkspace: (workspaceId: string) => void;
   onWatch: () => void;
-  onRemove: (workspace: Workspace) => void;
+  onRemove: (workspace: WorkspaceDto) => void;
 };
 
 function topLanguage(meta: RepoMetaDto | undefined): string | null {

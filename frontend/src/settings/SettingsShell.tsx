@@ -42,8 +42,6 @@ export default function SettingsShell() {
         in its own settings.
       </p>
       <ModelsCard />
-      <ThemeCard />
-      <SkillsCard />
       <GitHubAccountCard />
       <QuietHoursCard />
       <footer className="sets-footer">ByteQuay {version}</footer>
@@ -356,39 +354,6 @@ function AddKeyForm({ keyProviders, onSave, onCancel }: {
         Keys are stored encrypted locally and masked after saving.
       </div>
     </div>
-  );
-}
-
-function ThemeCard() {
-  return (
-    <section className="sets-card">
-      <div className="sets-card-head"><span className="sets-card-title">Theme</span></div>
-      <div className="sets-theme-row">
-      <div className="sets-theme is-selected">
-        <div className="sets-theme-preview is-light"><div className="sets-theme-bar" /><div className="sets-theme-side" /></div>
-        <div className="sets-theme-name">Light <span className="sets-check">✓</span></div>
-      </div>
-      <div className="sets-theme is-disabled">
-        <div className="sets-theme-preview is-dark"><div className="sets-theme-bar" /><div className="sets-theme-side" /></div>
-        <div className="sets-theme-name">Dark <span className="sets-soon">SOON</span></div>
-      </div>
-      </div>
-    </section>
-  );
-}
-
-function SkillsCard() {
-  return (
-    <section className="sets-card">
-      <div className="sets-card-head">
-        <span className="sets-card-title">Skills</span>
-        <span className="sets-soon">INACTIVE</span>
-      </div>
-      <div className="sets-card-body sets-card-note">
-        Reusable agent skills will be configured here. Not active in this release — nothing
-        to set up yet.
-      </div>
-    </section>
   );
 }
 

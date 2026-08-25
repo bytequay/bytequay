@@ -20,24 +20,22 @@ import PullsScreen from '../pulls/PullsScreen';
 import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import WorkspaceSettings from './WorkspaceSettings';
-import type { CherryPickExecution } from '../types';
+import type { CherryPickExecution, WorkspaceDto } from '../types';
 import { relativeTime } from '../relativeTime';
 import {
-  workspaceFromDto,
   workspaceHasReadableCode,
   workspaceIsUpdating,
   workspacePhaseColor,
   workspacePhaseLabel,
-  type Workspace,
   type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
 
 export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, browserOpen = false, onSelectPullRequest, onSelectIssue, onRemoved }: {
-  workspace: Workspace;
+  workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
-  onWorkspaceChanged: (workspace: Workspace) => void;
+  onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   initialPullRequestNumber: number | null;
   initialIssueNumber: number | null;
   browserOpen?: boolean;
@@ -67,7 +65,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     if (!workspaceIsUpdating(workspace)) return;
     const timer = window.setTimeout(() => {
       void window.bridge.getWorkspace(workspace.id)
-        .then(details => onWorkspaceChanged(workspaceFromDto(details.summary)))
+        .then(details => onWorkspaceChanged(details.summary))
         .catch(() => {});
     }, 1500);
     return () => window.clearTimeout(timer);
@@ -141,16 +139,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       />
     );
   }
-  if (tab === 'memory') {
-    return (
-      <div className="ws-tab-page">
-        <h1>Memory</h1>
-        <div className="ws-empty">
-          Nothing has been remembered about this workspace yet.
-        </div>
-      </div>
-    );
-  }
   return (
     <WorkspaceHome
       workspace={workspace}
@@ -172,7 +160,7 @@ function WorkspaceUnavailable({ message }: { message: string }) {
 }
 
 function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
-  workspace: Workspace;
+  workspace: WorkspaceDto;
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
@@ -186,43 +174,17 @@ function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
 }
 
 const HOME_CARDS = [
-  { icon: '⌕', color: '#0969da', title: 'Explore and understand code', action: 'wip' },
   { icon: '⇢', color: '#8250df', title: 'Cherry-pick from upstream', action: 'cherry-pick' },
   { icon: '⑃', color: '#1a7f37', title: 'Review a pull request', action: 'review' },
   { icon: '◉', color: '#bc4c00', title: 'Fix issues and failures', action: 'issues' },
 ] as const;
 
-// ponytail: dummy counts until real workspace stats are wired
-const HOME_LINKS = [
-  '4 open pull requests',
-  '2 active tasks',
-  '7 open issues',
-  '12 commits ahead of upstream',
-];
-
 export function WorkspaceHome({ workspace, onCherryPickUpstream, onReviewRequests, onOpenIssues }: {
-  workspace: Workspace;
+  workspace: WorkspaceDto;
   onCherryPickUpstream: () => void;
   onReviewRequests: () => void;
   onOpenIssues: () => void;
 }) {
-  const [wip, setWip] = useState<string | null>(null);
-
-  if (wip !== null) {
-    return (
-      <div className="ws-home">
-        <div className="ws-wip">
-          <div className="ws-hero-tile">…</div>
-          <h1>{wip}</h1>
-          <div className="ws-wip-note">Still work in progress.</div>
-          <button type="button" className="ws-add-btn" onClick={() => setWip(null)}>
-            ‹ Back
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const status = [
     `${workspace.name} ${workspacePhaseLabel(workspace).toLowerCase()}`,
     workspace.lastCodeSyncAt ? `synced ${relativeTime(workspace.lastCodeSyncAt)}` : 'not synced yet',
@@ -250,36 +212,13 @@ export function WorkspaceHome({ workspace, onCherryPickUpstream, onReviewRequest
               onClick={() => {
                 if (card.action === 'cherry-pick') onCherryPickUpstream();
                 else if (card.action === 'review') onReviewRequests();
-                else if (card.action === 'issues') onOpenIssues();
-                else setWip(card.title);
+                else onOpenIssues();
               }}
             >
               <div className="ws-action-icon" style={{ color: card.color }} aria-hidden="true">{card.icon}</div>
               <div className="ws-action-title">{card.title}</div>
             </button>
           ))}
-        </div>
-        <div className="ws-home-flex" />
-        <div className="ws-composer-wrap">
-          <div className="ws-composer-branch">⑂ {workspace.defaultBranch}</div>
-          <div className="ws-composer">
-            <input
-              placeholder="Do anything in this workspace…"
-              onKeyDown={event => { if (event.key === 'Enter') setWip('Agent composer'); }}
-            />
-            <div className="ws-composer-row">
-              <button type="button" className="ws-composer-add" title="Attach"
-                onClick={() => setWip('Agent composer')}>+</button>
-              <div className="ws-spacer" />
-              <button type="button" className="ws-composer-send" title="Send"
-                onClick={() => setWip('Agent composer')}>↑</button>
-            </div>
-          </div>
-          <div className="ws-quick-links">
-            {HOME_LINKS.map(link => (
-              <button key={link} type="button" onClick={() => setWip(link)}>{link}</button>
-            ))}
-          </div>
         </div>
       </div>
     </div>

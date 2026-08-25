@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.repository.github.GitHubRepoClient.RepositoryOverview;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
@@ -24,6 +25,7 @@ import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -63,6 +65,7 @@ class TestDefaultWorkspaceMetadataService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
+        when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.save(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     Workspace workspace = invocation.getArgument(0);
@@ -74,12 +77,36 @@ class TestDefaultWorkspaceMetadataService
         doAnswer(invocation -> {
             long id = invocation.getArgument(0);
             RepoRef repository = invocation.getArgument(1);
+            String description = invocation.getArgument(2);
+            int stargazersCount = invocation.getArgument(3);
+            List<String> topics = invocation.getArgument(4);
+            Map<String, Long> languages = invocation.getArgument(5);
+            Instant syncedAt = invocation.getArgument(6);
+            RepositoryMetadataSnapshot previous = snapshots.getOrDefault(
+                    id, RepositoryMetadataSnapshot.empty(id, repository));
+            snapshots.put(id, new RepositoryMetadataSnapshot(
+                    id, repository, description, stargazersCount, languages,
+                    previous.contributors(), previous.labels(), topics, Optional.of(syncedAt),
+                    previous.contributorsSyncedAt(), previous.labelsTopicsSyncedAt()));
+            return null;
+        }).when(metadataStore).upsertOverview(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.any());
+        doAnswer(invocation -> {
+            long id = invocation.getArgument(0);
+            RepoRef repository = invocation.getArgument(1);
             List<RepositoryContributor> contributors = invocation.getArgument(2);
             Instant syncedAt = invocation.getArgument(3);
             RepositoryMetadataSnapshot previous = snapshots.getOrDefault(
                     id, RepositoryMetadataSnapshot.empty(id, repository));
             snapshots.put(id, new RepositoryMetadataSnapshot(
-                    id, repository, contributors, previous.labels(), previous.topics(),
+                    id, repository, previous.description(), previous.stargazersCount(), previous.languages(),
+                    contributors, previous.labels(), previous.topics(), previous.overviewSyncedAt(),
                     Optional.of(syncedAt), previous.labelsTopicsSyncedAt()));
             return null;
         }).when(metadataStore).upsertContributors(
@@ -96,7 +123,8 @@ class TestDefaultWorkspaceMetadataService
             RepositoryMetadataSnapshot previous = snapshots.getOrDefault(
                     id, RepositoryMetadataSnapshot.empty(id, repository));
             snapshots.put(id, new RepositoryMetadataSnapshot(
-                    id, repository, previous.contributors(), labels, topics,
+                    id, repository, previous.description(), previous.stargazersCount(), previous.languages(),
+                    previous.contributors(), labels, topics, previous.overviewSyncedAt(),
                     previous.contributorsSyncedAt(), Optional.of(syncedAt)));
             return null;
         }).when(metadataStore).upsertLabelsAndTopics(
@@ -110,7 +138,8 @@ class TestDefaultWorkspaceMetadataService
                 metadataStore,
                 gitHub,
                 credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                Runnable::run);
     }
 
     @Test
@@ -121,7 +150,7 @@ class TestDefaultWorkspaceMetadataService
                 .thenReturn(ImmutableList.of(new RepositoryContributor(1, "alice", "avatar", false)));
         when(gitHub.fetchLabels("token", DIRECT))
                 .thenReturn(ImmutableList.of(new RepositoryLabel(2, "bug", "ff0000")));
-        when(gitHub.fetchTopics("token", DIRECT)).thenReturn(ImmutableList.of("java"));
+        when(gitHub.fetchOverview("token", DIRECT)).thenReturn(overview());
 
         WorkspaceMetadataSyncResult result = service.synchronize("direct");
 
@@ -131,7 +160,7 @@ class TestDefaultWorkspaceMetadataService
         verify(workspaceStore).save(org.mockito.ArgumentMatchers.any());
         verify(gitHub).fetchContributors("token", DIRECT);
         verify(gitHub).fetchLabels("token", DIRECT);
-        verify(gitHub).fetchTopics("token", DIRECT);
+        verify(gitHub).fetchOverview("token", DIRECT);
     }
 
     @Test
@@ -141,14 +170,14 @@ class TestDefaultWorkspaceMetadataService
         workspaces.put("fork-two", workspace("fork-two", 300, UPSTREAM, Topology.FORK));
         when(gitHub.fetchContributors("token", UPSTREAM)).thenReturn(ImmutableList.of());
         when(gitHub.fetchLabels("token", UPSTREAM)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchTopics("token", UPSTREAM)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchOverview("token", UPSTREAM)).thenReturn(overview());
 
         service.synchronize("fork-one");
         service.synchronize("fork-two");
 
         verify(gitHub, times(1)).fetchContributors("token", UPSTREAM);
         verify(gitHub, times(1)).fetchLabels("token", UPSTREAM);
-        verify(gitHub, times(1)).fetchTopics("token", UPSTREAM);
+        verify(gitHub, times(1)).fetchOverview("token", UPSTREAM);
         assertThat(workspaces.get("fork-two").lastMetadataSyncAt()).contains(NOW);
     }
 
@@ -165,7 +194,24 @@ class TestDefaultWorkspaceMetadataService
         verify(workspaceStore, never()).save(org.mockito.ArgumentMatchers.any());
         verify(gitHub, never()).fetchContributors("token", DIRECT);
         verify(gitHub, never()).fetchLabels("token", DIRECT);
-        verify(gitHub, never()).fetchTopics("token", DIRECT);
+        verify(gitHub, never()).fetchOverview("token", DIRECT);
+    }
+
+    @Test
+    void homeOverviewUsesTheWorkspaceStableRepositoryId()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        when(gitHub.fetchOverview("token", DIRECT)).thenReturn(overview());
+
+        RepositoryMetadataSnapshot snapshot = service.getHomeSnapshot("OWNER", "PROJECT");
+
+        assertThat(snapshot.repositoryId()).isEqualTo(100);
+        assertThat(snapshot.description()).isEqualTo("Description");
+        assertThat(snapshot.stargazersCount()).isEqualTo(7);
+        assertThat(snapshot.languages()).containsEntry("Java", 100L);
+        verify(gitHub).fetchOverview("token", DIRECT);
+        verify(gitHub, never()).fetchContributors("token", DIRECT);
+        verify(gitHub, never()).fetchLabels("token", DIRECT);
     }
 
     @Test
@@ -175,9 +221,13 @@ class TestDefaultWorkspaceMetadataService
         RepositoryMetadataSnapshot previous = new RepositoryMetadataSnapshot(
                 100,
                 DIRECT,
+                "Description",
+                7,
+                ImmutableMap.of("Java", 100L),
                 ImmutableList.of(new RepositoryContributor(1, "alice", "avatar", false)),
                 ImmutableList.of(new RepositoryLabel(2, "bug", "ff0000")),
                 ImmutableList.of("java"),
+                Optional.of(NOW),
                 Optional.of(NOW.minusSeconds(8 * 24 * 60 * 60)),
                 Optional.of(NOW.minusSeconds(31L * 24 * 60 * 60)));
         snapshots.put(100L, previous);
@@ -195,6 +245,12 @@ class TestDefaultWorkspaceMetadataService
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.any());
+    }
+
+    private static RepositoryOverview overview()
+    {
+        return new RepositoryOverview(
+                "Description", 7, ImmutableList.of("java"), ImmutableMap.of("Java", 100L));
     }
 
     private static Workspace workspace(String id, long monitoredId, RepoRef monitored, Topology topology)

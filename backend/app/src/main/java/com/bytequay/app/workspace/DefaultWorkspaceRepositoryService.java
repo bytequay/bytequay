@@ -32,6 +32,8 @@ import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -174,6 +176,12 @@ public class DefaultWorkspaceRepositoryService
     {
         migrateLegacyRows();
         return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void recoverIncompleteWork()
+    {
+        store.findAll().forEach(workspace -> scheduleRefreshes(workspace, false));
     }
 
     @Override

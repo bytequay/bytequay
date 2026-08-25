@@ -19,6 +19,7 @@ import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryContributorListConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryLabelListConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
+import com.bytequay.persistence.sqlite.converter.StringLongMapConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -27,6 +28,7 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "repository_metadata")
@@ -41,6 +43,16 @@ public class RepositoryMetadataEntity
 
     @Column(nullable = false)
     private String repo;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "stargazers_count", nullable = false)
+    private int stargazersCount;
+
+    @Column(nullable = false)
+    @Convert(converter = StringLongMapConverter.class)
+    private Map<String, Long> languages;
 
     @Column(nullable = false)
     @Convert(converter = RepositoryContributorListConverter.class)
@@ -58,6 +70,10 @@ public class RepositoryMetadataEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant contributorsSyncedAt;
 
+    @Column(name = "overview_synced_at")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant overviewSyncedAt;
+
     @Column(name = "labels_topics_synced_at")
     @Convert(converter = InstantToTextConverter.class)
     private Instant labelsTopicsSyncedAt;
@@ -71,6 +87,15 @@ public class RepositoryMetadataEntity
     public String getRepo() { return repo; }
     public void setRepo(String repo) { this.repo = repo; }
 
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public int getStargazersCount() { return stargazersCount; }
+    public void setStargazersCount(int stargazersCount) { this.stargazersCount = stargazersCount; }
+
+    public Map<String, Long> getLanguages() { return languages; }
+    public void setLanguages(Map<String, Long> languages) { this.languages = languages; }
+
     public List<RepositoryContributor> getContributors() { return contributors; }
     public void setContributors(List<RepositoryContributor> contributors) { this.contributors = contributors; }
 
@@ -82,6 +107,9 @@ public class RepositoryMetadataEntity
 
     public Instant getContributorsSyncedAt() { return contributorsSyncedAt; }
     public void setContributorsSyncedAt(Instant contributorsSyncedAt) { this.contributorsSyncedAt = contributorsSyncedAt; }
+
+    public Instant getOverviewSyncedAt() { return overviewSyncedAt; }
+    public void setOverviewSyncedAt(Instant overviewSyncedAt) { this.overviewSyncedAt = overviewSyncedAt; }
 
     public Instant getLabelsTopicsSyncedAt() { return labelsTopicsSyncedAt; }
     public void setLabelsTopicsSyncedAt(Instant labelsTopicsSyncedAt) { this.labelsTopicsSyncedAt = labelsTopicsSyncedAt; }

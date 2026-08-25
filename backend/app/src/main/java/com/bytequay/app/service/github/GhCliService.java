@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.github;
 
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -54,7 +55,7 @@ public class GhCliService
 
     /** {@code gh auth token} reads the keychain; {@code gh api user} makes one
      *  HTTP call. 20 s covers a slow keychain prompt without hanging a click. */
-    private static final long TIMEOUT_SECONDS = 20L;
+    private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final int MAX_OUTPUT_BYTES = 8 * 1024;
 
     /** A packaged Electron app inherits the GUI's minimal PATH
@@ -64,10 +65,10 @@ public class GhCliService
             Path.of("/opt/homebrew/bin/gh"),
             Path.of("/usr/local/bin/gh"));
 
-    private final BoundedProcessRunner processRunner;
+    private final GitCommandRunner processRunner;
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();
 
-    public GhCliService(BoundedProcessRunner processRunner)
+    public GhCliService(GitCommandRunner processRunner)
     {
         this.processRunner = requireNonNull(processRunner, "processRunner is null");
     }
@@ -147,18 +148,21 @@ public class GhCliService
     /** Runs one gh subcommand and returns its trimmed stdout. */
     private String run(List<String> argv)
     {
-        BoundedProcessRunner.Result result;
+        GitCommandRunner.Result result;
         try {
             // gh resolves its config from HOME; the home dir is also a working
             // dir that always exists, unlike any repo path.
-            result = processRunner.run(
-                    Path.of(System.getProperty("user.home")), argv, TIMEOUT_SECONDS, MAX_OUTPUT_BYTES);
+            result = processRunner.runCommand(
+                    Path.of(System.getProperty("user.home")), argv, TIMEOUT, MAX_OUTPUT_BYTES);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatusCode.valueOf(503), "gh invocation interrupted", e);
         }
-        String output = result.output() == null ? "" : result.output().strip();
+        String output = result.output().strip();
+        if (result.truncated()) {
+            output += "\n…[truncated]";
+        }
         if (result.exitCode() != 0) {
             // The runner folds stderr into stdout, so `output` carries gh's own
             // guidance ("To get started with GitHub CLI, please run: gh auth login").

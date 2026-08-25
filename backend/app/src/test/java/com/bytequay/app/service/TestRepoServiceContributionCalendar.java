@@ -15,11 +15,9 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.store.PrViewStateStore;
-import com.bytequay.core.store.RepoMetaStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -56,12 +54,9 @@ class TestRepoServiceContributionCalendar
     {
         return new RepoService(
                 mock(GitHubPullRequestReadClient.class),
-                mock(GitHubRepoClient.class),
                 gitHub,
                 mock(PrViewStateStore.class),
-                mock(RepoMetaStore.class),
-                credentialService,
-                Runnable::run);
+                credentialService);
     }
 
     private static ContributionCalendar calendar()

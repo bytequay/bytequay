@@ -21,9 +21,7 @@ import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
 import { pullRequestNeedsReview } from '../pulls/model';
 import {
-  workspaceFromDto,
   workspaceIsUpdating,
-  type Workspace,
 } from '../workspaces/model';
 
 type Props = {
@@ -107,7 +105,7 @@ function HomePage({
   };
 
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
@@ -123,7 +121,7 @@ function HomePage({
     if (!workspaces.some(workspaceIsUpdating)) return;
     const timer = window.setTimeout(() => {
       void window.bridge.listWorkspaces()
-        .then(rows => setWorkspaces(rows.map(workspaceFromDto)))
+        .then(setWorkspaces)
         .catch(() => {});
     }, 1500);
     return () => window.clearTimeout(timer);
@@ -140,7 +138,7 @@ function HomePage({
       setProfile(loadedProfile);
     }
     if (reposResult.status === 'fulfilled') {
-      setWorkspaces(reposResult.value.map(workspaceFromDto));
+      setWorkspaces(reposResult.value);
     }
     else {
       setWorkspaceError(reposResult.reason instanceof Error
@@ -180,12 +178,11 @@ function HomePage({
 
 
   function handleAdded(dto: WorkspaceDto) {
-    const added = workspaceFromDto(dto);
-    setWorkspaces(previous => [added, ...previous.filter(row => row.id !== added.id)]
+    setWorkspaces(previous => [dto, ...previous.filter(row => row.id !== dto.id)]
       .sort((left, right) => left.displayOrder - right.displayOrder));
   }
 
-  async function handleRemove(workspace: Workspace) {
+  async function handleRemove(workspace: WorkspaceDto) {
     if (!confirm(`Stop watching ${workspace.selectedOwner}/${workspace.selectedRepo}?`)) return;
     setWorkspaceError(null);
     try {

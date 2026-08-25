@@ -174,11 +174,11 @@ export function markdownBlocks(markdown: string): Block[] {
       blocks.push({ kind: 'rule' });
       continue;
     }
-    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX])\)|\[([ xX])\])\s+(.+)$/);
+    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX*])\)|\[([ xX])\])\s+(.+)$/);
     if (task) {
       flushParagraph();
       flushList();
-      blocks.push({ kind: 'task', checked: (task[1] ?? task[2]).toLowerCase() === 'x', text: task[3] });
+      blocks.push({ kind: 'task', checked: (task[1] ?? task[2]) !== ' ', text: task[3] });
       continue;
     }
     const item = line.match(/^\s*(?:(\d+)\.|[-*+])\s+(.+)$/);

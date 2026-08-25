@@ -18,6 +18,7 @@ import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 describe('MarkdownBody', () => {
   it('renders checkbox and unordered-list markers', () => {
     const body = '( ) Parenthesized unchecked\n'
+      + '(*) Parenthesized asterisk checked\n'
       + '[x] Square checked\n'
       + '- [x] Dash checked\n'
       + '* [ ] Asterisk unchecked\n\n'
@@ -26,6 +27,7 @@ describe('MarkdownBody', () => {
 
     expect(markdownBlocks(body)).toEqual([
       { kind: 'task', checked: false, text: 'Parenthesized unchecked' },
+      { kind: 'task', checked: true, text: 'Parenthesized asterisk checked' },
       { kind: 'task', checked: true, text: 'Square checked' },
       { kind: 'task', checked: true, text: 'Dash checked' },
       { kind: 'task', checked: false, text: 'Asterisk unchecked' },
@@ -33,8 +35,8 @@ describe('MarkdownBody', () => {
     ]);
 
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
-    expect(html.match(/type="checkbox"/g)).toHaveLength(4);
-    expect(html.match(/checked=""/g)).toHaveLength(2);
+    expect(html.match(/type="checkbox"/g)).toHaveLength(5);
+    expect(html.match(/checked=""/g)).toHaveLength(3);
     expect(html).toContain('<ul><li>Dash item</li><li>Asterisk item</li></ul>');
   });
 

@@ -679,7 +679,7 @@ function registerIpc(): void {
       body: JSON.stringify({ body }),
     });
   });
-  ipcMain.handle('prs:reaction:add', (
+  ipcMain.handle('prs:reaction:toggle', (
     _event,
     repo: string,
     number: number,

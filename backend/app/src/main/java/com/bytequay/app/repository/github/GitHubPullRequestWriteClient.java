@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -49,6 +50,7 @@ public class GitHubPullRequestWriteClient
 
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
+    private final GitHubPaginator paginator;
 
     public GitHubPullRequestWriteClient(
             RestClient gitHubRestClient,
@@ -56,6 +58,7 @@ public class GitHubPullRequestWriteClient
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
+        this.paginator = new GitHubPaginator(gitHubRestClient);
     }
 
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
@@ -80,37 +83,56 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    public void addPullRequestReaction(String pat, PullRequestRef pr, String content)
+    public void togglePullRequestReaction(String pat, PullRequestRef pr, String content, String viewerLogin)
     {
-        addReaction(
+        toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/issues/{number}/reactions",
                 content,
+                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 pr.number());
     }
 
-    public void addIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
+    public void toggleIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content, String viewerLogin)
     {
-        addReaction(
+        toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions",
                 content,
+                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 commentId);
     }
 
-    public void addReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
+    public void toggleReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content, String viewerLogin)
     {
-        addReaction(
+        toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions",
                 content,
+                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 commentId);
+    }
+
+    private void toggleReaction(String pat, String uri, String content, String viewerLogin, Object... uriVariables)
+    {
+        Optional<GitHubReaction> existing = paginator.paginate(
+                        pat,
+                        uri,
+                        new ParameterizedTypeReference<List<GitHubReaction>>() {},
+                        uriVariables)
+                .stream()
+                .filter(reaction -> content.equals(reaction.content()))
+                .filter(reaction -> reaction.user() != null && viewerLogin.equalsIgnoreCase(reaction.user().login()))
+                .findFirst();
+        existing.ifPresentOrElse(
+                reaction -> deleteReaction(pat, uri, reaction.id(), uriVariables),
+                () -> addReaction(pat, uri, content, uriVariables));
     }
 
     private void addReaction(String pat, String uri, String content, Object... uriVariables)
@@ -121,6 +143,20 @@ public class GitHubPullRequestWriteClient
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("content", content))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private void deleteReaction(String pat, String uri, long reactionId, Object... uriVariables)
+    {
+        try {
+            gitHubRestClient.delete()
+                    .uri(uri + "/" + reactionId, uriVariables)
+                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .toBodilessEntity();
         }
@@ -433,6 +469,12 @@ public class GitHubPullRequestWriteClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record UpdatedUser(String login) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubReaction(long id, String content, GitHubReactionUser user) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubReactionUser(String login) {}
 
     private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
 }

@@ -74,23 +74,39 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
-    void postsReactionsToEachSupportedGitHubResource()
+    void addsReactionsToEachSupportedGitHubResourceWhenViewerHasNotReacted()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
                 builder.build(),
                 RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        [{"id":900,"content":"heart","user":{"login":"other"}}]
+                        """, MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().json("{\"content\":\"heart\"}"))
                 .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        [{"id":901,"content":"heart","user":{"login":"me"}}]
+                        """, MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().json("{\"content\":\"+1\"}"))
                 .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -98,9 +114,56 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
-        client.addPullRequestReaction("pat", pullRequest, "heart");
-        client.addIssueCommentReaction("pat", pullRequest, 41, "+1");
-        client.addReviewCommentReaction("pat", pullRequest, 42, "eyes");
+        client.togglePullRequestReaction("pat", pullRequest, "heart", "me");
+        client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", "me");
+        client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", "me");
+
+        server.verify();
+    }
+
+    @Test
+    void removesReactionsFromEachSupportedGitHubResourceWhenViewerHasReacted()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        [{"id":101,"content":"heart","user":{"login":"ME"}}]
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions/101"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        [{"id":102,"content":"+1","user":{"login":"me"}}]
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41/reactions/102"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42/reactions?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        [{"id":103,"content":"eyes","user":{"login":"me"}}]
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42/reactions/103"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess());
+
+        PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
+        client.togglePullRequestReaction("pat", pullRequest, "heart", "me");
+        client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", "me");
+        client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", "me");
 
         server.verify();
     }

@@ -233,13 +233,13 @@ public class PullRequestController
 
     @PostMapping("/prs/reactions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void addReaction(
+    public void toggleReaction(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody ReactionRequest request)
     {
         requireNonNull(request, "body is required");
-        pullRequests.addReaction(repo, number, request.target(), request.commentId(), request.content());
+        pullRequests.toggleReaction(repo, number, request.target(), request.commentId(), request.content());
     }
 
     @PostMapping("/prs/close")

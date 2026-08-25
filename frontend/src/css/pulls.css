@@ -634,7 +634,12 @@
 .pr-review-badge.is-dismissed { border-color: #d0d7de; background: #eff2f4; color: #59636e; }
 .pr-comment-card__empty { margin: 0; padding: 17px 18px; color: #59636e; font-size: 13px; }
 .pr-reactions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 18px 15px; }
-.pr-reactions span { display: inline-flex; min-height: 26px; align-items: center; border: 1px solid #d0d7de; border-radius: 999px; background: #fff; padding: 3px 9px; color: #59636e; font-size: 11.5px; }
+.pr-reactions > span:not(.pr-reaction-error), .pr-reaction { display: inline-flex; min-height: 26px; align-items: center; border: 1px solid #d0d7de; border-radius: 999px; background: #fff; padding: 3px 9px; color: #59636e; font: inherit; font-size: 11.5px; }
+.pr-reaction { cursor: pointer; }
+.pr-reaction:not(:disabled):hover { border-color: #0969da; background: #ddf4ff; color: #0969da; }
+.pr-reaction:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.pr-reaction:disabled { cursor: wait; opacity: 0.55; }
+.pr-reaction-error { max-width: 240px; color: #cf222e; font-size: 11.5px; line-height: 1.3; }
 .pr-reaction-picker { position: relative; display: inline-grid; color: #59636e; }
 .pr-reaction-picker__trigger { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; padding: 0; cursor: pointer; }
 .pr-reaction-picker__trigger:hover,

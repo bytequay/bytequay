@@ -53,12 +53,12 @@ describe('PullOverview', () => {
     ))).toBe('Grant it access to this repository');
   });
 
-  it('writes a reaction before refreshing the full pull request detail', async () => {
+  it('toggles a reaction before refreshing the full pull request detail', async () => {
     const order: string[] = [];
-    const addPrReaction = vi.fn(async () => { order.push('write'); });
+    const togglePrReaction = vi.fn(async () => { order.push('write'); });
     const onRefresh = vi.fn(async () => { order.push('refresh'); });
 
-    await submitPullReaction({ addPrReaction }, {
+    await submitPullReaction({ togglePrReaction }, {
       repo: 'owner/repo',
       number: 42,
       target: 'issue_comment',
@@ -66,7 +66,7 @@ describe('PullOverview', () => {
       onRefresh,
     }, 'eyes');
 
-    expect(addPrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes');
+    expect(togglePrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes');
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(order).toEqual(['write', 'refresh']);
   });
@@ -120,6 +120,9 @@ describe('PullOverview', () => {
     expect(html.match(/data-reaction-target="issue_comment" data-reaction-comment-id="71"/g)).toHaveLength(2);
     expect(html.match(/data-reaction-target="review_comment" data-reaction-comment-id="73"/g)).toHaveLength(2);
     expect(html).not.toContain('data-reaction-comment-id="72"');
+    expect(html).toContain('<button type="button" class="pr-reaction" aria-label="Add or remove thumbs up reaction"');
+    expect(html).toContain('title="Add or remove eyes reaction"');
+    expect(html).toContain('<span>❤️ 1</span>');
     expect(html).not.toContain('class="is-active" role="menuitem"');
   });
 
@@ -184,7 +187,7 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-reaction-picker"');
     expect(html).toContain('class="pr-reaction-picker is-compact"');
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('aria-label="Add thumbs up reaction"');
+    expect(html).toContain('aria-label="Add or remove thumbs up reaction"');
     expect(html).toContain('aria-label="More actions"');
     expect(html).toContain('>Close pull request</button>');
     expect(html).not.toContain('pr-composer__tools');

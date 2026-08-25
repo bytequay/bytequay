@@ -1179,11 +1179,11 @@ function reactionAction(
 }
 
 export async function submitPullReaction(
-  bridge: Pick<Bridge, 'addPrReaction'>,
+  bridge: Pick<Bridge, 'togglePrReaction'>,
   action: ReactionAction,
   content: PullReactionContent,
 ) {
-  await bridge.addPrReaction(action.repo, action.number, action.target, action.commentId, content);
+  await bridge.togglePrReaction(action.repo, action.number, action.target, action.commentId, content);
   await action.onRefresh();
 }
 
@@ -1203,8 +1203,10 @@ function Reactions({ reactions, reaction, alwaysShowPicker = false }: {
   alwaysShowPicker?: boolean;
 }) {
   if (reactions.length === 0 && (!alwaysShowPicker || !reaction)) return null;
-  return <div className="pr-reactions">{reactions.map(reaction => (
-    <span key={reaction.content}>{reactionEmoji(reaction.content)} {reaction.count}</span>
+  return <div className="pr-reactions">{reactions.map(value => (
+    reaction
+      ? <ReactionButton key={value.content} value={value} action={reaction} />
+      : <span key={value.content}>{reactionEmoji(value.content)} {value.count}</span>
   ))}{reaction && <ReactionPicker action={reaction} compact key="add-reaction" />}</div>;
 }
 
@@ -1218,6 +1220,35 @@ const REACTION_CHOICES = [
   ['rocket', '🚀', 'rocket'],
   ['eyes', '👀', 'eyes'],
 ] as const;
+
+function reactionLabel(content: PullReactionContent) {
+  return REACTION_CHOICES.find(([choice]) => choice === content)?.[2] ?? content;
+}
+
+function ReactionButton({ value, action }: { value: PullReactionDto; action: ReactionAction }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = reactionLabel(value.content);
+  const update = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await submitPullReaction(window.bridge, action, value.content);
+    }
+    catch (failure) {
+      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
+    }
+    finally {
+      setSaving(false);
+    }
+  };
+  return <>
+    <button type="button" className="pr-reaction" disabled={saving}
+      aria-label={`Add or remove ${label} reaction`} title={`Add or remove ${label} reaction`}
+      onClick={() => { void update(); }}>{reactionEmoji(value.content)} {value.count}</button>
+    {error && <span className="pr-reaction-error" role="alert">{error}</span>}
+  </>;
+}
 
 function ReactionPicker({ action, compact = false }: { action: ReactionAction; compact?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -1249,7 +1280,7 @@ function ReactionPicker({ action, compact = false }: { action: ReactionAction; c
       setOpen(false);
     }
     catch (failure) {
-      setError(`Could not add reaction. ${remoteErrorMessage(failure)}`);
+      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
     }
     finally {
       setSaving(false);
@@ -1265,7 +1296,7 @@ function ReactionPicker({ action, compact = false }: { action: ReactionAction; c
       <div className="pr-reaction-picker__menu" role="menu" aria-label="Choose a reaction" aria-busy={saving}>
         {REACTION_CHOICES.map(([content, emoji, label]) => (
           <button type="button" role="menuitem" disabled={saving}
-            aria-label={`Add ${label} reaction`} key={content}
+            aria-label={`Add or remove ${label} reaction`} key={content}
             onClick={() => { void choose(content); }}>
             {emoji}
           </button>

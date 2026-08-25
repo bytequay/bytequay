@@ -81,7 +81,7 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
-    void forwardsPullRequestReactionRequest()
+    void forwardsPullRequestReactionToggleRequest()
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
@@ -97,7 +97,7 @@ class TestPullRequestRefreshControllers
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).addReaction("owner/repo", 7, "issue_comment", 41L, "heart");
+        verify(pullRequests).toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart");
     }
 
     @Test

@@ -587,31 +587,31 @@ class TestPullRequestService
     }
 
     @Test
-    void routesEachSupportedReactionTarget()
+    void routesEachSupportedReactionTargetThroughTheViewerCredential()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
 
-        service.addReaction("owner/repo", 7, " pull_request ", null, " HEART ");
-        service.addReaction("owner/repo", 7, "issue_comment", 41L, "+1");
-        service.addReaction("owner/repo", 7, "review_comment", 42L, "eyes");
+        service.toggleReaction("owner/repo", 7, " pull_request ", null, " HEART ");
+        service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "+1");
+        service.toggleReaction("owner/repo", 7, "review_comment", 42L, "eyes");
 
-        verify(writes).addPullRequestReaction("pat", ref, "heart");
-        verify(writes).addIssueCommentReaction("pat", ref, 41, "+1");
-        verify(writes).addReviewCommentReaction("pat", ref, 42, "eyes");
+        verify(writes).togglePullRequestReaction("pat", ref, "heart", "me");
+        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1", "me");
+        verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes", "me");
     }
 
     @Test
     void rejectsInvalidReactionTargetsAndContentBeforeWriting()
     {
-        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "pull_request", null, "smile"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", null, "smile"))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "pull_request", 41L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", 41L, "heart"))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "issue_comment", null, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "issue_comment", null, "heart"))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "review_comment", 0L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "review_comment", 0L, "heart"))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.addReaction("owner/repo", 7, "commit", 41L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "commit", 41L, "heart"))
                 .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(writes);
     }

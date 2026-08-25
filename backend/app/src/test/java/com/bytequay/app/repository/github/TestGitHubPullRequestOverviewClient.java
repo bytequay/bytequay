@@ -129,19 +129,28 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void fetchesAssignableRepositoryUsers()
+    void fetchesEveryAssignableRepositoryUserWithStableIdentity()
     {
         Fixture fixture = fixture();
+        String firstPage = IntStream.range(0, 100)
+                .mapToObj(index -> """
+                        {"id":%d,"login":"user%d","avatar_url":"https://avatars/user%d","type":"User"}
+                        """.formatted(index + 1, index, index))
+                .collect(joining(",", "[", "]"));
         fixture.api().expect(requestTo(
                         "https://api.github.test/repos/owner/repo/assignees?per_page=100&page=1"))
+                .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/assignees?per_page=100&page=2"))
                 .andRespond(withSuccess("""
-                        [{"login":"alice","avatar_url":"https://avatars/alice","type":"User"},
-                         {"login":"copilot[bot]","avatar_url":"https://avatars/copilot","type":"Bot"}]
+                        [{"id":101,"login":"copilot[bot]","avatar_url":"https://avatars/copilot","type":"Bot"}]
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchAssignableUsers("pat", RepoRef.of("owner", "repo")))
-                .extracting(user -> user.login() + ":" + user.bot())
-                .containsExactly("alice:false", "copilot[bot]:true");
+        List<GitHubRepositoryUser> users = fixture.client().fetchAssignableRepositoryUsers("pat", RepoRef.of("owner", "repo"));
+
+        assertThat(users).hasSize(101);
+        assertThat(users.getFirst()).isEqualTo(new GitHubRepositoryUser(1, "user0", "https://avatars/user0", false));
+        assertThat(users.getLast()).isEqualTo(new GitHubRepositoryUser(101, "copilot[bot]", "https://avatars/copilot", true));
         fixture.verify();
     }
 

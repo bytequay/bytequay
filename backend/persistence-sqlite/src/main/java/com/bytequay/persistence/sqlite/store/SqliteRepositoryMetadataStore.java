@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.persistence.sqlite.entity.RepositoryMetadataEntity;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
@@ -92,6 +93,21 @@ public class SqliteRepositoryMetadataStore
 
     @Override
     @Transactional
+    public void replacePickerUsers(
+            long repositoryId,
+            RepoRef repositoryRef,
+            List<RepositoryPickerUser> pickerUsers,
+            Instant syncedAt)
+    {
+        requireNonNull(pickerUsers, "pickerUsers is null");
+        RepositoryMetadataEntity entity = entity(repositoryId, repositoryRef);
+        entity.setPickerUsers(ImmutableList.copyOf(pickerUsers));
+        entity.setPickerUsersSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
+        repository.save(entity);
+    }
+
+    @Override
+    @Transactional
     public void upsertLabelsAndTopics(
             long repositoryId,
             RepoRef repositoryRef,
@@ -125,6 +141,9 @@ public class SqliteRepositoryMetadataStore
         if (entity.getLanguages() == null) {
             entity.setLanguages(ImmutableMap.of());
         }
+        if (entity.getPickerUsers() == null) {
+            entity.setPickerUsers(ImmutableList.of());
+        }
         if (entity.getLabels() == null) {
             entity.setLabels(ImmutableList.of());
         }
@@ -143,10 +162,12 @@ public class SqliteRepositoryMetadataStore
                 entity.getStargazersCount(),
                 entity.getLanguages(),
                 entity.getContributors(),
+                entity.getPickerUsers(),
                 entity.getLabels(),
                 entity.getTopics(),
                 Optional.ofNullable(entity.getOverviewSyncedAt()),
                 Optional.ofNullable(entity.getContributorsSyncedAt()),
+                Optional.ofNullable(entity.getPickerUsersSyncedAt()),
                 Optional.ofNullable(entity.getLabelsTopicsSyncedAt()));
     }
 }

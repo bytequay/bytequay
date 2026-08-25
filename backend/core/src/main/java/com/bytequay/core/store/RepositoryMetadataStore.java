@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+import com.bytequay.core.domain.RepositoryPickerUser;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +41,12 @@ public interface RepositoryMetadataStore
             long repositoryId,
             RepoRef repository,
             List<RepositoryContributor> contributors,
+            Instant syncedAt);
+
+    void replacePickerUsers(
+            long repositoryId,
+            RepoRef repository,
+            List<RepositoryPickerUser> pickerUsers,
             Instant syncedAt);
 
     void upsertLabelsAndTopics(

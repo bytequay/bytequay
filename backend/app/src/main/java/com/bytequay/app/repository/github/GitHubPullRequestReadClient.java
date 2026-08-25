@@ -96,6 +96,13 @@ public class GitHubPullRequestReadClient
 
     public List<RepoUser> fetchAssignableUsers(String pat, RepoRef repo)
     {
+        return fetchAssignableRepositoryUsers(pat, repo).stream()
+                .map(user -> new RepoUser(user.login(), user.avatarUrl(), user.bot()))
+                .collect(toImmutableList());
+    }
+
+    public List<GitHubRepositoryUser> fetchAssignableRepositoryUsers(String pat, RepoRef repo)
+    {
         requirePat(pat);
         return paginator.paginate(
                         pat,
@@ -103,8 +110,11 @@ public class GitHubPullRequestReadClient
                         new ParameterizedTypeReference<List<GitHubAssignableUser>>() {},
                         repo.owner(),
                         repo.repo()).stream()
-                .filter(user -> user.login() != null && !user.login().isBlank())
-                .map(user -> new RepoUser(
+                .filter(user -> user.id() > 0
+                        && user.login() != null && !user.login().isBlank()
+                        && user.avatarUrl() != null && !user.avatarUrl().isBlank())
+                .map(user -> new GitHubRepositoryUser(
+                        user.id(),
                         user.login(),
                         user.avatarUrl(),
                         "Bot".equalsIgnoreCase(user.type()) || user.login().endsWith("[bot]")))
@@ -1238,6 +1248,7 @@ public class GitHubPullRequestReadClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubAssignableUser(
+            long id,
             String login,
             @JsonProperty("avatar_url") String avatarUrl,
             String type) {}

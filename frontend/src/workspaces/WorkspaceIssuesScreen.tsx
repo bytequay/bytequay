@@ -535,16 +535,8 @@ export function IssueOverview({
       disabled: true,
       disabledReason: 'Participants are derived from issue activity',
     }));
-  const assigneeOptions = repoUsers
-    .filter(user => user.login.toLowerCase().includes(normalizedQuery))
-    .map(user => ({
-      key: user.login,
-      label: user.login,
-      login: user.login,
-      avatarUrl: user.avatarUrl,
-      bot: user.bot,
-      selected: issue.assignees.some(login => login.toLowerCase() === user.login.toLowerCase()),
-    }));
+  const assigneeOptions = issueAssigneeOptions(issue.assignees, repoUsers)
+    .filter(user => user.login.toLowerCase().includes(normalizedQuery));
   const selectedLabels = new Set(issue.labels.map(label => label.toLowerCase()));
   const labelOptions = repoLabels
     .filter(label => label.name.toLowerCase().includes(normalizedQuery))
@@ -755,6 +747,31 @@ export function issueParticipants(issue: Issue, timeline: WorkspaceIssueTimeline
   issue.assignees.forEach(login => add(login));
   timeline.forEach(event => add(event.actor, event.payload.actorAvatarUrl));
   return [...participants.values()];
+}
+
+export function issueAssigneeOptions(
+  assignees: string[],
+  repoUsers: RepoUserDto[],
+) {
+  const repositoryUsers = new Map(repoUsers.map(user => [user.login.toLowerCase(), user] as const));
+  const selectedLogins = new Set(assignees.map(login => login.toLowerCase()));
+  const selected = assignees.map(login => {
+    const repositoryUser = repositoryUsers.get(login.toLowerCase());
+    return {
+      key: login,
+      label: login,
+      login,
+      avatarUrl: repositoryUser?.avatarUrl ?? null,
+      bot: repositoryUser?.bot ?? login.toLowerCase().endsWith('[bot]'),
+      selected: true,
+    };
+  });
+  return [
+    ...selected,
+    ...repoUsers
+      .filter(user => !selectedLogins.has(user.login.toLowerCase()))
+      .map(user => ({ key: user.login, label: user.login, login: user.login, avatarUrl: user.avatarUrl, bot: user.bot, selected: false })),
+  ];
 }
 
 function labelStyle(color?: string | null) {

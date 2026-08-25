@@ -359,7 +359,7 @@ export function MetadataPicker({
             title={option.disabledReason} onClick={() => onToggle(option)}>
             <span className="pr-people-picker__check">{option.selected && <CheckIcon size={16} />}</span>
             {option.login
-              ? <Avatar login={option.login} avatarUrl={option.avatarUrl} size={20} />
+              ? <Avatar login={option.login} avatarUrl={option.avatarUrl} size={20} allowGitHubFallback={false} />
               : <i className="pr-meta__label-dot" style={{ background: option.color }} />}
             <span>{option.label}</span>
             {option.bot && <span className="pr-bot">Bot</span>}
@@ -407,7 +407,7 @@ export function peoplePickerCandidates(
     const repositoryUser = repoUsers.find(candidate => candidate.login.toLowerCase() === user.login.toLowerCase());
     return {
       ...user,
-      avatarUrl: user.avatarUrl ?? repositoryUser?.avatarUrl ?? null,
+      avatarUrl: repositoryUser?.avatarUrl ?? null,
       bot: repositoryUser?.bot ?? user.login.endsWith('[bot]'),
       selected: true,
       locked: user.locked,

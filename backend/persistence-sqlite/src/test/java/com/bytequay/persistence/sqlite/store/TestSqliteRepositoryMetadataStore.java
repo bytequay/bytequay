@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
@@ -31,6 +32,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
 
@@ -95,6 +97,18 @@ class TestSqliteRepositoryMetadataStore
                 ImmutableList.of(new RepositoryLabel(10, "bug", "ff0000")),
                 ImmutableList.of("java"),
                 NOW);
+        store.replacePickerUsers(
+                100,
+                REPOSITORY,
+                ImmutableList.of(
+                        new RepositoryPickerUser(1, "alice", Optional.of("alice-avatar"), false),
+                        new RepositoryPickerUser(2, "bot", Optional.empty(), true)),
+                NOW.minusSeconds(1));
+        store.replacePickerUsers(
+                100,
+                REPOSITORY,
+                ImmutableList.of(new RepositoryPickerUser(2, "renamed-bot", Optional.of("bot-avatar"), true)),
+                NOW);
 
         var snapshot = store.find(100).orElseThrow();
         assertThat(repository.count()).isEqualTo(1);
@@ -106,6 +120,8 @@ class TestSqliteRepositoryMetadataStore
         assertThat(snapshot.description()).isEqualTo("Description");
         assertThat(snapshot.stargazersCount()).isEqualTo(7);
         assertThat(snapshot.languages()).containsEntry("Java", 100L);
+        assertThat(snapshot.pickerUsers()).containsExactly(new RepositoryPickerUser(2, "renamed-bot", Optional.of("bot-avatar"), true));
+        assertThat(snapshot.pickerUsersSyncedAt()).contains(NOW);
     }
 
     @Test

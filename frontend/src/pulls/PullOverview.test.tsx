@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -517,17 +517,28 @@ describe('PullOverview', () => {
 
   it('pins selected reviewers and assignees before repository users', () => {
     const value = detail();
+    value.reviewers[0] = { ...value.reviewers[0], avatarUrl: 'https://example.com/remote-bob.png' };
     value.assignees = ['carol'];
     const users = [
       { login: 'alice', avatarUrl: 'https://example.com/alice.png', bot: false },
-      { login: 'bob', avatarUrl: 'https://example.com/bob.png', bot: true },
+      { login: 'bob', avatarUrl: '/api/avatars/bob', bot: true },
       { login: 'carol', avatarUrl: 'https://example.com/carol.png', bot: false },
     ];
 
     expect(peoplePickerCandidates(value, users, 'reviewers').map(user => `${user.login}:${user.selected}:${user.bot}`))
       .toEqual(['bob:true:true', 'alice:false:false', 'carol:false:false']);
+    expect(peoplePickerCandidates(value, users, 'reviewers')[0]?.avatarUrl).toBe('/api/avatars/bob');
     expect(peoplePickerCandidates(value, users, 'assignees').map(user => `${user.login}:${user.selected}`))
       .toEqual(['carol:true', 'alice:false', 'bob:false']);
+  });
+
+  it('does not fetch a remote fallback when a cached picker avatar is missing', () => {
+    const html = renderToStaticMarkup(<MetadataPicker ariaLabel="reviewers" placeholder="Search users..."
+      query="" setQuery={() => {}} options={[{ key: 'alice', label: 'alice', login: 'alice', avatarUrl: null, selected: false }]}
+      loading={false} updating={false} loadingText="Loading…" emptyText="No users" onToggle={() => {}} />);
+
+    expect(html).toContain('avatar--fallback');
+    expect(html).not.toContain('github.com');
   });
 
   it('formats compact relative timestamps', () => {

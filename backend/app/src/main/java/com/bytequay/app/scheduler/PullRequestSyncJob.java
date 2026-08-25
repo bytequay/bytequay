@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
@@ -23,10 +24,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static java.util.Objects.requireNonNull;
 
-/** Periodically refreshes pull-request projections outside GitHub quiet hours. */
+/** Periodically refreshes pull requests and checks repository metadata freshness outside quiet hours. */
 @Component
 public class PullRequestSyncJob
 {
@@ -34,17 +39,20 @@ public class PullRequestSyncJob
     private static final long REFRESH_DELAY_MILLIS = 6 * 60_000L;
 
     private final PullRequestRefreshService refreshService;
+    private final WorkspaceMetadataService metadata;
     private final WorkspaceStore workspaces;
     private final CredentialService credentials;
     private final AppSettingsService appSettings;
 
     public PullRequestSyncJob(
             PullRequestRefreshService refreshService,
+            WorkspaceMetadataService metadata,
             WorkspaceStore workspaces,
             CredentialService credentials,
             AppSettingsService appSettings)
     {
         this.refreshService = requireNonNull(refreshService, "refreshService is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
@@ -62,7 +70,12 @@ public class PullRequestSyncJob
             return;
         }
         refresh("global dashboard", refreshService::refreshDashboard);
-        workspaces.findAll().stream()
+        List<Workspace> configuredWorkspaces = workspaces.findAll();
+        Set<Long> metadataRepositories = new HashSet<>();
+        configuredWorkspaces.stream()
+                .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
+                .forEach(workspace -> metadata.synchronize(workspace.id()));
+        configuredWorkspaces.stream()
                 .map(Workspace::monitoredRepository)
                 .distinct()
                 .forEach(repository -> refresh(repository.fullName(), () -> refreshService.refreshRepository(repository)));

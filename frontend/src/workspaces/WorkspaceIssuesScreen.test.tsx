@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullTimelinePayloadDto, RepositoryMetadataDto, WorkspaceIssueTimelineEventDto } from '../types';
-import { appendIssuePage, IssueOverview, issueParticipants } from './WorkspaceIssuesScreen';
+import { appendIssuePage, IssueOverview, issueAssigneeOptions, issueParticipants } from './WorkspaceIssuesScreen';
 
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -118,6 +118,21 @@ describe('WorkspaceIssuesScreen', () => {
       { login: 'bob', avatarUrl: 'https://avatars.example/bob' },
       { login: 'carol', avatarUrl: 'https://avatars.example/carol' },
     ]);
+  });
+
+  it('pins selected assignees before cached repository users', () => {
+    const options = issueAssigneeOptions(
+      ['bob', 'carol'],
+      [
+        { login: 'alice', avatarUrl: '/api/avatars/alice', bot: false },
+        { login: 'CAROL', avatarUrl: '/api/avatars/carol', bot: false },
+      ],
+    );
+
+    expect(options.map(option => `${option.login}:${option.selected}`))
+      .toEqual(['bob:true', 'carol:true', 'alice:false']);
+    expect(options[0]?.avatarUrl).toBeNull();
+    expect(options[1]?.avatarUrl).toBe('/api/avatars/carol');
   });
 
   it('links cross-referenced timeline events to the source preview', () => {

@@ -543,9 +543,10 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail`));
   ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
-  ipcMain.handle('prs:users', (_event, repo: string) => {
+  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {
     const url = new URL('/prs/users', BACKEND_BASE);
     url.searchParams.set('repo', repo);
+    if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
     return backendJson(url);
   });
   ipcMain.handle('prs:labels', (_event, repo: string) => {

@@ -43,7 +43,7 @@ import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Objects.requireNonNull;
 
-/** Bounded local file cache for avatars discovered during commit synchronization. */
+/** Bounded local file cache for avatars discovered during repository synchronization. */
 @Component
 public class AvatarCache
 {

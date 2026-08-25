@@ -32,10 +32,12 @@ public record RepositoryMetadataSnapshot(
         int stargazersCount,
         Map<String, Long> languages,
         List<RepositoryContributor> contributors,
+        List<RepositoryPickerUser> pickerUsers,
         List<RepositoryLabel> labels,
         List<String> topics,
         Optional<Instant> overviewSyncedAt,
         Optional<Instant> contributorsSyncedAt,
+        Optional<Instant> pickerUsersSyncedAt,
         Optional<Instant> labelsTopicsSyncedAt)
 {
     public RepositoryMetadataSnapshot
@@ -45,10 +47,12 @@ public record RepositoryMetadataSnapshot(
         checkArgument(stargazersCount >= 0, "stargazersCount is negative");
         languages = ImmutableMap.copyOf(requireNonNull(languages, "languages is null"));
         contributors = ImmutableList.copyOf(requireNonNull(contributors, "contributors is null"));
+        pickerUsers = ImmutableList.copyOf(requireNonNull(pickerUsers, "pickerUsers is null"));
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
         topics = ImmutableList.copyOf(requireNonNull(topics, "topics is null"));
         requireNonNull(overviewSyncedAt, "overviewSyncedAt is null");
         requireNonNull(contributorsSyncedAt, "contributorsSyncedAt is null");
+        requireNonNull(pickerUsersSyncedAt, "pickerUsersSyncedAt is null");
         requireNonNull(labelsTopicsSyncedAt, "labelsTopicsSyncedAt is null");
     }
 
@@ -56,7 +60,7 @@ public record RepositoryMetadataSnapshot(
     {
         return new RepositoryMetadataSnapshot(
                 repositoryId, repository, null, 0, ImmutableMap.of(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), Optional.empty(), Optional.empty());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

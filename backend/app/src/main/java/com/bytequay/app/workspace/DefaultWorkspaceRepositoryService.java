@@ -64,7 +64,6 @@ public class DefaultWorkspaceRepositoryService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultWorkspaceRepositoryService.class);
     private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
-    private static final Duration METADATA_FRESHNESS = Duration.ofDays(7);
 
     private final WorkspaceStore store;
     private final WatchedRepoStore legacyStore;
@@ -567,9 +566,9 @@ public class DefaultWorkspaceRepositoryService
                     ? () -> provisioning.synchronizeCode(workspace.id())
                     : () -> provisioning.provision(workspace.id()));
         }
-        if (stale(workspace.lastMetadataSyncAt(), now, METADATA_FRESHNESS)) {
-            submitUnique(metadataRefreshes, workspace.id(), () -> metadata.synchronize(workspace.id()));
-        }
+        // The metadata service owns each projection's TTL. Always schedule its cheap local
+        // freshness check so newly added projections are populated after an app upgrade.
+        submitUnique(metadataRefreshes, workspace.id(), () -> metadata.synchronize(workspace.id()));
     }
 
     private static boolean stale(Optional<Instant> syncedAt, Instant now, Duration freshness)

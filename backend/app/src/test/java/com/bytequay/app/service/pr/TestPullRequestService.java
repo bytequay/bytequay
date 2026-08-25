@@ -29,6 +29,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -44,6 +45,8 @@ import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.domain.UserProfile;
@@ -97,6 +100,7 @@ class TestPullRequestService
     @Mock private PrDiffStore diffStore;
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
+    @Mock private WorkspaceMetadataService metadata;
 
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
@@ -108,7 +112,7 @@ class TestPullRequestService
                 gitHub, actions, detailStore, diffStore, Runnable::run);
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots, viewStateStore,
-                credentialService, Runnable::run);
+                credentialService, metadata, Runnable::run, 53123);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
@@ -157,6 +161,35 @@ class TestPullRequestService
                 .thenReturn(ImmutableList.of(label));
 
         assertThat(service.listRepositoryLabels("owner/repo")).containsExactly(label);
+    }
+
+    @Test
+    void readsWorkspacePickerUsersAndAvatarsFromLocalMetadata()
+    {
+        RepositoryMetadataSnapshot snapshot = new RepositoryMetadataSnapshot(
+                1,
+                RepoRef.of("owner", "repo"),
+                null,
+                0,
+                ImmutableMap.of(),
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new RepositoryPickerUser(2, "alice", Optional.of("avatar-key"), false),
+                        new RepositoryPickerUser(3, "robot[bot]", Optional.empty(), true)),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Instant.parse("2026-08-21T00:00:00Z")),
+                Optional.empty());
+        when(metadata.getSnapshot("workspace")).thenReturn(snapshot);
+
+        assertThat(service.listRepositoryUsers("owner/repo", "workspace"))
+                .extracting(user -> user.login() + ":" + user.avatarUrl() + ":" + user.bot())
+                .containsExactly(
+                        "alice:http://127.0.0.1:53123/api/avatars/avatar-key:false",
+                        "robot[bot]:null:true");
+        verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
     }
 
     @Test

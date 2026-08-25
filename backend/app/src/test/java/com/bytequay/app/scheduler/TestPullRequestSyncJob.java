@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -38,16 +39,17 @@ class TestPullRequestSyncJob
     void refreshesDashboardAndDistinctWorkspaceRepositoriesOnSchedule()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = configuredCredentials();
         RepoRef shared = RepoRef.of("upstream", "shared");
         RepoRef other = RepoRef.of("owner", "other");
         Workspace first = workspace("first", 1, shared);
-        Workspace second = workspace("second", 2, shared);
+        Workspace second = workspace("second", 1, shared);
         Workspace third = workspace("third", 3, other);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(first, second, third));
         PullRequestSyncJob job = new PullRequestSyncJob(
-                refreshService, workspaces, credentials, mock(AppSettingsService.class));
+                refreshService, metadata, workspaces, credentials, mock(AppSettingsService.class));
 
         job.tick();
 
@@ -55,6 +57,9 @@ class TestPullRequestSyncJob
         order.verify(refreshService).refreshDashboard();
         order.verify(refreshService).refreshRepository(shared);
         order.verify(refreshService).refreshRepository(other);
+        verify(metadata).synchronize(first.id());
+        verify(metadata, never()).synchronize(second.id());
+        verify(metadata).synchronize(third.id());
     }
 
     @Test
@@ -64,7 +69,8 @@ class TestPullRequestSyncJob
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.inQuietHours()).thenReturn(true);
         PullRequestSyncJob job = new PullRequestSyncJob(
-                refreshService, mock(WorkspaceStore.class), configuredCredentials(), appSettings);
+                refreshService, mock(WorkspaceMetadataService.class),
+                mock(WorkspaceStore.class), configuredCredentials(), appSettings);
 
         job.tick();
 
@@ -77,6 +83,7 @@ class TestPullRequestSyncJob
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         PullRequestSyncJob job = new PullRequestSyncJob(
                 refreshService,
+                mock(WorkspaceMetadataService.class),
                 mock(WorkspaceStore.class),
                 mock(CredentialService.class),
                 mock(AppSettingsService.class));

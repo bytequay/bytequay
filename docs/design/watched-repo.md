@@ -222,7 +222,7 @@ upstream_repository_id is present => upstream_repository_id != selected_reposito
 
 Repository-scoped cached data is keyed by the stable monitored repository ID, not by workspace.
 This means several workspaces that link to the same upstream share one local metadata cache
-instead of fetching and storing the same contributors, labels, and topics repeatedly.
+instead of fetching and storing the same contributors, picker users, labels, and topics repeatedly.
 
 ## Filesystem ownership
 
@@ -416,7 +416,8 @@ public interface WorkspaceMetadataService
      *
      * <p>For an unlinked workspace the monitored repository is the selected repository.
      * For a linked workspace it is the selected upstream repository. Contributors,
-     * labels, and repository topics/tags are stored locally by stable repository ID.
+     * assignable picker users, labels, and repository topics/tags are stored locally by stable
+     * repository ID. Picker avatar images are stored in the local avatar cache.
      * A normal call refreshes only projections whose fixed freshness interval has
      * expired. Failure leaves the cached snapshot and last-success timestamp unchanged.</p>
      *
@@ -430,7 +431,7 @@ public interface WorkspaceMetadataService
      * GitHub.
      *
      * @param workspaceId workspace to query
-     * @return the latest contributor, label, and topic/tag projection summary
+     * @return the latest contributor, picker-user, label, and topic/tag projection summary
      */
     WorkspaceMetadataSnapshot getSnapshot(String workspaceId);
 }
@@ -439,18 +440,21 @@ public interface WorkspaceMetadataService
 The first implementation uses fixed cache intervals rather than a new settings system:
 
 - contributor accounts: refresh when absent or older than seven days;
+- assignable picker users and newly discovered avatars: refresh when absent or older than seven days;
 - labels and repository topics/tags: refresh when absent or older than thirty days;
 - always serve the latest local snapshot while a refresh runs or fails.
 
-Store the provider's stable IDs and use upserts rather than destructive replacement. A lightweight
-periodic sweep or workspace access may request refresh, but the service checks the timestamp so
+Store the provider's stable IDs. Contributor history uses upserts; assignable picker users use a
+full replacement after a successful GitHub response so users who lose eligibility disappear. The
+existing periodic repository sweep requests refresh, but the service checks the timestamp so
 multiple workspaces linked to the same upstream do not multiply GitHub calls.
 
 Metadata refresh persists no lifecycle state or error. A successful freshness check or refresh
 advances `lastMetadataSyncAt`; failure leaves the previous timestamp and cached snapshot unchanged.
 The caller owns any temporary spinner. The workspace timestamp uses the shortest metadata cache
 interval (seven days); the metadata store still applies its separate seven-day contributor and
-thirty-day label/topic intervals.
+picker-user intervals and thirty-day label/topic interval. Picker reads use the saved snapshot and
+localhost avatar URLs; opening a reviewer or assignee picker does not contact GitHub.
 
 Issues and pull requests are active repository data, not part of this slow reference-metadata
 cache. They keep their own refresh policy. `WorkspaceIssueRefreshService` refreshes the open-issue
@@ -590,6 +594,7 @@ POST   /api/workspaces/{workspaceId}/issues/{issueNumber}/detail/refresh
 GET    /api/workspaces/{workspaceId}/pull-requests
 POST   /api/workspaces/{workspaceId}/pull-requests/sync
 GET    /api/workspaces/{workspaceId}/contributors
+GET    /prs/users?repo={owner/repo}&workspaceId={workspaceId}
 
 GET    /api/workspaces/{workspaceId}/git/overview
 GET    /api/workspaces/{workspaceId}/git/branches
@@ -725,7 +730,7 @@ scratch:
 | Workspace Settings | Implemented | Searchable GitHub-repository upstream selector and guarded unwatch |
 | Workspace Issues | Placeholder only | Complete list/detail/filter interaction design and implementation |
 | Workspace Memory | Placeholder only | Future design; not required for watched-repo/commits delivery |
-| Contributor/label/tag picker | Not implemented as a workspace surface | Design when an issue/PR assignment or creation flow consumes the local cache |
+| Reviewer/assignee picker | Implemented | Reads the weekly local assignable-user and avatar snapshot |
 
 Before frontend implementation, create or approve focused state mockups for four changed surfaces:
 
@@ -791,9 +796,9 @@ sequenceDiagram
 - Fetch never resets, rebases, cleans, or discards user work.
 - Metadata sync uses stable provider IDs and records the last successful snapshot.
 - Reference metadata is cached by monitored repository ID, so many workspaces sharing one upstream
-  repository share one contributors/labels/topics snapshot.
-- Contributor refresh is no more frequent than weekly and label/topic refresh is no more frequent
-  than monthly unless a future explicit force-refresh requirement is approved.
+  repository share one contributors/picker-users/labels/topics snapshot.
+- Contributor and picker-user refreshes are no more frequent than weekly, and label/topic refresh
+  is no more frequent than monthly unless a future explicit force-refresh requirement is approved.
 - A metadata failure does not downgrade ready code.
 - A code failure does not delete usable metadata.
 - Repository renames are reconciled by stable GitHub ID and update displayed coordinates/remotes

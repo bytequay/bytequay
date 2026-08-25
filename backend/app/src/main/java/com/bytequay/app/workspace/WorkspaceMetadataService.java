@@ -20,8 +20,8 @@ public interface WorkspaceMetadataService
     /**
      * Refreshes expired reference projections for the workspace's monitored repository.
      *
-     * <p>Contributors refresh weekly; labels and topics refresh monthly. A fork resolves to its
-     * persisted upstream ID, and failures retain the last local snapshot.</p>
+     * <p>Contributors and picker users refresh weekly; labels and topics refresh monthly. A fork
+     * resolves to its persisted upstream ID, and failures retain the last local snapshot.</p>
      *
      * @param workspaceId workspace whose monitored repository should be refreshed
      * @return success, projection counts, and freshness timestamps

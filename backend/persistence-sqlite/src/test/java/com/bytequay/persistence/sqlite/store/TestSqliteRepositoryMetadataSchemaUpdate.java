@@ -57,17 +57,22 @@ class TestSqliteRepositoryMetadataSchemaUpdate
     }
 
     @Test
-    void addsOverviewColumnsToPopulatedLegacyTable()
+    void addsMetadataColumnsToPopulatedLegacyTable()
     {
         var snapshot = store.find(100).orElseThrow();
 
         assertThat(snapshot.languages()).isEmpty();
         assertThat(snapshot.stargazersCount()).isZero();
+        assertThat(snapshot.pickerUsers()).isEmpty();
+        assertThat(snapshot.pickerUsersSyncedAt()).isEmpty();
         assertThat(jdbc.queryForObject("SELECT languages FROM repository_metadata WHERE repository_id = 100", String.class)).isEqualTo("{}");
+        assertThat(jdbc.queryForObject("SELECT picker_users FROM repository_metadata WHERE repository_id = 100", String.class)).isEqualTo("[]");
         assertThat(jdbc.queryForObject("SELECT stargazers_count FROM repository_metadata WHERE repository_id = 100", Integer.class)).isZero();
         assertThat(jdbc.queryForMap("SELECT \"notnull\" FROM pragma_table_info('repository_metadata') WHERE name = 'languages'"))
                 .containsEntry("notnull", 1);
         assertThat(jdbc.queryForMap("SELECT \"notnull\" FROM pragma_table_info('repository_metadata') WHERE name = 'stargazers_count'"))
+                .containsEntry("notnull", 1);
+        assertThat(jdbc.queryForMap("SELECT \"notnull\" FROM pragma_table_info('repository_metadata') WHERE name = 'picker_users'"))
                 .containsEntry("notnull", 1);
     }
 

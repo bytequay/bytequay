@@ -63,9 +63,11 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/users")
-    public List<RepoUser> users(@RequestParam("repo") String repo)
+    public List<RepoUser> users(
+            @RequestParam("repo") String repo,
+            @RequestParam(required = false) String workspaceId)
     {
-        return pullRequests.listRepositoryUsers(repo);
+        return pullRequests.listRepositoryUsers(repo, workspaceId);
     }
 
     @GetMapping("/prs/labels")

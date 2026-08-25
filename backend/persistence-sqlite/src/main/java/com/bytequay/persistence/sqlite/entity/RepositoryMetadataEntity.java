@@ -15,9 +15,11 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryContributorListConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryLabelListConverter;
+import com.bytequay.persistence.sqlite.converter.RepositoryPickerUserListConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringLongMapConverter;
 import jakarta.persistence.Column;
@@ -58,6 +60,10 @@ public class RepositoryMetadataEntity
     @Convert(converter = RepositoryContributorListConverter.class)
     private List<RepositoryContributor> contributors;
 
+    @Column(name = "picker_users", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    @Convert(converter = RepositoryPickerUserListConverter.class)
+    private List<RepositoryPickerUser> pickerUsers;
+
     @Column(nullable = false)
     @Convert(converter = RepositoryLabelListConverter.class)
     private List<RepositoryLabel> labels;
@@ -69,6 +75,10 @@ public class RepositoryMetadataEntity
     @Column(name = "contributors_synced_at")
     @Convert(converter = InstantToTextConverter.class)
     private Instant contributorsSyncedAt;
+
+    @Column(name = "picker_users_synced_at")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant pickerUsersSyncedAt;
 
     @Column(name = "overview_synced_at")
     @Convert(converter = InstantToTextConverter.class)
@@ -99,6 +109,9 @@ public class RepositoryMetadataEntity
     public List<RepositoryContributor> getContributors() { return contributors; }
     public void setContributors(List<RepositoryContributor> contributors) { this.contributors = contributors; }
 
+    public List<RepositoryPickerUser> getPickerUsers() { return pickerUsers; }
+    public void setPickerUsers(List<RepositoryPickerUser> pickerUsers) { this.pickerUsers = pickerUsers; }
+
     public List<RepositoryLabel> getLabels() { return labels; }
     public void setLabels(List<RepositoryLabel> labels) { this.labels = labels; }
 
@@ -107,6 +120,9 @@ public class RepositoryMetadataEntity
 
     public Instant getContributorsSyncedAt() { return contributorsSyncedAt; }
     public void setContributorsSyncedAt(Instant contributorsSyncedAt) { this.contributorsSyncedAt = contributorsSyncedAt; }
+
+    public Instant getPickerUsersSyncedAt() { return pickerUsersSyncedAt; }
+    public void setPickerUsersSyncedAt(Instant pickerUsersSyncedAt) { this.pickerUsersSyncedAt = pickerUsersSyncedAt; }
 
     public Instant getOverviewSyncedAt() { return overviewSyncedAt; }
     public void setOverviewSyncedAt(Instant overviewSyncedAt) { this.overviewSyncedAt = overviewSyncedAt; }

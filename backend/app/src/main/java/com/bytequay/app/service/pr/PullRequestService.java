@@ -22,6 +22,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -50,6 +51,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -111,6 +113,8 @@ public class PullRequestService
     private final PrViewStateStore viewStateStore;
     private final Executor executor;
     private final CredentialService credentialService;
+    private final WorkspaceMetadataService metadata;
+    private final String avatarBaseUrl;
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
@@ -122,7 +126,9 @@ public class PullRequestService
             PullRequestSnapshotService snapshots,
             PrViewStateStore viewStateStore,
             CredentialService credentialService,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            WorkspaceMetadataService metadata,
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
+            @Value("${server.port:53123}") int serverPort)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
@@ -133,7 +139,10 @@ public class PullRequestService
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
         this.executor = requireNonNull(executor, "executor is null");
+        checkArgument(serverPort >= 0 && serverPort <= 65_535, "serverPort is invalid");
+        this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
     }
 
     public PullRequestPage listPullRequests(int page, int pageSize)
@@ -202,10 +211,23 @@ public class PullRequestService
                 repository.fullName(), Instant.now().minus(CLOSED_RETENTION_DAYS, ChronoUnit.DAYS)));
     }
 
-    public List<RepoUser> listRepositoryUsers(String repo)
+    public List<RepoUser> listRepositoryUsers(String repo, String workspaceId)
     {
-        String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, 1);
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            var snapshot = metadata.getSnapshot(workspaceId);
+            checkArgument(
+                    snapshot.repository().owner().equalsIgnoreCase(ref.owner())
+                            && snapshot.repository().repo().equalsIgnoreCase(ref.repo()),
+                    "workspace repository does not match requested repository");
+            return snapshot.pickerUsers().stream()
+                    .map(user -> new RepoUser(
+                            user.login(),
+                            user.avatarKey().map(avatarBaseUrl::concat).orElse(null),
+                            user.bot()))
+                    .collect(toImmutableList());
+        }
+        String pat = credentialService.resolveGitHubToken();
         return gitHub.fetchAssignableUsers(pat, RepoRef.of(ref.owner(), ref.repo()));
     }
 

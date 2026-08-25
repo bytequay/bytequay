@@ -280,7 +280,7 @@ class TestDefaultWorkspaceRepositoryService
         verify(metadata).synchronize(syncing.id());
         verify(provisioning, never()).provision(fresh.id());
         verify(provisioning, never()).synchronizeCode(fresh.id());
-        verify(metadata, never()).synchronize(fresh.id());
+        verify(metadata).synchronize(fresh.id());
     }
 
     @Test

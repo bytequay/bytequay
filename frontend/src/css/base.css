@@ -580,9 +580,15 @@ samp {
   -webkit-app-region: no-drag;
 }
 
+.app-sidebar__traffic .app-sidebar__history {
+  height: auto;
+  flex: none;
+  padding: 0;
+}
+
 .app-sidebar__history button {
   display: inline-flex;
-  width: 26px;
+  width: 22px;
   height: 26px;
   align-items: center;
   justify-content: center;

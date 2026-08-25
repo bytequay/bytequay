@@ -55,7 +55,14 @@ export default function AppSidebar({
   onWorkspaceTab: (tab: WorkspaceTab) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const sidebar = useResizablePane(222, 180, 420);
+  const sidebar = useResizablePane(222, 200, 420);
+
+  const historyControls = (
+    <div className="app-sidebar__history" role="group" aria-label="View history">
+      <button type="button" aria-label="Back" title="Back (⌘[)" disabled={!canGoBack} onClick={onBack}>‹</button>
+      <button type="button" aria-label="Forward" title="Forward (⌘])" disabled={!canGoForward} onClick={onForward}>›</button>
+    </div>
+  );
 
   const navItem = ({ page: destination, label, icon }: typeof NAV_ITEMS[number]) => (
     <button
@@ -117,9 +124,10 @@ export default function AppSidebar({
         >
           <PanelIcon />
         </button>
+        <div className="app-sidebar__spacer" />
+        {!collapsed && historyControls}
         {workspace !== null && (
           <>
-            <div className="app-sidebar__spacer" />
             <button
               type="button"
               className="app-sidebar__traffic-btn"
@@ -141,10 +149,7 @@ export default function AppSidebar({
           </>
         )}
       </div>
-      <div className="app-sidebar__history" role="group" aria-label="View history">
-        <button type="button" aria-label="Back" title="Back (⌘[)" disabled={!canGoBack} onClick={onBack}>‹</button>
-        <button type="button" aria-label="Forward" title="Forward (⌘])" disabled={!canGoForward} onClick={onForward}>›</button>
-      </div>
+      {collapsed && historyControls}
       {workspace === null ? (
         <>
           <div className="app-sidebar__brand app-sidebar__label">BYTEQUAY</div>

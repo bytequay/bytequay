@@ -382,6 +382,7 @@ export default function PullsScreen({
               key={item.key}
               type="button"
               className={!query && tab === item.key ? 'is-active' : ''}
+              aria-pressed={!query && tab === item.key}
               onClick={() => { setTab(item.key); setSearch(''); setQuery(''); }}
             >
               {item.label}

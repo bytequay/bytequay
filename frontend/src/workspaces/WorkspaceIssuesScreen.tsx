@@ -285,7 +285,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         <header className="pulls-list__toolbar">
           <span className="pulls-scope" title={`Showing ${repository}`}>{repository}</span>
           <nav className="pulls-tabs" aria-label="Issue filters">
-            <button className="is-active" type="button">Open issues <span className="issues-list__count">{snapshot?.totalIssues ?? 0}</span></button>
+            <button className="is-active" type="button" aria-pressed="true">Open issues <span className="issues-list__count">{snapshot?.totalIssues ?? 0}</span></button>
           </nav>
           <button className="pulls-toolbar-button" type="button" title="Sync issues" aria-label="Sync issues"
             disabled={loading} onClick={() => { void refreshIssues(); }}>

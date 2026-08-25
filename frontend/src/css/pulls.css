@@ -35,9 +35,11 @@
 .pulls-tabs {
   display: flex;
   min-width: 0;
-  flex: 1;
-  gap: 2px;
+  flex: 0 1 auto;
+  margin-right: auto;
   overflow-x: auto;
+  border: 1px solid #d0d7de;
+  border-radius: 7px;
   scrollbar-width: none;
 }
 .pulls-tabs::-webkit-scrollbar { display: none; }
@@ -67,17 +69,20 @@
 }
 
 .pulls-tabs button {
-  padding: 4px 3px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 0;
+  background: #fff;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.pulls-tabs button:hover,
+.pulls-tabs button + button { border-left: 1px solid #d0d7de; }
+.pulls-tabs button:hover { background: #f0f1f3; }
+.pulls-tabs button.is-active { background: #0969da; color: #fff; font-weight: 600; }
 .pulls-toolbar-button:hover { background: #f0f1f3; }
-.pulls-tabs button.is-active,
 .pulls-toolbar-button.is-active { background: #e7e9ec; color: #17191c; }
-.pulls-tabs button.is-active { font-weight: 600; }
 .pulls-toolbar-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; }
 .pulls-toolbar-button:disabled { opacity: 0.4; cursor: default; }
 

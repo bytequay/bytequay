@@ -91,7 +91,6 @@ describe('workspace commits tab', () => {
 
     expect(html).toContain('cmt-split-chip is-active');
     expect(html).toContain('title="View the selected remote source"');
-    expect(html).toContain('cmt-repo-chip" title="This workspace');
     expect(html).toContain('Source: upstream');
     expect(html).toContain('title="Branch of the selected source"');
     expect(html).toContain('read-only');

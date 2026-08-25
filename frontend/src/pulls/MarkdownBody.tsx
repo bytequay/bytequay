@@ -182,6 +182,12 @@ export function markdownBlocks(markdown: string): Block[] {
       list.items.push(item[2]);
       continue;
     }
+    if (/^\s*\([ xX]\)\s+/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'paragraph', text: line.trim() });
+      continue;
+    }
     const alert = line.match(/^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i);
     if (alert) {
       flushParagraph();

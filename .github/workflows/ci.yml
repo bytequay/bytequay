@@ -35,9 +35,34 @@ jobs:
           java-version: '25'
           distribution: temurin
           cache: maven
-      - name: Verify backend
+      - name: Build and check backend modules
+        id: build
         working-directory: backend
-        run: mvn -B verify
+        run: mvn -B install -Dmaven.test.skip=true
+      - name: Test core
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :core test -Dcheckstyle.skip=true -Dlicense.skip=true
+      - name: Test agent SPI
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :agent-spi test -Dcheckstyle.skip=true -Dlicense.skip=true
+      - name: Test agent core
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :agent-core test -Dcheckstyle.skip=true -Dlicense.skip=true
+      - name: Test agent CLI
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :agent-cli test -Dcheckstyle.skip=true -Dlicense.skip=true
+      - name: Test SQLite persistence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :persistence-sqlite test -Dcheckstyle.skip=true -Dlicense.skip=true
+      - name: Test application
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: backend
+        run: mvn -B -pl :app test -Dcheckstyle.skip=true -Dlicense.skip=true
 
   frontend:
     runs-on: ubuntu-latest

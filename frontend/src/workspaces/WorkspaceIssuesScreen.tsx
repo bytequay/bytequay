@@ -146,6 +146,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [workspaceId]);
 
+  const closeIssue = useCallback(async (issueNumber: number) => {
+    setMutationError(null);
+    try {
+      await window.bridge.closeWorkspaceIssue(workspaceId, issueNumber);
+      apply(await window.bridge.fetchWorkspaceIssues(workspaceId, 0, PAGE_SIZE));
+    }
+    catch (failure) {
+      setMutationError(remoteErrorMessage(failure));
+    }
+  }, [apply, workspaceId]);
+
   const refreshIssues = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -341,6 +352,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               repository={repository} workspaceId={workspaceId}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
+              onClose={() => closeIssue(selected.number)}
               onComment={async body => {
                 await window.bridge.commentWorkspaceIssue(workspaceId, selected.number, body);
                 await loadDetail(selected.number);
@@ -410,6 +422,7 @@ export function IssueOverview({
   timelineLoading,
   onTypeChange,
   onMetadataChange,
+  onClose,
   onComment,
 }: {
   issue: Issue;
@@ -421,6 +434,7 @@ export function IssueOverview({
   timelineLoading: boolean;
   onTypeChange: (type: string | null) => Promise<void>;
   onMetadataChange: (assignees: string[], labels: string[]) => Promise<void>;
+  onClose: () => Promise<void>;
   onComment: (body: string) => Promise<void>;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -604,7 +618,8 @@ export function IssueOverview({
             : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
           {timelineLoading && <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>}
         </section>
-        <DiscussionComposer candidates={candidates} quotedReply={quotedReply} onSubmit={onComment} />
+        <DiscussionComposer candidates={candidates} quotedReply={quotedReply} closeLabel="Close issue"
+          onClose={onClose} onSubmit={onComment} />
       </main>
     </div>
   );

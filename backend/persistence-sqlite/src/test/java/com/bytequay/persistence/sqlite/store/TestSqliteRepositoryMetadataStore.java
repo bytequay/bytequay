@@ -118,6 +118,21 @@ class TestSqliteRepositoryMetadataStore
     }
 
     @Test
+    void deletesIssueFromTheOpenProjection()
+    {
+        RepositoryIssue issue = new RepositoryIssue(
+                50, 7, "Issue", "body", "alice", "avatar",
+                "https://github.com/owner/project/issues/7",
+                ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
+        issueStore.saveSyncPage(100, ImmutableList.of(issue), "sync");
+
+        issueStore.delete(100, 7);
+
+        assertThat(issueStore.find(100, 7)).isEmpty();
+        assertThat(issueStore.findPage(100, REPOSITORY, 0, 50).totalIssues()).isZero();
+    }
+
+    @Test
     void readsIssuesInDatabasePagesOrderedByMostRecentlyUpdated()
     {
         var issues = IntStream.rangeClosed(1, 55)

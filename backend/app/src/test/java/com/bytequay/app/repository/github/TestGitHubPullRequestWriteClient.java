@@ -53,6 +53,26 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void closesIssue()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(header("X-GitHub-Api-Version", "2026-03-10"))
+                .andExpect(content().json("{\"state\":\"closed\"}"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        client.closeIssue("pat", PullRequestRef.of("upstream", "project", 12));
+
+        server.verify();
+    }
+
+    @Test
     void postsReactionsToEachSupportedGitHubResource()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

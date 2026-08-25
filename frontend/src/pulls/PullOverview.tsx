@@ -983,9 +983,10 @@ export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
-export function DiscussionComposer({ candidates, quotedReply, onClose, onSubmit }: {
+export function DiscussionComposer({ candidates, quotedReply, closeLabel = 'Close pull request', onClose, onSubmit }: {
   candidates: MentionCandidate[];
   quotedReply?: QuoteRequest;
+  closeLabel?: string;
   onClose?: () => Promise<void>;
   onSubmit: (body: string) => Promise<void>;
 }) {
@@ -1087,7 +1088,7 @@ export function DiscussionComposer({ candidates, quotedReply, onClose, onSubmit 
         </div>}
       <footer>
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing}
-          onClick={() => { void close(); }}>{closing ? 'Closing…' : 'Close pull request'}</button>}
+          onClick={() => { void close(); }}>{closing ? 'Closing…' : closeLabel}</button>}
         <button type="button" disabled={posting || closing || !body.trim()} onClick={() => { void submit(); }}>
           {posting ? 'Posting…' : 'Comment'}
         </button>

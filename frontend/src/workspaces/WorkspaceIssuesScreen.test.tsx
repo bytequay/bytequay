@@ -86,7 +86,8 @@ describe('WorkspaceIssuesScreen', () => {
     const html = renderToStaticMarkup(<IssueOverview issue={issue} metadata={metadata} timeline={timeline}
       issueType={{ current: 'Task', available: ['Task', 'Bug'] }}
       repository="owner/repo" workspaceId="workspace-1" timelineLoading={false}
-      onTypeChange={async () => {}} onMetadataChange={async () => {}} onComment={async () => {}} />);
+      onTypeChange={async () => {}} onMetadataChange={async () => {}}
+      onClose={async () => {}} onComment={async () => {}} />);
 
     expect(html).toContain('class="pr-overview issue-overview"');
     expect(html).toContain('Example issue <span>#7</span>');
@@ -103,6 +104,7 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).not.toContain('issue-rail');
     expect(html).not.toContain('aria-label="Add reaction"');
     expect(html).toContain('class="pr-composer"');
+    expect(html).toContain('>Close issue</button>');
   });
 
   it('deduplicates participants and keeps the best avatar', () => {

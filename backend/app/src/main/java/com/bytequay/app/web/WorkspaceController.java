@@ -204,6 +204,13 @@ public class WorkspaceController
         return issues.comment(workspaceId, issueNumber, request.body());
     }
 
+    @PostMapping("/{workspaceId}/issues/{issueNumber}/close")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void closeIssue(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    {
+        issues.close(workspaceId, issueNumber);
+    }
+
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/type")
     public WorkspaceIssueService.IssueTypeOptions updateIssueType(
             @PathVariable String workspaceId,

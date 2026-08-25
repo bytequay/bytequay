@@ -145,6 +145,11 @@ public class GitHubPullRequestWriteClient
         }
     }
 
+    public void closeIssue(String pat, PullRequestRef issue)
+    {
+        updateIssue(pat, issue, ImmutableMap.of("state", "closed"));
+    }
+
     public String updateIssueType(String pat, PullRequestRef issue, String type)
     {
         Map<String, Object> request = new LinkedHashMap<>();

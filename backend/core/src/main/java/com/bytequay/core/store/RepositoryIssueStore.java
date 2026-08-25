@@ -32,4 +32,6 @@ public interface RepositoryIssueStore
     void completeSync(long repositoryId, RepoRef repository, String syncMarker, Instant syncedAt);
 
     void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt);
+
+    void delete(long repositoryId, int issueNumber);
 }

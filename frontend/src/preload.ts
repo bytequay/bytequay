@@ -77,6 +77,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:issues:detail:refresh', workspaceId, issueNumber),
   commentWorkspaceIssue: (workspaceId, issueNumber, body) =>
     ipcRenderer.invoke('workspaces:issues:comment', workspaceId, issueNumber, body),
+  closeWorkspaceIssue: (workspaceId, issueNumber) =>
+    ipcRenderer.invoke('workspaces:issues:close', workspaceId, issueNumber),
   updateWorkspaceIssueType: (workspaceId, issueNumber, type) =>
     ipcRenderer.invoke('workspaces:issues:type:update', workspaceId, issueNumber, type),
   updateWorkspaceIssueMetadata: (workspaceId, issueNumber, assignees, labels) =>

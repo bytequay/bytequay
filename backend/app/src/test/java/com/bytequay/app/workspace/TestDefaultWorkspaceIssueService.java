@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -113,6 +114,19 @@ class TestDefaultWorkspaceIssueService
 
         assertThat(service.comment("fork", 9, "  Looks good  ")).isEqualTo(created);
         verify(detailStore).save(detail(300, 9, "Task", assigned, created));
+    }
+
+    @Test
+    void closesIssueBeforeRemovingItFromTheLocalProjection()
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        PullRequestRef ref = PullRequestRef.of("upstream", "project", 9);
+
+        service.close("fork", 9);
+
+        var order = inOrder(issueWrites, issueStore);
+        order.verify(issueWrites).closeIssue("token", ref);
+        order.verify(issueStore).delete(300, 9);
     }
 
     @Test

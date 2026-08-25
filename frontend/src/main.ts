@@ -812,6 +812,10 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),
     }));
+  ipcMain.handle('workspaces:issues:close', (_event, workspaceId: string, issueNumber: number) =>
+    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/close`, {
+      method: 'POST',
+    }));
   ipcMain.handle('workspaces:issues:type:update', (_event, workspaceId: string, issueNumber: number, type: string | null) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`, {
       method: 'PATCH',

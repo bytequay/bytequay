@@ -139,4 +139,12 @@ public class SqliteRepositoryIssueStore
                 requireNonNull(updatedAt, "updatedAt is null"));
         issueRows.save(issue);
     }
+
+    @Override
+    @Transactional
+    public void delete(long repositoryId, int issueNumber)
+    {
+        issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
+                .ifPresent(issueRows::delete);
+    }
 }

@@ -284,8 +284,8 @@ Issue display and refresh use the same local-first boundary:
    the scheduled job and the frontend refresh action call this same method.
 3. `WorkspaceIssueRefreshService.refreshDetail` fetches one issue's activity and type data,
    persists one detail snapshot, and then rereads it for the explicit frontend refresh response.
-4. Direct comment, type, assignee, and label writes update the affected local projection so later
-   display requests still read SQLite.
+4. Direct comment, close, type, assignee, and label writes update the affected local projection so
+   later display requests still read SQLite. Closing removes the issue from the open-only projection.
 
 ### 6.3 Agent flow
 

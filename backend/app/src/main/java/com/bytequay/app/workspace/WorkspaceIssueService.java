@@ -48,6 +48,8 @@ public interface WorkspaceIssueService
      */
     PrTimelineEvent comment(String workspaceId, int issueNumber, String body);
 
+    void close(String workspaceId, int issueNumber);
+
     IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type);
 
     IssueMetadata updateMetadata(String workspaceId, int issueNumber, List<String> assignees, List<String> labels);

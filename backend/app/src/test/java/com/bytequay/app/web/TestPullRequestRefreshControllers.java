@@ -92,6 +92,28 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void forwardsIssueCloseRequest()
+            throws Exception
+    {
+        WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
+        WorkspaceController controller = new WorkspaceController(
+                mock(WorkspaceRepositoryService.class),
+                mock(PullRequestService.class),
+                mock(PullRequestRefreshService.class),
+                mock(WorkspaceMetadataService.class),
+                issues,
+                mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceRemoteSourceService.class),
+                mock(ModelSettingsService.class),
+                mock(CredentialService.class));
+
+        standaloneSetup(controller).build().perform(post("/api/workspaces/workspace-id/issues/9/close"))
+                .andExpect(status().isNoContent());
+
+        verify(issues).close("workspace-id", 9);
+    }
+
+    @Test
     void workspaceRefreshCompletesBeforeTheRequestReturns()
     {
         RepoRef repository = RepoRef.of("upstream", "project");

@@ -106,6 +106,14 @@ public final class DefaultWorkspaceIssueService
     }
 
     @Override
+    public void close(String workspaceId, int issueNumber)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
+        issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+    }
+
+    @Override
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
         Workspace workspace = requireWorkspace(workspaceId);

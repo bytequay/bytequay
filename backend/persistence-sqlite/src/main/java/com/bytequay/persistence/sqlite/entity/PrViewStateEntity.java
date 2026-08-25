@@ -18,8 +18,6 @@ import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -40,9 +38,8 @@ public class PrViewStateEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant reviewedAt;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "handled_action")
-    private HandledAction handledAction;
+    private String handledAction;
 
     @Column(name = "reviewed_head_sha")
     private String reviewedHeadSha;
@@ -80,8 +77,8 @@ public class PrViewStateEntity
     public Instant getReviewedAt() { return reviewedAt; }
     public void setReviewedAt(Instant reviewedAt) { this.reviewedAt = reviewedAt; }
 
-    public HandledAction getHandledAction() { return handledAction; }
-    public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction; }
+    public HandledAction getHandledAction() { return handledAction == null ? null : HandledAction.valueOf(handledAction); }
+    public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction == null ? null : handledAction.name(); }
 
     public String getReviewedHeadSha() { return reviewedHeadSha; }
     public void setReviewedHeadSha(String reviewedHeadSha) { this.reviewedHeadSha = reviewedHeadSha; }

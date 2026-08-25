@@ -16,7 +16,17 @@ import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDet
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
-import { PULL_TABS, pullRequestNeedsReview, reconcilePullRequestDetail, rowsForSearch, rowsForTab, type PullRow, type PullTab } from './model';
+import {
+  PULL_TABS,
+  pullRequestNeedsReview,
+  reconcilePullRequestDetail,
+  rowsForSearch,
+  rowsForTab,
+  tabForInitialPullRequest,
+  visibleSelectedId,
+  type PullRow,
+  type PullTab,
+} from './model';
 import '../css/pulls.css';
 
 type DetailTab = 'overview' | 'changes';
@@ -115,7 +125,7 @@ export default function PullsScreen({
     setHasMore(result.hasMore);
     setSelected(current => result.pullRequests.some(pr => pr.id === current)
       ? current
-      : result.pullRequests[0]?.id ?? null);
+      : null);
   }, []);
 
   const refreshList = useCallback(async () => {
@@ -202,6 +212,7 @@ export default function PullsScreen({
     const match = prs.find(pr => pr.repo.toLowerCase() === initialPr.repo.toLowerCase()
       && pr.number === initialPr.number);
     if (match) {
+      setTab(current => tabForInitialPullRequest(match, current));
       setSelected(match.id);
       return;
     }
@@ -214,6 +225,7 @@ export default function PullsScreen({
       const remote = remotePullRequest(value, profile?.login);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       applyDetail(remote.id, value, false);
+      setTab(current => tabForInitialPullRequest(remote, current));
       setSelected(remote.id);
     }).catch(e => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -222,7 +234,8 @@ export default function PullsScreen({
   }, [applyDetail, initialPr, loading, prs]);
 
   const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab), [prs, query, tab]);
-  const selectedPr = prs.find(pr => pr.id === selected) ?? null;
+  const visibleSelected = visibleSelectedId(rows, selected);
+  const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
   const selectedPrRepo = selectedPr?.repo;
@@ -459,7 +472,7 @@ export default function PullsScreen({
               key={row.id}
               row={row}
               wide={!paneShown}
-              selected={row.id === selected}
+              selected={row.id === visibleSelected}
               onPick={() => pick(row)}
             />
           ))}

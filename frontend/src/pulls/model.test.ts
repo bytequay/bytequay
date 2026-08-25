@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto } from '../types';
-import { reconcilePullRequestDetail, rowsForTab } from './model';
+import { reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
 
 function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
   return {
@@ -82,6 +82,16 @@ describe('rowsForTab', () => {
     const closed = pr({ id: 3, state: 'closed' });
 
     expect(rowsForTab([open, merged, closed], 'done').map(row => row.id)).toEqual([2, 3]);
+  });
+
+  it('keeps selection within the active filter', () => {
+    const open = pr({ id: 1, state: 'open', updatedAt: '2026-08-24T00:00:00Z' });
+    const closed = pr({ id: 2, state: 'closed', updatedAt: '2026-08-25T00:00:00Z' });
+    const openRows = rowsForTab([closed, open], 'all');
+
+    expect(visibleSelectedId(openRows, closed.id)).toBe(open.id);
+    expect(visibleSelectedId([], closed.id)).toBeNull();
+    expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
   });
 
   it('moves a stale open row to Done when detail reports it merged', () => {

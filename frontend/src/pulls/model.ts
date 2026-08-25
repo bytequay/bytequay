@@ -84,6 +84,15 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
     .map(pr => toRow(pr, tab === 'reviewed'));
 }
 
+export function visibleSelectedId(rows: PullRow[], selected: number | null) {
+  return rows.some(row => row.id === selected) ? selected : rows[0]?.id ?? null;
+}
+
+export function tabForInitialPullRequest(pr: PullRequestDto, preferred: PullTab): PullTab {
+  if (rowsForTab([pr], preferred).length > 0) return preferred;
+  return pullRequestKind(pr.state) === 'open' ? 'all' : 'done';
+}
+
 export function pullRequestNeedsReview(pr: PullRequestDto) {
   return pr.handledAction === null
     && (pr.origin === 'REVIEW_REQUESTED' || pr.origin === 'OTHER' && pr.reviewedAt !== null);

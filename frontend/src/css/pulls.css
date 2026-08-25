@@ -695,7 +695,11 @@
 .pr-inline-thread > footer .pr-thread-reply__open, .pr-thread-row__comments > footer .pr-thread-reply__open { border: 0; background: transparent; color: #24292f; padding-left: 0; font-weight: 400; }
 .pr-inline-thread > footer .pr-thread-resolve, .pr-thread-row__comments > footer .pr-thread-resolve { margin-left: auto; }
 .pr-thread-reply { display: grid !important; gap: 9px; background: #f6f8fa; }
-.pr-thread-reply textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #0969da; border-radius: 8px; outline: 0; background: #fff; color: #24292f; padding: 11px 13px; font: inherit; font-size: 14px; }
+.pr-thread-reply__tabs { display: flex; gap: 2px; }
+.pr-thread-reply__tabs button { border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 5px 9px; }
+.pr-thread-reply__tabs button.is-active { border: 1px solid #d0d7de; background: #fff; color: #24292f; }
+.pr-thread-reply textarea { width: 100%; min-height: 76px; field-sizing: content; resize: vertical; border: 1px solid #0969da; border-radius: 8px; outline: 0; background: #fff; color: #24292f; padding: 11px 13px; font: inherit; font-size: 14px; }
+.pr-thread-reply > .markdown-body { min-height: 76px; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; padding: 11px 13px; font-size: 14px; }
 .pr-thread-reply__error { color: #cf222e; font-size: 12px; }
 .pr-thread-reply__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .pr-thread-reply__actions button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #24292f; padding: 6px 11px; }

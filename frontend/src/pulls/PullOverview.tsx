@@ -610,6 +610,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
   const { payload } = activity;
   const [replying, setReplying] = useState(false);
   const [body, setBody] = useState('');
+  const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [error, setError] = useState('');
@@ -631,6 +632,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
       return;
     }
     setBody('');
+    setPreview(false);
     setReplying(false);
     setPosting(false);
     await onRefresh();
@@ -650,6 +652,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
   };
   const quoteReply = (quotedBody: string) => {
     setBody(current => appendQuotedReply(current, quotedBody));
+    setPreview(false);
     setError('');
     setReplying(true);
     requestAnimationFrame(() => {
@@ -659,17 +662,25 @@ function ReviewThread({ activity, pr, onRefresh }: {
   };
   const controls = replying ? (
     <footer className="pr-thread-reply">
-      <textarea ref={textareaRef} autoFocus aria-label="Reply to review thread" value={body} rows={4}
-        placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
-        onKeyDown={event => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            void submit();
-          }
-        }} />
+      <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
+        <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
+          onClick={() => setPreview(false)}>Write</button>
+        <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
+          onClick={() => setPreview(true)}>Preview</button>
+      </div>
+      {preview
+        ? <MarkdownBody body={body || 'Nothing to preview.'} />
+        : <textarea ref={textareaRef} autoFocus aria-label="Reply to review thread" value={body} rows={4}
+          placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
+          onKeyDown={event => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault();
+              void submit();
+            }
+          }} />}
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       <div className="pr-thread-reply__actions">
-        <button type="button" onClick={() => { setReplying(false); setBody(''); setError(''); }}>Cancel</button>
+        <button type="button" onClick={() => { setReplying(false); setBody(''); setPreview(false); setError(''); }}>Cancel</button>
         <button className="is-primary" type="button" disabled={posting || !body.trim()}
           onClick={() => { void submit(); }}>{posting ? 'Replying…' : 'Reply'}</button>
       </div>
@@ -677,7 +688,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
   ) : (
     <footer>
       <button className="pr-thread-reply__open" type="button" disabled={!rootCommentId}
-        onClick={() => { setError(''); setReplying(true); }}>Reply</button>
+        onClick={() => { setError(''); setPreview(false); setReplying(true); }}>Reply</button>
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       <button className="pr-thread-resolve" type="button" disabled={!rootCommentId || changingResolution}
         onClick={() => { void changeResolution(); }}>

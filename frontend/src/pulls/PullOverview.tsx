@@ -63,10 +63,13 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           : 'Open';
 
   return (
-    <div className="pr-overview">
+    <div className="pr-overview pull-request-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
-          <h2>{title} <span>#{detail.number}</span></h2>
+          <h1>{title}</h1>
+        </div>
+        <div className="pr-overview__number">
+          <span>#{detail.number}</span>
           <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />
         </div>
         <div className="pr-overview__branches">
@@ -82,6 +85,10 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
               <CopyIcon />
             </button>
           </span>
+          <button type="button" aria-label="Open on GitHub" title="Open on GitHub"
+            onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
+            <Avatar login="github" size={18} />
+          </button>
         </div>
       </section>
 

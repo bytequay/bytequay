@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment } from './PullOverview';
-import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
+import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -175,10 +175,14 @@ describe('PullOverview', () => {
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={detail()} onRefresh={async () => {}} />);
 
-    expect(html).toContain('Example pull request <span>#42</span>');
+    expect(html).toContain('<div class="pr-overview__title"><h1>Example pull request</h1></div>');
+    expect(html).toContain('<div class="pr-overview__number"><span>#42</span>');
     expect(html).toContain(' Open</span>');
     expect(html).toContain('main');
     expect(html).toContain('feature/overview');
+    expect(html).toContain('aria-label="Open on GitHub" title="Open on GitHub"');
+    expect(html).toContain('src="https://github.com/github.png?size=36"');
+    expect(html.indexOf('feature/overview')).toBeLessThan(html.indexOf('aria-label="Open on GitHub"'));
     expect(html.indexOf('added <span')).toBeLessThan(html.indexOf('changed the title from'));
     expect(html).toContain('src/Example.java:L12');
     expect(html).toContain('Resolved');
@@ -642,51 +646,53 @@ describe('PullOverview', () => {
     expect(remotePullRequest(value, 'carol').origin).toBe('OTHER');
   });
 
-  it('keeps review submission reachable after opening the changes', () => {
+  it('keeps only review and merge actions in the compact detail header', () => {
+    const value = detail();
+    value.viewerCanWrite = true;
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
-      detail={detail()}
+      detail={value}
       tab="changes"
       onTab={() => {}}
       onRefresh={async () => {}}
       pendingComments={[]}
-      zoomed={false}
-      onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
     expect(html).toContain('class="pull-detail__review-action"');
     expect(html).toContain('>Submit review</button>');
-    expect(html).toContain('aria-label="Zoom pull request details" aria-pressed="false"');
+    expect(html).toContain('class="pull-detail__merge-action is-conflicts"');
+    expect(html).toContain('class="pull-detail__pr-tab is-open"');
+    expect(html).toContain('PR #42');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
+    expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
+    expect(html).not.toContain('aria-label="Zoom pull request details"');
+    expect(html).not.toContain('aria-label="Refresh"');
+    expect(html).not.toContain('requested your review');
+    expect(html).not.toContain('Open on GitHub');
   });
 
-  it('offers a restore control when pull request details are zoomed', () => {
+  it.each([
+    ['open', false, 'open'],
+    ['open', true, 'draft'],
+    ['closed', false, 'closed'],
+    ['merged', false, 'merged'],
+  ] as const)('uses the %s pull request icon state', (state, draft, iconState) => {
+    const value = { ...detail(), state, draft };
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={pullRequest()}
-      detail={detail()}
+      detail={value}
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
       pendingComments={[]}
-      zoomed
-      onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
-    expect(html).toContain('aria-label="Restore pull request details" aria-pressed="true"');
+    expect(html).toContain(`pull-detail__pr-tab is-${iconState} is-active`);
   });
 
-  it('shows who requested the current user\'s review', () => {
-    const value = detail();
-    value.recentActivity.push({
-      actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-08-20T10:00:00Z', body: null, githubId: 30, payload: emptyPayload,
-    });
-
-    const html = renderToStaticMarkup(<ReviewRequestNotice pr={pullRequest()} detail={value} onReview={() => {}} />);
-
-    expect(html).toContain('<strong>ravi-moreau</strong> requested your review on this pull request.');
-    expect(html).toContain('>Add your review</button>');
-  });
-
-  it('shows the review banner only while the signed-in user is requested', () => {
+  it('identifies when the signed-in user is requested for review', () => {
     const value = detail();
 
     expect(isReviewRequestedForViewer(value, 'bob')).toBe(true);

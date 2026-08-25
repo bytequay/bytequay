@@ -84,7 +84,6 @@ export default function PullsScreen({
   const [diffLoading, setDiffLoading] = useState(false);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
-  const [detailZoomed, setDetailZoomed] = useState(false);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -576,8 +575,7 @@ export default function PullsScreen({
       </section>
 
       {paneShown && selectedPr !== null && (
-        <section className={`pull-detail${detailZoomed ? ' is-zoomed' : ''}`}
-          style={detailZoomed ? undefined : { width: detailWidth }}>
+        <section className="pull-detail" style={{ width: detailWidth }}>
           <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
             aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />
           <PullDetailHeader
@@ -588,8 +586,6 @@ export default function PullsScreen({
             onRefresh={refresh}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
-            zoomed={detailZoomed}
-            onZoom={() => setDetailZoomed(value => !value)}
           />
           {error && <div className="pull-detail__error">{error}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
@@ -666,8 +662,6 @@ export function PullDetailHeader({
   onRefresh,
   pendingComments,
   onPendingCommentsChange,
-  zoomed,
-  onZoom,
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
@@ -676,15 +670,11 @@ export function PullDetailHeader({
   onRefresh: () => Promise<void>;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
-  zoomed: boolean;
-  onZoom: () => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [viewerLogin, setViewerLogin] = useState<string | null>(null);
   const canReview = canSubmitReview(pr, detail);
-  const reviewRequested = isReviewRequestedForViewer(detail, viewerLogin);
   const canMerge = canReview
     && detail !== null
     && detail.state?.toLowerCase() === 'open'
@@ -696,6 +686,10 @@ export function PullDetailHeader({
   const mergeModeReady = typeof mergeQueue === 'boolean';
   const mergeBlocked = merge?.state === 'failed' || merge?.state === 'blocked';
   const mergeLoading = mergeQueue === undefined || mergeQueue === null || merge?.state === 'pending';
+  const state = (detail?.state ?? pr.state)?.toLowerCase();
+  const iconState = state === 'merged' || state === 'closed'
+    ? state
+    : (detail?.draft ?? pr.draft) ? 'draft' : 'open';
   const mergeLabel = conflicts
     ? 'Conflicts'
     : mergeQueue === undefined || mergeQueue === null
@@ -720,30 +714,28 @@ export function PullDetailHeader({
     return () => { cancelled = true; };
   }, [canMerge, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void window.bridge.getUserProfile()
-      .then(profile => { if (!cancelled) setViewerLogin(profile.login); })
-      .catch(() => { if (!cancelled) setViewerLogin(null); });
-    return () => { cancelled = true; };
-  }, []);
-
   return (
-    <header className="pull-detail__header">
-      <div className="pull-detail__title-row">
-        <h1>{pr.title}</h1>
+    <header className="pull-detail__header pull-detail__header--tabs">
+      <div className="pull-detail__toolbar">
+        <nav className="pull-detail__tabs" aria-label="Pull request detail">
+          <button
+            className={`pull-detail__pr-tab is-${iconState}${tab === 'overview' ? ' is-active' : ''}`}
+            type="button"
+            aria-pressed={tab === 'overview'}
+            onClick={() => onTab('overview')}>
+            <PullRequestIcon merged={iconState === 'merged'} /> PR #{pr.number}
+          </button>
+          <button
+            className={tab === 'changes' ? 'is-active' : ''}
+            type="button"
+            aria-pressed={tab === 'changes'}
+            onClick={() => onTab('changes')}>
+            <ChangesIcon /> Changes
+            <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
+            <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
+          </button>
+        </nav>
         <div className="pull-detail__header-actions">
-          <button type="button" title={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
-            aria-label={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
-            aria-pressed={zoomed} onClick={onZoom}>
-            <ZoomIcon zoomed={zoomed} />
-          </button>
-          <button type="button" title="Refresh" aria-label="Refresh" onClick={() => { void onRefresh(); }}>
-            <RefreshIcon />
-          </button>
-          <button className="pull-detail__open-github" type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
-            Open on GitHub <span aria-hidden="true">↗</span>
-          </button>
           {canReview && (
             <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
               Submit review
@@ -764,20 +756,6 @@ export function PullDetailHeader({
           )}
         </div>
       </div>
-      {reviewRequested && detail && (
-        <ReviewRequestNotice pr={pr} detail={detail} onReview={() => onTab('changes')} />
-      )}
-      <nav className="pull-detail__tabs" aria-label="Pull request detail">
-        <button className={tab === 'overview' ? 'is-active' : ''} type="button" onClick={() => onTab('overview')}>
-          <CommentIcon /> Overview
-          <span>{pr.commentCount}</span>
-        </button>
-        <button className={tab === 'changes' ? 'is-active' : ''} type="button" onClick={() => onTab('changes')}>
-          <ChangesIcon /> Changes
-          <span className="is-addition">+{detail?.additions ?? pr.additions}</span>
-          <span className="is-deletion">−{detail?.deletions ?? pr.deletions}</span>
-        </button>
-      </nav>
       {reviewOpen && detail && (
         <ReviewDialog pr={pr} detail={detail}
           pendingComments={pendingComments}
@@ -789,24 +767,6 @@ export function PullDetailHeader({
           onClose={() => setMergeOpen(false)} onRefresh={onRefresh} />
       )}
     </header>
-  );
-}
-
-export function ReviewRequestNotice({ pr, detail, onReview }: {
-  pr: PullRequestDto;
-  detail: PullRequestDetailDto;
-  onReview: () => void;
-}) {
-  const requester = detail.recentActivity.findLast(activity =>
-    activity.eventType === 'review_requested' && activity.actor?.trim())?.actor
-    ?? pr.author
-    ?? 'Someone';
-  return (
-    <aside className="pull-detail__review-request" aria-label="Review requested">
-      <ReviewRequestIcon />
-      <span><strong>{requester}</strong> requested your review on this pull request.</span>
-      <button type="button" onClick={onReview}>Add your review</button>
-    </aside>
   );
 }
 
@@ -1096,13 +1056,6 @@ function ConflictIcon() {
   return <span className="pr-merge-conflict-icon" aria-hidden="true">×</span>;
 }
 
-function ReviewRequestIcon() {
-  return <svg className="pull-detail__review-request-icon" viewBox="0 0 16 16" width="16" height="16"
-    fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" aria-hidden="true">
-    <path d="M8 1.8 15 14H1L8 1.8Z" /><path d="M8 5.5v4" /><circle cx="8" cy="12" r=".7" fill="currentColor" stroke="none" />
-  </svg>;
-}
-
 function DetailBody({
   tab,
   pr,
@@ -1164,17 +1117,6 @@ export function RefreshIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 7v5h-5M4 17v-5h5" /><path d="M7.1 7.1a7 7 0 0 1 11.4 2.3M16.9 16.9a7 7 0 0 1-11.4-2.3" />
-    </svg>
-  );
-}
-
-function ZoomIcon({ zoomed }: { zoomed: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {zoomed
-        ? <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
-        : <path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" />}
     </svg>
   );
 }

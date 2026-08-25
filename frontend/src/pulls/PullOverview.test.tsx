@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, groupTimelineActivities, mentionCandidates, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction } from './PullOverview';
-import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
+import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, ReviewRequestNotice, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -588,6 +588,20 @@ describe('PullOverview', () => {
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'blocked' })).toBe(false);
     expect(remotePullRequest(value, 'bob').origin).toBe('REVIEW_REQUESTED');
     expect(remotePullRequest(value, 'carol').origin).toBe('OTHER');
+  });
+
+  it('keeps review submission reachable after opening the changes', () => {
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
+      detail={detail()}
+      tab="changes"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      pendingComments={[]}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toContain('class="pull-detail__review-action"');
+    expect(html).toContain('>Submit review</button>');
   });
 
   it('shows who requested the current user\'s review', () => {

@@ -596,7 +596,7 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
   };
 }
 
-function PullDetailHeader({
+export function PullDetailHeader({
   pr,
   detail,
   tab,
@@ -673,6 +673,11 @@ function PullDetailHeader({
           <button className="pull-detail__open-github" type="button" onClick={() => { void window.bridge.openInAppBrowser(pr.htmlUrl); }}>
             Open on GitHub <span aria-hidden="true">↗</span>
           </button>
+          {canReview && (
+            <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
+              Submit review
+            </button>
+          )}
           {canMerge && (
             <button
               className={`pull-detail__merge-action${conflicts || mergeBlocked ? ' is-conflicts' : mergeLoading ? ' is-loading' : ''}`}

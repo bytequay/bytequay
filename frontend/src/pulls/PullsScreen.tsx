@@ -73,6 +73,8 @@ export default function PullsScreen({
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
   const detailSnapshot = useRef<string | null>(null);
+  const listRequest = useRef(0);
+  const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
 
   const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
     const snapshot = JSON.stringify(value);
@@ -116,44 +118,42 @@ export default function PullsScreen({
       : result.pullRequests[0]?.id ?? null);
   }, []);
 
-  const loadFirstPage = useCallback(async () => {
-    applyPage(await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query));
-  }, [applyPage, query, repositoryScope?.workspaceId]);
-
-  const loadList = useCallback(async () => {
-    setError(null);
-    try {
-      await loadFirstPage();
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
-      setLoading(false);
-    }
-  }, [loadFirstPage]);
-
   const refreshList = useCallback(async () => {
+    const request = ++listRequest.current;
     setLoading(true);
     setError(null);
     try {
       await window.bridge.syncPrs(repositoryScope?.workspaceId);
-      await loadFirstPage();
+      if (request !== listRequest.current) return;
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
+      if (request === listRequest.current) applyPage(result);
     }
     catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
     }
     finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
-  }, [loadFirstPage, repositoryScope?.workspaceId]);
+  }, [applyPage, query, repositoryScope?.workspaceId]);
 
   useEffect(() => {
+    const request = ++listRequest.current;
     setLoading(true);
+    setError(null);
+    setPrs([]);
     setHasMore(false);
     setPage(0);
-    void loadList();
-  }, [loadList]);
+    window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query)
+      .then(result => {
+        if (request === listRequest.current) applyPage(result);
+      })
+      .catch(e => {
+        if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (request === listRequest.current) setLoading(false);
+      });
+  }, [applyPage, query, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setQuery(search.trim()), 250);
@@ -162,10 +162,12 @@ export default function PullsScreen({
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;
+    const request = listRequest.current;
     loadingMoreRequest.current = true;
     setLoadingMore(true);
     try {
       const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE, query);
+      if (request !== listRequest.current) return;
       setPrs(current => {
         const loaded = new Set(current.map(pr => pr.id));
         return [...current, ...result.pullRequests.filter(pr => !loaded.has(pr.id))];
@@ -174,7 +176,7 @@ export default function PullsScreen({
       setHasMore(result.hasMore);
     }
     catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
     }
     finally {
       loadingMoreRequest.current = false;
@@ -245,8 +247,16 @@ export default function PullsScreen({
       : window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
     const poll = async (): Promise<void> => {
       let nextDelay = DETAIL_REFRESH_INTERVAL;
+      let request: Promise<PullRequestDetailRefreshDto> | null = null;
       try {
-        const value = await refreshSelectedDetail();
+        while (detailRefreshInFlight.current !== null) {
+          const pending = detailRefreshInFlight.current;
+          await pending.then((): undefined => undefined, (): undefined => undefined);
+        }
+        if (cancelled) return;
+        request = refreshSelectedDetail();
+        detailRefreshInFlight.current = request;
+        const value = await request;
         if (!cancelled) {
           applyDetailRefresh(selectedPrId, value);
           setError(null);
@@ -257,6 +267,7 @@ export default function PullsScreen({
         if (!cancelled) setError(remoteErrorMessage(e));
       }
       finally {
+        if (detailRefreshInFlight.current === request) detailRefreshInFlight.current = null;
         if (!cancelled) refreshTimer = window.setTimeout((): void => { void poll(); }, nextDelay);
       }
     };
@@ -327,13 +338,22 @@ export default function PullsScreen({
 
   const refresh = async () => {
     if (!selectedPr) return;
+    const listVersion = listRequest.current;
     setDetailLoading(true);
     try {
       const value = selectedPr.id > 0
         ? await window.bridge.refreshAllPullRequestDetail(selectedPr.id)
         : await window.bridge.refreshAllPullRequestDetailByRef(selectedPr.repo, selectedPr.number);
       applyDetail(selectedPr.id, value, true);
-      await loadFirstPage();
+      if (listVersion === listRequest.current) {
+        try {
+          const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
+          if (listVersion === listRequest.current) applyPage(result);
+        }
+        catch (e) {
+          if (listVersion === listRequest.current) throw e;
+        }
+      }
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -434,7 +454,7 @@ export default function PullsScreen({
                 : `No pull requests${repositoryScope ? ` for ${repositoryScope.repository}` : ''} in this view.`}
             </div>
           )}
-          {rows.map(row => (
+          {!loading && rows.map(row => (
             <PullRowItem
               key={row.id}
               row={row}

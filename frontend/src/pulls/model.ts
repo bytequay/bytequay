@@ -85,7 +85,7 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
 }
 
 export function visibleSelectedId(rows: PullRow[], selected: number | null) {
-  return rows.some(row => row.id === selected) ? selected : rows[0]?.id ?? null;
+  return selected ?? rows[0]?.id ?? null;
 }
 
 export function tabForInitialPullRequest(pr: PullRequestDto, preferred: PullTab): PullTab {

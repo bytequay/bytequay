@@ -257,14 +257,18 @@ export default function PullsScreen({
   const selectedPrRepo = selectedPr?.repo;
 
   useEffect(() => {
-    if (selectedPrNumber === undefined || selectedPrRepo === undefined) return;
+    if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) return;
     const selectedKey = `${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
     if (routingInitialPr.current !== null) {
       if (routingInitialPr.current === selectedKey) routingInitialPr.current = null;
       return;
     }
+    if (selected === null) {
+      setSelected(selectedPrId);
+      return;
+    }
     onSelectPullRequest({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
-  }, [onSelectPullRequest, selectedPrNumber, selectedPrRepo]);
+  }, [onSelectPullRequest, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) {

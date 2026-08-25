@@ -82,16 +82,26 @@ describe('rowsForTab', () => {
     const closed = pr({ id: 3, state: 'closed' });
 
     expect(rowsForTab([open, merged, closed], 'done').map(row => row.id)).toEqual([2, 3]);
+    expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
   });
 
-  it('keeps selection within the active filter', () => {
-    const open = pr({ id: 1, state: 'open', updatedAt: '2026-08-24T00:00:00Z' });
-    const closed = pr({ id: 2, state: 'closed', updatedAt: '2026-08-25T00:00:00Z' });
-    const openRows = rowsForTab([closed, open], 'all');
+  it('keeps a commented pull request open after it leaves Needs review', () => {
+    const current = pr({ id: 1, origin: 'REVIEW_REQUESTED' });
+    const waiting = pr({ id: 2, origin: 'REVIEW_REQUESTED' });
+    const selected = visibleSelectedId(rowsForTab([current, waiting], 'req'), null);
+    const commented = pr({
+      id: 1,
+      origin: 'REVIEW_REQUESTED',
+      handledAction: 'COMMENTED',
+      reviewedAt: '2026-08-25T00:00:00Z',
+    });
+    const needsReview = rowsForTab([commented, waiting], 'req');
 
-    expect(visibleSelectedId(openRows, closed.id)).toBe(open.id);
-    expect(visibleSelectedId([], closed.id)).toBeNull();
-    expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
+    expect(selected).toBe(current.id);
+    expect(needsReview.map(row => row.id)).toEqual([waiting.id]);
+    expect(visibleSelectedId(needsReview, selected)).toBe(commented.id);
+    expect(visibleSelectedId(needsReview, null)).toBe(waiting.id);
+    expect(rowsForTab([commented, waiting], 'reviewed').map(row => row.id)).toEqual([commented.id]);
   });
 
   it('moves a stale open row to Done when detail reports it merged', () => {

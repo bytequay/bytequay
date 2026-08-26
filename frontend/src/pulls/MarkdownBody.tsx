@@ -85,6 +85,10 @@ function htmlToMarkdown(value: string) {
 
 function decodeEntities(value: string) {
   return value
+    .replace(/&#(x[0-9a-f]+|\d+);/gi, (entity, encoded: string) => {
+      const codePoint = Number(encoded[0].toLowerCase() === 'x' ? `0${encoded}` : encoded);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+    })
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
@@ -174,7 +178,7 @@ export function markdownBlocks(markdown: string): Block[] {
       blocks.push({ kind: 'rule' });
       continue;
     }
-    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX*])\)|\[([ xX])\])\s+(.+)$/);
+    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX*✓])\)|\[([ xX])\])\s+(.+)$/);
     if (task) {
       flushParagraph();
       flushList();

@@ -40,6 +40,14 @@ describe('MarkdownBody', () => {
     expect(html).toContain('<ul><li>Dash item</li><li>Asterisk item</li></ul>');
   });
 
+  it('renders an encoded checkmark as a checked task', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body="(&#x2713;) Release notes are required." />);
+
+    expect(html.match(/type="checkbox"/g)).toHaveLength(1);
+    expect(html.match(/checked=""/g)).toHaveLength(1);
+    expect(html).not.toContain('x2713');
+  });
+
   it('renders code and links nested inside bold text', () => {
     const body = '- **`RedirectionAwareViewHandle`** — record for view redirection\n'
       + '- **[`MetadataManager.getRedirectedViewName()`](cci:1://file:///src/MetadataManager.java:2061:4-2102:5)** — redirect resolution';

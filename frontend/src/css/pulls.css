@@ -733,15 +733,22 @@
 
 .pr-thread-row { margin-left: 43px; overflow: hidden; border: 1px solid #e4e8ec; border-radius: 10px; background: #f6f8fa; }
 .pr-thread-row + .pr-thread-row { margin-top: 12px; }
-.pr-thread-row > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 14px; color: #59636e; cursor: pointer; list-style: none; }
-.pr-thread-row > summary::-webkit-details-marker { display: none; }
-.pr-thread-row > summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.pr-thread-row > summary,
+.pr-inline-thread > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #59636e; cursor: pointer; list-style: none; }
+.pr-thread-row > summary { padding: 7px 14px; }
+.pr-thread-row > summary::-webkit-details-marker,
+.pr-inline-thread > summary::-webkit-details-marker { display: none; }
+.pr-thread-row > summary code,
+.pr-inline-thread > summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.pr-thread-chevron { display: inline-block; transition: transform 120ms ease; }
+.pr-thread-row[open] > summary .pr-thread-chevron,
+.pr-inline-thread[open] > summary .pr-thread-chevron { transform: rotate(90deg); }
 .pr-thread-row__resolved { display: inline-flex; align-items: center; gap: 5px; }
 .pr-thread-row__resolved svg { color: #8250df; }
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
 .pr-inline-thread { margin-left: 43px; }
-.pr-inline-thread > header { display: flex; overflow: hidden; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; padding: 9px 14px; white-space: nowrap; }
-.pr-inline-thread > header code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; }
+.pr-inline-thread > summary { overflow: hidden; background: #f6f8fa; padding: 9px 14px; white-space: nowrap; }
+.pr-inline-thread[open] > summary { border-bottom: 1px solid #d8dee4; }
 .pr-thread-outdated { flex: 0 0 auto; border: 1px solid #d4a72c; border-radius: 999px; background: #fff8c5; color: #7d4e00; padding: 2px 8px; font-size: 11.5px; font-weight: 600; }
 .pr-commented-code-line { display: grid; overflow-x: auto; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
 .pr-commented-code-line.is-add { background: #dafbe1; color: #116329; }

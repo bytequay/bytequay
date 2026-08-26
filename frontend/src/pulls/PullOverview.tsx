@@ -721,7 +721,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
     return (
       <details className="pr-thread-row">
         <summary>
-          <span>›</span>
+          <span className="pr-thread-chevron" aria-hidden="true">›</span>
           <code>{threadLocation(payload.path, payload.line ?? payload.originalLine)}</code>
           <span className="pr-thread-row__resolved"><ResolvedIcon /> Resolved</span>
         </summary>
@@ -734,16 +734,17 @@ function ReviewThread({ activity, pr, onRefresh }: {
     );
   }
   return (
-    <article className="pr-inline-thread">
-      <header>
+    <details className="pr-inline-thread" open>
+      <summary>
+        <span className="pr-thread-chevron" aria-hidden="true">›</span>
         <code>{threadLocation(payload.path, commentedLine ? null : targetLine)}</code>
         {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
-      </header>
+      </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
         pr={pr} onRefresh={onRefresh} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
-    </article>
+    </details>
   );
 }
 

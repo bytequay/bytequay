@@ -256,7 +256,7 @@ describe('PullOverview', () => {
     expect(html).toContain('<span>labels</span>');
   });
 
-  it('renders a regular reply action without a duplicate footer reaction menu', () => {
+  it('renders an unresolved review thread open and foldable', () => {
     const value = detail();
     value.recentActivity = [{
       actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
@@ -282,6 +282,7 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
+    expect(html).toContain('<details class="pr-inline-thread" open=""><summary><span class="pr-thread-chevron" aria-hidden="true">›</span>');
     expect(html).toContain('class="pr-thread-reply__open"');
     expect(html).toContain('class="pr-thread-comment__menu"');
     expect(html).toContain('>Reply</button><button class="pr-thread-resolve"');
@@ -339,6 +340,8 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
+    expect(html).toContain('<details class="pr-thread-row"><summary><span class="pr-thread-chevron" aria-hidden="true">›</span>');
+    expect(html).not.toContain('<details class="pr-thread-row" open="">');
     expect(html).toContain('class="pr-thread-row__comments"');
     expect(html).toContain('class="pr-thread-reply__open"');
     expect(html).toContain('>Unresolve</button>');

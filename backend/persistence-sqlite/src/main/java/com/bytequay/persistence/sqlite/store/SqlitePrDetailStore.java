@@ -322,7 +322,8 @@ public class SqlitePrDetailStore
                 entity.getStatus(),
                 entity.getConclusion(),
                 entity.getDetailsUrl(),
-                entity.getSource());
+                entity.getSource(),
+                entity.getCompletedAt());
     }
 
     private static PrCheckRunEntity toEntity(long prId, PrCheckRunState check)
@@ -335,6 +336,7 @@ public class SqlitePrDetailStore
         entity.setConclusion(check.conclusion());
         entity.setDetailsUrl(check.detailsUrl());
         entity.setSource(check.source());
+        entity.setCompletedAt(check.completedAt());
         return entity;
     }
 

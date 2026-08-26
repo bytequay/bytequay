@@ -193,7 +193,8 @@ public class GitHubActionsClient
                             check.status(),
                             check.conclusion(),
                             check.detailsUrl(),
-                            "check_run"));
+                            "check_run",
+                            check.completedAt()));
                 }
                 collected += response.checkRuns().size();
                 if (collected >= response.totalCount() || response.checkRuns().size() < PAGE_SIZE) {
@@ -237,7 +238,8 @@ public class GitHubActionsClient
                                 default -> null;
                             },
                             status.targetUrl(),
-                            "status"))
+                            "status",
+                            "pending".equals(status.state()) ? null : status.updatedAt()))
                     .collect(toImmutableList());
             return new ConditionalChecks(Optional.of(statuses), responseEtag);
         }

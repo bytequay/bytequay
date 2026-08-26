@@ -960,6 +960,8 @@ function ChecksCard({ pr, detail, onRefresh }: {
       .filter(([, checks]) => checks.length > 0);
   }, [detail.checkRuns]);
   const passing = detail.ciStatus === 'PASSING';
+  const failing = detail.ciStatus === 'FAILING';
+  const pending = detail.ciStatus === 'PENDING';
   const canRerun = detail.viewerCanWrite && detail.checkRuns.some(check =>
     check.category === 'failing'
       && check.source === 'check_run'
@@ -984,8 +986,9 @@ function ChecksCard({ pr, detail, onRefresh }: {
   };
   return (
     <article className="pr-checks">
-      <header><span className={passing ? 'is-success' : 'is-failure'}>{passing ? <CheckIcon /> : <XIcon />}</span>
-        <strong>{passing ? 'All checks have passed' : detail.ciStatus === 'FAILING' ? 'Some checks were not successful' : 'Checks are in progress'}</strong>
+      <header><span className={passing ? 'is-success' : failing ? 'is-failure' : pending ? 'is-pending' : 'is-neutral'}>
+        {passing ? <CheckIcon /> : failing ? <XIcon /> : null}</span>
+        <strong>{passing ? 'All checks have passed' : failing ? 'Some checks were not successful' : pending ? 'Checks are in progress' : 'No checks reported'}</strong>
         {canRerun && <button type="button" className="pr-checks__rerun" disabled={rerunning || rerunRequested}
           onClick={() => { void rerun(); }}>{rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests'}</button>}
       </header>
@@ -999,6 +1002,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
               <div className="pr-check" key={check.githubId ?? `${check.name}-${checkIndex}`}>
                 <span className={`is-${check.category}`}>{check.category === 'successful' ? '✓' : check.category === 'failing' ? '✕' : '•'}</span>
                 <strong>{check.name ?? 'Check'}</strong>
+                {check.completedAt && <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>}
                 {check.source === 'status' && <small>status</small>}
               </div>
             ))}

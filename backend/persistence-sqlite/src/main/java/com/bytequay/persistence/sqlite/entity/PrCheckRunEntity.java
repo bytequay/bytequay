@@ -20,6 +20,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "pr_check_runs")
 public class PrCheckRunEntity
@@ -43,6 +45,9 @@ public class PrCheckRunEntity
     private String detailsUrl;
 
     private String source;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
 
     public PrCheckRunEntity() {}
 
@@ -68,4 +73,7 @@ public class PrCheckRunEntity
 
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+
+    public Instant getCompletedAt() { return completedAt; }
+    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
 }

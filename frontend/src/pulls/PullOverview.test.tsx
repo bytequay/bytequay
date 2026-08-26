@@ -200,6 +200,23 @@ describe('PullOverview', () => {
     expect(html).toContain('M10.5 7.75a2.75 2.75');
   });
 
+  it('shows running checks in yellow and completed check times', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-20T10:00:00Z'));
+    const value = detail();
+    value.ciStatus = 'PENDING';
+    value.checkRuns = [
+      { ...value.checkRuns[0], status: 'in_progress', conclusion: null, completedAt: null, category: 'pending' },
+      { ...value.checkRuns[1], completedAt: '2026-08-20T09:58:00Z' },
+    ];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    now.mockRestore();
+
+    expect(html).toContain('<header><span class="is-pending"></span><strong>Checks are in progress</strong>');
+    expect(html).not.toContain('<header><span class="is-failure">');
+    expect(html).toContain('<time dateTime="2026-08-20T09:58:00Z">Finished 2m ago</time>');
+  });
+
   it('offers failed GitHub Actions reruns to viewers with write access', () => {
     const value = detail();
     value.viewerCanWrite = true;
@@ -818,8 +835,8 @@ function detail(): PullRequestDetailDto {
       },
     ],
     checkRuns: [
-      { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', category: 'failing' },
-      { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', category: 'successful' },
+      { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', completedAt: null, category: 'failing' },
+      { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', completedAt: null, category: 'successful' },
     ],
     unavailableSections: [],
     viewerCanWrite: false,

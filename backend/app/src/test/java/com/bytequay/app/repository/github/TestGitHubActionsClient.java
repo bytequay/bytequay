@@ -37,6 +37,7 @@ import org.springframework.web.client.RestClient;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -282,6 +283,7 @@ class TestGitHubActionsClient
                 .andRespond(withSuccess("""
                         {"total_count":1,"check_runs":[{
                           "id":99,"name":"build","status":"completed","conclusion":"failure",
+                          "completed_at":"2026-08-25T12:34:56Z",
                           "html_url":"https://github.com/owner/repo/actions/runs/7/job/9",
                           "output":{"title":"Tests failed","summary":"One failure"}
                         }]}
@@ -289,8 +291,14 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(
                         "https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("""
-                        {"statuses":[{"id":100,"context":"license","state":"success",
-                          "target_url":"https://github.com/owner/repo/status/100"}]}
+                        {"statuses":[
+                          {"id":100,"context":"license","state":"success",
+                           "target_url":"https://github.com/owner/repo/status/100",
+                           "updated_at":"2026-08-25T12:35:00Z"},
+                          {"id":101,"context":"deploy","state":"pending",
+                           "target_url":"https://github.com/owner/repo/status/101",
+                           "updated_at":"2026-08-25T12:36:00Z"}
+                        ]}
                         """, MediaType.APPLICATION_JSON));
 
         List<PrCheckRunState> checks = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head");
@@ -299,8 +307,12 @@ class TestGitHubActionsClient
         assertThat(check.githubId()).isEqualTo(99L);
         assertThat(check.name()).isEqualTo("build");
         assertThat(check.conclusion()).isEqualTo("failure");
-        assertThat(checks).hasSize(2);
+        assertThat(check.completedAt()).isEqualTo(Instant.parse("2026-08-25T12:34:56Z"));
+        assertThat(checks).hasSize(3);
         assertThat(checks.get(1).source()).isEqualTo("status");
+        assertThat(checks.get(1).completedAt()).isEqualTo(Instant.parse("2026-08-25T12:35:00Z"));
+        assertThat(checks.get(2).status()).isEqualTo("in_progress");
+        assertThat(checks.get(2).completedAt()).isNull();
         fixture.verify();
     }
 

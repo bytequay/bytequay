@@ -99,7 +99,8 @@ final class PullRequestDetailMapper
                         checkRun.conclusion(),
                         checkRun.detailsUrl(),
                         checkRun.source(),
-                        checkCategory(checkRun)))
+                        checkCategory(checkRun),
+                        checkRun.completedAt()))
                 .collect(toImmutableList());
     }
 

@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import java.time.Instant;
+
 /** The execution state of a single CI check run. */
 public record PrCheckRunState(
         Long githubId,
@@ -20,10 +22,16 @@ public record PrCheckRunState(
         String status,
         String conclusion,
         String detailsUrl,
-        String source)
+        String source,
+        Instant completedAt)
 {
     public PrCheckRunState(Long githubId, String name, String status, String conclusion)
     {
-        this(githubId, name, status, conclusion, null, "check_run");
+        this(githubId, name, status, conclusion, null, "check_run", null);
+    }
+
+    public PrCheckRunState(Long githubId, String name, String status, String conclusion, String detailsUrl, String source)
+    {
+        this(githubId, name, status, conclusion, detailsUrl, source, null);
     }
 }

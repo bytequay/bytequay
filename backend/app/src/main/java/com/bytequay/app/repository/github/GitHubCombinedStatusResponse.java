@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -26,5 +27,6 @@ public record GitHubCombinedStatusResponse(List<Status> statuses)
             Long id,
             String context,
             String state,
-            @JsonProperty("target_url") String targetUrl) {}
+            @JsonProperty("target_url") String targetUrl,
+            @JsonProperty("updated_at") Instant updatedAt) {}
 }

@@ -85,7 +85,8 @@ public record PullRequestDetail(
             String conclusion,
             String detailsUrl,
             String source,
-            String category)
+            String category,
+            Instant completedAt)
     {
     }
 }

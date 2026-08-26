@@ -193,11 +193,13 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(comment),
                 ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
         store.save(PR_ID, original);
+        PrCheckRunState completedCheck = new PrCheckRunState(
+                2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(30));
         StoredPrDetail status = new StoredPrDetail(
                 original.raw().withMergeability(false, "dirty"),
                 ImmutableList.of(),
                 ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(2L, "test", "completed", "failure")));
+                ImmutableList.of(completedCheck));
 
         store.saveStatus(PR_ID, status);
 
@@ -206,8 +208,7 @@ class TestSqlitePrDetailStore
         assertThat(restored.raw().mergeableState()).isEqualTo("dirty");
         assertThat(restored.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
         assertThat(restored.timeline()).containsExactly(comment);
-        assertThat(restored.checkRuns()).containsExactly(
-                new PrCheckRunState(2L, "test", "completed", "failure"));
+        assertThat(restored.checkRuns()).containsExactly(completedCheck);
     }
 
     @Test

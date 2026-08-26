@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -29,5 +30,6 @@ public record GitHubCheckRunsResponse(
             String name,
             String status,
             String conclusion,
-            @JsonProperty("details_url") String detailsUrl) {}
+            @JsonProperty("details_url") String detailsUrl,
+            @JsonProperty("completed_at") Instant completedAt) {}
 }

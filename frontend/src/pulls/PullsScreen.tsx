@@ -178,6 +178,17 @@ export default function PullsScreen({
   }, [applyPage, repositoryScope?.workspaceId]);
 
   useEffect(() => {
+    if (!detailZoomed || browserOpen) return;
+    const exitFullScreen = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== 'Escape') return;
+      event.preventDefault();
+      setDetailZoomed(false);
+    };
+    window.addEventListener('keydown', exitFullScreen);
+    return () => window.removeEventListener('keydown', exitFullScreen);
+  }, [browserOpen, detailZoomed]);
+
+  useEffect(() => {
     const request = ++listRequest.current;
     setLoading(true);
     setError(null);
@@ -743,8 +754,8 @@ export function PullDetailHeader({
         </nav>
         <div className="pull-detail__header-actions">
           <button className="pull-detail__icon-action" type="button"
-            title={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
-            aria-label={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
+            title={zoomed ? 'Exit full screen (Esc)' : 'Enter full screen'}
+            aria-label={zoomed ? 'Exit full screen' : 'Enter full screen'}
             aria-pressed={zoomed} onClick={onZoom}>
             <ZoomIcon zoomed={zoomed} />
           </button>

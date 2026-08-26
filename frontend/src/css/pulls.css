@@ -196,12 +196,10 @@
 .pull-detail.is-zoomed {
   position: fixed;
   z-index: 70;
-  inset: 10%;
+  inset: 0;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #d0d7de;
-  border-radius: 12px;
-  box-shadow: 0 0 0 100vmax rgba(27, 31, 36, 0.45), 0 16px 48px rgba(27, 31, 36, 0.35);
+  border: 0;
 }
 
 .pull-detail.is-zoomed .pull-detail__resize { display: none; }

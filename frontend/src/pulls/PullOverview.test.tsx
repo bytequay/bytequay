@@ -686,7 +686,7 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
     expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
-    expect(html).toContain('aria-label="Zoom pull request details" aria-pressed="false"');
+    expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
     expect(html).toContain('aria-label="Refresh"');
     expect(html).not.toContain('requested your review');
     expect(html).not.toContain('Open on GitHub');
@@ -710,7 +710,7 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pull-detail__merge-action');
   });
 
-  it('offers a restore control when pull request details are zoomed', () => {
+  it('offers an exit control when pull request details are full screen', () => {
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={pullRequest()}
       detail={detail()}
@@ -722,7 +722,8 @@ describe('PullOverview', () => {
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
-    expect(html).toContain('aria-label="Restore pull request details" aria-pressed="true"');
+    expect(html).toContain('title="Exit full screen (Esc)"');
+    expect(html).toContain('aria-label="Exit full screen" aria-pressed="true"');
   });
 
   it.each([

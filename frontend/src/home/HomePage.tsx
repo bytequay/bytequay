@@ -16,12 +16,23 @@ import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } fro
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
+import AttentionList from './AttentionList';
+import {
+  assignedIssues,
+  attentionCandidates,
+  loadHandled,
+  saveHandled,
+  stillHandled,
+  type AttentionItem,
+  type Handled,
+} from './attention';
 import ContributionCard from './ContributionCard';
 import WatchedReposGrid from './WatchedReposGrid';
-import { relativeTime } from '../relativeTime';
 import { pullRequestNeedsReview } from '../pulls/model';
+import { relativeTime } from '../relativeTime';
 import {
   workspaceIsUpdating,
+  workspaceIssueRoute,
 } from '../workspaces/model';
 
 type Props = {
@@ -112,6 +123,8 @@ function HomePage({
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [handled, setHandled] = useState<Handled>(loadHandled);
+  const [issueItems, setIssueItems] = useState<AttentionItem[]>([]);
 
   useEffect(() => {
     void load();
@@ -162,6 +175,34 @@ function HomePage({
       .catch(() => {});
   }
 
+  // Issue snapshots are local reads per watched repository; keyed on the id
+  // list so the 1.5s workspace poll doesn't refire the fan-out.
+  const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
+  const login = profile?.login;
+
+  useEffect(() => {
+    if (!login || workspaceKey === '') return;
+    let cancelled = false;
+    void Promise.all(workspaceKey.split(',').map(workspaceId =>
+      window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
+        .then(snapshot => assignedIssues(snapshot, workspaceId, login))
+        .catch(() => [] as AttentionItem[])))
+      .then(groups => { if (!cancelled) setIssueItems(groups.flat()); });
+    return () => { cancelled = true; };
+  }, [login, workspaceKey]);
+
+  const candidates = useMemo(
+    () => attentionCandidates(prs ?? [], issueItems),
+    [issueItems, prs]);
+
+  const snoozedCount = useMemo(() => {
+    const now = Date.now();
+    return candidates.filter(item => {
+      const entry = handled[item.key];
+      return entry !== undefined && entry.kind === 'snooze' && stillHandled(entry, item, now);
+    }).length;
+  }, [candidates, handled]);
+
   const prInboxCounts = useMemo(() => {
     if (!prs) return null;
     let mine = 0;
@@ -177,21 +218,14 @@ function HomePage({
   }, [prs]);
 
 
+  function applyHandled(next: Handled) {
+    setHandled(next);
+    saveHandled(next);
+  }
+
   function handleAdded(dto: WorkspaceDto) {
     setWorkspaces(previous => [dto, ...previous.filter(row => row.id !== dto.id)]
       .sort((left, right) => left.displayOrder - right.displayOrder));
-  }
-
-  async function handleRemove(workspace: WorkspaceDto) {
-    if (!confirm(`Stop watching ${workspace.selectedOwner}/${workspace.selectedRepo}?`)) return;
-    setWorkspaceError(null);
-    try {
-      await window.bridge.removeWorkspace(workspace.id);
-      setWorkspaces(previous => previous.filter(row => row.id !== workspace.id));
-    }
-    catch (failure) {
-      setWorkspaceError(failure instanceof Error ? failure.message : String(failure));
-    }
   }
 
   return (
@@ -201,79 +235,46 @@ function HomePage({
       {/* ── Contribution card: graph + bio ── */}
       <ContributionCard profile={profile} />
 
-      {/* ── Review CTA banner ── */}
-      <button
-        className="home-cta-card"
-        onClick={onGoToMyPrs}
-        type="button"
-      >
-        <div className="home-cta-card__icon" aria-hidden="true">✦</div>
-        <div className="home-cta-card__body">
-          <div className="home-cta-card__title">Start reviewing all my PRs</div>
-          {prInboxCounts && (
-            <div className="home-cta-card__counts">
-              <span className="home-cta-card__count">
-                <b>{prInboxCounts.awaiting}</b> awaiting my review
-              </span>
-              <span className="home-cta-card__count">
-                <b>{prInboxCounts.mine}</b> of my PRs
-              </span>
-              <span className="home-cta-card__count">
-                <b>{prInboxCounts.flagged}</b> flagged
-              </span>
-            </div>
-          )}
+      {/* ── Start review bar ── */}
+      <div className="home-start">
+        <span className="home-start__icon" aria-hidden="true">✦</span>
+        <span className="home-start__title">Start reviewing all my PRs</span>
+        <span className="home-start__divider" aria-hidden="true" />
+        <div className="home-start__counts">
+          <span><b className={prInboxCounts?.awaiting ? '' : 'is-zero'}>{prInboxCounts?.awaiting ?? 0}</b> awaiting me</span>
+          <span><b className={prInboxCounts?.mine ? '' : 'is-zero'}>{prInboxCounts?.mine ?? 0}</b> mine</span>
+          <span><b className={prInboxCounts?.flagged ? '' : 'is-zero'}>{prInboxCounts?.flagged ?? 0}</b> flagged</span>
         </div>
-        <span className="home-cta-card__open">Open <span aria-hidden="true">›</span></span>
-      </button>
+        <div className="home-start__spacer" />
+        {snoozedCount > 0 && <span className="home-start__snoozed">{snoozedCount} snoozed</span>}
+        <button className="home-start__go" type="button" onClick={onGoToMyPrs}>
+          Start review <span aria-hidden="true">→</span>
+        </button>
+      </div>
 
-      <section className="home-section">
-        <div className="home-section__header">
-          <span className="home-section__title">Pull requests needing attention</span>
-          <button className="home-section__action" type="button" onClick={onGoToMyPrs}>
-            See all
-          </button>
-        </div>
-        <div className="home-following-list">
-          {(prs ?? [])
-            .filter(pr => pr.state === 'open')
-            .slice(0, 5)
-            .map(pr => {
-              const slash = pr.repo.indexOf('/');
-              return (
-                <button
-                  type="button"
-                  className="home-cta-card"
-                  key={pr.id}
-                  onClick={() => onSelectRepo(
-                    pr.repo.slice(0, slash),
-                    pr.repo.slice(slash + 1),
-                    pr.number,
-                  )}
-                >
-                  <span className="home-cta-card__body">
-                    <span className="home-cta-card__title">{pr.title}</span>
-                    <span className="home-cta-card__counts">
-                      {pr.repo} · #{pr.number} · {relativeTime(pr.updatedAt)}
-                    </span>
-                  </span>
-                  <span className="home-cta-card__open">Open <span aria-hidden="true">›</span></span>
-                </button>
-              );
-            })}
-          {prs?.length === 0 && <div className="hp-empty">No pull requests yet.</div>}
-        </div>
-      </section>
+      <AttentionList
+        candidates={candidates}
+        handled={handled}
+        onHandledChange={applyHandled}
+        onOpen={item => {
+          if (item.type === 'issue' && item.workspaceId !== null) {
+            window.location.hash = workspaceIssueRoute(item.workspaceId, item.number);
+            return;
+          }
+          const slash = item.repo.indexOf('/');
+          onSelectRepo(item.repo.slice(0, slash), item.repo.slice(slash + 1), item.number);
+        }}
+        onSeeAll={onGoToMyPrs}
+      />
 
       {/* ── Repos you watch ── */}
       {workspaceError && <div className="ws-error" role="alert">{workspaceError}</div>}
       <WatchedReposGrid
         workspaces={workspaces}
         loading={loading}
-        events={events}
+        prs={prs ?? []}
         onOpenWorkspace={onOpenWorkspace}
         onWatch={() => setShowModal(true)}
-        onRemove={workspace => { void handleRemove(workspace); }}
       />
 
       </main>

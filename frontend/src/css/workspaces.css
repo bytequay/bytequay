@@ -22,65 +22,283 @@
 
 .ws-empty { margin-top: 20px; color: #8c959f; font-size: var(--ui-font-size); }
 
+.ws-new {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 7px;
+  background: #1f883d;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ws-new:hover { background: #1a7f37; }
+
+.ws-lede {
+  margin: 5px 0 0;
+  font-size: 12.5px;
+  color: #8c959f;
+  max-width: 640px;
+}
+
 .ws-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-  margin-top: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(322px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
 }
 
 .ws-card {
+  position: relative;
   display: block;
   text-align: left;
-  border: 1px solid #e3e3e6;
+  border: 1px solid #e8e8ea;
   border-radius: 12px;
   background: #ffffff;
-  cursor: pointer;
-  padding: 18px 18px 14px;
+  padding: 15px 15px 11px;
 }
 
-.ws-card:hover { border-color: #b6b6bc; box-shadow: 0 4px 14px rgba(27, 31, 36, 0.08); }
-.ws-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ws-card:hover {
+  border-color: #c0c0c7;
+  box-shadow: 0 4px 14px rgba(27, 31, 36, 0.08);
+}
 
-.ws-card-title { display: flex; align-items: center; gap: 8px; }
+.ws-card.is-failed { border-color: rgba(207, 34, 46, 0.4); }
 
-.ws-card-name { font-size: 15px; font-weight: 700; color: #1f2328; }
+/* The whole card is the link; the retry button sits above it rather than
+   inside it, so a failed card stays openable and still offers the retry. */
+.ws-card__hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 12px;
+}
 
-.ws-state {
-  display: inline-flex;
+.ws-card__hit:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
+}
+
+.ws-card-title {
+  display: flex;
   align-items: center;
-  margin-left: auto;
-  border-radius: 999px;
-  padding: 2px 8px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ws-card-name {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #1f2328;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-topo {
+  flex: none;
   font-size: 10.5px;
   font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 8px;
   white-space: nowrap;
   color: #57606a;
-  background: #f6f8fa;
+  background: #eceff2;
 }
 
-.ws-state.is-ready { color: #1a7f37; background: #dafbe1; }
-.ws-state.is-preparing { color: #9a6700; background: #fff8c5; }
+.ws-topo.is-fork { color: #9a6700; background: #fff8c5; }
+.ws-topo.is-failed { color: #cf222e; background: #ffebe9; }
 
 .ws-card-path {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11.5px;
+  font-family: var(--mono);
+  font-size: 11px;
   color: #8c959f;
-  margin-top: 4px;
-  word-break: break-all;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ws-card-route { margin-top: 5px; font-size: var(--ui-font-size); color: #57606a; }
+.ws-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 13px;
+  background: #eceff2;
+  border: 1px solid #eceff2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ws-stat {
+  background: #fbfbfc;
+  padding: 8px 9px;
+  min-width: 0;
+}
+
+.ws-stat__n {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #1f2328;
+}
+
+.ws-stat__n.is-review { color: #0969da; }
+.ws-stat__n.is-task { color: #9a6700; }
+.ws-stat__n.is-zero { color: #b8bec4; }
+
+.ws-stat__label {
+  font-size: 10px;
+  color: #8c959f;
+  letter-spacing: 0.2px;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-card-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.ws-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 20px;
+}
+
+.ws-spark > span {
+  display: block;
+  width: 5px;
+  border-radius: 1.5px;
+  background: #d8dde3;
+}
+
+.ws-spark > span.is-recent { background: #5aa96c; }
+
+.ws-card-spark__label {
+  font-size: 10.5px;
+  color: #8c959f;
+  padding-bottom: 1px;
+}
+
+.ws-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  color: #57606a;
+  background: #eceff2;
+}
+
+.ws-chip.is-syncing { color: #0969da; background: #ddf4ff; }
+.ws-chip.is-ready { color: #1a7f37; background: #dafbe1; }
+.ws-chip.is-stale { color: #9a6700; background: #fff8c5; }
+.ws-chip.is-failed { color: #cf222e; background: #ffebe9; }
+
+@keyframes ws-spin { to { transform: rotate(360deg); } }
+
+.ws-chip__spinner {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 2px solid #b6e3ff;
+  border-top-color: #0969da;
+  border-radius: 50%;
+  display: inline-block;
+  animation: ws-spin 1s linear infinite;
+}
 
 .ws-card-foot {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-top: 12px;
-  padding-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid #f0f0f2;
-  font-size: var(--ui-font-size);
+}
+
+.ws-card-foot__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ws-card-foot__text {
+  font-size: 11px;
   color: #8c959f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-card__retry {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #24292f;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ws-card__retry:hover { background: #eef1f4; }
+.ws-card__retry:disabled { opacity: 0.6; cursor: default; }
+
+.ws-new-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 200px;
+  border: 1px dashed #d0d7de;
+  border-radius: 12px;
+  background: #fcfcfd;
+  cursor: pointer;
+  color: #57606a;
+  font: inherit;
+}
+
+.ws-new-tile:hover {
+  border-color: #0969da;
+  background: #f5faff;
+  color: #0969da;
+}
+
+.ws-new-tile__plus { font-size: 19px; }
+
+.ws-new-tile__title { font-size: 13px; font-weight: 600; }
+
+.ws-new-tile__hint {
+  font-size: 11.5px;
+  color: #8c959f;
+  max-width: 210px;
+  text-align: center;
 }
 
 /* ── Shell tab pages ─────────────────────────────────────── */

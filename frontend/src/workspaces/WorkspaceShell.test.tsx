@@ -25,10 +25,9 @@ describe('watched repository workspace UI', () => {
     const home = renderToStaticMarkup(<WatchedReposGrid
       workspaces={[value]}
       loading={false}
-      events={[]}
+      prs={[]}
       onOpenWorkspace={() => {}}
       onWatch={() => {}}
-      onRemove={() => {}}
     />);
     const list = renderToStaticMarkup(<WorkspaceCards
       workspaces={[value]}
@@ -37,8 +36,9 @@ describe('watched repository workspace UI', () => {
 
     for (const html of [home, list]) {
       expect(html).toContain('data-workspace-id="workspace-id"');
-      expect(html).toContain('Preparing');
     }
+    // Nothing has synced yet, so the card reports the queued state.
+    expect(list).toContain('queued');
   });
 
   it('shows only implemented actions on Workspace Home', () => {

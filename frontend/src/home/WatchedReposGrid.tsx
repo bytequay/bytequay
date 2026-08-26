@@ -11,83 +11,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { RecentEventDto, RepoMetaDto, WorkspaceDto } from '../types';
-import Avatar from '../Avatar';
-import {
-  workspacePhase,
-  workspacePhaseLabel,
-} from '../workspaces/model';
+import type { PullRequestDto, WorkspaceDto } from '../types';
+import { pullRequestNeedsReview } from '../pulls/model';
+import RepoAvatar from '../RepoAvatar';
+import { syncStateColor, workspaceSyncState } from '../workspaces/model';
 
 type Props = {
   workspaces: WorkspaceDto[];
   loading: boolean;
-  /** Recent GitHub events — powers the per-repo "active today" chip. */
-  events: RecentEventDto[];
+  /** Open pull requests across every watched repository. */
+  prs: PullRequestDto[];
   onOpenWorkspace: (workspaceId: string) => void;
   onWatch: () => void;
-  onRemove: (workspace: WorkspaceDto) => void;
 };
 
-function topLanguage(meta: RepoMetaDto | undefined): string | null {
-  if (!meta) return null;
-  let best: string | null = null;
-  let bestBytes = 0;
-  for (const [lang, bytes] of Object.entries(meta.languages)) {
-    if (bytes > bestBytes) {
-      best = lang;
-      bestBytes = bytes;
-    }
+function repoCounts(prs: PullRequestDto[], fullName: string) {
+  let open = 0;
+  let needsYou = 0;
+  for (const pr of prs) {
+    if (pr.repo !== fullName || pr.state !== 'open') continue;
+    open++;
+    if (pullRequestNeedsReview(pr)) needsYou++;
   }
-  return best;
+  return { open, needsYou };
 }
 
-function activityChip(events: RecentEventDto[], fullName: string): string | null {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  let commits = 0;
-  let active = false;
-  for (const e of events) {
-    if (e.repo !== fullName) continue;
-    if (new Date(e.createdAt).getTime() >= todayStart.getTime()) {
-      active = true;
-      if (e.type === 'PushEvent') commits += e.commitCount || 1;
-    }
-  }
-  if (commits > 0) return `${commits} new commit${commits !== 1 ? 's' : ''} today`;
-  return active ? 'Active today' : null;
-}
-
-/** "Repos you watch" as a two-column card grid. Description, stars and
- *  language come from the backend's cached monitored-repo metadata
- *  (same pattern as the Repos page). */
-function WatchedReposGrid({
-  workspaces,
-  loading,
-  events,
-  onOpenWorkspace,
-  onWatch,
-  onRemove,
-}: Props) {
-  const [metas, setMetas] = useState<Record<string, RepoMetaDto>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    for (const workspace of workspaces) {
-      const key = workspace.id;
-      if (metas[key] !== undefined) continue;
-      window.bridge.getRepoMeta(workspace.monitoredOwner, workspace.monitoredRepo)
-        .then(meta => {
-          if (!cancelled) setMetas(prev => ({ ...prev, [key]: meta }));
-        })
-        .catch(() => { /* card renders without meta */ });
-    }
-    return () => { cancelled = true; };
-    // metas deliberately omitted: re-running on every meta arrival would
-    // refire the loop; the `!== undefined` guard needs only the repo list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaces]);
-
+/** "Repos you watch": one compact tile per workspace — status, name, and the
+ *  two numbers that decide whether to open it. */
+function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }: Props) {
   return (
     <div className="home-section">
       <div className="home-section__header">
@@ -101,14 +52,11 @@ function WatchedReposGrid({
       ) : workspaces.length === 0 ? (
         <div className="hp-empty">No repos yet.</div>
       ) : (
-        <div className="home-grid-2">
+        <div className="home-repo-grid">
           {workspaces.map(workspace => {
             const fullName = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
-            const monitored = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-            const meta = metas[workspace.id];
-            const lang = topLanguage(meta);
-            const chip = activityChip(events, monitored);
-            const phase = workspacePhase(workspace);
+            const counts = repoCounts(prs, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`);
+            const state = workspaceSyncState(workspace);
             return (
               <div
                 key={workspace.id}
@@ -116,6 +64,7 @@ function WatchedReposGrid({
                 className="home-repo-tile"
                 role="button"
                 tabIndex={0}
+                title={`${fullName} — ${state}`}
                 onClick={() => onOpenWorkspace(workspace.id)}
                 onKeyDown={(e) => {
                   if (e.target !== e.currentTarget) return;
@@ -126,29 +75,21 @@ function WatchedReposGrid({
                 }}
               >
                 <div className="home-repo-tile__head">
-                  <Avatar login={workspace.selectedOwner} size={26} className="home-repo-tile__avatar" />
+                  <RepoAvatar
+                    owner={workspace.selectedOwner}
+                    repo={workspace.selectedRepo}
+                    size={18}
+                  />
                   <span className="home-repo-tile__name">{fullName}</span>
-                  <span className={`ws-state is-${phase}`}>{workspacePhaseLabel(workspace)}</span>
-                  <button
-                    className="home-repo-tile__unwatch"
-                    type="button"
-                    aria-label={`Unwatch ${fullName}`}
-                    title="Unwatch this repo"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemove(workspace);
-                    }}
-                  >
-                    ✕
-                  </button>
+                  <span
+                    className="home-repo-tile__dot"
+                    style={{ background: syncStateColor(state) }}
+                    aria-hidden="true"
+                  />
                 </div>
-                <p className="home-repo-tile__desc">{meta?.description ?? ' '}</p>
-                <div className="home-repo-tile__foot">
-                  {meta && <span>★ {meta.stargazersCount}</span>}
-                  {lang && <span>{lang}</span>}
-                  <span>⎇ {workspace.defaultBranch}</span>
-                  {workspace.topology === 'FORK' && <span>⑂ fork</span>}
-                  {chip && <span className="home-repo-tile__chip">{chip}</span>}
+                <div className="home-repo-tile__stats">
+                  <span><b>{counts.open}</b> open</span>
+                  <span><b>{counts.needsYou}</b> need you</span>
                 </div>
               </div>
             );

@@ -45,6 +45,58 @@ export function workspaceHasReadableCode(workspace: WorkspaceDto): boolean {
   return workspace.lastCodeSyncAt !== null;
 }
 
+/* ── Card status ────────────────────────────────────────────────── */
+
+/** What a workspace is doing, as the cards and tiles report it. */
+export type SyncState = 'queued' | 'syncing' | 'ready' | 'stale' | 'failed';
+
+/** Labels and people are re-read on a slow cadence; past this the card says so. */
+const METADATA_STALE_MS = 7 * 86_400_000;
+
+/** Nothing synced yet reads as queued; metadata landing first means the clone
+ *  is already running. */
+export function workspaceCodeState(workspace: WorkspaceDto): SyncState {
+  if (workspace.lastCodeSyncAt !== null) return 'ready';
+  return workspace.lastMetadataSyncAt === null ? 'queued' : 'syncing';
+}
+
+export function workspaceMetadataState(workspace: WorkspaceDto, now = Date.now()): SyncState {
+  if (workspace.lastMetadataSyncAt === null) {
+    return workspace.lastCodeSyncAt === null ? 'queued' : 'syncing';
+  }
+  return now - Date.parse(workspace.lastMetadataSyncAt) > METADATA_STALE_MS ? 'stale' : 'ready';
+}
+
+export function workspaceSyncState(workspace: WorkspaceDto, now = Date.now()): SyncState {
+  const code = workspaceCodeState(workspace);
+  return code === 'ready' ? workspaceMetadataState(workspace, now) : code;
+}
+
+export function syncStateColor(state: SyncState): string {
+  return {
+    queued: '#8c959f',
+    syncing: '#0969da',
+    ready: '#1a7f37',
+    stale: '#bf8700',
+    failed: '#cf222e',
+  }[state];
+}
+
+export function metadataAgeDays(workspace: WorkspaceDto, now = Date.now()): number {
+  if (workspace.lastMetadataSyncAt === null) return 0;
+  return Math.floor((now - Date.parse(workspace.lastMetadataSyncAt)) / 86_400_000);
+}
+
+/** Commits per day over the trailing {@code days}, oldest bucket first. */
+export function commitsPerDay(timestamps: string[], days: number, now = Date.now()): number[] {
+  const buckets = new Array<number>(days).fill(0);
+  for (const timestamp of timestamps) {
+    const age = Math.floor((now - Date.parse(timestamp)) / 86_400_000);
+    if (age >= 0 && age < days) buckets[days - 1 - age] += 1;
+  }
+  return buckets;
+}
+
 export function workspaceRoute(workspaceId: string, tab: WorkspaceTab = 'home'): string {
   const base = `#/workspaces/${encodeURIComponent(workspaceId)}`;
   return tab === 'home' ? base : `${base}/${tab}`;

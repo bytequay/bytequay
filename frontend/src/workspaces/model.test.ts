@@ -14,13 +14,18 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceDto } from '../types';
 import {
+  commitsPerDay,
+  metadataAgeDays,
+  workspaceCodeState,
   workspaceHasReadableCode,
   workspaceIdFromRoute,
   workspaceIssueRoute,
   workspaceLocationFromRoute,
+  workspaceMetadataState,
   workspacePhaseLabel,
   workspacePullRequestRoute,
   workspaceRoute,
+  workspaceSyncState,
 } from './model';
 
 describe('workspace model', () => {
@@ -31,6 +36,43 @@ describe('workspace model', () => {
       ...workspace,
       lastCodeSyncAt: '2026-08-21T00:00:00Z',
     })).toBe('Ready');
+  });
+
+  it('walks a new workspace from queued through cloning to ready', () => {
+    const queued = dto('DIRECT');
+    const cloning = { ...queued, lastMetadataSyncAt: '2026-08-21T00:00:00Z' };
+    const ready = { ...cloning, lastCodeSyncAt: '2026-08-21T00:01:00Z' };
+    const now = Date.parse('2026-08-21T00:02:00Z');
+
+    expect(workspaceCodeState(queued)).toBe('queued');
+    expect(workspaceMetadataState(queued, now)).toBe('queued');
+    expect(workspaceCodeState(cloning)).toBe('syncing');
+    expect(workspaceCodeState(ready)).toBe('ready');
+    expect(workspaceSyncState(ready, now)).toBe('ready');
+  });
+
+  it('calls labels and people stale once the cached copy passes a week', () => {
+    const workspace = {
+      ...dto('DIRECT'),
+      lastCodeSyncAt: '2026-08-21T00:00:00Z',
+      lastMetadataSyncAt: '2026-08-12T00:00:00Z',
+    };
+    const now = Date.parse('2026-08-21T00:00:00Z');
+
+    expect(workspaceMetadataState(workspace, now)).toBe('stale');
+    expect(workspaceSyncState(workspace, now)).toBe('stale');
+    expect(metadataAgeDays(workspace, now)).toBe(9);
+  });
+
+  it('buckets commits into one bar per trailing day, oldest first', () => {
+    const now = Date.parse('2026-08-21T12:00:00Z');
+
+    expect(commitsPerDay([
+      '2026-08-21T11:00:00Z',
+      '2026-08-21T09:00:00Z',
+      '2026-08-20T09:00:00Z',
+      '2026-08-01T09:00:00Z',
+    ], 3, now)).toEqual([0, 1, 2]);
   });
 
   it('uses the last successful code sync to decide whether the checkout is readable', () => {

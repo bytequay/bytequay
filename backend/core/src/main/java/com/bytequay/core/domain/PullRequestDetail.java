@@ -17,6 +17,9 @@ import java.time.Instant;
 import java.util.List;
 
 public record PullRequestDetail(
+        // The stored row id, so a caller that fetched by repo and number learns
+        // the handle without a second lookup.
+        long id,
         String repo,
         int number,
         String title,

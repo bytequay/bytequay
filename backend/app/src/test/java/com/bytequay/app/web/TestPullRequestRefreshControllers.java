@@ -65,19 +65,16 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
-    void selectedPullRequestDetailUsesItsStoredId()
+    void servesDetailForARowIdSoTheAttentionListCanOpenIt()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        PullRequestController controller = new PullRequestController(pullRequests, refresh);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+        when(pullRequests.getPullRequestDetail(50L)).thenReturn(detail());
 
-        controller.detail(12L);
-        controller.refreshDetail(12L);
-        controller.refreshAllDetail(12L);
+        assertThat(controller.detail(50L)).isEqualTo(detail());
 
-        verify(pullRequests).getPullRequestDetail(12L);
-        verify(refresh).refreshDetail(12L);
-        verify(refresh).refreshAllDetail(12L);
+        verify(pullRequests).getPullRequestDetail(50L);
     }
 
     @Test
@@ -228,6 +225,7 @@ class TestPullRequestRefreshControllers
     private static PullRequestDetail detail()
     {
         return new PullRequestDetail(
+                12L,
                 "owner/repo",
                 7,
                 "Title",

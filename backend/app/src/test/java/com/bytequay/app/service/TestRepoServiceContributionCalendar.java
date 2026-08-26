@@ -17,12 +17,19 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.store.PrViewStateStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +39,8 @@ import static org.mockito.Mockito.when;
 
 class TestRepoServiceContributionCalendar
 {
+    private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
+
     @Test
     void graphQlResourceLimitBecomesTemporaryUnavailable()
     {
@@ -50,10 +59,47 @@ class TestRepoServiceContributionCalendar
                 });
     }
 
+    @Test
+    void openingAPullRequestStoresItSoItHasARowIdAndViewState()
+    {
+        GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
+        PullRequestStore store = mock(PullRequestStore.class);
+        PrViewStateStore viewStates = mock(PrViewStateStore.class);
+        CredentialService credentialService = mock(CredentialService.class);
+        when(credentialService.resolveGitHubToken()).thenReturn("pat");
+        FetchedPullRequest fetched = fetchedPullRequest();
+        when(pullRequests.getPullRequest("pat", PullRequestRef.of("trinodb", "trino", 30835)))
+                .thenReturn(fetched);
+        when(store.saveObserved(fetched)).thenReturn(storedPullRequest());
+        when(viewStates.findByPrIds(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of());
+
+        RepoService service = new RepoService(
+                pullRequests, store, mock(GitHubAccountClient.class), viewStates, credentialService);
+
+        assertThat(service.getRepoPullRequest("trinodb", "trino", 30835).id()).isEqualTo(7L);
+    }
+
+    private static FetchedPullRequest fetchedPullRequest()
+    {
+        return new FetchedPullRequest(
+                1L, "trinodb/trino", 30835, "title", "alice", "url", NOW, NOW,
+                PullRequest.Origin.OTHER, ImmutableList.of(), null, false, "open", null, null,
+                ImmutableList.of(), null, null, "feature");
+    }
+
+    private static PullRequest storedPullRequest()
+    {
+        return new PullRequest(
+                7L, "trinodb/trino", 30835, "title", "alice", "url", NOW, NOW,
+                PullRequest.Origin.OTHER, ImmutableList.of(), null, false, null, null, null,
+                ImmutableList.of(), null, 0, 0, 0, null, "open", null, null, null, null, null, null, "feature", 1L);
+    }
+
     private static RepoService service(GitHubAccountClient gitHub, CredentialService credentialService)
     {
         return new RepoService(
                 mock(GitHubPullRequestReadClient.class),
+                mock(PullRequestStore.class),
                 gitHub,
                 mock(PrViewStateStore.class),
                 credentialService);

@@ -122,16 +122,16 @@ final class CiAutofixE2eHarness
     Fixture createFixture(Path temporaryDirectory, String name)
     {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        long prId = NEXT_PR_ID.incrementAndGet();
+        long number = NEXT_PR_ID.incrementAndGet();
         PullRequestRef pullRequest = PullRequestRef.of(
                 "bytequay",
                 name + "-" + suffix,
-                toIntExact(prId));
+                toIntExact(number));
         E2eGitRepository repository = E2eGitRepository.create(
                 temporaryDirectory.resolve(name + "-" + suffix),
                 pullRequest);
-        seedPullRequest(prId, repository);
-        return new Fixture(prId, repository, prId * 10 + 1, prId * 10 + 2);
+        long prId = seedPullRequest(repository);
+        return new Fixture(prId, repository, number * 10 + 1, number * 10 + 2);
     }
 
     void scriptFailingCi(Fixture fixture, boolean blockAgent)
@@ -432,10 +432,10 @@ final class CiAutofixE2eHarness
                 "allowExactLeasePush", allowExactLeasePush));
     }
 
-    private void seedPullRequest(long prId, E2eGitRepository repository)
+    private long seedPullRequest(E2eGitRepository repository)
     {
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setId(prId);
+        entity.setGithubId((long) repository.pullRequest().number());
         entity.setRepo(repository.pullRequest().repoFullName());
         entity.setNumber(repository.pullRequest().number());
         entity.setTitle("CI Autofix E2E");
@@ -444,7 +444,7 @@ final class CiAutofixE2eHarness
         entity.setLabels(ImmutableList.of());
         entity.setSyncedAt(clock.instant());
         entity.setHeadRef(E2eGitRepository.HEAD_REF);
-        pullRequests.saveAndFlush(entity);
+        long prId = pullRequests.saveAndFlush(entity).getId();
         details.save(prId, new StoredPrDetail(
                 new PrRawDetail(
                         "body",
@@ -462,6 +462,7 @@ final class CiAutofixE2eHarness
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of()));
+        return prId;
     }
 
     private static CiHeadSnapshot failingSnapshot(Fixture fixture)

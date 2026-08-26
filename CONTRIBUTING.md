@@ -112,7 +112,7 @@ code.
 
 ## Database
 
-- Runtime database: `~/Library/Application Support/ByteQuay/bytequay.db`
+- Runtime database: `~/Library/Application Support/ByteQuay/bytequay-1.0.db`
 - Test databases: unique SQLite files under the system temporary directory
 - Schema management: `spring.jpa.hibernate.ddl-auto=update` in production and
   `create-drop` in tests

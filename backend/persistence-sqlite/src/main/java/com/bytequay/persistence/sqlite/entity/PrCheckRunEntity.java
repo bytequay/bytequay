@@ -18,12 +18,17 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
 
 @Entity
-@Table(name = "pr_check_runs")
+@Table(
+        name = "pr_check_runs",
+        indexes = @Index(
+                name = "idx_pr_check_runs_pr_github",
+                columnList = "pr_id, github_id"))
 public class PrCheckRunEntity
 {
     @Id

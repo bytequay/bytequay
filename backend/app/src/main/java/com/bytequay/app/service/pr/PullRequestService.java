@@ -26,6 +26,7 @@ import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.GithubReviewState;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
@@ -48,6 +49,7 @@ import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -110,6 +112,7 @@ public class PullRequestService
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
     private final PullRequestSnapshotService snapshots;
+    private final PullRequestDetailFetcher detailFetcher;
     private final PrViewStateStore viewStateStore;
     private final Executor executor;
     private final CredentialService credentialService;
@@ -124,6 +127,7 @@ public class PullRequestService
             GitHubAccountClient accounts,
             PullRequestStore store,
             PullRequestSnapshotService snapshots,
+            PullRequestDetailFetcher detailFetcher,
             PrViewStateStore viewStateStore,
             CredentialService credentialService,
             WorkspaceMetadataService metadata,
@@ -137,6 +141,7 @@ public class PullRequestService
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
+        this.detailFetcher = requireNonNull(detailFetcher, "detailFetcher is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -312,6 +317,14 @@ public class PullRequestService
         CompletableFuture.allOf(statuses.toArray(CompletableFuture[]::new)).join();
     }
 
+    /** Returns persisted detail for a stored row, fetching it on a local miss. */
+    public PullRequestDetail getPullRequestDetail(long prId)
+    {
+        PullRequestRef ref = store.findRefById(prId)
+                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+        return getPullRequestDetail(ref.repoFullName(), ref.number());
+    }
+
     /** Returns persisted detail, fetching and caching it on a local miss. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
@@ -321,12 +334,6 @@ public class PullRequestService
             return stored.orElseThrow();
         }
         return refreshPullRequestDetailFromGitHub(repo, number).detail();
-    }
-
-    public PullRequestDetail getPullRequestDetail(long prId)
-    {
-        PullRequestRef ref = storedPullRequestRef(prId);
-        return getPullRequestDetail(ref.repoFullName(), ref.number());
     }
 
     DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number)
@@ -340,56 +347,38 @@ public class PullRequestService
         if (fetched.pullRequest().isEmpty()) {
             StoredPrDetail detail = snapshots.refreshStatus(pat, ref, storedId.orElseThrow(), fetched);
             return new DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(
-                    ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite()));
+                    storedId.orElseThrow(), ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite()));
         }
-        return new DetailRefresh(true, storeFullRefresh(credential, ref, storedId, fetched));
+        return new DetailRefresh(true, storeFullRefresh(credential, ref, fetched));
     }
 
     PullRequestDetail refreshAllPullRequestDetailFromGitHub(String repo, int number)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         PullRequestRef ref = parseRef(repo, number);
-        Optional<Long> storedId = store.findIdByRepoAndNumber(repo, number);
         PullRequestFetch fetched = gitHub.getPullRequest(credential.token(), ref, Optional.empty());
-        return storeFullRefresh(credential, ref, storedId, fetched);
+        return storeFullRefresh(credential, ref, fetched);
     }
 
     private PullRequestDetail storeFullRefresh(
             GitHubCredential credential,
             PullRequestRef ref,
-            Optional<Long> storedId,
             PullRequestFetch fetched)
     {
         String pat = credential.token();
         String currentLogin = credential.profile().login();
-        PullRequest fetchedPullRequest = workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin);
-        PullRequest pullRequest = storedId
-                .map(fetchedPullRequest::withId)
-                .orElse(fetchedPullRequest);
-        store.saveObserved(pullRequest);
+        ListenableFuture<StoredPrDetail> pending = detailFetcher.fetch(pat, ref);
 
-        StoredPrDetail detail = snapshots.refreshDetail(
-                pat,
-                ref,
-                pullRequest.id(),
-                accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo())));
+        PullRequest pullRequest = store.saveObserved(
+                workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin));
+        boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+
+        StoredPrDetail detail = snapshots.saveDetail(pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
         storeDetail(pullRequest, detail, currentLogin);
         syncDiffQuietly(pat, pullRequest);
         snapshots.updateDetailEtag(pullRequest.id(), fetched.etag());
         return PullRequestDetailMapper.toPullRequestDetail(
-                ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite());
-    }
-
-    DetailRefresh refreshPullRequestDetailFromGitHub(long prId)
-    {
-        PullRequestRef ref = storedPullRequestRef(prId);
-        return refreshPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
-    }
-
-    PullRequestDetail refreshAllPullRequestDetailFromGitHub(long prId)
-    {
-        PullRequestRef ref = storedPullRequestRef(prId);
-        return refreshAllPullRequestDetailFromGitHub(ref.repoFullName(), ref.number());
+                pullRequest.id(), ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite());
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */
@@ -722,7 +711,7 @@ public class PullRequestService
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
-            List<PullRequest> fresh = result.items().stream()
+            List<FetchedPullRequest> fresh = result.items().stream()
                     .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
                     .map(pullRequest -> withOrigin(pullRequest, origin))
                     .collect(toImmutableList());
@@ -737,18 +726,24 @@ public class PullRequestService
             String pat,
             String currentLogin,
             String syncMarker,
-            List<PullRequest> pullRequests)
+            List<FetchedPullRequest> pullRequests)
     {
         if (pullRequests.isEmpty()) {
             return;
         }
-        pullRequests = pullRequests.stream()
-                .map(this::preserveStoredId)
-                .collect(toImmutableList());
-        Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
-        Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
-        store.saveDashboardSyncPage(pullRequests, syncMarker);
-        syncPageRefreshes(pat, currentLogin, pullRequests, previous);
+        Map<Long, Instant> previous = updatedAtBeforeSync(pullRequests);
+        syncPageRefreshes(
+                pat, currentLogin, store.saveDashboardSyncPage(pullRequests, syncMarker), previous);
+    }
+
+    /** The stored updatedAt of each pull request, read before a sync page overwrites it. */
+    private Map<Long, Instant> updatedAtBeforeSync(List<FetchedPullRequest> pullRequests)
+    {
+        Set<Long> ids = pullRequests.stream()
+                .map(pullRequest -> store.findIdByRepoAndNumber(pullRequest.repo(), pullRequest.number()))
+                .flatMap(Optional::stream)
+                .collect(toImmutableSet());
+        return store.findUpdatedAtByIds(ids);
     }
 
     private void syncRepositoryQuery(
@@ -762,17 +757,18 @@ public class PullRequestService
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
-            List<PullRequest> fresh = result.items().stream()
+            List<FetchedPullRequest> fresh = result.items().stream()
                     .map(pullRequest -> reviewRequested
                             ? withOrigin(pullRequest, REVIEW_REQUESTED)
                             : workspaceOrigin(pullRequest, currentLogin))
-                    .map(this::preserveStoredId)
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
-                Set<Long> ids = fresh.stream().map(PullRequest::id).collect(toImmutableSet());
-                Map<Long, Instant> previous = store.findUpdatedAtByIds(ids);
-                store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
-                syncPageRefreshes(pat, currentLogin, fresh, previous);
+                Map<Long, Instant> previous = updatedAtBeforeSync(fresh);
+                syncPageRefreshes(
+                        pat,
+                        currentLogin,
+                        store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker),
+                        previous);
             }
             if (!result.hasMore()) {
                 break;
@@ -783,19 +779,18 @@ public class PullRequestService
     private void reconcileRepositorySearchMisses(
             String pat, RepoRef repository, String currentLogin, String syncMarker)
     {
-        List<PullRequest> refreshed = new ArrayList<>();
-        List<PullRequest> changed = new ArrayList<>();
+        List<FetchedPullRequest> refreshed = new ArrayList<>();
+        Set<String> changed = new HashSet<>();
         for (PullRequest stored : store.findRepositoryRowsMissingSync(repository.fullName(), syncMarker)) {
             PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), stored.number());
             try {
-                PullRequest exact = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
+                FetchedPullRequest exact = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
                 if (stored.origin() == REVIEW_REQUESTED) {
                     exact = withOrigin(exact, REVIEW_REQUESTED);
                 }
-                exact = exact.withId(stored.id());
                 refreshed.add(exact);
                 if (!Objects.equals(stored.updatedAt(), exact.updatedAt())) {
-                    changed.add(exact);
+                    changed.add(ref.fullName());
                 }
             }
             catch (RuntimeException failure) {
@@ -806,8 +801,10 @@ public class PullRequestService
             }
         }
         if (!refreshed.isEmpty()) {
-            store.saveRepositorySyncPage(repository.fullName(), refreshed, syncMarker);
-            syncDetails(pat, currentLogin, changed);
+            List<PullRequest> saved = store.saveRepositorySyncPage(repository.fullName(), refreshed, syncMarker);
+            syncDetails(pat, currentLogin, saved.stream()
+                    .filter(pullRequest -> changed.contains(pullRequest.repo() + "#" + pullRequest.number()))
+                    .collect(toImmutableList()));
         }
     }
 
@@ -823,7 +820,7 @@ public class PullRequestService
                 continue;
             }
             try {
-                PullRequest pullRequest = gitHub.getPullRequest(pat, ref);
+                FetchedPullRequest pullRequest = gitHub.getPullRequest(pat, ref);
                 if ("open".equals(pullRequest.state())) {
                     syncDashboardPage(
                             pat,
@@ -910,11 +907,8 @@ public class PullRequestService
             boolean viewerCanWrite)
     {
         try {
-            StoredPrDetail detail = snapshots.refreshDetail(
-                    pat,
-                    parseRef(pullRequest.repo(), pullRequest.number()),
-                    pullRequest.id(),
-                    viewerCanWrite);
+            ListenableFuture<StoredPrDetail> pending = detailFetcher.fetch(pat, parseRef(pullRequest.repo(), pullRequest.number()));
+            StoredPrDetail detail = snapshots.saveDetail(pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
             storeDetail(pullRequest, detail, currentLogin);
             syncDiffQuietly(pat, pullRequest);
         }
@@ -1003,12 +997,6 @@ public class PullRequestService
     private long storedPullRequestId(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number)
-                .orElseThrow(() -> localSnapshotMissing("Pull request"));
-    }
-
-    private PullRequestRef storedPullRequestRef(long prId)
-    {
-        return store.findRefById(prId)
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
     }
 
@@ -1210,52 +1198,17 @@ public class PullRequestService
                     cached.viewerCanWrite());
         }));
         return patched
-                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(repo, number, detail, detail.viewerCanWrite()))
+                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
+                        prId.orElseThrow(), repo, number, detail, detail.viewerCanWrite()))
                 .orElseGet(() -> getPullRequestDetail(repo, number));
     }
 
-    private static PullRequest withOrigin(PullRequest pr, PullRequest.Origin origin)
+    private static FetchedPullRequest withOrigin(FetchedPullRequest pr, PullRequest.Origin origin)
     {
-        return new PullRequest(
-                pr.id(),
-                pr.repo(),
-                pr.number(),
-                pr.title(),
-                pr.author(),
-                pr.htmlUrl(),
-                pr.createdAt(),
-                pr.updatedAt(),
-                origin,
-                pr.labels(),
-                pr.labelColors(),
-                pr.draft(),
-                pr.viewedAt(),
-                pr.reviewedAt(),
-                pr.handledAction(),
-                pr.requestedReviewers(),
-                pr.ciStatus(),
-                pr.additions(),
-                pr.deletions(),
-                pr.commentCount(),
-                pr.attentionReason(),
-                pr.state(),
-                pr.closedAt(),
-                pr.mergedAt(),
-                pr.mergeable(),
-                pr.mergeableState(),
-                pr.headPushedAt(),
-                pr.reviewerVerdicts(),
-                pr.headRef());
+        return pr.withOrigin(origin);
     }
 
-    private PullRequest preserveStoredId(PullRequest pullRequest)
-    {
-        return store.findIdByRepoAndNumber(pullRequest.repo(), pullRequest.number())
-                .map(pullRequest::withId)
-                .orElse(pullRequest);
-    }
-
-    static PullRequest workspaceOrigin(PullRequest pullRequest, String currentLogin)
+    static FetchedPullRequest workspaceOrigin(FetchedPullRequest pullRequest, String currentLogin)
     {
         PullRequest.Origin origin;
         if (currentLogin != null && currentLogin.equalsIgnoreCase(pullRequest.author())) {

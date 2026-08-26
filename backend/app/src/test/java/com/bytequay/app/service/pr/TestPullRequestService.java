@@ -31,6 +31,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -110,11 +111,11 @@ class TestPullRequestService
     @BeforeEach
     void setUp()
     {
-        snapshots = new PullRequestSnapshotService(
-                gitHub, actions, detailStore, diffStore, Runnable::run);
+        snapshots = new PullRequestSnapshotService(gitHub, actions, detailStore, diffStore);
         service = new PullRequestService(
-                gitHub, writes, repositories, merges, accounts, store, snapshots, viewStateStore,
-                credentialService, metadata, Runnable::run, 53123);
+                gitHub, writes, repositories, merges, accounts, store, snapshots,
+                new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run),
+                viewStateStore, credentialService, metadata, Runnable::run, 53123);
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
@@ -257,8 +258,8 @@ class TestPullRequestService
     void workspaceSyncRefreshesSearchMissingPullRequestByExactReference()
     {
         RepoRef repository = RepoRef.of("owner", "repo");
-        PullRequest stored = pullRequest();
-        PullRequest closed = pullRequest(
+        PullRequest stored = storedPullRequest();
+        FetchedPullRequest closed = pullRequest(
                 99,
                 "closed", Instant.parse("2026-08-22T00:00:00Z"), Instant.parse("2026-08-22T00:00:00Z"));
         when(gitHub.searchPullRequestsPaged(
@@ -269,14 +270,19 @@ class TestPullRequestService
                 .thenReturn(ImmutableList.of(stored));
         when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7)))
                 .thenReturn(closed);
+        when(store.saveRepositorySyncPage(eq("owner/repo"), anyList(), anyString()))
+                .thenReturn(ImmutableList.of(storedPullRequest(
+                        "closed",
+                        Instant.parse("2026-08-22T00:00:00Z"),
+                        Instant.parse("2026-08-22T00:00:00Z"))));
 
         service.syncRepository(repository);
 
         verify(gitHub).getPullRequest("pat", PullRequestRef.of("owner", "repo", 7));
-        ArgumentCaptor<List<PullRequest>> saved = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
         verify(store).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
-        assertThat(saved.getValue()).extracting(PullRequest::state).containsExactly("closed");
-        assertThat(saved.getValue()).extracting(PullRequest::id).containsExactly(12L);
+        assertThat(saved.getValue()).extracting(FetchedPullRequest::state).containsExactly("closed");
+        assertThat(saved.getValue()).extracting(FetchedPullRequest::githubId).containsExactly(99L);
         verify(gitHub).fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7));
     }
 
@@ -294,31 +300,6 @@ class TestPullRequestService
         assertThat(result.viewerCanWrite()).isTrue();
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(credentialService, never()).resolveGitHubToken();
-    }
-
-    @Test
-    void readsCachedDetailByPullRequestId()
-    {
-        when(store.findRefById(12L)).thenReturn(Optional.of(PullRequestRef.of("owner", "repo", 7)));
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-
-        assertThat(service.getPullRequestDetail(12L).body()).isEqualTo("body");
-
-        verify(gitHub, never()).getPullRequest(anyString(), any(PullRequestRef.class), any());
-    }
-
-    @Test
-    void unknownPullRequestIdDoesNotContactGitHub()
-    {
-        when(store.findRefById(12L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getPullRequestDetail(12L))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting(failure -> ((ResponseStatusException) failure).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
-
-        verify(gitHub, never()).getPullRequest(anyString(), any(PullRequestRef.class), any());
     }
 
     @Test
@@ -343,7 +324,7 @@ class TestPullRequestService
     @Test
     void missingDetailReturnsTheFreshResultWithoutRereadingTheCache()
     {
-        PullRequestDetail refreshed = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 7, stored(), true);
+        PullRequestDetail refreshed = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.empty());
         service = spy(service);
@@ -372,11 +353,13 @@ class TestPullRequestService
     void explicitDetailRefreshPreservesTheStoredIdentityAcrossGitHubResponseShapes()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PullRequest pullRequest = pullRequest(
+        FetchedPullRequest pullRequest = pullRequest(
                 99, "open", Instant.parse("2026-08-21T00:00:00Z"), null);
         List<DiffFile> files = ImmutableList.of(
                 new DiffFile("a.txt", "modified", 1, 0, "+line"));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        // the store resolves the row on repo and number and hands back the stored row
+        when(store.saveObserved(any())).thenReturn(storedPullRequest());
         when(gitHub.getPullRequest("pat", ref, Optional.empty()))
                 .thenReturn(new PullRequestFetch(Optional.of(pullRequest), Optional.of("\"etag-1\"")));
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
@@ -401,9 +384,9 @@ class TestPullRequestService
         assertThat(refreshed.full()).isTrue();
         assertThat(refreshed.detail().body()).isEqualTo("body");
 
-        ArgumentCaptor<PullRequest> observed = ArgumentCaptor.forClass(PullRequest.class);
+        ArgumentCaptor<FetchedPullRequest> observed = ArgumentCaptor.forClass(FetchedPullRequest.class);
         verify(store).saveObserved(observed.capture());
-        assertThat(observed.getValue().id()).isEqualTo(12L);
+        assertThat(observed.getValue().githubId()).isEqualTo(99L);
         ArgumentCaptor<StoredPrDetail> detail = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(12L), detail.capture());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
@@ -452,7 +435,7 @@ class TestPullRequestService
     void fullyRefreshesOnlyNewChangedOrMissingPullRequestDetails()
     {
         Instant now = Instant.parse("2026-08-24T12:00:00Z");
-        PullRequest pullRequest = pullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
+        PullRequest pullRequest = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
 
         assertThat(PullRequestService.refreshMode(pullRequest, null, Optional.empty(), now))
                 .isEqualTo(PullRequestService.RefreshMode.FULL);
@@ -468,9 +451,9 @@ class TestPullRequestService
     void refreshesOnlyRecentOpenStatusesEverySixMinutes()
     {
         Instant now = Instant.parse("2026-08-24T12:00:00Z");
-        PullRequest recentOpen = pullRequest("open", now.minusSeconds(5 * 60 * 60), null);
-        PullRequest oldOpen = pullRequest("open", now.minusSeconds(31L * 24 * 60 * 60), null);
-        PullRequest closed = pullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
+        PullRequest recentOpen = storedPullRequest("open", now.minusSeconds(5 * 60 * 60), null);
+        PullRequest oldOpen = storedPullRequest("open", now.minusSeconds(31L * 24 * 60 * 60), null);
+        PullRequest closed = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
 
         assertThat(PullRequestService.refreshMode(
                 recentOpen, recentOpen.updatedAt(), Optional.of(now.minusSeconds(6 * 60)), now))
@@ -515,7 +498,7 @@ class TestPullRequestService
     void statusRefreshAppliesChangedMergeabilityFromThePrEndpoint()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PullRequest conflicted = pullRequest(
+        FetchedPullRequest conflicted = pullRequest(
                 "open", Instant.parse("2026-08-24T11:00:00Z"), null, false, "dirty");
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
@@ -790,7 +773,7 @@ class TestPullRequestService
                 HandledAction.APPROVED,
                 "previous-head");
 
-        assertThat(PullRequestService.needsReviewAgain(pullRequest(), stored(), "me", reviewed)).isTrue();
+        assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), stored(), "me", reviewed)).isTrue();
     }
 
     private static StoredPrDetail stored()
@@ -829,22 +812,43 @@ class TestPullRequestService
                 "head", "feature");
     }
 
-    private static PullRequest pullRequest()
+    private static PullRequest storedPullRequest()
+    {
+        return storedPullRequest(pullRequest());
+    }
+
+    private static PullRequest storedPullRequest(String state, Instant updatedAt, Instant closedAt)
+    {
+        return storedPullRequest(pullRequest(state, updatedAt, closedAt));
+    }
+
+    private static PullRequest storedPullRequest(FetchedPullRequest fetched)
+    {
+        return new PullRequest(
+                12L, fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
+                fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(),
+                fetched.labelColors(), fetched.draft(), null, null, null, fetched.requestedReviewers(),
+                null, 0, 0, 0, null, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
+                fetched.mergeable(), fetched.mergeableState(), null, null, fetched.headRef(),
+                fetched.githubId());
+    }
+
+    private static FetchedPullRequest pullRequest()
     {
         return pullRequest("open", Instant.parse("2026-08-21T00:00:00Z"), null);
     }
 
-    private static PullRequest pullRequest(String state, Instant updatedAt, Instant closedAt)
+    private static FetchedPullRequest pullRequest(String state, Instant updatedAt, Instant closedAt)
     {
         return pullRequest(12, state, updatedAt, closedAt);
     }
 
-    private static PullRequest pullRequest(long id, String state, Instant updatedAt, Instant closedAt)
+    private static FetchedPullRequest pullRequest(long githubId, String state, Instant updatedAt, Instant closedAt)
     {
-        return pullRequest(id, state, updatedAt, closedAt, null, null);
+        return pullRequest(githubId, state, updatedAt, closedAt, null, null);
     }
 
-    private static PullRequest pullRequest(
+    private static FetchedPullRequest pullRequest(
             String state,
             Instant updatedAt,
             Instant closedAt,
@@ -854,16 +858,16 @@ class TestPullRequestService
         return pullRequest(12, state, updatedAt, closedAt, mergeable, mergeableState);
     }
 
-    private static PullRequest pullRequest(
-            long id,
+    private static FetchedPullRequest pullRequest(
+            long githubId,
             String state,
             Instant updatedAt,
             Instant closedAt,
             Boolean mergeable,
             String mergeableState)
     {
-        return new PullRequest(
-                id,
+        return new FetchedPullRequest(
+                githubId,
                 "owner/repo",
                 7,
                 "Title",
@@ -875,22 +879,12 @@ class TestPullRequestService
                 ImmutableList.of(),
                 ImmutableMap.of(),
                 false,
-                null,
-                null,
-                null,
-                ImmutableList.of(),
-                null,
-                0,
-                0,
-                0,
-                null,
                 state,
                 closedAt,
                 null,
+                ImmutableList.of(),
                 mergeable,
                 mergeableState,
-                null,
-                ImmutableMap.of(),
                 "feature");
     }
 }

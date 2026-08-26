@@ -324,7 +324,9 @@ class TestCiAutofixEndToEnd
                 .filter(event -> event.localEventKey().isPresent())
                 .map(event -> event.localEventKey().orElseThrow())
                 .collect(toImmutableList());
-        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream().map(attempt -> attempt.timelineEventKey().orElseThrow()).collect(toImmutableList()));
+        assertThat(timelineKeys).containsExactlyInAnyOrderElementsOf(finished.attempts().stream()
+                .map(attempt -> attempt.timelineEventKey().orElseThrow())
+                .collect(toImmutableList()));
         assertThat(timelineKeys).hasSize(2);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).allSatisfy(event -> assertThat(event.body()).doesNotContain("CI is green", "Root cause:"));
 

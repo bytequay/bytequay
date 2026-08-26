@@ -15,6 +15,8 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A single review submission: who reviewed, what state they left (APPROVED,
  * CHANGES_REQUESTED, etc.), and when they submitted it.
@@ -35,6 +37,12 @@ public record PrReviewState(
         String htmlUrl,
         String commitId)
 {
+    public PrReviewState
+    {
+        requireNonNull(login, "login is null");
+        requireNonNull(state, "state is null");
+    }
+
     /** Convenience for call sites (mostly tests) that don't care about
      *  the submission timestamp. Equivalent to passing null. */
     public PrReviewState(String login, String state)

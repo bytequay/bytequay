@@ -13,5 +13,13 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 /** Aggregate reaction count returned by GitHub for a timeline comment. */
-public record PrReaction(String content, int count) {}
+public record PrReaction(String content, int count)
+{
+    public PrReaction
+    {
+        requireNonNull(content, "content is null");
+    }
+}

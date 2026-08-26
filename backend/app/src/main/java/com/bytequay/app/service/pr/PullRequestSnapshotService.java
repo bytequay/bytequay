@@ -34,7 +34,6 @@ import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,10 +42,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
-import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -59,31 +56,24 @@ public class PullRequestSnapshotService
     private final GitHubActionsClient actions;
     private final PrDetailStore details;
     private final PrDiffStore diffs;
-    private final PullRequestDetailFetcher detailFetcher;
 
     public PullRequestSnapshotService(
             GitHubPullRequestReadClient gitHub,
             GitHubActionsClient actions,
             PrDetailStore details,
-            PrDiffStore diffs,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            PrDiffStore diffs)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
         this.details = requireNonNull(details, "details is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
-        this.detailFetcher = new PullRequestDetailFetcher(
-                gitHub,
-                actions,
-                details,
-                requireNonNull(ioExecutor, "ioExecutor is null"));
     }
 
     Optional<PullRequestDetail> findDetail(String repo, int number, long prId)
     {
         return details.find(prId)
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(
-                        repo, number, stored, stored.viewerCanWrite()));
+                        prId, repo, number, stored, stored.viewerCanWrite()));
     }
 
     void rerunFailedChecks(PullRequestRef pullRequest)
@@ -134,13 +124,9 @@ public class PullRequestSnapshotService
                 .orElseThrow(() -> missing("Pull request file content"));
     }
 
-    StoredPrDetail refreshDetail(
-            String pat,
-            PullRequestRef pullRequest,
-            long prId,
-            boolean viewerCanWrite)
+    /** Stores what a {@link PullRequestDetailFetcher} fetch produced. */
+    StoredPrDetail saveDetail(long prId, StoredPrDetail fetched, boolean viewerCanWrite)
     {
-        StoredPrDetail fetched = detailFetcher.fetch(pat, pullRequest);
         StoredPrDetail stored = new StoredPrDetail(
                 fetched.raw(),
                 fetched.reviews(),

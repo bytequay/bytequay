@@ -14,16 +14,23 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AttentionReason;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrViewState;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringMapConverter;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -32,13 +39,22 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Entity
-@Table(name = "pull_requests")
+@Table(
+        name = "pull_requests",
+        indexes = @Index(
+                name = "idx_pull_requests_repo_number",
+                columnList = "repo, number"))
 public class PullRequestEntity
 {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "github_id")
+    private Long githubId;
 
     @Column(nullable = false)
     private String repo;
@@ -179,6 +195,10 @@ public class PullRequestEntity
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
+    public Long getGithubId() { return githubId; }
+
+    public void setGithubId(Long githubId) { this.githubId = githubId; }
+
     public String getRepo() { return repo; }
     public void setRepo(String repo) { this.repo = repo; }
 
@@ -265,4 +285,102 @@ public class PullRequestEntity
 
     public String getHeadRef() { return headRef; }
     public void setHeadRef(String headRef) { this.headRef = headRef; }
+
+    /** The row for a pull request GitHub reported. */
+    public static PullRequestEntity from(FetchedPullRequest pr, Instant syncedAt)
+    {
+        PullRequestEntity entity = new PullRequestEntity();
+        entity.setGithubId(pr.githubId());
+        entity.setRepo(pr.repo());
+        entity.setNumber(pr.number());
+        entity.setTitle(pr.title());
+        entity.setAuthor(pr.author());
+        entity.setHtmlUrl(pr.htmlUrl());
+        entity.setCreatedAt(pr.createdAt());
+        entity.setUpdatedAt(pr.updatedAt());
+        entity.setOrigin(pr.origin().name());
+        entity.setLabels(pr.labels());
+        entity.setLabelColors(pr.labelColors());
+        entity.setDraft(pr.draft());
+        entity.setSyncedAt(syncedAt);
+        // state/closedAt/mergedAt come straight from the GitHub response; the
+        // enrichment a fetch cannot report is carried over by preserveEnrichment.
+        entity.setState(pr.state());
+        entity.setClosedAt(pr.closedAt());
+        entity.setMergedAt(pr.mergedAt());
+        entity.setMergeable(pr.mergeable());
+        entity.setMergeableState(pr.mergeableState());
+        entity.setHeadRef(pr.headRef());
+        return entity;
+    }
+
+    /** This row as the domain pull request, carrying the given view state. */
+    public PullRequest toDomain(PrViewState state)
+    {
+        // GitHub's REST API reports merged PRs as state="closed" with
+        // merged_at set; synthesize "merged" here so every renderer
+        // (status pills on rows and titles) sees
+        // one canonical value instead of having to special-case the
+        // closed-but-merged combination.
+        String synthesizedState = getMergedAt() != null && "closed".equals(getState())
+                ? "merged"
+                : getState();
+        return new PullRequest(
+                getId(),
+                getRepo(),
+                getNumber(),
+                getTitle(),
+                getAuthor(),
+                getHtmlUrl(),
+                getCreatedAt(),
+                getUpdatedAt(),
+                PullRequest.Origin.valueOf(getOrigin()),
+                getLabels(),
+                getLabelColors(),
+                isDraft(),
+                Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
+                Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
+                Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
+                ImmutableList.of(),
+                getCiStatus(),
+                getAdditions(),
+                getDeletions(),
+                getCommentCount(),
+                getAttentionReason(),
+                synthesizedState,
+                getClosedAt(),
+                getMergedAt(),
+                getMergeable(),
+                getMergeableState(),
+                getHeadPushedAt(),
+                getReviewerVerdicts(),
+                getHeadRef(),
+                getGithubId());
+    }
+
+    /**
+     * Carries over what a fetched pull request cannot report. No list or search
+     * response includes the counts, CI status or attention reason, so a sync
+     * page would otherwise overwrite them with the entity defaults.
+     */
+    public void preserveEnrichmentFrom(PullRequestEntity previous)
+    {
+        setCiStatus(previous.getCiStatus());
+        setAdditions(previous.getAdditions());
+        setDeletions(previous.getDeletions());
+        setCommentCount(previous.getCommentCount());
+        setAttentionReason(previous.getAttentionReason());
+        setHeadPushedAt(previous.getHeadPushedAt());
+        setReviewerVerdicts(previous.getReviewerVerdicts());
+        // Reported by the pulls endpoint but not by search.
+        if (getMergeable() == null) {
+            setMergeable(previous.getMergeable());
+        }
+        if (getMergeableState() == null) {
+            setMergeableState(previous.getMergeableState());
+        }
+        if (getHeadRef() == null) {
+            setHeadRef(previous.getHeadRef());
+        }
+    }
 }

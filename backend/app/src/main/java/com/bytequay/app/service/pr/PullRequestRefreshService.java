@@ -54,21 +54,10 @@ public class PullRequestRefreshService
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
-    public PullRequestDetailRefresh refreshDetail(long prId)
-    {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(prId);
-        return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
-    }
-
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
     public PullRequestDetail refreshAllDetail(String repo, int number)
     {
         return pullRequests.refreshAllPullRequestDetailFromGitHub(repo, number);
-    }
-
-    public PullRequestDetail refreshAllDetail(long prId)
-    {
-        return pullRequests.refreshAllPullRequestDetailFromGitHub(prId);
     }
 
     /** Refreshes one diff snapshot and returns the newly persisted files. */

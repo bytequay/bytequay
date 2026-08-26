@@ -41,10 +41,11 @@ final class PullRequestDetailMapper
     private PullRequestDetailMapper() {}
 
     static PullRequestDetail toPullRequestDetail(
-            String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
+            long id, String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
     {
         PrRawDetail raw = stored.raw();
         return new PullRequestDetail(
+                id,
                 repo,
                 number,
                 raw.title(),

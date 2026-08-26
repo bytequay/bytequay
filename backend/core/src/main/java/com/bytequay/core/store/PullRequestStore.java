@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.AttentionReason;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
@@ -39,16 +40,19 @@ public interface PullRequestStore
 
     Set<Long> findIdsMissingEnrichment(Set<Long> ids);
 
-    void saveDashboardSyncPage(List<PullRequest> pullRequests, String syncMarker);
+    /** Stores a page of fetched pull requests and returns them as stored rows. */
+    List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
 
     Set<Long> completeDashboardSync(String syncMarker);
 
-    void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker);
+    List<PullRequest> saveRepositorySyncPage(
+            String repository, List<FetchedPullRequest> pullRequests, String syncMarker);
 
     List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker);
 
     /** Stores a pull request opened directly by the user until normal sync reconciliation runs. */
-    void saveObserved(PullRequest pullRequest);
+    /** Stores the pull request and returns the stored row, creating one if needed. */
+    PullRequest saveObserved(FetchedPullRequest pullRequest);
 
     Set<Long> completeRepositorySync(String repository, Instant retentionCutoff);
 

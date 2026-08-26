@@ -59,31 +59,6 @@ class TestPullRequestRefreshService
     }
 
     @Test
-    void idDetailRefreshReturnsTheRefreshedResultWithoutRereading()
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestRefreshService service = service(pullRequests);
-        when(pullRequests.refreshPullRequestDetailFromGitHub(12L))
-                .thenReturn(new PullRequestService.DetailRefresh(true, detail()));
-
-        assertThat(service.refreshDetail(12L).full()).isTrue();
-
-        verify(pullRequests).refreshPullRequestDetailFromGitHub(12L);
-    }
-
-    @Test
-    void manualDetailRefreshAlwaysUsesTheFullRefreshPath()
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        when(pullRequests.refreshAllPullRequestDetailFromGitHub(12L)).thenReturn(detail());
-        PullRequestRefreshService service = service(pullRequests);
-
-        assertThat(service.refreshAllDetail(12L)).isEqualTo(detail());
-
-        verify(pullRequests).refreshAllPullRequestDetailFromGitHub(12L);
-    }
-
-    @Test
     void directDiffRefreshPersistsBeforeReading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
@@ -300,6 +275,7 @@ class TestPullRequestRefreshService
     private static PullRequestDetail detail()
     {
         return new PullRequestDetail(
+                12L,
                 "owner/repo",
                 7,
                 "Title",

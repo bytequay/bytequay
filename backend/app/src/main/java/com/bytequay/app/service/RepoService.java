@@ -17,13 +17,13 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrViewStateStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
@@ -48,15 +48,18 @@ public class RepoService
     private final GitHubPullRequestReadClient pullRequests;
     private final GitHubAccountClient accounts;
     private final PrViewStateStore viewStateStore;
+    private final PullRequestStore pullRequestStore;
     private final CredentialService credentialService;
 
     public RepoService(
             GitHubPullRequestReadClient pullRequests,
+            PullRequestStore pullRequestStore,
             GitHubAccountClient accounts,
             PrViewStateStore viewStateStore,
             CredentialService credentialService)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
@@ -93,10 +96,12 @@ public class RepoService
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
-        PullRequest fresh = pullRequests.getPullRequest(pat, PullRequestRef.of(owner, repo, number));
-        return overlayViewState(
-                fresh,
-                viewStateStore.findByPrIds(ImmutableSet.of(fresh.id())).get(fresh.id()));
+        PullRequestRef ref = PullRequestRef.of(owner, repo, number);
+        // Storing it first is what turns a fetched pull request into one this
+        // application can work with: only a stored row carries an id, and view
+        // state hangs off that id.
+        PullRequest stored = pullRequestStore.saveObserved(pullRequests.getPullRequest(pat, ref));
+        return stored.withViewState(viewStateStore.findByPrIds(ImmutableSet.of(stored.id())).get(stored.id()));
     }
 
     public List<RecentEvent> getRecentEvents(String login)
@@ -114,19 +119,5 @@ public class RepoService
         requireNotBlank(login, "login must not be blank");
         List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
         return ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
-    }
-
-    private static PullRequest overlayViewState(PullRequest pr, PrViewState state)
-    {
-        if (state == null) {
-            return pr;
-        }
-        return new PullRequest(
-                pr.id(), pr.repo(), pr.number(), pr.title(), pr.author(), pr.htmlUrl(),
-                pr.createdAt(), pr.updatedAt(), pr.origin(), pr.labels(), pr.labelColors(), pr.draft(),
-                state.viewedAt(), state.reviewedAt(), state.handledAction(), pr.requestedReviewers(),
-                pr.ciStatus(), pr.additions(), pr.deletions(), pr.commentCount(), pr.attentionReason(),
-                pr.state(), pr.closedAt(), pr.mergedAt(), pr.mergeable(), pr.mergeableState(),
-                pr.headPushedAt(), pr.reviewerVerdicts(), pr.headRef());
     }
 }

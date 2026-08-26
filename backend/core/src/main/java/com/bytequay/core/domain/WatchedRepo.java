@@ -13,12 +13,20 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 public record WatchedRepo(
         long id,
         String owner,
         String repo,
         int displayOrder)
 {
+    public WatchedRepo
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+    }
+
     public String fullName()
     {
         return owner + "/" + repo;

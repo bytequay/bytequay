@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -90,7 +91,7 @@ public class GitHubPullRequestReadClient
     private static final Set<String> ATTENTION_REASONS =
             ImmutableSet.of("review_requested", "mention");
 
-    public List<PullRequest> searchPullRequests(String pat, String query) {
+    public List<FetchedPullRequest> searchPullRequests(String pat, String query) {
         return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
     }
 
@@ -158,7 +159,7 @@ public class GitHubPullRequestReadClient
             }
             PullRequest.Origin origin =
                     query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
-            List<PullRequest> items =
+            List<FetchedPullRequest> items =
                     response.items().stream()
                             .map(item -> toPullRequest(item, origin))
                             .collect(toImmutableList());
@@ -1075,7 +1076,7 @@ public class GitHubPullRequestReadClient
             Integer originalStartLine,
             String side) {}
 
-    public PullRequest getPullRequest(String pat, PullRequestRef pr) {
+    public FetchedPullRequest getPullRequest(String pat, PullRequestRef pr) {
         return getPullRequest(pat, pr, Optional.empty()).pullRequest()
                 .orElseThrow(() -> new IllegalStateException("Unconditional GitHub PR request returned no body"));
     }
@@ -1109,7 +1110,7 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    public record PullRequestFetch(Optional<PullRequest> pullRequest, Optional<String> etag)
+    public record PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag)
     {
         public PullRequestFetch
         {
@@ -1182,7 +1183,7 @@ public class GitHubPullRequestReadClient
 
     public record AttentionPrRef(PullRequestRef ref, boolean reviewRequested) {}
 
-    private static PullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
+    private static FetchedPullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
         List<GitHubRepoPullRequestItem.Label> rawLabels =
                 Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         List<String> labels =
@@ -1205,7 +1206,7 @@ public class GitHubPullRequestReadClient
                 Optional.ofNullable(item.user())
                         .map(GitHubRepoPullRequestItem.User::login)
                         .orElse(null);
-        return new PullRequest(
+        return new FetchedPullRequest(
                 item.id(),
                 fullName,
                 item.number(),
@@ -1218,23 +1219,12 @@ public class GitHubPullRequestReadClient
                 labels,
                 labelColors,
                 item.draft(),
-                null,
-                null,
-                null,
-                reviewers,
-                null,
-                0,
-                0,
-                0,
-                null,
-                // List response fields; detail-only fields stay null here.
                 item.state(),
                 item.closedAt(),
                 item.mergedAt(),
+                reviewers,
                 item.mergeable(),
                 item.mergeableState(),
-                null,
-                null,
                 // Head ref is available directly from the list response.
                 Optional.ofNullable(item.head())
                         .map(GitHubRepoPullRequestItem.Head::ref)
@@ -1259,7 +1249,7 @@ public class GitHubPullRequestReadClient
             String type) {}
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    static PullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin) {
+    static FetchedPullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin) {
         List<GitHubSearchResponse.Label> rawLabels =
                 Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         List<String> labels =
@@ -1274,7 +1264,7 @@ public class GitHubPullRequestReadClient
                                         (a, b) -> a));
         String author =
                 Optional.ofNullable(item.user()).map(GitHubSearchResponse.User::login).orElse(null);
-        return new PullRequest(
+        return new FetchedPullRequest(
                 item.id(),
                 extractRepo(item.repositoryUrl()),
                 item.number(),
@@ -1287,15 +1277,6 @@ public class GitHubPullRequestReadClient
                 labels,
                 labelColors,
                 item.draft(),
-                null,
-                null,
-                null,
-                ImmutableList.of(),
-                null,
-                0,
-                0,
-                0,
-                null,
                 // Search reports a merged PR as
                 // state=closed, so merged_at has to come along or every
                 // renderer downstream reads it as plainly closed.
@@ -1304,12 +1285,11 @@ public class GitHubPullRequestReadClient
                 Optional.ofNullable(item.pullRequest())
                         .map(GitHubSearchResponse.PullRequestLink::mergedAt)
                         .orElse(null),
+                // Search responses expose no reviewers, mergeability or head
+                // ref; the next list-page sync fills them in.
+                ImmutableList.of(),
                 null,
                 null,
-                null,
-                null,
-                // Search responses don't expose head.ref; the next
-                // list-page sync will fill it in.
                 null);
     }
 

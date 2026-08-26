@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * GitHub user profile summary.
  *
@@ -31,4 +33,9 @@ public record UserProfile(
         String location,
         String company,
         String email)
-{}
+{
+    public UserProfile
+    {
+        requireNonNull(login, "login is null");
+    }
+}

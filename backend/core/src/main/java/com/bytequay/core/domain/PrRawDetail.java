@@ -20,6 +20,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Raw data returned by a single GitHub pull-request API call, before business-logic aggregation.
  *
@@ -52,6 +54,16 @@ public record PrRawDetail(
         String headRef,
         String baseRef)
 {
+    public PrRawDetail
+    {
+        author = author == null ? FetchedPullRequest.GHOST_AUTHOR : author;
+        labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
+        assignees = ImmutableList.copyOf(requireNonNull(assignees, "assignees is null"));
+        requestedReviewers = ImmutableList.copyOf(
+                requireNonNull(requestedReviewers, "requestedReviewers is null"));
+        labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
+    }
+
     public PrRawDetail(
             String body,
             List<String> labels,

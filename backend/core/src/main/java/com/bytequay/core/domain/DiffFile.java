@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A single file in a pull-request diff, with the unified-diff patch text.
  *
@@ -24,4 +26,11 @@ public record DiffFile(
         String status,
         int additions,
         int deletions,
-        String patch) {}
+        String patch)
+{
+    public DiffFile
+    {
+        requireNonNull(filename, "filename is null");
+        requireNonNull(status, "status is null");
+    }
+}

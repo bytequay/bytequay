@@ -169,7 +169,7 @@ migration contract.
 The runtime database remains:
 
 ```text
-~/Library/Application Support/ByteQuay/bytequay.db
+~/Library/Application Support/ByteQuay/bytequay-1.0.db
 ```
 
 Tests continue to use unique SQLite files under the system temporary

@@ -317,12 +317,10 @@ export default function PullsScreen({
     setDetail(null);
     setDetailLoading(true);
     setError(null);
-    const fetchSelectedDetail = () => selectedPrId > 0
-      ? window.bridge.fetchPullRequestDetail(selectedPrId)
-      : window.bridge.fetchPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
-    const refreshSelectedDetail = () => selectedPrId > 0
-      ? window.bridge.refreshPullRequestDetail(selectedPrId)
-      : window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
+    const fetchSelectedDetail = () =>
+      window.bridge.fetchPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
+    const refreshSelectedDetail = () =>
+      window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
     const poll = async (): Promise<void> => {
       let nextDelay = DETAIL_REFRESH_INTERVAL;
       let request: Promise<PullRequestDetailRefreshDto> | null = null;
@@ -436,9 +434,8 @@ export default function PullsScreen({
     const listVersion = listRequest.current;
     setDetailLoading(true);
     try {
-      const value = selectedPr.id > 0
-        ? await window.bridge.refreshAllPullRequestDetail(selectedPr.id)
-        : await window.bridge.refreshAllPullRequestDetailByRef(selectedPr.repo, selectedPr.number);
+      const value = await window.bridge.refreshAllPullRequestDetailByRef(
+        selectedPr.repo, selectedPr.number);
       applyDetail(selectedPr.id, value, true);
       if (listVersion === listRequest.current) {
         try {
@@ -632,14 +629,11 @@ export default function PullsScreen({
 }
 
 export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: string): PullRequestDto {
-  const key = `${detail.repo.toLowerCase()}#${detail.number}`;
-  let hash = 0;
-  for (const character of key) hash = ((hash * 31) + character.charCodeAt(0)) | 0;
   const origin = viewerLogin && detail.author?.toLowerCase() === viewerLogin.toLowerCase()
     ? 'AUTHORED'
     : isReviewRequestedForViewer(detail, viewerLogin ?? null) ? 'REVIEW_REQUESTED' : 'OTHER';
   return {
-    id: -(Math.abs(hash) || 1),
+    id: detail.id,
     repo: detail.repo,
     number: detail.number,
     title: detail.title ?? `${detail.repo} #${detail.number}`,

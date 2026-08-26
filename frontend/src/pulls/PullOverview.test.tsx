@@ -843,6 +843,7 @@ function pullRequest(): PullRequestDto {
 
 function detail(): PullRequestDetailDto {
   return {
+    id: 12,
     repo: 'owner/repo',
     number: 42,
     title: 'Example pull request',

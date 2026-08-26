@@ -101,15 +101,25 @@ public interface PullRequestJpaRepository
             + "AND (e.closedAt IS NULL OR e.closedAt < :retentionCutoff)")
     int hideExpiredWorkspaceRows(@Param("repo") String repo, @Param("retentionCutoff") Instant retentionCutoff);
 
+    // A row carrying view state is kept: reviewed and viewed marks are the one
+    // thing here that cannot be fetched again from GitHub, and deleting the
+    // pull request would strand them.
     @Query("SELECT e.id FROM PullRequestEntity e WHERE e.dashboardVisible = false "
-            + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false)")
+            + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false) "
+            + "AND e.id NOT IN (SELECT v.prId FROM PrViewStateEntity v)")
     Set<Long> findInvisibleIds();
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM PullRequestEntity e WHERE e.dashboardVisible = false "
-            + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false)")
+            + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false) "
+            + "AND e.id NOT IN (SELECT v.prId FROM PrViewStateEntity v)")
     int deleteInvisibleRows();
 
-    @Query("SELECT e.id FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.number = :number")
-    Optional<Long> findIdByRepoAndNumber(@Param("repo") String repo, @Param("number") int number);
+    /**
+     * Looks a pull request up by its natural key. Together with
+     * {@code findById} this is the only way a caller should reach a single row:
+     * both hit an index and both are served from the persistence context on a
+     * repeat read within one transaction.
+     */
+    Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(String repo, int number);
 }

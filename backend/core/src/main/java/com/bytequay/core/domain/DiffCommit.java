@@ -15,9 +15,17 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
+import static java.util.Objects.requireNonNull;
+
 public record DiffCommit(
         String sha,
         String parentSha,
         String message,
         String author,
-        Instant authoredAt) {}
+        Instant authoredAt)
+{
+    public DiffCommit
+    {
+        requireNonNull(sha, "sha is null");
+    }
+}

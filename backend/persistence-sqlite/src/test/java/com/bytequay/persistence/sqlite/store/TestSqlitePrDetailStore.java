@@ -23,6 +23,8 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
+import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
+import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
@@ -39,9 +41,12 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
@@ -52,9 +57,10 @@ class TestSqlitePrDetailStore
     private static final String DATABASE_PATH = Path.of(
             System.getProperty("java.io.tmpdir"),
             "bytequay-pr-detail-store-" + UUID.randomUUID() + ".db").toString();
-    private static final long PR_ID = 2234;
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("bytequay", "sample", 42);
     private static final Instant NOW = Instant.parse("2026-08-18T00:00:00Z");
+
+    private long prId;
 
     @Autowired
     private SqlitePrDetailStore store;
@@ -64,6 +70,12 @@ class TestSqlitePrDetailStore
 
     @Autowired
     private PrTimelineJpaRepository timeline;
+
+    @Autowired
+    private PrReviewJpaRepository reviews;
+
+    @Autowired
+    private PrCheckRunJpaRepository checkRuns;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -79,7 +91,6 @@ class TestSqlitePrDetailStore
     void seedPullRequest()
     {
         PullRequestEntity pullRequest = new PullRequestEntity();
-        pullRequest.setId(PR_ID);
         pullRequest.setRepo(PULL_REQUEST.repoFullName());
         pullRequest.setNumber(PULL_REQUEST.number());
         pullRequest.setTitle("CI fix");
@@ -87,13 +98,13 @@ class TestSqlitePrDetailStore
         pullRequest.setLabels(ImmutableList.of());
         pullRequest.setLabelColors(ImmutableMap.of());
         pullRequest.setSyncedAt(NOW);
-        pullRequests.saveAndFlush(pullRequest);
+        prId = pullRequests.saveAndFlush(pullRequest).getId();
     }
 
     @Test
     void recordsOneLocalEventAndPreservesItAcrossFullAndIncrementalRefreshes()
     {
-        store.save(PR_ID, detail(remote(1, NOW.plusSeconds(2))));
+        store.save(prId, detail(remote(1, NOW.plusSeconds(2))));
         PrTimelineEvent local = new PrTimelineEvent(
                 null,
                 "ci_autofix",
@@ -106,10 +117,10 @@ class TestSqlitePrDetailStore
         assertThat(store.recordLocalTimelineEvent(PULL_REQUEST, local)).isEqualTo(local);
         assertThat(timeline.count()).isEqualTo(2);
 
-        store.save(PR_ID, detail(remote(2, NOW.plusSeconds(3))));
-        store.saveIncremental(PR_ID, detail(remote(3, NOW.plusSeconds(4))));
+        store.save(prId, detail(remote(2, NOW.plusSeconds(3))));
+        store.saveIncremental(prId, detail(remote(3, NOW.plusSeconds(4))));
 
-        assertThat(store.find(PR_ID).orElseThrow().timeline())
+        assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::localEventKey)
                 .containsExactly(
                         Optional.of("ci-autofix:run:attempt:sha"),
@@ -121,7 +132,7 @@ class TestSqlitePrDetailStore
     void savesPatchedCachedTimelineWithoutReinsertingLocalEvents()
     {
         PrTimelineEvent first = remote(1, NOW);
-        store.save(PR_ID, detail(first));
+        store.save(prId, detail(first));
         PrTimelineEvent local = new PrTimelineEvent(
                 null,
                 "ci_autofix",
@@ -131,17 +142,17 @@ class TestSqlitePrDetailStore
                 Optional.of("ci-autofix:patch:sha"));
         store.recordLocalTimelineEvent(PULL_REQUEST, local);
 
-        StoredPrDetail cached = store.find(PR_ID).orElseThrow();
+        StoredPrDetail cached = store.find(prId).orElseThrow();
         PrTimelineEvent second = remote(2, NOW.plusSeconds(2));
-        store.save(PR_ID, withTimeline(cached, second));
-        StoredPrDetail patched = store.find(PR_ID).orElseThrow();
+        store.save(prId, withTimeline(cached, second));
+        StoredPrDetail patched = store.find(prId).orElseThrow();
         PrTimelineEvent third = remote(3, NOW.plusSeconds(3));
-        store.saveIncremental(PR_ID, withTimeline(patched, third));
+        store.saveIncremental(prId, withTimeline(patched, third));
 
-        assertThat(store.find(PR_ID).orElseThrow().timeline())
+        assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::githubId)
                 .containsExactlyInAnyOrder(null, 1L, 2L, 3L);
-        assertThat(store.find(PR_ID).orElseThrow().timeline())
+        assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::localEventKey)
                 .containsOnlyOnce(Optional.of("ci-autofix:patch:sha"));
     }
@@ -149,7 +160,7 @@ class TestSqlitePrDetailStore
     @Test
     void deletingPullRequestDetailsAlsoDeletesLocalTimelineEvents()
     {
-        store.save(PR_ID, detail(remote(1, NOW)));
+        store.save(prId, detail(remote(1, NOW)));
         store.recordLocalTimelineEvent(PULL_REQUEST, new PrTimelineEvent(
                 null,
                 "ci_autofix",
@@ -158,7 +169,7 @@ class TestSqlitePrDetailStore
                 "verified push facts",
                 Optional.of("ci-autofix:delete")));
 
-        store.deleteByPrIds(ImmutableSet.of(PR_ID));
+        store.deleteByPrIds(ImmutableSet.of(prId));
 
         assertThat(timeline.count()).isZero();
     }
@@ -166,20 +177,20 @@ class TestSqlitePrDetailStore
     @Test
     void storesTheGitHubEtag()
     {
-        store.save(PR_ID, detail(remote(1, NOW)));
-        store.updateEtag(PR_ID, Optional.of("\"etag-1\""));
+        store.save(prId, detail(remote(1, NOW)));
+        store.updateEtag(prId, Optional.of("\"etag-1\""));
 
-        assertThat(store.findEtag(PR_ID)).contains("\"etag-1\"");
+        assertThat(store.findEtag(prId)).contains("\"etag-1\"");
     }
 
     @Test
     void storesTheGitHubStatusEtags()
     {
-        store.save(PR_ID, detail(remote(1, NOW)));
-        store.updateStatusEtags(PR_ID, Optional.of("\"checks-1\""), Optional.of("\"statuses-1\""));
+        store.save(prId, detail(remote(1, NOW)));
+        store.updateStatusEtags(prId, Optional.of("\"checks-1\""), Optional.of("\"statuses-1\""));
 
-        assertThat(store.findCheckRunsEtag(PR_ID)).contains("\"checks-1\"");
-        assertThat(store.findCommitStatusesEtag(PR_ID)).contains("\"statuses-1\"");
+        assertThat(store.findCheckRunsEtag(prId)).contains("\"checks-1\"");
+        assertThat(store.findCommitStatusesEtag(prId)).contains("\"statuses-1\"");
     }
 
     @Test
@@ -192,7 +203,7 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(new PrReviewState("alice", "APPROVED")),
                 ImmutableList.of(comment),
                 ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
-        store.save(PR_ID, original);
+        store.save(prId, original);
         PrCheckRunState completedCheck = new PrCheckRunState(
                 2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(30));
         StoredPrDetail status = new StoredPrDetail(
@@ -201,9 +212,9 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(),
                 ImmutableList.of(completedCheck));
 
-        store.saveStatus(PR_ID, status);
+        store.saveStatus(prId, status);
 
-        StoredPrDetail restored = store.find(PR_ID).orElseThrow();
+        StoredPrDetail restored = store.find(prId).orElseThrow();
         assertThat(restored.raw().mergeable()).isFalse();
         assertThat(restored.raw().mergeableState()).isEqualTo("dirty");
         assertThat(restored.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
@@ -231,9 +242,9 @@ class TestSqlitePrDetailStore
                 ImmutableList.of("checks"),
                 true);
 
-        store.save(PR_ID, detail);
+        store.save(prId, detail);
 
-        StoredPrDetail restored = store.find(PR_ID).orElseThrow();
+        StoredPrDetail restored = store.find(prId).orElseThrow();
         assertThat(restored.raw().baseRef()).isEqualTo("main");
         assertThat(restored.raw().labelColors()).containsEntry("docs", "d4c5f9");
         assertThat(restored.timeline()).singleElement().satisfies(event -> {
@@ -242,6 +253,82 @@ class TestSqlitePrDetailStore
         });
         assertThat(restored.unavailableSections()).containsExactly("checks");
         assertThat(restored.viewerCanWrite()).isTrue();
+    }
+
+    @Test
+    void refreshKeepsRowIdentityAndSweepsWhatGitHubDropped()
+    {
+        store.save(prId, detail(
+                ImmutableList.of(review(11L, "alice", "lgtm"), review(12L, "bob", "nit")),
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success"),
+                        new PrCheckRunState(22L, "test", "completed", "failure"))));
+        long aliceRowId = reviews.findByPrId(prId).stream()
+                .filter(row -> row.getGithubId() == 11L)
+                .findFirst()
+                .orElseThrow()
+                .getId();
+
+        // GitHub now reports only alice's review, with an edited body, and only the build check.
+        store.save(prId, detail(
+                ImmutableList.of(review(11L, "alice", "still lgtm")),
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success"))));
+
+        assertThat(reviews.findByPrId(prId)).singleElement().satisfies(row -> {
+            assertThat(row.getGithubId()).isEqualTo(11L);
+            assertThat(row.getId()).isEqualTo(aliceRowId);
+            assertThat(row.getBody()).isEqualTo("still lgtm");
+        });
+        assertThat(checkRuns.findByPrId(prId)).singleElement()
+                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(21L));
+    }
+
+    @Test
+    void refreshKeepsTimelineRowIdentityIncludingEventsWithoutAGitHubId()
+    {
+        PrTimelineEvent comment = remote(31, NOW);
+        PrTimelineEvent commit = new PrTimelineEvent(
+                null, "committed", "alice", NOW.plusSeconds(1), "first",
+                new PrTimelinePayload(
+                        null, false, null, null, null, null,
+                        null, null, "c0ffee", null, null, null, null, null, null, null,
+                        null, null, null, null, null, false, false,
+                        ImmutableList.of(), ImmutableList.of()),
+                Optional.empty());
+        store.save(prId, detail(ImmutableList.of(comment, commit)));
+        Map<String, Long> rowIds = timeline.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
+                .collect(toImmutableMap(row -> row.getEvent(), row -> row.getId()));
+
+        // A second refresh returns the same two events; neither row should be recreated.
+        store.save(prId, detail(ImmutableList.of(comment, commit)));
+
+        assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId))
+                .hasSize(2)
+                .allSatisfy(row -> assertThat(row.getId()).isEqualTo(rowIds.get(row.getEvent())));
+    }
+
+    private static StoredPrDetail detail(List<PrTimelineEvent> events)
+    {
+        return new StoredPrDetail(
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
+                        "a".repeat(40), "feature"),
+                ImmutableList.of(),
+                events,
+                ImmutableList.of());
+    }
+
+    private static PrReviewState review(long githubId, String login, String body)
+    {
+        return new PrReviewState(githubId, login, null, false, "COMMENTED", NOW, body, null, null);
+    }
+
+    private static StoredPrDetail detail(List<PrReviewState> reviews, List<PrCheckRunState> checkRuns)
+    {
+        return new StoredPrDetail(
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
+                        "a".repeat(40), "feature"),
+                reviews,
+                ImmutableList.of(),
+                checkRuns);
     }
 
     private static StoredPrDetail detail(PrTimelineEvent event)

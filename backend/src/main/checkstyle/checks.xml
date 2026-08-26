@@ -78,6 +78,12 @@
 
     <module name="SuppressWarningsFilter" />
 
+    <module name="LineLength">
+        <property name="fileExtensions" value="java" />
+        <property name="max" value="180" />
+        <property name="ignorePattern" value="^package .*|^import .*|a href|href|http://|https://|ftp://" />
+    </module>
+
     <module name="TreeWalker">
         <module name="SuppressWarningsHolder" />
 

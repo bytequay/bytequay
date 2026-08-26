@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 public record InlineReviewComment(
         String path,
         String body,
@@ -20,4 +22,11 @@ public record InlineReviewComment(
         String side,
         Integer startLine,
         String startSide,
-        String commitId) {}
+        String commitId)
+{
+    public InlineReviewComment
+    {
+        requireNonNull(path, "path is null");
+        requireNonNull(body, "body is null");
+    }
+}

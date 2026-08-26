@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -70,21 +71,27 @@ public record PullRequest(
         String mergeableState,
         Instant headPushedAt,
         Map<String, String> reviewerVerdicts,
-        String headRef)
+        String headRef,
+        Long githubId)
 {
     public PullRequest
     {
+        checkArgument(id > 0, "id is not a stored row id: %s", id);
         requireNonNull(repo, "repo is null");
+        requireNonNull(author, "author is null");
+        requireNonNull(githubId, "githubId is null");
         requireNonNull(title, "title is null");
+        requireNonNull(htmlUrl, "htmlUrl is null");
+        requireNonNull(createdAt, "createdAt is null");
+        requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(origin, "origin is null");
+        requireNonNull(state, "state is null");
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
-        if (labelColors != null) {
-            labelColors = ImmutableMap.copyOf(labelColors);
-        }
+        labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
         requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
-        if (reviewerVerdicts != null) {
-            reviewerVerdicts = ImmutableMap.copyOf(reviewerVerdicts);
-        }
+        reviewerVerdicts = reviewerVerdicts == null
+                ? ImmutableMap.of()
+                : ImmutableMap.copyOf(reviewerVerdicts);
     }
 
     public enum Origin
@@ -94,37 +101,17 @@ public record PullRequest(
         OTHER
     }
 
-    public PullRequest withId(long id)
+    /** This pull request with the viewed and reviewed marks this application holds for it. */
+    public PullRequest withViewState(PrViewState viewState)
     {
+        if (viewState == null) {
+            return this;
+        }
         return new PullRequest(
-                id,
-                repo,
-                number,
-                title,
-                author,
-                htmlUrl,
-                createdAt,
-                updatedAt,
-                origin,
-                labels,
-                labelColors,
-                draft,
-                viewedAt,
-                reviewedAt,
-                handledAction,
-                requestedReviewers,
-                ciStatus,
-                additions,
-                deletions,
-                commentCount,
-                attentionReason,
-                state,
-                closedAt,
-                mergedAt,
-                mergeable,
-                mergeableState,
-                headPushedAt,
-                reviewerVerdicts,
-                headRef);
+                id, repo, number, title, author, htmlUrl, createdAt, updatedAt, origin, labels,
+                labelColors, draft, viewState.viewedAt(), viewState.reviewedAt(),
+                viewState.handledAction(), requestedReviewers, ciStatus, additions, deletions,
+                commentCount, attentionReason, state, closedAt, mergedAt, mergeable, mergeableState,
+                headPushedAt, reviewerVerdicts, headRef, githubId);
     }
 }

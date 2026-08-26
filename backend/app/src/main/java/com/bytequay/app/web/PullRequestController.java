@@ -83,18 +83,19 @@ public class PullRequestController
         refreshService.refreshDashboard();
     }
 
+    /** Used by Home's attention list, which holds a row id and no reference. */
+    @GetMapping("/prs/{prId}/detail")
+    public PullRequestDetail detail(@PathVariable long prId)
+    {
+        return pullRequests.getPullRequestDetail(prId);
+    }
+
     @GetMapping("/prs/detail")
     public PullRequestDetail detail(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
         return pullRequests.getPullRequestDetail(repo, number);
-    }
-
-    @GetMapping("/prs/{prId}/detail")
-    public PullRequestDetail detail(@PathVariable long prId)
-    {
-        return pullRequests.getPullRequestDetail(prId);
     }
 
     @PostMapping("/prs/detail/refresh")
@@ -105,24 +106,12 @@ public class PullRequestController
         return refreshService.refreshDetail(repo, number);
     }
 
-    @PostMapping("/prs/{prId}/detail/refresh")
-    public PullRequestDetailRefresh refreshDetail(@PathVariable long prId)
-    {
-        return refreshService.refreshDetail(prId);
-    }
-
     @PostMapping("/prs/detail/refresh-all")
     public PullRequestDetail refreshAllDetail(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
         return refreshService.refreshAllDetail(repo, number);
-    }
-
-    @PostMapping("/prs/{prId}/detail/refresh-all")
-    public PullRequestDetail refreshAllDetail(@PathVariable long prId)
-    {
-        return refreshService.refreshAllDetail(prId);
     }
 
     @GetMapping("/prs/diffFiles")

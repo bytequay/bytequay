@@ -582,14 +582,10 @@ function registerIpc(): void {
     url.searchParams.set('branch', branch);
     return backendJson(url);
   });
-  ipcMain.handle('prs:detail:refresh', (_event, prId: number) =>
-    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail/refresh`, { method: 'POST' }));
   ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh', repo, number);
     return backendJson(url, { method: 'POST' });
   });
-  ipcMain.handle('prs:detail:refresh-all', (_event, prId: number) =>
-    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail/refresh-all`, { method: 'POST' }));
   ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh-all', repo, number);
     return backendJson(url, { method: 'POST' });

@@ -57,7 +57,10 @@ class TestPrAttention
     @Test
     void authoredPullRequestsFallBackToMine()
     {
-        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail(ImmutableList.of(), ImmutableList.of(), raw(true, "clean")), "alice", NOW, NOW)).isEqualTo(AttentionReason.MINE);
+        assertThat(PrAttention.promoteReason(
+                pr(PullRequest.Origin.AUTHORED),
+                detail(ImmutableList.of(), ImmutableList.of(), raw(true, "clean")), "alice", NOW, NOW))
+                .isEqualTo(AttentionReason.MINE);
     }
 
     @Test
@@ -89,8 +92,8 @@ class TestPrAttention
     private static PullRequest pr(PullRequest.Origin origin)
     {
         return new PullRequest(
-                1, "owner/repo", 7, "title", "alice", "url", null, NOW, origin,
+                1L, "owner/repo", 7, "title", "alice", "url", NOW, NOW, origin,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "open", null, null, null, null, null, null, null);
+                0, 0, 0, null, "open", null, null, null, null, null, null, null, 1L);
     }
 }

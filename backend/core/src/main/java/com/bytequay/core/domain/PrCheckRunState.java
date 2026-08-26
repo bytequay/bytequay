@@ -15,6 +15,8 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
+import static java.util.Objects.requireNonNull;
+
 /** The execution state of a single CI check run. */
 public record PrCheckRunState(
         Long githubId,
@@ -25,6 +27,11 @@ public record PrCheckRunState(
         String source,
         Instant completedAt)
 {
+    public PrCheckRunState
+    {
+        requireNonNull(name, "name is null");
+    }
+
     public PrCheckRunState(Long githubId, String name, String status, String conclusion)
     {
         this(githubId, name, status, conclusion, null, "check_run", null);

@@ -24,6 +24,7 @@ import com.bytequay.persistence.sqlite.entity.PrCheckRunEntity;
 import com.bytequay.persistence.sqlite.entity.PrDetailEntity;
 import com.bytequay.persistence.sqlite.entity.PrReviewEntity;
 import com.bytequay.persistence.sqlite.entity.PrTimelineEntity;
+import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
@@ -35,7 +36,11 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -70,7 +75,8 @@ public class SqlitePrDetailStore
     @Override
     public Optional<Instant> findSyncedAt(String repo, int number)
     {
-        return pullRequestRepo.findIdByRepoAndNumber(repo, number)
+        return pullRequestRepo.findByRepoIgnoreCaseAndNumber(repo, number)
+                .map(PullRequestEntity::getId)
                 .flatMap(detailRepo::findSyncedAtByPrId);
     }
 
@@ -111,18 +117,9 @@ public class SqlitePrDetailStore
     public void save(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-
-        reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
-
-        timelineRepo.deleteRemoteByPrId(prId);
-        timelineRepo.saveAll(detail.timeline().stream()
-                .filter(event -> event.localEventKey().isEmpty())
-                .map(event -> toEntity(prId, event))
-                .collect(toImmutableList()));
-
-        checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
+        saveReviews(prId, detail.reviews());
+        saveTimeline(prId, detail.timeline());
+        saveCheckRuns(prId, detail.checkRuns());
     }
 
     @Override
@@ -130,8 +127,7 @@ public class SqlitePrDetailStore
     public void saveStatus(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-        checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
+        saveCheckRuns(prId, detail.checkRuns());
     }
 
     @Override
@@ -142,7 +138,8 @@ public class SqlitePrDetailStore
         requireNonNull(event, "event is null");
         String eventKey = event.localEventKey()
                 .orElseThrow(() -> new IllegalArgumentException("local timeline event has no event key"));
-        long prId = pullRequestRepo.findIdByRepoAndNumber(pullRequest.repoFullName(), pullRequest.number())
+        long prId = pullRequestRepo.findByRepoIgnoreCaseAndNumber(pullRequest.repoFullName(), pullRequest.number())
+                .map(PullRequestEntity::getId)
                 .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
         timelineRepo.insertLocalEvent(
                 prId,
@@ -161,18 +158,14 @@ public class SqlitePrDetailStore
     public void saveIncremental(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-
-        reviewRepo.deleteByPrId(prId);
-        reviewRepo.saveAll(detail.reviews().stream().map(review -> toEntity(prId, review)).collect(toImmutableList()));
-
-        checkRunRepo.deleteByPrId(prId);
-        checkRunRepo.saveAll(detail.checkRuns().stream().map(check -> toEntity(prId, check)).collect(toImmutableList()));
+        saveReviews(prId, detail.reviews());
+        saveCheckRuns(prId, detail.checkRuns());
 
         Set<Long> existingIds = new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
         timelineRepo.saveAll(detail.timeline().stream()
                 .filter(event -> event.localEventKey().isEmpty())
                 .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
-                .map(event -> toEntity(prId, event))
+                .map(event -> toEntity(new PrTimelineEntity(), prId, event))
                 .collect(toImmutableList()));
     }
 
@@ -298,9 +291,103 @@ public class SqlitePrDetailStore
                 entity.getCommitId());
     }
 
-    private static PrReviewEntity toEntity(long prId, PrReviewState review)
+    /**
+     * Reconciles the stored reviews for a PR against the full list GitHub
+     * returned: rows keep their identity across refreshes, rows GitHub no
+     * longer reports are swept. Matching is on {@code github_id}; a row
+     * without one cannot be matched and is replaced.
+     */
+    private void saveReviews(long prId, List<PrReviewState> reviews)
     {
-        PrReviewEntity entity = new PrReviewEntity();
+        Map<Long, PrReviewEntity> stored = new HashMap<>();
+        List<PrReviewEntity> unmatchable = new ArrayList<>();
+        for (PrReviewEntity row : reviewRepo.findByPrId(prId)) {
+            if (row.getGithubId() == null || stored.putIfAbsent(row.getGithubId(), row) != null) {
+                unmatchable.add(row);
+            }
+        }
+        reviewRepo.deleteAll(unmatchable);
+
+        List<PrReviewEntity> merged = new ArrayList<>(reviews.size());
+        for (PrReviewState review : reviews) {
+            PrReviewEntity entity = review.githubId() == null ? null : stored.remove(review.githubId());
+            merged.add(toEntity(entity == null ? new PrReviewEntity() : entity, prId, review));
+        }
+        reviewRepo.saveAll(merged);
+        reviewRepo.deleteAll(stored.values());
+    }
+
+    /**
+     * Counterpart of {@link #saveReviews} for the timeline. Locally recorded
+     * events are never part of what GitHub returns, so they are neither
+     * rewritten nor swept.
+     */
+    private void saveTimeline(long prId, List<PrTimelineEvent> events)
+    {
+        Map<String, PrTimelineEntity> stored = new HashMap<>();
+        List<PrTimelineEntity> unmatchable = new ArrayList<>();
+        for (PrTimelineEntity row : timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId)) {
+            if (row.getLocalEventKey() == null && stored.putIfAbsent(sourceKey(toTimeline(row)), row) != null) {
+                unmatchable.add(row);
+            }
+        }
+        timelineRepo.deleteAll(unmatchable);
+
+        List<PrTimelineEntity> merged = new ArrayList<>(events.size());
+        for (PrTimelineEvent event : events) {
+            if (event.localEventKey().isPresent()) {
+                continue;
+            }
+            PrTimelineEntity entity = stored.remove(sourceKey(event));
+            merged.add(toEntity(entity == null ? new PrTimelineEntity() : entity, prId, event));
+        }
+        timelineRepo.saveAll(merged);
+        timelineRepo.deleteAll(stored.values());
+    }
+
+    /**
+     * Stable identity for a timeline event. Most carry a GitHub id, but
+     * commits, cross-references and the synthetic reactions row do not, so
+     * those fall back to the identifier their payload does carry.
+     */
+    private static String sourceKey(PrTimelineEvent event)
+    {
+        if (event.githubId() != null) {
+            return "gh:" + event.githubId();
+        }
+        if (event.payload().commitSha() != null) {
+            return "commit:" + event.payload().commitSha();
+        }
+        if (event.payload().sourceUrl() != null) {
+            return "xref:" + event.payload().sourceUrl();
+        }
+        return "event:" + event.event();
+    }
+
+    /** Counterpart of {@link #saveReviews} for check runs. A re-run reports a
+     *  new {@code github_id}, so superseded runs are swept here. */
+    private void saveCheckRuns(long prId, List<PrCheckRunState> checkRuns)
+    {
+        Map<Long, PrCheckRunEntity> stored = new HashMap<>();
+        List<PrCheckRunEntity> unmatchable = new ArrayList<>();
+        for (PrCheckRunEntity row : checkRunRepo.findByPrId(prId)) {
+            if (row.getGithubId() == null || stored.putIfAbsent(row.getGithubId(), row) != null) {
+                unmatchable.add(row);
+            }
+        }
+        checkRunRepo.deleteAll(unmatchable);
+
+        List<PrCheckRunEntity> merged = new ArrayList<>(checkRuns.size());
+        for (PrCheckRunState check : checkRuns) {
+            PrCheckRunEntity entity = check.githubId() == null ? null : stored.remove(check.githubId());
+            merged.add(toEntity(entity == null ? new PrCheckRunEntity() : entity, prId, check));
+        }
+        checkRunRepo.saveAll(merged);
+        checkRunRepo.deleteAll(stored.values());
+    }
+
+    private static PrReviewEntity toEntity(PrReviewEntity entity, long prId, PrReviewState review)
+    {
         entity.setPrId(prId);
         entity.setGithubId(review.githubId());
         entity.setLogin(review.login());
@@ -326,9 +413,8 @@ public class SqlitePrDetailStore
                 entity.getCompletedAt());
     }
 
-    private static PrCheckRunEntity toEntity(long prId, PrCheckRunState check)
+    private static PrCheckRunEntity toEntity(PrCheckRunEntity entity, long prId, PrCheckRunState check)
     {
-        PrCheckRunEntity entity = new PrCheckRunEntity();
         entity.setPrId(prId);
         entity.setGithubId(check.githubId());
         entity.setName(check.name());
@@ -352,9 +438,8 @@ public class SqlitePrDetailStore
                 Optional.ofNullable(entity.getLocalEventKey()));
     }
 
-    private static PrTimelineEntity toEntity(long prId, PrTimelineEvent event)
+    private static PrTimelineEntity toEntity(PrTimelineEntity entity, long prId, PrTimelineEvent event)
     {
-        PrTimelineEntity entity = new PrTimelineEntity();
         entity.setPrId(prId);
         entity.setGithubId(event.githubId());
         entity.setEvent(event.event());

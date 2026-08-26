@@ -13,8 +13,12 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.time.LocalDate;
 import java.util.List;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Last-12-months contribution heatmap for one user, sourced from GitHub's
@@ -34,6 +38,11 @@ public record ContributionCalendar(
         int totalContributions,
         List<Week> weeks)
 {
+    public ContributionCalendar
+    {
+        weeks = ImmutableList.copyOf(requireNonNull(weeks, "weeks is null"));
+    }
+
     /**
      * One vertical strip in the heatmap grid.
      */

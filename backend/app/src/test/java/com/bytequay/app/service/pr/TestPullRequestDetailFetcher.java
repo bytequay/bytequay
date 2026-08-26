@@ -76,7 +76,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(ImmutableList.of(check));
 
-        StoredPrDetail stored = fetcher.fetch("pat", REF);
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         assertThat(stored.raw().body()).isEqualTo("body");
         assertThat(stored.reviews()).containsExactly(review);
@@ -93,7 +93,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(null);
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(null);
 
-        StoredPrDetail stored = fetcher.fetch("pat", REF);
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.timeline()).isEmpty();
@@ -108,7 +108,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
-        StoredPrDetail stored = fetcher.fetch("pat", REF);
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         assertThat(stored.checkRuns()).isEmpty();
         verifyNoInteractions(actions);
@@ -122,7 +122,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
-        assertThatThrownBy(() -> fetcher.fetch("pat", REF))
+        assertThatThrownBy(() -> PullRequestDetailFetcher.await(fetcher.fetch("pat", REF)))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(BAD_GATEWAY));
         verifyNoInteractions(actions);
@@ -137,7 +137,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
-        StoredPrDetail stored = fetcher.fetch("pat", REF);
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly("reviews");
@@ -155,7 +155,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of(timelineCopy, labeled));
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of(issueCopy));
 
-        StoredPrDetail stored = fetcher.fetch("pat", REF);
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         assertThat(stored.timeline()).containsExactly(labeled, issueCopy);
     }
@@ -168,7 +168,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
 
-        fetcher.fetch("pat", REF);
+        PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
         verify(gitHub).fetchPrTimeline("pat", REF, null);
         verify(gitHub).fetchPrIssueComments("pat", REF, null);

@@ -48,10 +48,6 @@ public interface PrTimelineJpaRepository
     @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
 
-    @Modifying
-    @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId AND e.localEventKey IS NULL")
-    void deleteRemoteByPrId(@Param("prId") Long prId);
-
     /**
      * Returns the GitHub event ids already stored for this PR. Used by
      * the incremental save path to filter the freshly-fetched timeline

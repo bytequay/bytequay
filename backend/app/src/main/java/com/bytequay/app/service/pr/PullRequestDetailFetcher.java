@@ -29,7 +29,9 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -59,7 +62,8 @@ import static java.util.Objects.requireNonNullElse;
  * independent calls run concurrently on the IO executor; check runs wait only
  * for the PR detail they need.
  */
-final class PullRequestDetailFetcher
+@Component
+class PullRequestDetailFetcher
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestDetailFetcher.class);
 
@@ -72,7 +76,7 @@ final class PullRequestDetailFetcher
             GitHubPullRequestReadClient gitHub,
             GitHubActionsClient actions,
             PrDetailStore detailStore,
-            Executor ioExecutor)
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
@@ -80,7 +84,7 @@ final class PullRequestDetailFetcher
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
-    StoredPrDetail fetch(String pat, PullRequestRef ref)
+    ListenableFuture<StoredPrDetail> fetch(String pat, PullRequestRef ref)
     {
         ListenableFuture<PrRawDetail> detail = fetchAsync("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
         ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
@@ -98,7 +102,7 @@ final class PullRequestDetailFetcher
         ListenableFuture<SourceItems<PrCheckRunState>> checks = transformAsync(
                 detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor());
 
-        return await(whenAllSucceed(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
+        return whenAllSucceed(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
                 .call(() -> new StoredPrDetail(
                                 requireRaw(getDone(detail)),
                                 getDone(reviews).items(),
@@ -110,7 +114,7 @@ final class PullRequestDetailFetcher
                                         getDone(descriptionReactions).items())),
                                 getDone(checks).items(),
                                 unavailable(reviews, timeline, comments, commits, threads, descriptionReactions, checks)),
-                        directExecutor()));
+                        directExecutor());
     }
 
     private static PrRawDetail requireRaw(PrRawDetail raw)
@@ -123,7 +127,7 @@ final class PullRequestDetailFetcher
 
     // Unwrap so a ResponseStatusException from a fetch keeps its HTTP status
     // instead of surfacing as UncheckedExecutionException and mapping to 500.
-    private static <T> T await(ListenableFuture<T> future)
+    static <T> T await(ListenableFuture<T> future)
     {
         try {
             return getUnchecked(future);

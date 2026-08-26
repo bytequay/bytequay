@@ -61,7 +61,7 @@ class TestPullRequestDetailMapper
                 ImmutableList.of(new PrCheckRunState(
                         1L, "build", "completed", "success", null, "check_run", completedAt)));
 
-        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 5, stored, true);
+        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 5, stored, true);
 
         assertThat(detail.repo()).isEqualTo("owner/repo");
         assertThat(detail.body()).isEqualTo("body");
@@ -101,7 +101,7 @@ class TestPullRequestDetailMapper
                         new PrCheckRunState(2L, "license", "completed", "success")),
                 ImmutableList.of("reviewThreads"));
 
-        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail("owner/repo", 42, stored, false);
+        PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 42, stored, false);
 
         assertThat(detail.title()).isEqualTo("Overview");
         assertThat(detail.state()).isEqualTo("open");

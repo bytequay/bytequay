@@ -17,6 +17,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 public record StoredPrDetail(
         PrRawDetail raw,
         List<PrReviewState> reviews,
@@ -25,6 +27,15 @@ public record StoredPrDetail(
         List<String> unavailableSections,
         boolean viewerCanWrite)
 {
+    public StoredPrDetail
+    {
+        requireNonNull(raw, "raw is null");
+        reviews = ImmutableList.copyOf(requireNonNull(reviews, "reviews is null"));
+        timeline = ImmutableList.copyOf(requireNonNull(timeline, "timeline is null"));
+        checkRuns = ImmutableList.copyOf(requireNonNull(checkRuns, "checkRuns is null"));
+        unavailableSections = ImmutableList.copyOf(requireNonNull(unavailableSections, "unavailableSections is null"));
+    }
+
     public StoredPrDetail(
             PrRawDetail raw,
             List<PrReviewState> reviews,

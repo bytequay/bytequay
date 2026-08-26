@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.AttentionReason;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -126,31 +127,30 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public void saveDashboardSyncPage(List<PullRequest> pullRequests, String syncMarker)
+    public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker)
     {
         requireNonNull(pullRequests, "pullRequests is null");
         requireNonNull(syncMarker, "syncMarker is null");
-        pullRequests = preserveStoredIds(pullRequests);
         Instant now = Instant.now();
-        Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
-        jpaRepository.saveAll(pullRequests.stream()
-                .map(pullRequest -> {
-                    PullRequestEntity previous = existingById.get(pullRequest.id());
-                    PullRequestEntity entity = toEntity(pullRequest, now);
-                    entity.setDashboardVisible(true);
-                    entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
-                    entity.setDashboardSyncMarker(syncMarker);
-                    entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
-                    if (previous != null) {
-                        if (syncMarker.equals(previous.getDashboardSyncMarker())
-                                && PullRequest.Origin.AUTHORED.name().equals(previous.getOrigin())) {
-                            entity.setOrigin(PullRequest.Origin.AUTHORED.name());
-                        }
-                        preserveEnrichment(entity, previous);
-                    }
-                    return entity;
-                })
-                .collect(toImmutableList()));
+        ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
+        for (FetchedPullRequest pullRequest : pullRequests) {
+            PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
+            PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
+            entity.setId(previous == null ? null : previous.getId());
+            entity.setDashboardVisible(true);
+            entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
+            entity.setDashboardSyncMarker(syncMarker);
+            entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+            if (previous != null) {
+                if (syncMarker.equals(previous.getDashboardSyncMarker())
+                        && PullRequest.Origin.AUTHORED.name().equals(previous.getOrigin())) {
+                    entity.setOrigin(PullRequest.Origin.AUTHORED.name());
+                }
+                entity.preserveEnrichmentFrom(previous);
+            }
+            saved.add(jpaRepository.save(entity).toDomain(null));
+        }
+        return saved.build();
     }
 
     @Override
@@ -165,28 +165,28 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public void saveRepositorySyncPage(String repository, List<PullRequest> pullRequests, String syncMarker)
+    public List<PullRequest> saveRepositorySyncPage(
+            String repository, List<FetchedPullRequest> pullRequests, String syncMarker)
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(pullRequests, "pullRequests is null");
         requireNonNull(syncMarker, "syncMarker is null");
-        pullRequests = preserveStoredIds(pullRequests);
         Instant now = Instant.now();
-        Map<Long, PullRequestEntity> existingById = existingById(pullRequests);
-        jpaRepository.saveAll(pullRequests.stream()
-                .map(pullRequest -> {
-                    PullRequestEntity previous = existingById.get(pullRequest.id());
-                    PullRequestEntity entity = toEntity(pullRequest, now);
-                    entity.setDashboardVisible(previous != null && dashboardVisible(previous));
-                    entity.setWorkspaceVisible(true);
-                    entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
-                    entity.setWorkspaceSyncMarker(syncMarker);
-                    if (previous != null) {
-                        preserveEnrichment(entity, previous);
-                    }
-                    return entity;
-                })
-                .collect(toImmutableList()));
+        ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
+        for (FetchedPullRequest pullRequest : pullRequests) {
+            PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
+            PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
+            entity.setId(previous == null ? null : previous.getId());
+            entity.setDashboardVisible(previous != null && dashboardVisible(previous));
+            entity.setWorkspaceVisible(true);
+            entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
+            entity.setWorkspaceSyncMarker(syncMarker);
+            if (previous != null) {
+                entity.preserveEnrichmentFrom(previous);
+            }
+            saved.add(jpaRepository.save(entity).toDomain(null));
+        }
+        return saved.build();
     }
 
     @Override
@@ -196,26 +196,26 @@ public class SqlitePullRequestStore
         requireNonNull(repository, "repository is null");
         requireNonNull(syncMarker, "syncMarker is null");
         return jpaRepository.findWorkspaceRowsMissingSync(repository, syncMarker).stream()
-                .map(entity -> toDomain(entity, null))
+                .map(entity -> entity.toDomain(null))
                 .collect(toImmutableList());
     }
 
     @Override
     @Transactional
-    public void saveObserved(PullRequest pullRequest)
+    public PullRequest saveObserved(FetchedPullRequest pullRequest)
     {
         requireNonNull(pullRequest, "pullRequest is null");
-        pullRequest = preserveStoredId(pullRequest);
-        PullRequestEntity previous = jpaRepository.findById(pullRequest.id()).orElse(null);
-        PullRequestEntity entity = toEntity(pullRequest, Instant.now());
+        PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
+        PullRequestEntity entity = PullRequestEntity.from(pullRequest, Instant.now());
+        entity.setId(previous == null ? null : previous.getId());
         entity.setDashboardVisible(true);
         entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
         entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
         entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
         if (previous != null) {
-            preserveEnrichment(entity, previous);
+            entity.preserveEnrichmentFrom(previous);
         }
-        jpaRepository.save(entity);
+        return jpaRepository.save(entity).toDomain(null);
     }
 
     @Override
@@ -236,7 +236,7 @@ public class SqlitePullRequestStore
         Map<Long, PrViewState> stateByPrId = viewStateStore.findByPrIds(ids);
         return new PullRequestPage(
                 rows.stream()
-                        .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())))
+                        .map(entity -> entity.toDomain(stateByPrId.get(entity.getId())))
                         .collect(toImmutableList()),
                 page,
                 pageSize,
@@ -268,26 +268,10 @@ public class SqlitePullRequestStore
         }
     }
 
-    private Map<Long, PullRequestEntity> existingById(List<PullRequest> pullRequests)
+    /** The stored row for a pull request, found on its natural key. */
+    private Optional<PullRequestEntity> storedByRef(FetchedPullRequest pullRequest)
     {
-        return jpaRepository.findAllById(pullRequests.stream()
-                        .map(PullRequest::id)
-                        .collect(toImmutableSet())).stream()
-                .collect(toImmutableMap(PullRequestEntity::getId, entity -> entity));
-    }
-
-    private List<PullRequest> preserveStoredIds(List<PullRequest> pullRequests)
-    {
-        return pullRequests.stream()
-                .map(this::preserveStoredId)
-                .collect(toImmutableList());
-    }
-
-    private PullRequest preserveStoredId(PullRequest pullRequest)
-    {
-        return findIdByRepoAndNumber(pullRequest.repo(), pullRequest.number())
-                .map(pullRequest::withId)
-                .orElse(pullRequest);
+        return jpaRepository.findByRepoIgnoreCaseAndNumber(pullRequest.repo(), pullRequest.number());
     }
 
     private Set<Long> deleteInvisibleRows()
@@ -303,7 +287,7 @@ public class SqlitePullRequestStore
     public Optional<Long> findIdByRepoAndNumber(String repo, int number)
     {
         requireNonNull(repo, "repo is null");
-        return jpaRepository.findIdByRepoAndNumber(repo, number);
+        return jpaRepository.findByRepoIgnoreCaseAndNumber(repo, number).map(PullRequestEntity::getId);
     }
 
     @Override
@@ -373,63 +357,6 @@ public class SqlitePullRequestStore
         });
     }
 
-    private static PullRequestEntity toEntity(PullRequest pr, Instant syncedAt)
-    {
-        PullRequestEntity entity = new PullRequestEntity();
-        entity.setId(pr.id());
-        entity.setRepo(pr.repo());
-        entity.setNumber(pr.number());
-        entity.setTitle(pr.title());
-        entity.setAuthor(pr.author());
-        entity.setHtmlUrl(pr.htmlUrl());
-        entity.setCreatedAt(pr.createdAt());
-        entity.setUpdatedAt(pr.updatedAt());
-        entity.setOrigin(pr.origin().name());
-        entity.setLabels(pr.labels());
-        entity.setLabelColors(pr.labelColors());
-        entity.setDraft(pr.draft());
-        entity.setSyncedAt(syncedAt);
-        // Detail-derived enrichment is set by the sync job after the per-PR
-        // detail fetch, not from the search response — leave the defaults
-        // here unless the caller already populated them.
-        entity.setCiStatus(pr.ciStatus());
-        entity.setCommentCount(pr.commentCount());
-        entity.setAdditions(pr.additions());
-        entity.setDeletions(pr.deletions());
-        entity.setAttentionReason(pr.attentionReason());
-        // V26 list-level fields. state/closedAt/mergedAt come straight from
-        // the GitHub list response; the rest are filled by updateEnrichment
-        // after the next detail sync.
-        entity.setState(pr.state());
-        entity.setClosedAt(pr.closedAt());
-        entity.setMergedAt(pr.mergedAt());
-        entity.setMergeable(pr.mergeable());
-        entity.setMergeableState(pr.mergeableState());
-        entity.setHeadPushedAt(pr.headPushedAt());
-        entity.setReviewerVerdicts(pr.reviewerVerdicts());
-        entity.setHeadRef(pr.headRef());
-        return entity;
-    }
-
-    private static void preserveEnrichment(PullRequestEntity entity, PullRequestEntity previous)
-    {
-        if (entity.getReviewerVerdicts() == null) {
-            entity.setReviewerVerdicts(previous.getReviewerVerdicts());
-        }
-        if (entity.getMergeable() == null) {
-            entity.setMergeable(previous.getMergeable());
-        }
-        if (entity.getMergeableState() == null) {
-            entity.setMergeableState(previous.getMergeableState());
-        }
-        if (entity.getHeadPushedAt() == null) {
-            entity.setHeadPushedAt(previous.getHeadPushedAt());
-        }
-        if (entity.getHeadRef() == null) {
-            entity.setHeadRef(previous.getHeadRef());
-        }
-    }
-
     private static boolean dashboardVisible(PullRequestEntity entity)
     {
         return entity.getDashboardVisible() == null || entity.getDashboardVisible();
@@ -438,47 +365,5 @@ public class SqlitePullRequestStore
     private static boolean workspaceVisible(PullRequestEntity entity)
     {
         return Boolean.TRUE.equals(entity.getWorkspaceVisible());
-    }
-
-    private static PullRequest toDomain(PullRequestEntity entity, PrViewState state)
-    {
-        // GitHub's REST API reports merged PRs as state="closed" with
-        // merged_at set; synthesize "merged" here so every renderer
-        // (status pills on rows and titles) sees
-        // one canonical value instead of having to special-case the
-        // closed-but-merged combination.
-        String synthesizedState = entity.getMergedAt() != null && "closed".equals(entity.getState())
-                ? "merged"
-                : entity.getState();
-        return new PullRequest(
-                entity.getId(),
-                entity.getRepo(),
-                entity.getNumber(),
-                entity.getTitle(),
-                entity.getAuthor(),
-                entity.getHtmlUrl(),
-                entity.getCreatedAt(),
-                entity.getUpdatedAt(),
-                PullRequest.Origin.valueOf(entity.getOrigin()),
-                entity.getLabels(),
-                entity.getLabelColors(),
-                entity.isDraft(),
-                Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
-                Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
-                Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
-                ImmutableList.of(),
-                entity.getCiStatus(),
-                entity.getAdditions(),
-                entity.getDeletions(),
-                entity.getCommentCount(),
-                entity.getAttentionReason(),
-                synthesizedState,
-                entity.getClosedAt(),
-                entity.getMergedAt(),
-                entity.getMergeable(),
-                entity.getMergeableState(),
-                entity.getHeadPushedAt(),
-                entity.getReviewerVerdicts(),
-                entity.getHeadRef());
     }
 }

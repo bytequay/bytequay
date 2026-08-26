@@ -15,6 +15,8 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
+import static java.util.Objects.requireNonNull;
+
 public record RecentEvent(
         String type,
         String repo,
@@ -28,4 +30,10 @@ public record RecentEvent(
         String actorAvatarUrl,
         String detail,
         String ref,
-        String reviewState) {}
+        String reviewState)
+{
+    public RecentEvent
+    {
+        requireNonNull(type, "type is null");
+    }
+}

@@ -28,10 +28,8 @@ const bridge: Bridge = {
   updatePrReviewer: (repo, number, login, requested) =>
     ipcRenderer.invoke('prs:reviewer:update', repo, number, login, requested),
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
-  refreshPullRequestDetail: prId => ipcRenderer.invoke('prs:detail:refresh', prId),
   refreshPullRequestDetailByRef: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh:by-ref', repo, number),
-  refreshAllPullRequestDetail: prId => ipcRenderer.invoke('prs:detail:refresh-all', prId),
   refreshAllPullRequestDetailByRef: (repo, number) =>
     ipcRenderer.invoke('prs:detail:refresh-all:by-ref', repo, number),
   fetchPrDiffFiles: (repo, number, baseSha, headSha) =>

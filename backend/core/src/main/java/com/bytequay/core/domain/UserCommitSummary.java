@@ -15,6 +15,8 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * One commit attributed to a user on a given day — the unit a heatmap
  * cube expands into when you click it. The repository is captured as a
@@ -28,4 +30,10 @@ public record UserCommitSummary(
         String shortMessage,
         String htmlUrl,
         Instant authoredAt)
-{}
+{
+    public UserCommitSummary
+    {
+        requireNonNull(sha, "sha is null");
+        requireNonNull(repoFullName, "repoFullName is null");
+    }
+}

@@ -13,7 +13,11 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * One page of historic (closed/merged) pull requests served by
@@ -22,8 +26,14 @@ import java.util.List;
  * {@code hasMore} signals whether the next page is worth fetching.
  */
 public record PullRequestHistoryPage(
-        List<PullRequest> items,
+        List<FetchedPullRequest> items,
         int page,
         int perPage,
         int totalCount,
-        boolean hasMore) {}
+        boolean hasMore)
+{
+    public PullRequestHistoryPage
+    {
+        items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
+    }
+}

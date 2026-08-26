@@ -432,7 +432,7 @@ export default function PullsScreen({
   };
 
   const refresh = useCallback(async () => {
-    if (!selectedPr) return;
+    if (!selectedPr || detailLoading) return;
     const listVersion = listRequest.current;
     setDetailLoading(true);
     try {
@@ -456,7 +456,7 @@ export default function PullsScreen({
     finally {
       setDetailLoading(false);
     }
-  }, [applyDetail, applyPage, query, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyDetail, applyPage, detailLoading, query, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;
@@ -596,6 +596,7 @@ export default function PullsScreen({
             tab={detailTab}
             onTab={setDetailTab}
             onRefresh={refresh}
+            refreshing={detailLoading}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
             zoomed={detailZoomed}
@@ -674,6 +675,7 @@ export function PullDetailHeader({
   tab,
   onTab,
   onRefresh,
+  refreshing,
   pendingComments,
   onPendingCommentsChange,
   zoomed,
@@ -684,6 +686,7 @@ export function PullDetailHeader({
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
+  refreshing: boolean;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   zoomed: boolean;
@@ -760,7 +763,10 @@ export function PullDetailHeader({
             aria-pressed={zoomed} onClick={onZoom}>
             <ZoomIcon zoomed={zoomed} />
           </button>
-          <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh"
+          <button className={`pull-detail__icon-action${refreshing ? ' is-refreshing' : ''}`} type="button"
+            title={refreshing ? 'Refreshing pull request…' : 'Refresh'}
+            aria-label="Refresh pull request"
+            aria-busy={refreshing} disabled={refreshing}
             onClick={() => { void onRefresh(); }}>
             <RefreshIcon />
           </button>

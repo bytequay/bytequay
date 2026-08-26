@@ -672,6 +672,7 @@ describe('PullOverview', () => {
       tab="changes"
       onTab={() => {}}
       onRefresh={async () => {}}
+      refreshing={false}
       pendingComments={[]}
       zoomed={false}
       onZoom={() => {}}
@@ -687,9 +688,27 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
     expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
     expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
-    expect(html).toContain('aria-label="Refresh"');
+    expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).not.toContain('requested your review');
     expect(html).not.toContain('Open on GitHub');
+  });
+
+  it('shows when the backend refresh is running', () => {
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={pullRequest()}
+      detail={detail()}
+      tab="overview"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      refreshing
+      pendingComments={[]}
+      zoomed={false}
+      onZoom={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toMatch(/<button class="pull-detail__icon-action is-refreshing"[^>]*aria-busy="true"[^>]*disabled=""/);
+    expect(html).toContain('title="Refreshing pull request…"');
+    expect(html).toContain('aria-label="Refresh pull request"');
   });
 
   it('keeps merge available independently of review eligibility', () => {
@@ -701,6 +720,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      refreshing={false}
       pendingComments={[]}
       zoomed={false}
       onZoom={() => {}}
@@ -726,6 +746,7 @@ describe('PullOverview', () => {
       tab="changes"
       onTab={() => {}}
       onRefresh={async () => {}}
+      refreshing={false}
       pendingComments={[pendingComment]}
       zoomed={false}
       onZoom={() => {}}
@@ -742,6 +763,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      refreshing={false}
       pendingComments={[]}
       zoomed
       onZoom={() => {}}
@@ -764,6 +786,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      refreshing={false}
       pendingComments={[]}
       zoomed={false}
       onZoom={() => {}}

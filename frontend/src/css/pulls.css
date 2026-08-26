@@ -85,11 +85,13 @@
 .pulls-toolbar-button.is-active { background: #e7e9ec; color: #17191c; }
 .pulls-toolbar-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; }
 .pulls-toolbar-button:disabled { opacity: 0.4; cursor: default; }
-.pulls-toolbar-button.is-syncing svg { animation: pulls-sync-spin 0.8s linear infinite; }
+.pulls-toolbar-button.is-syncing svg,
+.pull-detail__icon-action.is-refreshing svg { animation: pulls-sync-spin 0.8s linear infinite; }
 @keyframes pulls-sync-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulls-toolbar-button.is-syncing svg { animation: none; }
+  .pulls-toolbar-button.is-syncing svg,
+  .pull-detail__icon-action.is-refreshing svg { animation: none; }
 }
 
 .pulls-search {
@@ -260,6 +262,7 @@
 .pull-detail__review-count { display: inline-grid; min-width: 20px; height: 20px; place-items: center; border-radius: 999px; background: #116329; padding: 0 6px; color: #fff; font-size: 11px; line-height: 1; }
 .pull-detail__toolbar .pull-detail__header-actions button { min-height: 32px; border-radius: 9px; padding: 5px 11px; font-size: var(--ui-font-size); }
 .pull-detail__toolbar .pull-detail__header-actions button.pull-detail__icon-action { width: 32px; justify-content: center; padding: 5px; }
+.pull-detail__icon-action.is-refreshing { cursor: wait; }
 .pull-detail__header-actions button.pull-detail__merge-action:disabled {
   cursor: default;
   opacity: 1;

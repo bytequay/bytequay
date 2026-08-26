@@ -49,6 +49,19 @@ function changedFile(filename: string, status = 'modified'): DiffFileDto {
   return { ...file, filename, status, additions: 11, deletions: 32, patch: null };
 }
 
+function reviewComment(overrides: Partial<InlineReviewCommentDto> = {}): InlineReviewCommentDto {
+  return {
+    path: file.filename,
+    body: 'Pending feedback',
+    line: 96,
+    side: 'RIGHT',
+    startLine: null,
+    startSide: null,
+    commitId: null,
+    ...overrides,
+  };
+}
+
 describe('DiffViewer', () => {
   it('renders expandable unchanged regions and line-review controls', () => {
     const html = renderToStaticMarkup(<DiffViewer
@@ -109,6 +122,48 @@ describe('DiffViewer', () => {
     expect(html).toContain(`<span class="pull-diff-file__path" aria-label="${firstPath}">`);
     expect(html).toContain('<bdi dir="ltr">core/trino-main/src/main/java/io/trino/</bdi>');
     expect(html).toContain('<span class="pull-diff-file__name">QueryManagerConfig.java</span>');
+  });
+
+  it('renders one patch body at a time for large pull requests', () => {
+    const files = Array.from({ length: 21 }, (_, index) => ({
+      ...file,
+      filename: `src/File${index}.java`,
+    }));
+    const largeHtml = renderToStaticMarkup(<DiffViewer files={files} />);
+    const smallHtml = renderToStaticMarkup(<DiffViewer files={files.slice(0, 2)} />);
+
+    expect(largeHtml.match(/<article class="pull-diff-file"/g)).toHaveLength(21);
+    expect(largeHtml.match(/<table class="pull-diff-code"/g)).toHaveLength(1);
+    expect(smallHtml.match(/<table class="pull-diff-code"/g)).toHaveLength(2);
+  });
+
+  it('renders foldable pending comments below their referenced side and line', () => {
+    const html = renderToStaticMarkup(<DiffViewer
+      files={[file]}
+      review={{
+        repo: 'owner/repo',
+        number: 42,
+        canReview: true,
+        pendingComments: [
+          reviewComment({ body: 'Old-side pending', side: 'LEFT' }),
+          reviewComment({ body: 'New-side pending' }),
+          reviewComment({ body: 'Range pending', line: 97, startLine: 95, startSide: 'RIGHT' }),
+          reviewComment({ path: 'src/Other.java', body: 'Other-file pending' }),
+        ],
+        onPendingCommentsChange: () => {},
+        onDetailChange: () => {},
+      }}
+    />);
+
+    expect(html.match(/<details class="pull-diff-pending" open="">/g)).toHaveLength(3);
+    expect(html).toContain('Comment on line <strong>L96</strong>');
+    expect(html).toContain('Comment on line <strong>R96</strong>');
+    expect(html).toContain('Comment on lines <strong>R95–R97</strong>');
+    expect(html).not.toContain('Other-file pending');
+    expect(html.indexOf('Old-side pending')).toBeGreaterThan(html.indexOf('old value'));
+    expect(html.indexOf('Old-side pending')).toBeLessThan(html.indexOf('aVeryLongReplacementValue'));
+    expect(html.indexOf('New-side pending')).toBeGreaterThan(html.indexOf('aVeryLongReplacementValue'));
+    expect(html.indexOf('Range pending')).toBeGreaterThan(html.indexOf('trailing'));
   });
 
   it('offers a Copilot-style consecutive commit range', () => {

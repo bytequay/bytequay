@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
+import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
@@ -708,6 +708,31 @@ describe('PullOverview', () => {
 
     expect(html).not.toContain('class="pull-detail__review-action"');
     expect(html).toContain('class="pull-detail__merge-action');
+  });
+
+  it('shows the pending comment count in the submit review action', () => {
+    const pendingComment: InlineReviewCommentDto = {
+      path: 'src/Example.java',
+      body: 'Please simplify this',
+      line: 18,
+      side: 'RIGHT',
+      startLine: null,
+      startSide: null,
+      commitId: 'head-sha',
+    };
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
+      detail={detail()}
+      tab="changes"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      pendingComments={[pendingComment]}
+      zoomed={false}
+      onZoom={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toContain('aria-label="Submit review, 1 pending review comment"');
+    expect(html).toContain('class="pull-detail__review-count" aria-hidden="true">1</span>');
   });
 
   it('offers an exit control when pull request details are full screen', () => {

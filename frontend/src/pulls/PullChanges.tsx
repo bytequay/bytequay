@@ -26,6 +26,8 @@ import { relativeTime, remoteErrorMessage } from './PullOverview';
 
 export type CommitRange = { start: number; end: number } | null;
 
+const SINGLE_FILE_MODE_THRESHOLD = 20;
+
 type PullChangesProps = {
   repo: string;
   number: number;
@@ -113,6 +115,7 @@ export function DiffViewer({
   const fileTreeId = useId();
   const filePane = useResizablePane(260, 160, 480);
   const treeItems = useMemo(() => buildFileTree(files), [files]);
+  const singleFileMode = files.length > SINGLE_FILE_MODE_THRESHOLD;
   const totals = useMemo(() => files.reduce((sum, file) => ({
     additions: sum.additions + file.additions,
     deletions: sum.deletions + file.deletions,
@@ -135,20 +138,28 @@ export function DiffViewer({
       next.delete(filename);
       return next;
     });
-    const container = scrollRef.current;
-    const card = container?.querySelector(`[data-file-card="${CSS.escape(filename)}"]`);
-    if (!container || !card) return;
-    const top = card.getBoundingClientRect().top - container.getBoundingClientRect().top
-      + container.scrollTop - 12;
-    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    const scrollToFile = () => {
+      const container = scrollRef.current;
+      const card = container?.querySelector(`[data-file-card="${CSS.escape(filename)}"]`);
+      if (!container || !card) return;
+      const top = card.getBoundingClientRect().top - container.getBoundingClientRect().top
+        + container.scrollTop - 12;
+      container.scrollTo({ top: Math.max(0, top), behavior: singleFileMode ? 'auto' : 'smooth' });
+    };
+    if (singleFileMode) requestAnimationFrame(scrollToFile);
+    else scrollToFile();
   };
 
-  const toggle = (filename: string) => setClosed(previous => {
-    const next = new Set(previous);
-    if (next.has(filename)) next.delete(filename);
-    else next.add(filename);
-    return next;
-  });
+  const toggle = (filename: string) => {
+    setClosed(previous => {
+      const next = new Set(previous);
+      const open = !previous.has(filename) && (!singleFileMode || selected === filename);
+      if (open) next.add(filename);
+      else next.delete(filename);
+      return next;
+    });
+    setSelected(filename);
+  };
 
   return (
     <div className="pull-changes">
@@ -166,9 +177,6 @@ export function DiffViewer({
         </button>
         {onCommitRangeChange && (
           <CommitPicker commits={commits} range={commitRange} onChange={onCommitRangeChange} />
-        )}
-        {(review?.pendingComments.length ?? 0) > 0 && (
-          <span className="pull-changes__pending">{review?.pendingComments.length} pending</span>
         )}
         <span className="pull-changes__totals">
           <span>+{totals.additions}</span>
@@ -207,7 +215,7 @@ export function DiffViewer({
               headSha={headSha}
               review={review}
               loadFileContent={loadFileContent}
-              open={!closed.has(file.filename)}
+              open={!closed.has(file.filename) && (!singleFileMode || selected === file.filename)}
               onToggle={() => toggle(file.filename)}
             />
           ))}
@@ -422,7 +430,7 @@ function DiffFileCard({
   open: boolean;
   onToggle: () => void;
 }) {
-  const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
+  const hunks = useMemo(() => open ? parseUnifiedDiff(file.patch) : [], [file.patch, open]);
   const blocks = changeBlocks(file.additions, file.deletions);
   const filenameStart = file.filename.lastIndexOf('/') + 1;
   const directory = file.filename.slice(0, filenameStart);
@@ -559,6 +567,9 @@ function DiffFileCard({
     const target = reviewTarget(oldLine, newLine);
     const rowSelected = selection !== null && row >= selection.rowStart && row <= selection.rowEnd;
     const composerAfter = selection?.rowEnd === row;
+    const selectionPrefix = selection?.side === 'RIGHT' ? 'R' : 'L';
+    const rowComments = pendingReviewCommentsForLine(
+      review?.pendingComments ?? [], file.filename, oldLine, newLine);
     return (
       <Fragment key={displayRow.key}>
         <tr className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}`}
@@ -618,12 +629,19 @@ function DiffFileCard({
             <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span>{displayRow.content || ' '}
           </td>
         </tr>
+        {rowComments.map((comment, index) => (
+          <PendingReviewCommentRow
+            key={`${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}
+            comment={comment}
+            rowKind={displayRow.kind}
+          />
+        ))}
         {composerAfter && !selectingRange && (
           <tr className="is-review-composer"><td colSpan={3}>
             <div className="pull-diff-review">
               <strong>{selection.start === selection.end
-                ? `Add a comment on line L${selection.start}`
-                : `Add a comment on lines L${selection.start} to L${selection.end}`}</strong>
+                ? `Add a comment on line ${selectionPrefix}${selection.start}`
+                : `Add a comment on lines ${selectionPrefix}${selection.start} to ${selectionPrefix}${selection.end}`}</strong>
               <textarea value={reviewBody} autoFocus placeholder="Leave a review comment…"
                 onChange={event => setReviewBody(event.target.value)} />
               {reviewError && <span role="alert">{reviewError}</span>}
@@ -739,6 +757,31 @@ function DiffFileCard({
   );
 }
 
+function PendingReviewCommentRow({ comment, rowKind }: {
+  comment: InlineReviewCommentDto;
+  rowKind: DisplayRow['kind'];
+}) {
+  const endLabel = `${comment.side === 'RIGHT' ? 'R' : 'L'}${comment.line}`;
+  const isRange = comment.startLine !== null && comment.startLine !== comment.line;
+  const startSide = comment.startSide ?? comment.side;
+  const startLabel = `${startSide === 'RIGHT' ? 'R' : 'L'}${comment.startLine ?? comment.line}`;
+
+  return (
+    <tr className={`is-pending-review is-${rowKind}`}>
+      <td colSpan={3}>
+        <details className="pull-diff-pending" open>
+          <summary>
+            <span className="pull-diff-pending__chevron" aria-hidden="true">›</span>
+            <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>
+            <span className="pull-diff-pending__badge">Pending</span>
+          </summary>
+          <div className="pull-diff-pending__body"><p>{comment.body}</p></div>
+        </details>
+      </td>
+    </tr>
+  );
+}
+
 export async function submitInlineReviewComment(
   bridge: Pick<Bridge, 'postPrReviewComment'>,
   repo: string,
@@ -765,6 +808,16 @@ export function reviewTarget(oldLine: number | null, newLine: number | null): Re
   if (newLine !== null) return { side: 'RIGHT', line: newLine };
   if (oldLine !== null) return { side: 'LEFT', line: oldLine };
   return null;
+}
+
+function pendingReviewCommentsForLine(
+  comments: InlineReviewCommentDto[],
+  path: string,
+  oldLine: number | null,
+  newLine: number | null,
+) {
+  return comments.filter(comment => comment.path === path
+    && (comment.side === 'LEFT' ? comment.line === oldLine : comment.line === newLine));
 }
 
 export function nextLineSelection(

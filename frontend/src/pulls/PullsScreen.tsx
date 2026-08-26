@@ -693,6 +693,7 @@ export function PullDetailHeader({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const canReview = canSubmitReview(pr, detail);
+  const pendingCommentCount = pendingComments.length;
   const canMerge = detail !== null
     && detail.state?.toLowerCase() === 'open'
     && !detail.draft
@@ -764,8 +765,15 @@ export function PullDetailHeader({
             <RefreshIcon />
           </button>
           {canReview && (
-            <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
+            <button className="pull-detail__review-action" type="button"
+              aria-label={pendingCommentCount === 0
+                ? 'Submit review'
+                : `Submit review, ${pendingCommentCount} pending review comment${pendingCommentCount === 1 ? '' : 's'}`}
+              onClick={() => setReviewOpen(true)}>
               Submit review
+              {pendingCommentCount > 0 && (
+                <span className="pull-detail__review-count" aria-hidden="true">{pendingCommentCount}</span>
+              )}
             </button>
           )}
           {canMerge && (

@@ -205,10 +205,22 @@ export function markdownBlocks(markdown: string): Block[] {
       blocks.push({ kind: 'alert', label: alert[1], text: content.join(' ') });
       continue;
     }
-    if (line.startsWith('> ')) {
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
       flushParagraph();
       flushList();
-      blocks.push({ kind: 'quote', text: line.slice(2) });
+      const content = [quote[1]];
+      while (index + 1 < lines.length) {
+        const next = lines[index + 1];
+        const continuedQuote = next.match(/^>\s?(.*)$/);
+        if (continuedQuote) {
+          content.push(continuedQuote[1]);
+          index++;
+        }
+        else if (next.trim()) content.push(lines[++index]);
+        else break;
+      }
+      blocks.push({ kind: 'quote', text: content.join('\n') });
       continue;
     }
     flushList();
@@ -533,7 +545,7 @@ function MarkdownBlocks({ markdown }: { markdown: string }) {
             </table>
           </div>
         );
-        if (block.kind === 'quote') return <blockquote key={key}>{inline(block.text, key)}</blockquote>;
+        if (block.kind === 'quote') return <blockquote key={key}><MarkdownBlocks markdown={block.text} /></blockquote>;
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
         return <List key={key}>{block.items.map((item, itemIndex) => (

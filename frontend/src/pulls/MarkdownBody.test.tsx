@@ -67,4 +67,21 @@ describe('MarkdownBody', () => {
     expect(html).toContain(`<a href="${url}">${url}</a>. This validator matters.`);
     expect(html).not.toContain(`href="${url}."`);
   });
+
+  it('renders quoted replies as continuous nested blockquotes', () => {
+    const body = '> I read the execution flow:\n'
+      + '> \n'
+      + '> > The coordinator aggregates deletion vectors —\n'
+      + '> this is necessary because multiple workers may process the same file.\n'
+      + '> CopyOnWriteFileRewriter writes the surviving rows.\n'
+      + '> \n'
+      + '> I suspect the rewriting is happening on the coordinator.\n\n'
+      + '@chenjian2664 I moved the work to workers.';
+
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html.match(/<blockquote>/g)).toHaveLength(2);
+    expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors — this is necessary because multiple workers may process the same file. CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
+    expect(html).not.toContain('&gt; The coordinator');
+  });
 });

@@ -740,7 +740,7 @@
 .pr-inline-thread > summary::-webkit-details-marker { display: none; }
 .pr-thread-row > summary code,
 .pr-inline-thread > summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.pr-thread-chevron { display: inline-block; transition: transform 120ms ease; }
+.pr-thread-chevron { display: inline-block; justify-self: center; transition: transform 120ms ease; }
 .pr-thread-row[open] > summary .pr-thread-chevron,
 .pr-inline-thread[open] > summary .pr-thread-chevron { transform: rotate(90deg); }
 .pr-thread-row__resolved { display: inline-flex; align-items: center; gap: 5px; }

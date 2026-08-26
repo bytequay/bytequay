@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import type {
   Bridge,
@@ -110,7 +110,9 @@ export function DiffViewer({
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
-  const fileTree = useResizablePane(260, 160, 480);
+  const fileTreeId = useId();
+  const filePane = useResizablePane(260, 160, 480);
+  const treeItems = useMemo(() => buildFileTree(files), [files]);
   const totals = useMemo(() => files.reduce((sum, file) => ({
     additions: sum.additions + file.additions,
     deletions: sum.deletions + file.deletions,
@@ -153,14 +155,15 @@ export function DiffViewer({
       <div className="pull-changes__toolbar">
         <button
           type="button"
-          className={treeOpen ? 'is-active' : ''}
+          className={`pull-changes__files-toggle${treeOpen ? ' is-active' : ''}`}
           onClick={() => setTreeOpen(value => !value)}
-          aria-label="Toggle changed files"
-          title="Toggle changed files"
+          aria-expanded={treeOpen}
+          aria-controls={fileTreeId}
+          title={`${treeOpen ? 'Hide' : 'Show'} changed files`}
         >
           <PanelIcon />
+          <span>{files.length} changed {files.length === 1 ? 'file' : 'files'}</span>
         </button>
-        <strong>{files.length} changed {files.length === 1 ? 'file' : 'files'}</strong>
         {onCommitRangeChange && (
           <CommitPicker commits={commits} range={commitRange} onChange={onCommitRangeChange} />
         )}
@@ -175,46 +178,22 @@ export function DiffViewer({
       <div className="pull-changes__panes">
         {treeOpen && (
           <nav
+            id={fileTreeId}
             className="pull-file-tree"
             aria-label="Changed files"
-            style={{ width: fileTree.width, flexBasis: fileTree.width }}
+            style={{ width: filePane.width, flexBasis: filePane.width }}
           >
-            {files.map(file => {
-              const segments = file.filename.split('/');
-              const name = segments.pop() ?? file.filename;
-              const badge = fileStatusBadge(file.status);
-              return (
-                <button
-                  type="button"
-                  key={file.filename}
-                  className={selected === file.filename ? 'is-active' : ''}
-                  onClick={() => pick(file.filename)}
-                  title={file.filename}
-                >
-                  <i className={`pull-file-tree__badge is-${badge.kind}`} title={badge.title}>
-                    {badge.letter}
-                  </i>
-                  <span className="pull-file-tree__name">
-                    <strong>{name}</strong>
-                    {segments.length > 0 && <small>{segments.join('/')}</small>}
-                  </span>
-                  <span className="pull-file-tree__stats">
-                    {file.additions > 0 && <span className="is-add">+{file.additions}</span>}
-                    {file.deletions > 0 && <span className="is-del">−{file.deletions}</span>}
-                  </span>
-                </button>
-              );
-            })}
+            <FileTreeItems items={treeItems} selected={selected} onPick={pick} />
           </nav>
         )}
         {treeOpen && (
           <div
-            className={`pull-file-tree__resize${fileTree.resizing ? ' is-resizing' : ''}`}
+            className={`pull-file-tree__resize${filePane.resizing ? ' is-resizing' : ''}`}
             role="separator"
             aria-label="Resize changed files"
             aria-orientation="vertical"
             title="Drag to resize"
-            onMouseDown={fileTree.startResize}
+            onMouseDown={filePane.startResize}
           />
         )}
         <div className="pull-changes__scroll" ref={scrollRef}>
@@ -236,6 +215,121 @@ export function DiffViewer({
       </div>
     </div>
   );
+}
+
+type FileTreeDirectory = {
+  kind: 'directory';
+  name: string;
+  path: string;
+  children: FileTreeItem[];
+};
+
+type FileTreeFile = {
+  kind: 'file';
+  name: string;
+  path: string;
+  file: DiffFileDto;
+};
+
+type FileTreeItem = FileTreeDirectory | FileTreeFile;
+
+export function buildFileTree(files: DiffFileDto[]): FileTreeItem[] {
+  const root: FileTreeItem[] = [];
+
+  files.forEach(file => {
+    const segments = file.filename.split('/');
+    const name = segments.pop() ?? file.filename;
+    let path = '';
+    let children = root;
+
+    segments.forEach(segment => {
+      path = path ? `${path}/${segment}` : segment;
+      let directory = children.find((item): item is FileTreeDirectory =>
+        item.kind === 'directory' && item.name === segment);
+      if (directory === undefined) {
+        directory = { kind: 'directory', name: segment, path, children: [] };
+        children.push(directory);
+      }
+      children = directory.children;
+    });
+
+    children.push({ kind: 'file', name, path: file.filename, file });
+  });
+
+  return compactFileTree(root);
+}
+
+function compactFileTree(items: FileTreeItem[]): FileTreeItem[] {
+  return items.map(item => {
+    if (item.kind === 'file') return item;
+
+    let name = item.name;
+    let path = item.path;
+    let children = compactFileTree(item.children);
+    while (children.length === 1) {
+      const child = children[0];
+      if (child.kind !== 'directory') break;
+      name = `${name}/${child.name}`;
+      path = child.path;
+      children = child.children;
+    }
+    return { kind: 'directory', name, path, children };
+  });
+}
+
+function FileTreeItems({ items, selected, onPick, depth = 0 }: {
+  items: FileTreeItem[];
+  selected: string | null;
+  onPick: (filename: string) => void;
+  depth?: number;
+}) {
+  const branchStyle = depth === 0
+    ? undefined
+    : { '--tree-line-left': `${13 + (depth - 1) * 18}px` } as CSSProperties;
+  const rowStyle = { paddingLeft: 7 + depth * 18 };
+
+  return (
+    <ul className={`pull-file-tree__list${depth > 0 ? ' is-branch' : ''}`} style={branchStyle}>
+      {items.map(item => item.kind === 'directory' ? (
+        <li className="pull-file-tree__folder" key={`directory:${item.path}`}>
+          <details open>
+            <summary title={item.path} aria-label={item.path} style={rowStyle}>
+              <ChevronIcon />
+              <FolderIcon />
+              <span className="pull-file-tree__label">{item.name}</span>
+            </summary>
+            <FileTreeItems items={item.children} selected={selected} onPick={onPick} depth={depth + 1} />
+          </details>
+        </li>
+      ) : (
+        <li key={`file:${item.path}`}>
+          <button
+            type="button"
+            className={`pull-file-tree__file${selected === item.path ? ' is-active' : ''}`}
+            aria-current={selected === item.path ? 'true' : undefined}
+            aria-label={`${item.path}, ${fileStatusBadge(item.file.status).title}`}
+            onClick={() => onPick(item.path)}
+            onMouseEnter={event => {
+              const label = event.currentTarget.querySelector<HTMLElement>('.pull-file-tree__label');
+              const title = filenameTooltip(item.name, label?.scrollWidth ?? 0, label?.clientWidth ?? 0);
+              if (title === undefined) event.currentTarget.removeAttribute('title');
+              else event.currentTarget.title = title;
+            }}
+            onMouseLeave={event => event.currentTarget.removeAttribute('title')}
+            style={rowStyle}
+          >
+            <span className="pull-file-tree__spacer" aria-hidden="true" />
+            <FileDiffIcon kind={fileStatusBadge(item.file.status).kind} />
+            <span className="pull-file-tree__label">{item.name}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function filenameTooltip(filename: string, contentWidth: number, visibleWidth: number): string | undefined {
+  return contentWidth > visibleWidth ? filename : undefined;
 }
 
 function CommitPicker({ commits, range, onChange }: {
@@ -330,6 +424,9 @@ function DiffFileCard({
 }) {
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
   const blocks = changeBlocks(file.additions, file.deletions);
+  const filenameStart = file.filename.lastIndexOf('/') + 1;
+  const directory = file.filename.slice(0, filenameStart);
+  const filename = file.filename.slice(filenameStart);
   const [content, setContent] = useState<DiffFileContentDto | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
@@ -385,9 +482,9 @@ function DiffFileCard({
     if (key === 'trailing') setTrailingChecked(true);
   };
 
-  const selectLine = (side: ReviewSide, line: number, extend: boolean) => {
+  const selectLine = (side: ReviewSide, line: number, extend: boolean, row: number) => {
     setReviewError(null);
-    setSelection(previous => nextLineSelection(previous, side, line, extend));
+    setSelection(previous => nextLineSelection(previous, side, line, extend, row));
   };
 
   const startLineSelection = (
@@ -396,15 +493,16 @@ function DiffFileCard({
     extend: boolean,
     oldLine: number | null,
     newLine: number | null,
+    row: number,
   ) => {
-    dragAnchor.current = { side, line, oldLine, newLine };
+    dragAnchor.current = { side, line, oldLine, newLine, row };
     setSelectingRange(true);
-    selectLine(side, line, extend);
+    selectLine(side, line, extend, row);
   };
 
-  const extendLineSelection = (oldLine: number | null, newLine: number | null) => {
+  const extendLineSelection = (oldLine: number | null, newLine: number | null, row: number) => {
     const anchor = dragAnchor.current;
-    const next = draggedLineSelection(anchor, oldLine, newLine);
+    const next = draggedLineSelection(anchor, oldLine, newLine, row);
     if (next === null || anchor === null) return;
     if (next.side !== anchor.side) {
       const migratedLine = next.side === 'LEFT' ? anchor.oldLine : anchor.newLine;
@@ -453,49 +551,71 @@ function DiffFileCard({
     }
   };
 
-  const codeRow = (row: DisplayRow) => {
-    const oldLine = row.oldLine;
-    const newLine = row.newLine;
-    const leftSelected = oldLine !== null && isSelected(selection, 'LEFT', oldLine);
-    const rightSelected = newLine !== null && isSelected(selection, 'RIGHT', newLine);
-    const composerAfter = selection !== null
-      && (selection.side === 'LEFT' ? row.oldLine : row.newLine) === selection.end;
+  let renderedRow = 0;
+  const codeRow = (displayRow: DisplayRow) => {
+    const row = renderedRow++;
+    const oldLine = displayRow.oldLine;
+    const newLine = displayRow.newLine;
+    const target = reviewTarget(oldLine, newLine);
+    const rowSelected = selection !== null && row >= selection.rowStart && row <= selection.rowEnd;
+    const composerAfter = selection?.rowEnd === row;
     return (
-      <Fragment key={row.key}>
-        <tr className={`is-${row.kind}${leftSelected || rightSelected ? ' is-selected' : ''}`}
-          onMouseEnter={() => extendLineSelection(oldLine, newLine)}>
-          <td className={`is-line${leftSelected ? ' is-selected' : ''}`}>
+      <Fragment key={displayRow.key}>
+        <tr className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}`}
+          onMouseEnter={() => extendLineSelection(oldLine, newLine, row)}>
+          <td className="is-line">
             {oldLine !== null && canReview && (
               <button type="button"
+                aria-label={`Select old line ${oldLine}`}
                 onMouseDown={event => {
+                  if (event.button !== 0) return;
                   event.preventDefault();
-                  startLineSelection('LEFT', oldLine, event.shiftKey, oldLine, newLine);
+                  startLineSelection('LEFT', oldLine, event.shiftKey, oldLine, newLine, row);
                 }}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
                   event.preventDefault();
-                  selectLine('LEFT', oldLine, event.shiftKey);
+                  selectLine('LEFT', oldLine, event.shiftKey, row);
                 }}>{oldLine}</button>
             )}
             {oldLine !== null && !canReview && oldLine}
           </td>
-          <td className={`is-line${rightSelected ? ' is-selected' : ''}`}>
+          <td className="is-line">
             {newLine !== null && canReview && (
               <button type="button"
+                aria-label={`Select new line ${newLine}`}
                 onMouseDown={event => {
+                  if (event.button !== 0) return;
                   event.preventDefault();
-                  startLineSelection('RIGHT', newLine, event.shiftKey, oldLine, newLine);
+                  startLineSelection('RIGHT', newLine, event.shiftKey, oldLine, newLine, row);
                 }}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
                   event.preventDefault();
-                  selectLine('RIGHT', newLine, event.shiftKey);
+                  selectLine('RIGHT', newLine, event.shiftKey, row);
                 }}>{newLine}</button>
             )}
             {newLine !== null && !canReview && newLine}
           </td>
           <td className="is-source">
-            <span>{row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}</span>{row.content || ' '}
+            {canReview && target !== null && (
+              <button type="button" className="pull-diff-code__add-comment"
+                aria-label={`Add a comment on ${target.side === 'RIGHT' ? 'new' : 'old'} line ${target.line}`}
+                onMouseDown={event => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  startLineSelection(target.side, target.line, event.shiftKey, oldLine, newLine, row);
+                }}
+                onClick={event => {
+                  if (event.detail === 0) selectLine(target.side, target.line, event.shiftKey, row);
+                }}
+                onKeyDown={event => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  event.preventDefault();
+                  selectLine(target.side, target.line, event.shiftKey, row);
+                }}>+</button>
+            )}
+            <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span>{displayRow.content || ' '}
           </td>
         </tr>
         {composerAfter && !selectingRange && (
@@ -534,7 +654,10 @@ function DiffFileCard({
     <article className={`pull-diff-file${selectingRange ? ' is-selecting' : ''}`} data-file-card={file.filename}>
       <button type="button" className="pull-diff-file__header" onClick={onToggle} aria-expanded={open}>
         <span className={`pull-diff-file__chevron${open ? ' is-open' : ''}`} aria-hidden="true">›</span>
-        <span className="pull-diff-file__path">{file.filename}</span>
+        <span className="pull-diff-file__path" aria-label={file.filename}>
+          {directory && <span className="pull-diff-file__directory"><bdi dir="ltr">{directory}</bdi></span>}
+          <span className="pull-diff-file__name">{filename}</span>
+        </span>
         <span className="pull-diff-file__status">{file.status}</span>
         <span className="pull-diff-file__stats">
           <span>+{file.additions}</span><span>−{file.deletions}</span>
@@ -551,7 +674,7 @@ function DiffFileCard({
       )}
       {open && hunks.length > 0 && (
         <div className="pull-diff-file__code-scroll">
-          {canReview && <p className="pull-diff-file__hint">Drag across line numbers, or Shift-click another line, to select a range.</p>}
+          {canReview && <p className="pull-diff-file__hint">Click + to comment on one line. Drag across line numbers, or Shift-click another line, to select a range.</p>}
           {contentError && <p className="pull-diff-file__content-error" role="alert">{contentError}</p>}
           <table className="pull-diff-code" onMouseUp={() => {
             dragAnchor.current = null;
@@ -627,34 +750,56 @@ export async function submitInlineReviewComment(
 }
 
 type ReviewSide = 'LEFT' | 'RIGHT';
-type LineSelection = { side: ReviewSide; start: number; end: number };
+type LineSelection = { side: ReviewSide; start: number; end: number; rowStart: number; rowEnd: number };
+type ReviewTarget = { side: ReviewSide; line: number };
 type DragAnchor = {
   side: ReviewSide;
   line: number;
   oldLine: number | null;
   newLine: number | null;
+  row: number;
 };
 type DisplayRow = DiffRow & { key: string };
+
+export function reviewTarget(oldLine: number | null, newLine: number | null): ReviewTarget | null {
+  if (newLine !== null) return { side: 'RIGHT', line: newLine };
+  if (oldLine !== null) return { side: 'LEFT', line: oldLine };
+  return null;
+}
 
 export function nextLineSelection(
   previous: LineSelection | null,
   side: ReviewSide,
   line: number,
   extend: boolean,
+  row: number,
 ): LineSelection {
-  if (!extend || previous === null || previous.side !== side) return { side, start: line, end: line };
-  return { side, start: Math.min(previous.start, line), end: Math.max(previous.end, line) };
+  if (!extend || previous === null || previous.side !== side) return { side, start: line, end: line, rowStart: row, rowEnd: row };
+  return {
+    side,
+    start: Math.min(previous.start, line),
+    end: Math.max(previous.end, line),
+    rowStart: Math.min(previous.rowStart, row),
+    rowEnd: Math.max(previous.rowEnd, row),
+  };
 }
 
 export function draggedLineSelection(
   anchor: DragAnchor | null,
   oldLine: number | null,
   newLine: number | null,
+  row: number,
 ): LineSelection | null {
   if (anchor === null) return null;
   const line = anchor.side === 'LEFT' ? oldLine : newLine;
   if (line !== null) {
-    return { side: anchor.side, start: Math.min(anchor.line, line), end: Math.max(anchor.line, line) };
+    return {
+      side: anchor.side,
+      start: Math.min(anchor.line, line),
+      end: Math.max(anchor.line, line),
+      rowStart: Math.min(anchor.row, row),
+      rowEnd: Math.max(anchor.row, row),
+    };
   }
 
   const otherSide = anchor.side === 'LEFT' ? 'RIGHT' : 'LEFT';
@@ -665,11 +810,9 @@ export function draggedLineSelection(
     side: otherSide,
     start: Math.min(otherAnchorLine, otherLine),
     end: Math.max(otherAnchorLine, otherLine),
+    rowStart: Math.min(anchor.row, row),
+    rowEnd: Math.max(anchor.row, row),
   };
-}
-
-function isSelected(selection: LineSelection | null, side: ReviewSide, line: number) {
-  return selection?.side === side && line >= selection.start && line <= selection.end;
 }
 
 function sourceLines(content: string | null | undefined) {
@@ -684,6 +827,32 @@ function changeBlocks(additions: number, deletions: number): Array<'add' | 'del'
   if (total === 0) return Array.from({ length: 5 }, () => 'empty');
   const added = Math.round((additions / total) * 5);
   return Array.from({ length: 5 }, (_, index) => index < added ? 'add' : 'del');
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="pull-file-tree__chevron" width="12" height="12" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </svg>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg className="pull-file-tree__folder-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M1.75 2.5h4.1l1.2 1.5h7.2c.69 0 1.25.56 1.25 1.25v7.5c0 .69-.56 1.25-1.25 1.25H1.75C1.06 14 .5 13.44.5 12.75v-9C.5 3.06 1.06 2.5 1.75 2.5Z" />
+    </svg>
+  );
+}
+
+function FileDiffIcon({ kind }: { kind: string }) {
+  return (
+    <svg className={`pull-file-tree__file-icon is-${kind}`} width="16" height="16" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.25 1.5h5l3.5 3.5v9.5h-8.5z" /><path d="M8.25 1.5V5h3.5M5.5 8h4M7.5 6v4M5.5 12h4" />
+    </svg>
+  );
 }
 
 function PanelIcon() {

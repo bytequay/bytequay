@@ -638,6 +638,7 @@ describe('PullOverview', () => {
 
     expect(canSubmitReview(pr, value)).toBe(false);
     expect(canSubmitReview({ ...pr, origin: 'REVIEW_REQUESTED' }, value)).toBe(true);
+    expect(canSubmitReview({ ...pr, origin: 'OTHER', handledAction: 'COMMENTED' }, value)).toBe(true);
     expect(canSubmitReview({ ...pr, origin: 'REVIEW_REQUESTED' }, { ...value, state: 'merged' })).toBe(false);
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'dirty' })).toBe(true);
     expect(hasMergeConflicts({ ...value, mergeable: false, mergeableState: 'blocked' })).toBe(false);
@@ -645,7 +646,7 @@ describe('PullOverview', () => {
     expect(remotePullRequest(value, 'carol').origin).toBe('OTHER');
   });
 
-  it('keeps only review and merge actions in the compact detail header', () => {
+  it('keeps icon, review and merge actions in the compact detail header', () => {
     const value = detail();
     value.viewerCanWrite = true;
     const html = renderToStaticMarkup(<PullDetailHeader
@@ -655,6 +656,8 @@ describe('PullOverview', () => {
       onTab={() => {}}
       onRefresh={async () => {}}
       pendingComments={[]}
+      zoomed={false}
+      onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
     expect(html).toContain('class="pull-detail__review-action"');
@@ -666,10 +669,43 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
     expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
-    expect(html).not.toContain('aria-label="Zoom pull request details"');
-    expect(html).not.toContain('aria-label="Refresh"');
+    expect(html).toContain('aria-label="Zoom pull request details" aria-pressed="false"');
+    expect(html).toContain('aria-label="Refresh"');
     expect(html).not.toContain('requested your review');
     expect(html).not.toContain('Open on GitHub');
+  });
+
+  it('keeps merge available independently of review eligibility', () => {
+    const value = detail();
+    value.viewerCanWrite = true;
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={pullRequest()}
+      detail={value}
+      tab="overview"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      pendingComments={[]}
+      zoomed={false}
+      onZoom={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).not.toContain('class="pull-detail__review-action"');
+    expect(html).toContain('class="pull-detail__merge-action');
+  });
+
+  it('offers a restore control when pull request details are zoomed', () => {
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={pullRequest()}
+      detail={detail()}
+      tab="overview"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      pendingComments={[]}
+      zoomed
+      onZoom={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toContain('aria-label="Restore pull request details" aria-pressed="true"');
   });
 
   it.each([
@@ -686,6 +722,8 @@ describe('PullOverview', () => {
       onTab={() => {}}
       onRefresh={async () => {}}
       pendingComments={[]}
+      zoomed={false}
+      onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
     expect(html).toContain(`pull-detail__pr-tab is-${iconState} is-active`);

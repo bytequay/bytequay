@@ -19,7 +19,6 @@ import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import {
   PULL_TABS,
-  pullRequestNeedsReview,
   reconcilePostedComment,
   reconcilePullRequestDetail,
   rowsForSearch,
@@ -84,6 +83,7 @@ export default function PullsScreen({
   const [diffLoading, setDiffLoading] = useState(false);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
+  const [detailZoomed, setDetailZoomed] = useState(false);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -575,7 +575,8 @@ export default function PullsScreen({
       </section>
 
       {paneShown && selectedPr !== null && (
-        <section className="pull-detail" style={{ width: detailWidth }}>
+        <section className={`pull-detail${detailZoomed ? ' is-zoomed' : ''}`}
+          style={detailZoomed ? undefined : { width: detailWidth }}>
           <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
             aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />
           <PullDetailHeader
@@ -586,6 +587,8 @@ export default function PullsScreen({
             onRefresh={refresh}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
+            zoomed={detailZoomed}
+            onZoom={() => setDetailZoomed(value => !value)}
           />
           {error && <div className="pull-detail__error">{error}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
@@ -662,6 +665,8 @@ export function PullDetailHeader({
   onRefresh,
   pendingComments,
   onPendingCommentsChange,
+  zoomed,
+  onZoom,
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
@@ -670,13 +675,14 @@ export function PullDetailHeader({
   onRefresh: () => Promise<void>;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
+  zoomed: boolean;
+  onZoom: () => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const canReview = canSubmitReview(pr, detail);
-  const canMerge = canReview
-    && detail !== null
+  const canMerge = detail !== null
     && detail.state?.toLowerCase() === 'open'
     && !detail.draft
     && detail.viewerCanWrite
@@ -736,6 +742,16 @@ export function PullDetailHeader({
           </button>
         </nav>
         <div className="pull-detail__header-actions">
+          <button className="pull-detail__icon-action" type="button"
+            title={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
+            aria-label={zoomed ? 'Restore pull request details' : 'Zoom pull request details'}
+            aria-pressed={zoomed} onClick={onZoom}>
+            <ZoomIcon zoomed={zoomed} />
+          </button>
+          <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh"
+            onClick={() => { void onRefresh(); }}>
+            <RefreshIcon />
+          </button>
           {canReview && (
             <button className="pull-detail__review-action" type="button" onClick={() => setReviewOpen(true)}>
               Submit review
@@ -771,7 +787,7 @@ export function PullDetailHeader({
 }
 
 export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
-  return pullRequestNeedsReview(pr) && detail?.state?.toLowerCase() === 'open';
+  return pr.origin !== 'AUTHORED' && detail?.state?.toLowerCase() === 'open';
 }
 
 export function isReviewRequestedForViewer(detail: PullRequestDetailDto | null, viewerLogin: string | null) {
@@ -1117,6 +1133,17 @@ export function RefreshIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 7v5h-5M4 17v-5h5" /><path d="M7.1 7.1a7 7 0 0 1 11.4 2.3M16.9 16.9a7 7 0 0 1-11.4-2.3" />
+    </svg>
+  );
+}
+
+function ZoomIcon({ zoomed }: { zoomed: boolean }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {zoomed
+        ? <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
+        : <path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" />}
     </svg>
   );
 }

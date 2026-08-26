@@ -193,6 +193,19 @@
   background: #fff;
 }
 
+.pull-detail.is-zoomed {
+  position: fixed;
+  z-index: 70;
+  inset: 10%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  box-shadow: 0 0 0 100vmax rgba(27, 31, 36, 0.45), 0 16px 48px rgba(27, 31, 36, 0.35);
+}
+
+.pull-detail.is-zoomed .pull-detail__resize { display: none; }
+
 .pull-detail__resize {
   position: absolute;
   z-index: 5;
@@ -245,6 +258,7 @@
 }
 .pull-detail__header-actions button.pull-detail__review-action:hover { background: #1a7f37; }
 .pull-detail__toolbar .pull-detail__header-actions button { min-height: 32px; border-radius: 9px; padding: 5px 11px; font-size: var(--ui-font-size); }
+.pull-detail__toolbar .pull-detail__header-actions button.pull-detail__icon-action { width: 32px; justify-content: center; padding: 5px; }
 .pull-detail__header-actions button.pull-detail__merge-action:disabled {
   cursor: default;
   opacity: 1;

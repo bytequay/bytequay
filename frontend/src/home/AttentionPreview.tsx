@@ -20,8 +20,8 @@ import RepoAvatar from '../RepoAvatar';
 import type { PullRequestDetailDto } from '../types';
 import { ago, anchorPanel, ATTENTION_KINDS, previewMarkdown, type AttentionItem } from './attention';
 
-const CARD_WIDTH = 428;
-const CARD_HEIGHT = 400;
+const CARD_WIDTH = 500;
+const CARD_HEIGHT = 460;
 
 type Props = {
   item: AttentionItem;

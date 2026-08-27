@@ -37,6 +37,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.isConstraintViolation;
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -85,12 +87,9 @@ public class SqliteCiAutofixStore
     public Optional<CiAutofixRun> find(CiAutofixRunId runId)
     {
         requireNonNull(runId, "runId is null");
-        try {
-            return runRepository.findById(runId.toString()).map(this::toProjection);
-        }
-        catch (DataAccessException e) {
-            throw new CiAutofixStorageException("Cannot read CI Autofix run " + runId, e);
-        }
+        return read("Cannot read CI Autofix run " + runId,
+                () -> runRepository.findById(runId.toString()).map(this::toProjection),
+                CiAutofixStorageException::new);
     }
 
     @Override
@@ -99,12 +98,9 @@ public class SqliteCiAutofixStore
     {
         requireNonNull(key, "key is null");
         checkArgument(!key.isBlank() && key.length() <= 200, "key must contain between 1 and 200 characters");
-        try {
-            return runRepository.findByStartIdempotencyKey(key).map(this::toProjection);
-        }
-        catch (DataAccessException e) {
-            throw new CiAutofixStorageException("Cannot read CI Autofix idempotency key", e);
-        }
+        return read("Cannot read CI Autofix idempotency key",
+                () -> runRepository.findByStartIdempotencyKey(key).map(this::toProjection),
+                CiAutofixStorageException::new);
     }
 
     @Override
@@ -113,12 +109,9 @@ public class SqliteCiAutofixStore
     {
         requireNonNull(taskId, "taskId is null");
         checkArgument(!taskId.isBlank() && taskId.length() <= 128, "taskId must contain between 1 and 128 characters");
-        try {
-            return runRepository.findByAgentTaskId(taskId).map(this::toProjection);
-        }
-        catch (DataAccessException e) {
-            throw new CiAutofixStorageException("Cannot read CI Autofix agent task", e);
-        }
+        return read("Cannot read CI Autofix agent task",
+                () -> runRepository.findByAgentTaskId(taskId).map(this::toProjection),
+                CiAutofixStorageException::new);
     }
 
     @Override
@@ -126,14 +119,11 @@ public class SqliteCiAutofixStore
     public List<CiAutofixRun> listRecent(int limit)
     {
         checkLimit(limit);
-        try {
-            return runRepository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
-                    .map(this::toProjection)
-                    .collect(toImmutableList());
-        }
-        catch (DataAccessException e) {
-            throw new CiAutofixStorageException("Cannot list recent CI Autofix runs", e);
-        }
+        return read("Cannot list recent CI Autofix runs",
+                () -> runRepository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
+                        .map(this::toProjection)
+                        .collect(toImmutableList()),
+                CiAutofixStorageException::new);
     }
 
     @Override
@@ -141,16 +131,11 @@ public class SqliteCiAutofixStore
     public List<CiAutofixRun> listNonFinished(int limit)
     {
         checkLimit(limit);
-        try {
-            return runRepository.findByStatusInOrderByUpdatedAtAsc(
-                            NON_FINISHED,
-                            PageRequest.of(0, limit)).stream()
-                    .map(this::toProjection)
-                    .collect(toImmutableList());
-        }
-        catch (DataAccessException e) {
-            throw new CiAutofixStorageException("Cannot list non-finished CI Autofix runs", e);
-        }
+        return read("Cannot list non-finished CI Autofix runs",
+                () -> runRepository.findByStatusInOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
+                        .map(this::toProjection)
+                        .collect(toImmutableList()),
+                CiAutofixStorageException::new);
     }
 
     @Override
@@ -227,12 +212,9 @@ public class SqliteCiAutofixStore
 
     private static RuntimeException mapWriteFailure(String message, DataAccessException failure)
     {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause.getMessage() != null && cause.getMessage().contains("SQLITE_CONSTRAINT")) {
-                return new CiAutofixConflictException(message, failure);
-            }
-        }
-        return new CiAutofixStorageException(message, failure);
+        return isConstraintViolation(failure)
+                ? new CiAutofixConflictException(message, failure)
+                : new CiAutofixStorageException(message, failure);
     }
 
     private static void checkLimit(int limit)

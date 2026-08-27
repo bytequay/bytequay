@@ -17,17 +17,46 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
 import org.springframework.dao.DataAccessException;
 
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
+
 final class SqliteStoreExceptions
 {
     private SqliteStoreExceptions() {}
 
-    public static RuntimeException mapConstraint(String message, DataAccessException failure)
+    /**
+     * Runs one read and reports a persistence failure as the caller's own
+     * storage exception, so a store method is the query plus the message it
+     * fails with.
+     */
+    public static <T> T read(
+            String message,
+            Supplier<T> query,
+            BiFunction<String, DataAccessException, RuntimeException> wrap)
+    {
+        try {
+            return query.get();
+        }
+        catch (DataAccessException e) {
+            throw wrap.apply(message, e);
+        }
+    }
+
+    /** True when SQLite rejected the write, rather than the write failing for any other reason. */
+    public static boolean isConstraintViolation(Throwable failure)
     {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause.getMessage() != null && cause.getMessage().contains("SQLITE_CONSTRAINT")) {
-                return new AgentConflictException(message, failure);
+                return true;
             }
         }
-        return new AgentStorageException(message, failure);
+        return false;
+    }
+
+    public static RuntimeException mapConstraint(String message, DataAccessException failure)
+    {
+        return isConstraintViolation(failure)
+                ? new AgentConflictException(message, failure)
+                : new AgentStorageException(message, failure);
     }
 }

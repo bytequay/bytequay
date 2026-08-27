@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -77,13 +78,9 @@ public class SqliteCherryPickExecutionStore
     public Optional<CherryPickExecution> findByIdempotencyKey(String idempotencyKey)
     {
         requireNonNull(idempotencyKey, "idempotencyKey is null");
-        try {
-            return repository.findByStartIdempotencyKey(idempotencyKey)
-                    .map(CherryPickExecutionEntity::toExecution);
-        }
-        catch (DataAccessException e) {
-            throw new CherryPickStorageException("Cannot read cherry-pick idempotency key", e);
-        }
+        return read("Cannot read cherry-pick idempotency key",
+                () -> repository.findByStartIdempotencyKey(idempotencyKey).map(CherryPickExecutionEntity::toExecution),
+                CherryPickStorageException::new);
     }
 
     @Override
@@ -91,12 +88,9 @@ public class SqliteCherryPickExecutionStore
     public Optional<CherryPickExecution> find(CherryPickExecutionId executionId)
     {
         requireNonNull(executionId, "executionId is null");
-        try {
-            return repository.findById(executionId.toString()).map(CherryPickExecutionEntity::toExecution);
-        }
-        catch (DataAccessException e) {
-            throw new CherryPickStorageException("Cannot read cherry-pick execution " + executionId, e);
-        }
+        return read("Cannot read cherry-pick execution " + executionId,
+                () -> repository.findById(executionId.toString()).map(CherryPickExecutionEntity::toExecution),
+                CherryPickStorageException::new);
     }
 
     @Override
@@ -104,14 +98,11 @@ public class SqliteCherryPickExecutionStore
     public List<CherryPickExecution> listRecent(int limit)
     {
         checkLimit(limit);
-        try {
-            return repository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
-                    .map(CherryPickExecutionEntity::toExecution)
-                    .collect(toImmutableList());
-        }
-        catch (DataAccessException e) {
-            throw new CherryPickStorageException("Cannot list recent cherry-pick executions", e);
-        }
+        return read("Cannot list recent cherry-pick executions",
+                () -> repository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
+                        .map(CherryPickExecutionEntity::toExecution)
+                        .collect(toImmutableList()),
+                CherryPickStorageException::new);
     }
 
     @Override
@@ -119,14 +110,11 @@ public class SqliteCherryPickExecutionStore
     public List<CherryPickExecution> listRunning(int limit)
     {
         checkLimit(limit);
-        try {
-            return repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
-                    .map(CherryPickExecutionEntity::toExecution)
-                    .collect(toImmutableList());
-        }
-        catch (DataAccessException e) {
-            throw new CherryPickStorageException("Cannot list running cherry-pick executions", e);
-        }
+        return read("Cannot list running cherry-pick executions",
+                () -> repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
+                        .map(CherryPickExecutionEntity::toExecution)
+                        .collect(toImmutableList()),
+                CherryPickStorageException::new);
     }
 
     @Override

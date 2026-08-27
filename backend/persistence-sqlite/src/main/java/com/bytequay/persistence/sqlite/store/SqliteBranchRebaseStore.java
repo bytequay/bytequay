@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -76,13 +77,9 @@ public class SqliteBranchRebaseStore
     public Optional<BranchRebase> findByIdempotencyKey(String idempotencyKey)
     {
         requireNonNull(idempotencyKey, "idempotencyKey is null");
-        try {
-            return repository.findByStartIdempotencyKey(idempotencyKey)
-                    .map(BranchRebaseEntity::toRebase);
-        }
-        catch (DataAccessException e) {
-            throw new BranchRebaseStorageException("Cannot read branch rebase idempotency key", e);
-        }
+        return read("Cannot read branch rebase idempotency key",
+                () -> repository.findByStartIdempotencyKey(idempotencyKey).map(BranchRebaseEntity::toRebase),
+                BranchRebaseStorageException::new);
     }
 
     @Override
@@ -90,12 +87,9 @@ public class SqliteBranchRebaseStore
     public Optional<BranchRebase> find(BranchRebaseId rebaseId)
     {
         requireNonNull(rebaseId, "rebaseId is null");
-        try {
-            return repository.findById(rebaseId.toString()).map(BranchRebaseEntity::toRebase);
-        }
-        catch (DataAccessException e) {
-            throw new BranchRebaseStorageException("Cannot read branch rebase " + rebaseId, e);
-        }
+        return read("Cannot read branch rebase " + rebaseId,
+                () -> repository.findById(rebaseId.toString()).map(BranchRebaseEntity::toRebase),
+                BranchRebaseStorageException::new);
     }
 
     @Override
@@ -104,15 +98,11 @@ public class SqliteBranchRebaseStore
     {
         checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT,
                 "limit must be between 1 and " + MAX_LIST_LIMIT);
-        try {
-            return repository.findByStatusOrderByUpdatedAtAsc(
-                            Status.RUNNING, PageRequest.of(0, limit)).stream()
-                    .map(BranchRebaseEntity::toRebase)
-                    .collect(toImmutableList());
-        }
-        catch (DataAccessException e) {
-            throw new BranchRebaseStorageException("Cannot list running branch rebases", e);
-        }
+        return read("Cannot list running branch rebases",
+                () -> repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
+                        .map(BranchRebaseEntity::toRebase)
+                        .collect(toImmutableList()),
+                BranchRebaseStorageException::new);
     }
 
     @Override

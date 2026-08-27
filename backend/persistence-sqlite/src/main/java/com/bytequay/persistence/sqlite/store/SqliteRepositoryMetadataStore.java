@@ -48,7 +48,7 @@ public class SqliteRepositoryMetadataStore
     @Override
     public Optional<RepositoryMetadataSnapshot> find(long repositoryId)
     {
-        return repository.findById(repositoryId).map(SqliteRepositoryMetadataStore::toDomain);
+        return repository.findById(repositoryId).map(RepositoryMetadataEntity::toDomain);
     }
 
     @Override
@@ -151,23 +151,5 @@ public class SqliteRepositoryMetadataStore
             entity.setTopics(ImmutableList.of());
         }
         return entity;
-    }
-
-    private static RepositoryMetadataSnapshot toDomain(RepositoryMetadataEntity entity)
-    {
-        return new RepositoryMetadataSnapshot(
-                entity.getRepositoryId(),
-                RepoRef.of(entity.getOwner(), entity.getRepo()),
-                entity.getDescription(),
-                entity.getStargazersCount(),
-                entity.getLanguages(),
-                entity.getContributors(),
-                entity.getPickerUsers(),
-                entity.getLabels(),
-                entity.getTopics(),
-                Optional.ofNullable(entity.getOverviewSyncedAt()),
-                Optional.ofNullable(entity.getContributorsSyncedAt()),
-                Optional.ofNullable(entity.getPickerUsersSyncedAt()),
-                Optional.ofNullable(entity.getLabelsTopicsSyncedAt()));
     }
 }

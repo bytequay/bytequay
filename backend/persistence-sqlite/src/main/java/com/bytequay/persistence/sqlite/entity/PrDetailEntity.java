@@ -13,9 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringMapConverter;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -210,4 +213,33 @@ public class PrDetailEntity
 
     public Instant getSyncedAt() { return syncedAt; }
     public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
+
+    public PrRawDetail toRawDetail()
+    {
+        return new PrRawDetail(
+                getTitle(),
+                getHtmlUrl(),
+                getState(),
+                getAuthor(),
+                getAuthorAvatarUrl(),
+                getCreatedAt(),
+                getUpdatedAt(),
+                getMergedAt(),
+                getBody(),
+                getLabels(),
+                getLabelColors() != null ? getLabelColors() : ImmutableMap.of(),
+                getAssignees() != null ? getAssignees() : ImmutableList.of(),
+                getMilestone(),
+                isDraft(),
+                getMergeable(),
+                getMergeableState(),
+                getAdditions(),
+                getDeletions(),
+                getChangedFiles(),
+                getRequestedReviewerCount(),
+                getRequestedReviewers() != null ? getRequestedReviewers() : ImmutableList.of(),
+                getHeadSha(),
+                getHeadRef(),
+                getBaseRef());
+    }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -21,6 +22,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @Entity
 @Table(name = "commit_refresh_metadata")
@@ -52,4 +54,13 @@ public class CommitRefreshMetadataEntity
 
     public String getError() { return error; }
     public void setError(String error) { this.error = error; }
+
+    public CommitRefreshMetadata toDomain()
+    {
+        return new CommitRefreshMetadata(
+                getWorkspaceId(),
+                Optional.ofNullable(getLastAttemptAt()),
+                Optional.ofNullable(getLastSucceededAt()),
+                Optional.ofNullable(getError()));
+    }
 }

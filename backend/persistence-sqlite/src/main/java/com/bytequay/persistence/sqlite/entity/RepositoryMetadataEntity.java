@@ -13,8 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryContributorListConverter;
@@ -31,6 +33,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Entity
 @Table(name = "repository_metadata")
@@ -129,4 +132,22 @@ public class RepositoryMetadataEntity
 
     public Instant getLabelsTopicsSyncedAt() { return labelsTopicsSyncedAt; }
     public void setLabelsTopicsSyncedAt(Instant labelsTopicsSyncedAt) { this.labelsTopicsSyncedAt = labelsTopicsSyncedAt; }
+
+    public RepositoryMetadataSnapshot toDomain()
+    {
+        return new RepositoryMetadataSnapshot(
+                getRepositoryId(),
+                RepoRef.of(getOwner(), getRepo()),
+                getDescription(),
+                getStargazersCount(),
+                getLanguages(),
+                getContributors(),
+                getPickerUsers(),
+                getLabels(),
+                getTopics(),
+                Optional.ofNullable(getOverviewSyncedAt()),
+                Optional.ofNullable(getContributorsSyncedAt()),
+                Optional.ofNullable(getPickerUsersSyncedAt()),
+                Optional.ofNullable(getLabelsTopicsSyncedAt()));
+    }
 }

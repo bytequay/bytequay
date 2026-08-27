@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.PrTimelinePayloadConverter;
@@ -25,6 +26,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @Entity
 @Table(name = "pr_timeline")
@@ -84,4 +86,29 @@ public class PrTimelineEntity
 
     public PrTimelinePayload getPayload() { return payload; }
     public void setPayload(PrTimelinePayload payload) { this.payload = payload; }
+
+    public PrTimelineEvent toDomain()
+    {
+        return new PrTimelineEvent(
+                getGithubId(),
+                getEvent(),
+                getActor(),
+                getTimestamp(),
+                getBody(),
+                getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : getPayload(),
+                Optional.ofNullable(getLocalEventKey()));
+    }
+
+    public PrTimelineEntity updateFrom(long prId, PrTimelineEvent event)
+    {
+        setPrId(prId);
+        setGithubId(event.githubId());
+        setEvent(event.event());
+        setActor(event.actor());
+        setTimestamp(event.timestamp());
+        setBody(event.body());
+        setPayload(event.payload());
+        setLocalEventKey(event.localEventKey().orElse(null));
+        return this;
+    }
 }

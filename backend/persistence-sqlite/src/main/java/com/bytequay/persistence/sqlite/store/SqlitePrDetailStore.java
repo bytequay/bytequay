@@ -84,12 +84,12 @@ public class SqlitePrDetailStore
     public Optional<StoredPrDetail> find(long prId)
     {
         return detailRepo.findById(prId).map(detail -> new StoredPrDetail(
-                toRawDetail(detail),
-                reviewRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toReview).collect(toImmutableList()),
+                detail.toRawDetail(),
+                reviewRepo.findByPrId(prId).stream().map(PrReviewEntity::toDomain).collect(toImmutableList()),
                 timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
-                        .map(SqlitePrDetailStore::toTimeline)
+                        .map(PrTimelineEntity::toDomain)
                         .collect(toImmutableList()),
-                checkRunRepo.findByPrId(prId).stream().map(SqlitePrDetailStore::toCheckRun).collect(toImmutableList()),
+                checkRunRepo.findByPrId(prId).stream().map(PrCheckRunEntity::toDomain).collect(toImmutableList()),
                 detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of(),
                 Boolean.TRUE.equals(detail.getViewerCanWrite())));
     }
@@ -149,7 +149,7 @@ public class SqlitePrDetailStore
                 event.body(),
                 eventKey);
         return timelineRepo.findByPrIdAndLocalEventKey(prId, eventKey)
-                .map(SqlitePrDetailStore::toTimeline)
+                .map(PrTimelineEntity::toDomain)
                 .orElseThrow(() -> new IllegalStateException("Local timeline event was not stored"));
     }
 
@@ -165,7 +165,7 @@ public class SqlitePrDetailStore
         timelineRepo.saveAll(detail.timeline().stream()
                 .filter(event -> event.localEventKey().isEmpty())
                 .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
-                .map(event -> toEntity(new PrTimelineEntity(), prId, event))
+                .map(event -> new PrTimelineEntity().updateFrom(prId, event))
                 .collect(toImmutableList()));
     }
 
@@ -248,49 +248,6 @@ public class SqlitePrDetailStore
         detailRepo.save(entity);
     }
 
-    private static PrRawDetail toRawDetail(PrDetailEntity detail)
-    {
-        return new PrRawDetail(
-                detail.getTitle(),
-                detail.getHtmlUrl(),
-                detail.getState(),
-                detail.getAuthor(),
-                detail.getAuthorAvatarUrl(),
-                detail.getCreatedAt(),
-                detail.getUpdatedAt(),
-                detail.getMergedAt(),
-                detail.getBody(),
-                detail.getLabels(),
-                detail.getLabelColors() != null ? detail.getLabelColors() : ImmutableMap.of(),
-                detail.getAssignees() != null ? detail.getAssignees() : ImmutableList.of(),
-                detail.getMilestone(),
-                detail.isDraft(),
-                detail.getMergeable(),
-                detail.getMergeableState(),
-                detail.getAdditions(),
-                detail.getDeletions(),
-                detail.getChangedFiles(),
-                detail.getRequestedReviewerCount(),
-                detail.getRequestedReviewers() != null ? detail.getRequestedReviewers() : ImmutableList.of(),
-                detail.getHeadSha(),
-                detail.getHeadRef(),
-                detail.getBaseRef());
-    }
-
-    private static PrReviewState toReview(PrReviewEntity entity)
-    {
-        return new PrReviewState(
-                entity.getGithubId(),
-                entity.getLogin(),
-                entity.getAvatarUrl(),
-                entity.isBot(),
-                entity.getState(),
-                entity.getSubmittedAt(),
-                entity.getBody(),
-                entity.getHtmlUrl(),
-                entity.getCommitId());
-    }
-
     /**
      * Reconciles the stored reviews for a PR against the full list GitHub
      * returned: rows keep their identity across refreshes, rows GitHub no
@@ -311,7 +268,7 @@ public class SqlitePrDetailStore
         List<PrReviewEntity> merged = new ArrayList<>(reviews.size());
         for (PrReviewState review : reviews) {
             PrReviewEntity entity = review.githubId() == null ? null : stored.remove(review.githubId());
-            merged.add(toEntity(entity == null ? new PrReviewEntity() : entity, prId, review));
+            merged.add((entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review));
         }
         reviewRepo.saveAll(merged);
         reviewRepo.deleteAll(stored.values());
@@ -327,7 +284,7 @@ public class SqlitePrDetailStore
         Map<String, PrTimelineEntity> stored = new HashMap<>();
         List<PrTimelineEntity> unmatchable = new ArrayList<>();
         for (PrTimelineEntity row : timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId)) {
-            if (row.getLocalEventKey() == null && stored.putIfAbsent(sourceKey(toTimeline(row)), row) != null) {
+            if (row.getLocalEventKey() == null && stored.putIfAbsent(sourceKey(row.toDomain()), row) != null) {
                 unmatchable.add(row);
             }
         }
@@ -339,7 +296,7 @@ public class SqlitePrDetailStore
                 continue;
             }
             PrTimelineEntity entity = stored.remove(sourceKey(event));
-            merged.add(toEntity(entity == null ? new PrTimelineEntity() : entity, prId, event));
+            merged.add((entity == null ? new PrTimelineEntity() : entity).updateFrom(prId, event));
         }
         timelineRepo.saveAll(merged);
         timelineRepo.deleteAll(stored.values());
@@ -380,74 +337,9 @@ public class SqlitePrDetailStore
         List<PrCheckRunEntity> merged = new ArrayList<>(checkRuns.size());
         for (PrCheckRunState check : checkRuns) {
             PrCheckRunEntity entity = check.githubId() == null ? null : stored.remove(check.githubId());
-            merged.add(toEntity(entity == null ? new PrCheckRunEntity() : entity, prId, check));
+            merged.add((entity == null ? new PrCheckRunEntity() : entity).updateFrom(prId, check));
         }
         checkRunRepo.saveAll(merged);
         checkRunRepo.deleteAll(stored.values());
-    }
-
-    private static PrReviewEntity toEntity(PrReviewEntity entity, long prId, PrReviewState review)
-    {
-        entity.setPrId(prId);
-        entity.setGithubId(review.githubId());
-        entity.setLogin(review.login());
-        entity.setAvatarUrl(review.avatarUrl());
-        entity.setBot(review.bot());
-        entity.setState(review.state());
-        entity.setSubmittedAt(review.submittedAt());
-        entity.setBody(review.body());
-        entity.setHtmlUrl(review.htmlUrl());
-        entity.setCommitId(review.commitId());
-        return entity;
-    }
-
-    private static PrCheckRunState toCheckRun(PrCheckRunEntity entity)
-    {
-        return new PrCheckRunState(
-                entity.getGithubId(),
-                entity.getName(),
-                entity.getStatus(),
-                entity.getConclusion(),
-                entity.getDetailsUrl(),
-                entity.getSource(),
-                entity.getCompletedAt());
-    }
-
-    private static PrCheckRunEntity toEntity(PrCheckRunEntity entity, long prId, PrCheckRunState check)
-    {
-        entity.setPrId(prId);
-        entity.setGithubId(check.githubId());
-        entity.setName(check.name());
-        entity.setStatus(check.status());
-        entity.setConclusion(check.conclusion());
-        entity.setDetailsUrl(check.detailsUrl());
-        entity.setSource(check.source());
-        entity.setCompletedAt(check.completedAt());
-        return entity;
-    }
-
-    private static PrTimelineEvent toTimeline(PrTimelineEntity entity)
-    {
-        return new PrTimelineEvent(
-                entity.getGithubId(),
-                entity.getEvent(),
-                entity.getActor(),
-                entity.getTimestamp(),
-                entity.getBody(),
-                entity.getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : entity.getPayload(),
-                Optional.ofNullable(entity.getLocalEventKey()));
-    }
-
-    private static PrTimelineEntity toEntity(PrTimelineEntity entity, long prId, PrTimelineEvent event)
-    {
-        entity.setPrId(prId);
-        entity.setGithubId(event.githubId());
-        entity.setEvent(event.event());
-        entity.setActor(event.actor());
-        entity.setTimestamp(event.timestamp());
-        entity.setBody(event.body());
-        entity.setPayload(event.payload());
-        entity.setLocalEventKey(event.localEventKey().orElse(null));
-        return entity;
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.PrCheckRunState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -81,4 +82,29 @@ public class PrCheckRunEntity
 
     public Instant getCompletedAt() { return completedAt; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+
+    public PrCheckRunState toDomain()
+    {
+        return new PrCheckRunState(
+                getGithubId(),
+                getName(),
+                getStatus(),
+                getConclusion(),
+                getDetailsUrl(),
+                getSource(),
+                getCompletedAt());
+    }
+
+    public PrCheckRunEntity updateFrom(long prId, PrCheckRunState check)
+    {
+        setPrId(prId);
+        setGithubId(check.githubId());
+        setName(check.name());
+        setStatus(check.status());
+        setConclusion(check.conclusion());
+        setDetailsUrl(check.detailsUrl());
+        setSource(check.source());
+        setCompletedAt(check.completedAt());
+        return this;
+    }
 }

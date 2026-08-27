@@ -27,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -56,7 +55,7 @@ public class SqliteCommitHistoryStore
                 .map(sha -> new CommitEnrichmentEntity.Key(repositoryId, sha))
                 .collect(toImmutableList());
         return new CommitEnrichmentSnapshot(enrichment.findAllById(keys).stream()
-                .map(SqliteCommitHistoryStore::toDomain)
+                .map(CommitEnrichmentEntity::toDomain)
                 .collect(toImmutableList()));
     }
 
@@ -81,7 +80,7 @@ public class SqliteCommitHistoryStore
     {
         requireNonNull(workspaceId, "workspaceId is null");
         return refreshMetadata.findById(workspaceId)
-                .map(SqliteCommitHistoryStore::toDomain)
+                .map(CommitRefreshMetadataEntity::toDomain)
                 .orElseGet(() -> CommitRefreshMetadata.empty(workspaceId));
     }
 
@@ -116,31 +115,5 @@ public class SqliteCommitHistoryStore
         entity.setAssociationCheckedAt(value.associationCheckedAt().orElse(entity.getAssociationCheckedAt()));
         entity.setLastSeenAt(value.lastSeenAt());
         return entity;
-    }
-
-    private static CommitEnrichment toDomain(CommitEnrichmentEntity entity)
-    {
-        return new CommitEnrichment(
-                entity.getId().getRepositoryId(),
-                entity.getId().getSha(),
-                Optional.ofNullable(entity.getAuthorLogin()),
-                Optional.ofNullable(entity.getAvatarKey()),
-                Optional.ofNullable(entity.getCommitterLogin()),
-                Optional.ofNullable(entity.getCommitterAvatarKey()),
-                Optional.ofNullable(entity.getPullRequestNumber()),
-                Optional.ofNullable(entity.getPullRequestTitle()),
-                Optional.ofNullable(entity.getPullRequestUrl()),
-                Optional.ofNullable(entity.getAvatarCheckedAt()),
-                Optional.ofNullable(entity.getAssociationCheckedAt()),
-                entity.getLastSeenAt());
-    }
-
-    private static CommitRefreshMetadata toDomain(CommitRefreshMetadataEntity entity)
-    {
-        return new CommitRefreshMetadata(
-                entity.getWorkspaceId(),
-                Optional.ofNullable(entity.getLastAttemptAt()),
-                Optional.ofNullable(entity.getLastSucceededAt()),
-                Optional.ofNullable(entity.getError()));
     }
 }

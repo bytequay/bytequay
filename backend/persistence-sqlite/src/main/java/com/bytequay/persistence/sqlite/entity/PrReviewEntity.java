@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.PrReviewState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -94,4 +95,33 @@ public class PrReviewEntity
 
     public Instant getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
+
+    public PrReviewState toDomain()
+    {
+        return new PrReviewState(
+                getGithubId(),
+                getLogin(),
+                getAvatarUrl(),
+                isBot(),
+                getState(),
+                getSubmittedAt(),
+                getBody(),
+                getHtmlUrl(),
+                getCommitId());
+    }
+
+    public PrReviewEntity updateFrom(long prId, PrReviewState review)
+    {
+        setPrId(prId);
+        setGithubId(review.githubId());
+        setLogin(review.login());
+        setAvatarUrl(review.avatarUrl());
+        setBot(review.bot());
+        setState(review.state());
+        setSubmittedAt(review.submittedAt());
+        setBody(review.body());
+        setHtmlUrl(review.htmlUrl());
+        setCommitId(review.commitId());
+        return this;
+    }
 }

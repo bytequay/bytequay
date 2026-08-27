@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -24,6 +25,7 @@ import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 @Entity
 @Table(name = "commit_enrichment")
@@ -132,5 +134,22 @@ public class CommitEnrichmentEntity
         {
             return Objects.hash(repositoryId, sha);
         }
+    }
+
+    public CommitEnrichment toDomain()
+    {
+        return new CommitEnrichment(
+                getId().getRepositoryId(),
+                getId().getSha(),
+                Optional.ofNullable(getAuthorLogin()),
+                Optional.ofNullable(getAvatarKey()),
+                Optional.ofNullable(getCommitterLogin()),
+                Optional.ofNullable(getCommitterAvatarKey()),
+                Optional.ofNullable(getPullRequestNumber()),
+                Optional.ofNullable(getPullRequestTitle()),
+                Optional.ofNullable(getPullRequestUrl()),
+                Optional.ofNullable(getAvatarCheckedAt()),
+                Optional.ofNullable(getAssociationCheckedAt()),
+                getLastSeenAt());
     }
 }

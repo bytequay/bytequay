@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.HandledAction;
+import com.bytequay.core.domain.PrViewState;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -82,4 +83,9 @@ public class PrViewStateEntity
 
     public String getReviewedHeadSha() { return reviewedHeadSha; }
     public void setReviewedHeadSha(String reviewedHeadSha) { this.reviewedHeadSha = reviewedHeadSha; }
+
+    public PrViewState toDomain()
+    {
+        return new PrViewState(getPrId(), getViewedAt(), getReviewedAt(), getHandledAction(), getReviewedHeadSha());
+    }
 }

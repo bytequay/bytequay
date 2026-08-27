@@ -48,15 +48,7 @@ public class SqlitePrViewStateStore
 
     private static Map<Long, PrViewState> toDomain(java.util.stream.Stream<PrViewStateEntity> entities)
     {
-        return entities
-                .collect(toImmutableMap(
-                        PrViewStateEntity::getPrId,
-                        e -> new PrViewState(
-                                e.getPrId(),
-                                e.getViewedAt(),
-                                e.getReviewedAt(),
-                                e.getHandledAction(),
-                                e.getReviewedHeadSha())));
+        return entities.collect(toImmutableMap(PrViewStateEntity::getPrId, PrViewStateEntity::toDomain));
     }
 
     /** Records that the user handled this PR with the given action. */

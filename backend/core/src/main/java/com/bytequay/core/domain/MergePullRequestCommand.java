@@ -15,6 +15,8 @@ package com.bytequay.core.domain;
 
 import java.util.Optional;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Parameters for merging a pull request.
  * Maps to the request body of PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge.
@@ -30,6 +32,14 @@ public record MergePullRequestCommand(
         Optional<String> commitMessage,
         Optional<String> sha)
 {
+    public MergePullRequestCommand
+    {
+        requireNonNull(mergeMethod, "mergeMethod is null");
+        requireNonNull(commitTitle, "commitTitle is null");
+        requireNonNull(commitMessage, "commitMessage is null");
+        requireNonNull(sha, "sha is null");
+    }
+
     public static MergePullRequestCommand mergeCommit()
     {
         return new MergePullRequestCommand("merge", Optional.empty(), Optional.empty(), Optional.empty());

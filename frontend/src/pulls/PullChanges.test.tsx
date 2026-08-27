@@ -95,6 +95,17 @@ describe('DiffViewer', () => {
     expect(readOnlyHtml).not.toContain('pull-diff-code__add-comment');
   });
 
+  it('offers a copy button for the file path outside the collapse toggle', () => {
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} />);
+    const header = html.match(/<div class="pull-diff-file__header">[\s\S]*?<span class="pull-diff-file__status"/)?.[0] ?? '';
+
+    expect(header).toContain('class="pull-diff-file__toggle"');
+    expect(header).toContain('aria-label="Copy file path"');
+    const toggle = header.match(/<button [^>]*class="pull-diff-file__toggle"[\s\S]*?<\/button>/)?.[0] ?? '';
+    expect(toggle).toContain('pull-diff-file__name');
+    expect(toggle).not.toContain('pr-copy-button');
+  });
+
   it('renders one changed-files toggle and a GitHub-style file tree', () => {
     const firstPath = 'core/trino-main/src/main/java/io/trino/QueryManagerConfig.java';
     const html = renderToStaticMarkup(<DiffViewer files={[

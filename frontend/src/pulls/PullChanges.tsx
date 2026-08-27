@@ -24,8 +24,8 @@ import type {
   UserProfileDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
-import { relativeTime, remoteErrorMessage } from './PullOverview';
 import MarkdownBody from './MarkdownBody';
+import { CopyLinkButton, relativeTime, remoteErrorMessage } from './PullOverview';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -846,12 +846,15 @@ function DiffFileCard({
 
   return (
     <article className={`pull-diff-file${selectingRange ? ' is-selecting' : ''}`} data-file-card={file.filename}>
-      <button type="button" className="pull-diff-file__header" onClick={onToggle} aria-expanded={open}>
-        <span className={`pull-diff-file__chevron${open ? ' is-open' : ''}`} aria-hidden="true">›</span>
-        <span className="pull-diff-file__path" aria-label={file.filename}>
-          {directory && <span className="pull-diff-file__directory"><bdi dir="ltr">{directory}</bdi></span>}
-          <span className="pull-diff-file__name">{filename}</span>
-        </span>
+      <div className="pull-diff-file__header">
+        <button type="button" className="pull-diff-file__toggle" onClick={onToggle} aria-expanded={open}>
+          <span className={`pull-diff-file__chevron${open ? ' is-open' : ''}`} aria-hidden="true">›</span>
+          <span className="pull-diff-file__path" aria-label={file.filename}>
+            {directory && <span className="pull-diff-file__directory"><bdi dir="ltr">{directory}</bdi></span>}
+            <span className="pull-diff-file__name">{filename}</span>
+          </span>
+        </button>
+        <CopyLinkButton value={file.filename} label="file path" />
         <span className="pull-diff-file__status">{file.status}</span>
         <span className="pull-diff-file__stats">
           <span>+{file.additions}</span><span>−{file.deletions}</span>
@@ -859,7 +862,7 @@ function DiffFileCard({
         <span className="pull-diff-file__blocks" aria-hidden="true">
           {blocks.map((kind, index) => <i className={`is-${kind}`} key={index} />)}
         </span>
-      </button>
+      </div>
       {open && file.patch === null && (
         <div className="pull-diff-file__empty">Binary file or diff unavailable.</div>
       )}

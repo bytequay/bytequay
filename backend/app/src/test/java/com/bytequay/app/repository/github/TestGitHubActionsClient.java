@@ -49,6 +49,7 @@ import static com.bytequay.app.ci.CiRerunResult.Outcome.REJECTED;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -375,6 +376,57 @@ class TestGitHubActionsClient
         assertThat(result.checkRunsEtag()).contains("\"checks-1\"");
         assertThat(result.commitStatusesEtag()).contains("\"statuses-1\"");
         fixture.verify();
+    }
+
+    @Test
+    void conditionalPrChecksUseTheStoredEtagAtExactlyOnePageOfCheckRuns()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"checks-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"checks-1\""));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+                .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
+
+        GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(
+                "pat", "owner", "repo", "head", storedCheckRuns(100),
+                Optional.of("\"checks-1\""), Optional.empty());
+
+        assertThat(result.checkRuns()).hasSize(100);
+        fixture.verify();
+    }
+
+    @Test
+    void conditionalPrChecksIgnoreTheStoredEtagBeyondOnePageOfCheckRuns()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+                .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"check_runs":[
+                          {"id":1,"name":"build","status":"completed","conclusion":"success"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+                .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
+
+        GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(
+                "pat", "owner", "repo", "head", storedCheckRuns(101),
+                Optional.of("\"checks-1\""), Optional.empty());
+
+        assertThat(result.checkRuns()).extracting(PrCheckRunState::name).containsExactly("build");
+        fixture.verify();
+    }
+
+    private static List<PrCheckRunState> storedCheckRuns(int count)
+    {
+        return IntStream.rangeClosed(1, count)
+                .mapToObj(id -> new PrCheckRunState((long) id, "check-" + id, "completed", "success", null, "check_run"))
+                .toList();
     }
 
     private static void expectSingleHead(

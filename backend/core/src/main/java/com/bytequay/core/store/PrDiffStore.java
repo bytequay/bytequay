@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.StoredPrDiff;
 
 import java.util.Optional;
@@ -24,6 +25,12 @@ public interface PrDiffStore
     Optional<StoredPrDiff> find(long prId, String baseSha, String headSha);
 
     void save(long prId, String baseSha, String headSha, StoredPrDiff diff);
+
+    /** The ETags stored alongside the default diff, or none when it was never fetched conditionally. */
+    PrDiffEtags findDefaultEtags(long prId);
+
+    /** Replaces the default diff and the ETags that will validate it next time. */
+    void saveDefault(long prId, StoredPrDiff diff, PrDiffEtags etags);
 
     void saveFileContent(long prId, String baseSha, String headSha, String path, DiffFileContent content);
 

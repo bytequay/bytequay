@@ -15,12 +15,16 @@ package com.bytequay.app.repository.github;
 
 import com.google.common.collect.ImmutableList;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
@@ -72,6 +76,61 @@ final class GitHubPaginator
             }
         }
         return ImmutableList.copyOf(seen);
+    }
+
+    /**
+     * Walks the same pages, but sends the caller's ETag with page one. GitHub
+     * answers 304 when nothing changed, which costs no rate limit and lets the
+     * caller keep what it already stored.
+     *
+     * <p>The ETag is only ever taken from page one, so it can only vouch for
+     * page one. Callers must withhold it when their stored copy spans more than
+     * a page, or a change past page one is never seen.</p>
+     */
+    <T> ConditionalList<T> paginateConditional(
+            String pat,
+            String pathTemplate,
+            ParameterizedTypeReference<List<T>> typeRef,
+            Optional<String> etag,
+            Object... uriVariables)
+    {
+        requireNonNull(etag, "etag is null");
+        Set<T> seen = new LinkedHashSet<>();
+        Optional<String> responseEtag = etag;
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            int currentPage = page;
+            try {
+                RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
+                        .uri(u -> u.path(pathTemplate)
+                                .queryParam("per_page", PAGE_SIZE)
+                                .queryParam("page", currentPage)
+                                .build(uriVariables))
+                        .header("Authorization", authorization(pat));
+                if (currentPage == 1) {
+                    etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+                }
+                ResponseEntity<List<T>> entity = request.retrieve().toEntity(typeRef);
+                if (currentPage == 1) {
+                    responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
+                    if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                        return new ConditionalList<>(Optional.empty(), responseEtag);
+                    }
+                }
+                List<T> rows = entity.getBody() == null ? ImmutableList.of() : entity.getBody();
+                if (rows.isEmpty()) {
+                    break;
+                }
+                int size = seen.size();
+                seen.addAll(rows);
+                if (rows.size() < PAGE_SIZE || seen.size() == size) {
+                    break;
+                }
+            }
+            catch (RestClientResponseException e) {
+                throw toReadableException(e);
+            }
+        }
+        return new ConditionalList<>(Optional.of(ImmutableList.copyOf(seen)), responseEtag);
     }
 
     <T> List<T> paginate(

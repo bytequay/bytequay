@@ -456,20 +456,43 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr) {
+    public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr)
+    {
+        return fetchPrDiffFiles(pat, pr, ImmutableList.of(), Optional.empty()).orElse(ImmutableList.of());
+    }
+
+    /**
+     * Re-reads the default diff only when GitHub says it changed. {@code stored}
+     * is the copy the caller already holds; its size decides whether the ETag
+     * can be trusted, since the ETag only covers the first page.
+     */
+    public ConditionalList<DiffFile> fetchPrDiffFiles(
+            String pat, PullRequestRef pr, List<DiffFile> stored, Optional<String> etag)
+    {
         try {
-            List<GitHubPullRequestFileWithPatch> files = paginator.paginate(
-                    pat,
-                    "/repos/{owner}/{repo}/pulls/{number}/files",
-                    new ParameterizedTypeReference<List<GitHubPullRequestFileWithPatch>>() {},
-                    pr.owner(),
-                    pr.repo(),
-                    pr.number());
-            return toDiffFiles(files);
+            return paginator.paginateConditional(
+                            pat,
+                            "/repos/{owner}/{repo}/pulls/{number}/files",
+                            new ParameterizedTypeReference<List<GitHubPullRequestFileWithPatch>>() {},
+                            etagCoveringOnePage(stored, etag),
+                            pr.owner(),
+                            pr.repo(),
+                            pr.number())
+                    .map(GitHubPullRequestReadClient::toDiffFiles);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    /**
+     * A stored ETag comes from page one alone. Withhold it once the stored copy
+     * needs a second page, or a change past page one leaves page one
+     * byte-identical and the stale copy is kept forever.
+     */
+    private static Optional<String> etagCoveringOnePage(List<?> stored, Optional<String> etag)
+    {
+        return stored.size() <= GitHubPaginator.PAGE_SIZE ? etag : Optional.empty();
     }
 
     public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr, String baseSha, String headSha)
@@ -494,13 +517,26 @@ public class GitHubPullRequestReadClient
 
     public List<DiffCommit> fetchPrDiffCommits(String pat, PullRequestRef pr)
     {
-        return paginator.paginate(
+        return fetchPrDiffCommits(pat, pr, ImmutableList.of(), Optional.empty()).orElse(ImmutableList.of());
+    }
+
+    public ConditionalList<DiffCommit> fetchPrDiffCommits(
+            String pat, PullRequestRef pr, List<DiffCommit> stored, Optional<String> etag)
+    {
+        return paginator.paginateConditional(
                         pat,
                         "/repos/{owner}/{repo}/pulls/{number}/commits",
                         new ParameterizedTypeReference<List<GitHubPullRequestCommit>>() {},
+                        etagCoveringOnePage(stored, etag),
                         pr.owner(),
                         pr.repo(),
-                        pr.number()).stream()
+                        pr.number())
+                .map(GitHubPullRequestReadClient::toDiffCommits);
+    }
+
+    private static List<DiffCommit> toDiffCommits(List<GitHubPullRequestCommit> commits)
+    {
+        return commits.stream()
                 .map(commit -> {
                     GitHubPullRequestCommit.Author author = Optional.ofNullable(commit.commit())
                             .map(GitHubPullRequestCommit.Commit::author)

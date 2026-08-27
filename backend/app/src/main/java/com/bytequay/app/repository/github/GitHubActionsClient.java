@@ -142,15 +142,22 @@ public class GitHubActionsClient
         requireNonNull(existing, "existing is null");
         requireNonNull(checkRunsEtag, "checkRunsEtag is null");
         requireNonNull(commitStatusesEtag, "commitStatusesEtag is null");
-        Optional<String> safeCheckRunsEtag = existing.stream().filter(check -> "check_run".equals(check.source())).count() < PAGE_SIZE
-                ? checkRunsEtag
-                : Optional.empty();
+        // The stored ETag is captured from the first page alone, so it can only
+        // vouch for one page. On a commit whose check runs need a second page, a
+        // change past page one leaves page one byte-identical, and honouring the
+        // ETag would report the stale result forever.
+        Optional<String> safeCheckRunsEtag = fitsOnOnePage(existing) ? checkRunsEtag : Optional.empty();
         ConditionalChecks checkRuns = fetchCheckRuns(pat, owner, repo, sha, safeCheckRunsEtag);
         ConditionalChecks commitStatuses = fetchCommitStatuses(pat, owner, repo, sha, commitStatusesEtag);
         List<PrCheckRunState> result = new ArrayList<>();
         result.addAll(checkRuns.values().orElseGet(() -> checksFrom(existing, "check_run")));
         result.addAll(commitStatuses.values().orElseGet(() -> checksFrom(existing, "status")));
         return new PrCheckRunsFetch(result, checkRuns.etag(), commitStatuses.etag());
+    }
+
+    private static boolean fitsOnOnePage(List<PrCheckRunState> checkRuns)
+    {
+        return checkRuns.stream().filter(check -> "check_run".equals(check.source())).count() <= PAGE_SIZE;
     }
 
     private ConditionalChecks fetchCheckRuns(

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -36,6 +37,7 @@ import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -307,6 +309,54 @@ class TestGitHubPullRequestOverviewClient
                         "Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)",
                         "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
         fixture.verify();
+    }
+
+    @Test
+    void conditionalDiffFilesReuseTheStoredCopyOnNotModified()
+    {
+        Fixture fixture = fixture();
+        fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"files-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"files-1\""));
+
+        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles(
+                "pat",
+                PullRequestRef.of("owner", "repo", 7),
+                storedFiles(1),
+                Optional.of("\"files-1\""));
+
+        assertThat(result.unchanged()).isTrue();
+        assertThat(result.etag()).contains("\"files-1\"");
+        fixture.verify();
+    }
+
+    @Test
+    void conditionalDiffFilesIgnoreTheStoredEtagBeyondOnePage()
+    {
+        Fixture fixture = fixture();
+        fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
+                .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess(
+                        """
+                        [{"filename":"a.txt","status":"modified","additions":1,"deletions":0,"patch":"+line"}]
+                        """, MediaType.APPLICATION_JSON));
+
+        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles(
+                "pat",
+                PullRequestRef.of("owner", "repo", 7),
+                storedFiles(101),
+                Optional.of("\"files-1\""));
+
+        assertThat(result.unchanged()).isFalse();
+        assertThat(result.orElse(ImmutableList.of())).extracting(DiffFile::filename).containsExactly("a.txt");
+        fixture.verify();
+    }
+
+    private static List<DiffFile> storedFiles(int count)
+    {
+        return IntStream.rangeClosed(1, count)
+                .mapToObj(index -> new DiffFile("file-" + index + ".txt", "modified", 1, 0, "+line"))
+                .toList();
     }
 
     private static Fixture fixture()

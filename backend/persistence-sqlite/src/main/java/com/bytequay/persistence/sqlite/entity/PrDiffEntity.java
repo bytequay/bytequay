@@ -60,6 +60,10 @@ public class PrDiffEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
 
+    private String filesEtag;
+
+    private String commitsEtag;
+
     public PrDiffEntity() {}
 
     public String getId() { return id; }
@@ -73,6 +77,12 @@ public class PrDiffEntity
 
     public String getHeadSha() { return headSha; }
     public void setHeadSha(String headSha) { this.headSha = headSha; }
+
+    public String getFilesEtag() { return filesEtag; }
+    public void setFilesEtag(String filesEtag) { this.filesEtag = filesEtag; }
+
+    public String getCommitsEtag() { return commitsEtag; }
+    public void setCommitsEtag(String commitsEtag) { this.commitsEtag = commitsEtag; }
 
     public List<DiffFile> getFiles() { return files; }
     public void setFiles(List<DiffFile> files) { this.files = files; }

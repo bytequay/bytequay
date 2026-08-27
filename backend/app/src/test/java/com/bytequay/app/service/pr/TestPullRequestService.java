@@ -19,6 +19,7 @@ import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
+import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
@@ -30,13 +31,16 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -69,6 +73,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -116,6 +121,7 @@ class TestPullRequestService
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
                 new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run),
                 viewStateStore, credentialService, metadata, Runnable::run, 53123);
+        org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
@@ -283,7 +289,55 @@ class TestPullRequestService
         verify(store).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
         assertThat(saved.getValue()).extracting(FetchedPullRequest::state).containsExactly("closed");
         assertThat(saved.getValue()).extracting(FetchedPullRequest::githubId).containsExactly(99L);
-        verify(gitHub).fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7));
+        // A repository sweep covers every author, so it populates the list and
+        // leaves detail to whoever opens the row.
+        verify(gitHub, never()).fetchPrDetail(anyString(), any());
+    }
+
+    @Test
+    void unchangedDefaultDiffIsNotRewritten()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        StoredPrDiff stored = new StoredPrDiff(
+                ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line")), ImmutableList.of());
+        when(diffStore.find(12L, null, null)).thenReturn(Optional.of(stored));
+        when(diffStore.findDefaultEtags(12L))
+                .thenReturn(new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\"")));
+        when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), eq(Optional.of("\"files-1\""))))
+                .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("\"files-1\"")));
+        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), eq(Optional.of("\"commits-1\""))))
+                .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("\"commits-1\"")));
+
+        snapshots.refreshDefaultDiff("pat", ref, 12L);
+
+        verify(diffStore, never()).saveDefault(anyLong(), any(), any());
+    }
+
+    @Test
+    void changedCommitsKeepUnchangedFilesAndTheirExpandedBodies()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
+        StoredPrDiff stored = new StoredPrDiff(
+                files, ImmutableList.of(), ImmutableMap.of("a.txt", new DiffFileContent("old", "new")));
+        List<DiffCommit> commits = ImmutableList.of(
+                new DiffCommit("sha1", null, "reworded", "me", Instant.parse("2026-08-27T00:00:00Z")));
+        when(diffStore.find(12L, null, null)).thenReturn(Optional.of(stored));
+        when(diffStore.findDefaultEtags(12L))
+                .thenReturn(new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\"")));
+        when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("\"files-1\"")));
+        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(commits), Optional.of("\"commits-2\"")));
+
+        snapshots.refreshDefaultDiff("pat", ref, 12L);
+
+        ArgumentCaptor<StoredPrDiff> saved = ArgumentCaptor.forClass(StoredPrDiff.class);
+        verify(diffStore).saveDefault(eq(12L), saved.capture(), eq(
+                new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-2\""))));
+        assertThat(saved.getValue().files()).isEqualTo(files);
+        assertThat(saved.getValue().commits()).isEqualTo(commits);
+        assertThat(saved.getValue().fileContents()).containsKey("a.txt");
     }
 
     @Test
@@ -376,8 +430,10 @@ class TestPullRequestService
                 .thenReturn(ImmutableList.of());
         when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
                 .thenReturn(ImmutableMap.of());
-        when(gitHub.fetchPrDiffFiles("pat", ref)).thenReturn(files);
-        when(gitHub.fetchPrDiffCommits("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(files), Optional.of("\"files-1\"")));
+        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"commits-1\"")));
 
         PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
@@ -391,7 +447,8 @@ class TestPullRequestService
         verify(detailStore).save(eq(12L), detail.capture());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
         verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
-        verify(diffStore).save(eq(12L), eq(null), eq(null), any(StoredPrDiff.class));
+        verify(diffStore).saveDefault(eq(12L), any(StoredPrDiff.class), eq(
+                new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\""))));
     }
 
     @Test
@@ -448,6 +505,16 @@ class TestPullRequestService
     }
 
     @Test
+    void holdsOffPullRequestsWhoseDetailJustFailed()
+    {
+        Instant now = Instant.parse("2026-08-24T12:00:00Z");
+
+        assertThat(PullRequestService.failedWithinBackoff(null, now)).isFalse();
+        assertThat(PullRequestService.failedWithinBackoff(now.minus(Duration.ofHours(5)), now)).isTrue();
+        assertThat(PullRequestService.failedWithinBackoff(now.minus(Duration.ofHours(7)), now)).isFalse();
+    }
+
+    @Test
     void refreshesOnlyRecentOpenStatusesEverySixMinutes()
     {
         Instant now = Instant.parse("2026-08-24T12:00:00Z");
@@ -491,7 +558,7 @@ class TestPullRequestService
         verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
         verify(detailStore).updateStatusEtags(12L, Optional.of("\"checks-2\""), Optional.of("\"statuses-2\""));
         verify(gitHub, never()).fetchPrReviews(anyString(), any());
-        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any());
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
     }
 
     @Test
@@ -739,7 +806,7 @@ class TestPullRequestService
 
         assertThat(service.getPullRequestDiffFiles("owner/repo", 7)).isEqualTo(files);
 
-        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any());
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
         verify(credentialService, never()).resolveGitHubToken();
     }
 

@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.persistence.sqlite.entity.PrDiffEntity;
@@ -52,7 +53,30 @@ public class SqlitePrDiffStore
     @Transactional
     public void save(long prId, String baseSha, String headSha, StoredPrDiff diff)
     {
+        save(prId, baseSha, headSha, diff, PrDiffEtags.none());
+    }
+
+    @Override
+    public PrDiffEtags findDefaultEtags(long prId)
+    {
+        return repository.findById(snapshotId(prId, null, null))
+                .map(entity -> new PrDiffEtags(
+                        Optional.ofNullable(entity.getFilesEtag()),
+                        Optional.ofNullable(entity.getCommitsEtag())))
+                .orElseGet(PrDiffEtags::none);
+    }
+
+    @Override
+    @Transactional
+    public void saveDefault(long prId, StoredPrDiff diff, PrDiffEtags etags)
+    {
+        save(prId, null, null, diff, etags);
+    }
+
+    private void save(long prId, String baseSha, String headSha, StoredPrDiff diff, PrDiffEtags etags)
+    {
         requireNonNull(diff, "diff is null");
+        requireNonNull(etags, "etags is null");
         PrDiffEntity entity = new PrDiffEntity();
         entity.setId(snapshotId(prId, baseSha, headSha));
         entity.setPrId(prId);
@@ -62,6 +86,8 @@ public class SqlitePrDiffStore
         entity.setCommits(diff.commits());
         entity.setFileContents(diff.fileContents());
         entity.setSyncedAt(Instant.now());
+        entity.setFilesEtag(etags.files().orElse(null));
+        entity.setCommitsEtag(etags.commits().orElse(null));
         repository.save(entity);
     }
 

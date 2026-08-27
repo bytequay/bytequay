@@ -18,6 +18,7 @@ import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
+import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -25,6 +26,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullReques
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
@@ -33,6 +35,7 @@ import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -52,6 +55,8 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class PullRequestSnapshotService
 {
+    private static final StoredPrDiff EMPTY_DIFF = new StoredPrDiff(ImmutableList.of(), ImmutableList.of());
+
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubActionsClient actions;
     private final PrDetailStore details;
@@ -178,13 +183,22 @@ public class PullRequestSnapshotService
 
     void refreshDefaultDiff(String pat, PullRequestRef pullRequest, long prId)
     {
-        diffs.save(
+        StoredPrDiff stored = diffs.find(prId, null, null).orElse(EMPTY_DIFF);
+        PrDiffEtags etags = diffs.findDefaultEtags(prId);
+        ConditionalList<DiffFile> files = gitHub.fetchPrDiffFiles(pat, pullRequest, stored.files(), etags.files());
+        ConditionalList<DiffCommit> commits = gitHub.fetchPrDiffCommits(pat, pullRequest, stored.commits(), etags.commits());
+        if (files.unchanged() && commits.unchanged()) {
+            return;
+        }
+        diffs.saveDefault(
                 prId,
-                null,
-                null,
                 new StoredPrDiff(
-                        gitHub.fetchPrDiffFiles(pat, pullRequest),
-                        gitHub.fetchPrDiffCommits(pat, pullRequest)));
+                        files.orElse(stored.files()),
+                        commits.orElse(stored.commits()),
+                        // Expanded file bodies stay valid exactly as long as the file
+                        // list does; a changed list may have moved every patch.
+                        files.unchanged() ? stored.fileContents() : ImmutableMap.of()),
+                new PrDiffEtags(files.etag(), commits.etag()));
     }
 
     void refreshDiff(

@@ -74,6 +74,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
@@ -94,6 +95,7 @@ public class PullRequestService
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
     private static final Duration STATUS_REFRESH_INTERVAL = Duration.ofMinutes(6);
     private static final Duration ACTIVE_PULL_REQUEST_WINDOW = Duration.ofHours(6);
+    private static final Duration DETAIL_FAILURE_BACKOFF = Duration.ofHours(6);
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of(
             "+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
@@ -104,6 +106,12 @@ public class PullRequestService
     // with far more than the old single 50-item page exposed.
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final int MAX_SEARCH_PAGES = 6;
+
+    // A failed detail fetch stores nothing, so the sync marker stays empty and
+    // the next tick asks for it again. GitHub permanently refuses some pull
+    // requests ("too many files changed"), which without this would cost a
+    // full fan-out every six minutes forever.
+    private final Map<String, Instant> detailFailures = new ConcurrentHashMap<>();
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
@@ -186,10 +194,11 @@ public class PullRequestService
     /**
      * Refreshes the local workspace projection for one monitored repository.
      *
-     * <p>The refresh discovers pull requests regardless of state, preserves rows omitted from
-     * GitHub's eventually-consistent search, and refreshes detail by pull-request identity only
-     * for new or changed rows. The caller resolves whether a workspace monitors its selected
-     * repository or an upstream repository.</p>
+     * <p>The refresh discovers pull requests regardless of state and preserves rows omitted from
+     * GitHub's eventually-consistent search. Unlike the dashboard sync it covers every author, so
+     * it stops at the list: detail for a repository row is fetched when that row is opened. The
+     * caller resolves whether a workspace monitors its selected repository or an upstream
+     * repository.</p>
      */
     public void syncRepository(RepoRef repository)
     {
@@ -763,12 +772,7 @@ public class PullRequestService
                             : workspaceOrigin(pullRequest, currentLogin))
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
-                Map<Long, Instant> previous = updatedAtBeforeSync(fresh);
-                syncPageRefreshes(
-                        pat,
-                        currentLogin,
-                        store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker),
-                        previous);
+                store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
             }
             if (!result.hasMore()) {
                 break;
@@ -780,7 +784,6 @@ public class PullRequestService
             String pat, RepoRef repository, String currentLogin, String syncMarker)
     {
         List<FetchedPullRequest> refreshed = new ArrayList<>();
-        Set<String> changed = new HashSet<>();
         for (PullRequest stored : store.findRepositoryRowsMissingSync(repository.fullName(), syncMarker)) {
             PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), stored.number());
             try {
@@ -789,9 +792,6 @@ public class PullRequestService
                     exact = withOrigin(exact, REVIEW_REQUESTED);
                 }
                 refreshed.add(exact);
-                if (!Objects.equals(stored.updatedAt(), exact.updatedAt())) {
-                    changed.add(ref.fullName());
-                }
             }
             catch (RuntimeException failure) {
                 if (isRateLimit(failure)) {
@@ -801,10 +801,7 @@ public class PullRequestService
             }
         }
         if (!refreshed.isEmpty()) {
-            List<PullRequest> saved = store.saveRepositorySyncPage(repository.fullName(), refreshed, syncMarker);
-            syncDetails(pat, currentLogin, saved.stream()
-                    .filter(pullRequest -> changed.contains(pullRequest.repo() + "#" + pullRequest.number()))
-                    .collect(toImmutableList()));
+            store.saveRepositorySyncPage(repository.fullName(), refreshed, syncMarker);
         }
     }
 
@@ -855,7 +852,7 @@ public class PullRequestService
                     previous.get(pullRequest.id()),
                     snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number()),
                     now);
-            if (mode == RefreshMode.FULL) {
+            if (mode == RefreshMode.FULL && !detailFailedRecently(pullRequest, now)) {
                 details.add(pullRequest);
             }
             else if (mode == RefreshMode.STATUS) {
@@ -911,13 +908,32 @@ public class PullRequestService
             StoredPrDetail detail = snapshots.saveDetail(pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
             storeDetail(pullRequest, detail, currentLogin);
             syncDiffQuietly(pat, pullRequest);
+            detailFailures.remove(detailFailureKey(pullRequest));
         }
         catch (Exception e) {
+            // A rate-limit block says nothing about this pull request, so it
+            // must not start a backoff that outlives the block.
             if (!isRateLimit(e)) {
+                detailFailures.put(detailFailureKey(pullRequest), Instant.now());
                 log.warn("Failed to sync detail for PR {}/{}: {}",
                         pullRequest.repo(), pullRequest.number(), e.getMessage());
             }
         }
+    }
+
+    private boolean detailFailedRecently(PullRequest pullRequest, Instant now)
+    {
+        return failedWithinBackoff(detailFailures.get(detailFailureKey(pullRequest)), now);
+    }
+
+    static boolean failedWithinBackoff(Instant failedAt, Instant now)
+    {
+        return failedAt != null && failedAt.isAfter(now.minus(DETAIL_FAILURE_BACKOFF));
+    }
+
+    private static String detailFailureKey(PullRequest pullRequest)
+    {
+        return pullRequest.repo() + "#" + pullRequest.number();
     }
 
     private void syncStatusQuietly(String pat, PullRequest pullRequest, String currentLogin)

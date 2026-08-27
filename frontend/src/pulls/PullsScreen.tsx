@@ -322,7 +322,19 @@ export default function PullsScreen({
       window.bridge.fetchPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
     const refreshSelectedDetail = () =>
       window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
+    let polling = false;
+    // A hidden window spends requests nobody is reading, so the loop stops
+    // rather than idling. It has no pending timer while hidden, which is what
+    // lets the visibility listener restart it without racing one.
+    const schedule = (delay: number) => {
+      if (cancelled || document.hidden || polling || refreshTimer !== undefined) return;
+      refreshTimer = window.setTimeout((): void => {
+        refreshTimer = undefined;
+        void poll();
+      }, delay);
+    };
     const poll = async (): Promise<void> => {
+      polling = true;
       let nextDelay = DETAIL_REFRESH_INTERVAL;
       let request: Promise<PullRequestDetailRefreshDto> | null = null;
       try {
@@ -330,7 +342,7 @@ export default function PullsScreen({
           const pending = detailRefreshInFlight.current;
           await pending.then((): undefined => undefined, (): undefined => undefined);
         }
-        if (cancelled) return;
+        if (cancelled || document.hidden) return;
         request = refreshSelectedDetail();
         detailRefreshInFlight.current = request;
         const value = await request;
@@ -345,9 +357,13 @@ export default function PullsScreen({
       }
       finally {
         if (detailRefreshInFlight.current === request) detailRefreshInFlight.current = null;
-        if (!cancelled) refreshTimer = window.setTimeout((): void => { void poll(); }, nextDelay);
+        polling = false;
+        schedule(nextDelay);
       }
     };
+    // Coming back deserves current data now, not up to six seconds from now.
+    const resume = () => schedule(0);
+    document.addEventListener('visibilitychange', resume);
 
     fetchSelectedDetail()
       .then(value => {
@@ -359,11 +375,12 @@ export default function PullsScreen({
       .finally(() => {
         if (!cancelled) {
           setDetailLoading(false);
-          refreshTimer = window.setTimeout((): void => { void poll(); }, 0);
+          schedule(0);
         }
       });
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', resume);
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
     };
   }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);

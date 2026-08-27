@@ -27,6 +27,7 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
+import { getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
@@ -40,6 +41,8 @@ type Props = {
   onGoToMyPrs: () => void;
   onOpenWorkspace: (workspaceId: string) => void;
 };
+
+const ACTIVITY_TTL_MS = 5 * 60 * 1000;
 
 function openUrl(url: string) {
   void window.bridge.openInAppBrowser(url);
@@ -160,16 +163,6 @@ function HomePage({
     }
     setLoading(false);
 
-    if (loadedProfile) {
-      window.bridge.getRecentActivity(loadedProfile.login)
-        .then(enrichActivityPrTitles)
-        .then(setEvents)
-        .catch(() => {});
-      window.bridge.getFollowingActivity(loadedProfile.login)
-        .then(enrichActivityPrTitles)
-        .then(setFollowingEvents)
-        .catch(() => {});
-    }
     window.bridge.fetchPrs(undefined, 0, 50)
       .then(page => { setPrs(page.pullRequests); })
       .catch(() => {});
@@ -179,6 +172,45 @@ function HomePage({
   // list so the 1.5s workspace poll doesn't refire the fan-out.
   const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
   const login = profile?.login;
+
+  // Both activity feeds cost a REST page plus a per-PR title fan-out, and Home
+  // remounts on every tab switch, so they are served from the shared cache and
+  // only re-fetched once an entry ages out.
+  useEffect(() => {
+    if (!login) return;
+    const feeds = [
+      { key: `activity:recent:${login}`, read: () => window.bridge.getRecentActivity(login), apply: setEvents },
+      { key: `activity:following:${login}`, read: () => window.bridge.getFollowingActivity(login), apply: setFollowingEvents },
+    ];
+    let cancelled = false;
+    // The tick asks for fresh data because the cache it just wrote is younger
+    // than the interval and would otherwise stretch the refresh to two ticks.
+    const refresh = (allowCached: boolean) => {
+      for (const feed of feeds) {
+        const cached = allowCached ? getCachedFresh<RecentEventDto[]>(feed.key, ACTIVITY_TTL_MS) : undefined;
+        if (cached) {
+          feed.apply(cached);
+          continue;
+        }
+        feed.read()
+          .then(enrichActivityPrTitles)
+          .then(fetched => {
+            setCached(feed.key, fetched);
+            if (!cancelled) feed.apply(fetched);
+          })
+          .catch(() => {});
+      }
+    };
+    refresh(true);
+    const resume = () => { if (!document.hidden) refresh(true); };
+    const timer = window.setInterval(() => { if (!document.hidden) refresh(false); }, ACTIVITY_TTL_MS);
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', resume);
+    };
+  }, [login]);
 
   useEffect(() => {
     if (!login || workspaceKey === '') return;

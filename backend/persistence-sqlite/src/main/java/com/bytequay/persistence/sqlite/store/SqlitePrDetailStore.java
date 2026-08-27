@@ -80,7 +80,10 @@ public class SqlitePrDetailStore
                 .flatMap(detailRepo::findSyncedAtByPrId);
     }
 
+    // Four queries across four tables: without a transaction each borrows the single
+    // pooled connection separately, so a read queues behind writers four times over.
     @Override
+    @Transactional(readOnly = true)
     public Optional<StoredPrDetail> find(long prId)
     {
         return detailRepo.findById(prId).map(detail -> new StoredPrDetail(

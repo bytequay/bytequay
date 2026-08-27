@@ -283,6 +283,31 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void refreshKeepsRowsWhoseSourceSectionWasUnavailable()
+    {
+        store.save(prId, partial(
+                ImmutableList.of(review(11L, "alice", "lgtm")),
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success")),
+                ImmutableList.of(remote(31, NOW)),
+                ImmutableList.of()));
+
+        // Each failed source arrives as an empty list, which is indistinguishable
+        // from "GitHub reports none" — sweeping on it would erase real rows.
+        store.save(prId, partial(
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(StoredPrDetail.REVIEWS, StoredPrDetail.CHECKS, StoredPrDetail.REVIEW_THREADS)));
+
+        assertThat(reviews.findByPrId(prId)).singleElement()
+                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(11L));
+        assertThat(checkRuns.findByPrId(prId)).singleElement()
+                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(21L));
+        assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId)).singleElement()
+                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(31L));
+    }
+
+    @Test
     void refreshKeepsTimelineRowIdentityIncludingEventsWithoutAGitHubId()
     {
         PrTimelineEvent comment = remote(31, NOW);
@@ -350,6 +375,21 @@ class TestSqlitePrDetailStore
                 detail.checkRuns(),
                 detail.unavailableSections(),
                 detail.viewerCanWrite());
+    }
+
+    private static StoredPrDetail partial(
+            List<PrReviewState> reviews,
+            List<PrCheckRunState> checkRuns,
+            List<PrTimelineEvent> events,
+            List<String> unavailableSections)
+    {
+        return new StoredPrDetail(
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
+                        "a".repeat(40), "feature"),
+                reviews,
+                events,
+                checkRuns,
+                unavailableSections);
     }
 
     private static PrTimelineEvent remote(long githubId, Instant timestamp)

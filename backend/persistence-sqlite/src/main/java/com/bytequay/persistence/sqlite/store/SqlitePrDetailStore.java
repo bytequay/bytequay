@@ -117,9 +117,9 @@ public class SqlitePrDetailStore
     public void save(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-        saveReviews(prId, detail.reviews());
-        saveTimeline(prId, detail.timeline());
-        saveCheckRuns(prId, detail.checkRuns());
+        saveReviews(prId, detail.reviews(), detail.reviewsComplete());
+        saveTimeline(prId, detail.timeline(), detail.timelineComplete());
+        saveCheckRuns(prId, detail.checkRuns(), detail.checkRunsComplete());
     }
 
     @Override
@@ -127,7 +127,7 @@ public class SqlitePrDetailStore
     public void saveStatus(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-        saveCheckRuns(prId, detail.checkRuns());
+        saveCheckRuns(prId, detail.checkRuns(), detail.checkRunsComplete());
     }
 
     @Override
@@ -158,8 +158,8 @@ public class SqlitePrDetailStore
     public void saveIncremental(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
-        saveReviews(prId, detail.reviews());
-        saveCheckRuns(prId, detail.checkRuns());
+        saveReviews(prId, detail.reviews(), detail.reviewsComplete());
+        saveCheckRuns(prId, detail.checkRuns(), detail.checkRunsComplete());
 
         Set<Long> existingIds = new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
         timelineRepo.saveAll(detail.timeline().stream()
@@ -254,7 +254,7 @@ public class SqlitePrDetailStore
      * longer reports are swept. Matching is on {@code github_id}; a row
      * without one cannot be matched and is replaced.
      */
-    private void saveReviews(long prId, List<PrReviewState> reviews)
+    private void saveReviews(long prId, List<PrReviewState> reviews, boolean complete)
     {
         Map<Long, PrReviewEntity> stored = new HashMap<>();
         List<PrReviewEntity> unmatchable = new ArrayList<>();
@@ -271,7 +271,9 @@ public class SqlitePrDetailStore
             merged.add((entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review));
         }
         reviewRepo.saveAll(merged);
-        reviewRepo.deleteAll(stored.values());
+        if (complete) {
+            reviewRepo.deleteAll(stored.values());
+        }
     }
 
     /**
@@ -279,7 +281,7 @@ public class SqlitePrDetailStore
      * events are never part of what GitHub returns, so they are neither
      * rewritten nor swept.
      */
-    private void saveTimeline(long prId, List<PrTimelineEvent> events)
+    private void saveTimeline(long prId, List<PrTimelineEvent> events, boolean complete)
     {
         Map<String, PrTimelineEntity> stored = new HashMap<>();
         List<PrTimelineEntity> unmatchable = new ArrayList<>();
@@ -299,7 +301,9 @@ public class SqlitePrDetailStore
             merged.add((entity == null ? new PrTimelineEntity() : entity).updateFrom(prId, event));
         }
         timelineRepo.saveAll(merged);
-        timelineRepo.deleteAll(stored.values());
+        if (complete) {
+            timelineRepo.deleteAll(stored.values());
+        }
     }
 
     /**
@@ -323,7 +327,7 @@ public class SqlitePrDetailStore
 
     /** Counterpart of {@link #saveReviews} for check runs. A re-run reports a
      *  new {@code github_id}, so superseded runs are swept here. */
-    private void saveCheckRuns(long prId, List<PrCheckRunState> checkRuns)
+    private void saveCheckRuns(long prId, List<PrCheckRunState> checkRuns, boolean complete)
     {
         Map<Long, PrCheckRunEntity> stored = new HashMap<>();
         List<PrCheckRunEntity> unmatchable = new ArrayList<>();
@@ -340,6 +344,8 @@ public class SqlitePrDetailStore
             merged.add((entity == null ? new PrCheckRunEntity() : entity).updateFrom(prId, check));
         }
         checkRunRepo.saveAll(merged);
-        checkRunRepo.deleteAll(stored.values());
+        if (complete) {
+            checkRunRepo.deleteAll(stored.values());
+        }
     }
 }

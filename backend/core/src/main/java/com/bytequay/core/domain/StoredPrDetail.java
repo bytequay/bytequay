@@ -27,6 +27,17 @@ public record StoredPrDetail(
         List<String> unavailableSections,
         boolean viewerCanWrite)
 {
+    public static final String REVIEWS = "reviews";
+    public static final String CHECKS = "checks";
+    public static final String TIMELINE = "timeline";
+    public static final String COMMENTS = "comments";
+    public static final String COMMITS = "commits";
+    public static final String REVIEW_THREADS = "reviewThreads";
+    public static final String REACTIONS = "reactions";
+
+    private static final List<String> TIMELINE_SOURCES =
+            ImmutableList.of(TIMELINE, COMMENTS, COMMITS, REVIEW_THREADS, REACTIONS);
+
     public StoredPrDetail
     {
         requireNonNull(raw, "raw is null");
@@ -53,5 +64,26 @@ public record StoredPrDetail(
             List<PrCheckRunState> checkRuns)
     {
         this(raw, reviews, timeline, checkRuns, ImmutableList.of(), false);
+    }
+
+    /**
+     * Whether every source behind a section answered. A section that failed
+     * arrives as an empty list, which is indistinguishable from "GitHub says
+     * there are none" — so callers that would delete rows the list omits must
+     * check this first.
+     */
+    public boolean reviewsComplete()
+    {
+        return !unavailableSections.contains(REVIEWS);
+    }
+
+    public boolean timelineComplete()
+    {
+        return TIMELINE_SOURCES.stream().noneMatch(unavailableSections::contains);
+    }
+
+    public boolean checkRunsComplete()
+    {
+        return !unavailableSections.contains(CHECKS);
     }
 }

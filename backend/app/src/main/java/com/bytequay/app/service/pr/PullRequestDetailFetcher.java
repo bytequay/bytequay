@@ -88,17 +88,17 @@ class PullRequestDetailFetcher
     {
         ListenableFuture<PrRawDetail> detail = fetchAsync("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
         ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
-                "fetchPrReviews", "reviews", ref, () -> gitHub.fetchPrReviews(pat, ref));
+                "fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
-                "fetchPrTimeline", "timeline", ref, () -> gitHub.fetchPrTimeline(pat, ref, null));
+                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref, null));
         ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
-                "fetchPrIssueComments", "comments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, null));
+                "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref, null));
         ListenableFuture<SourceItems<PrTimelineEvent>> commits = fetchOptionalListAsync(
-                "fetchPrCommits", "commits", ref, () -> gitHub.fetchPrCommits(pat, ref));
+                "fetchPrCommits", StoredPrDetail.COMMITS, ref, () -> gitHub.fetchPrCommits(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> threads = fetchOptionalListAsync(
-                "fetchPrReviewThreads", "reviewThreads", ref, () -> gitHub.fetchPrReviewThreads(pat, ref));
+                "fetchPrReviewThreads", StoredPrDetail.REVIEW_THREADS, ref, () -> gitHub.fetchPrReviewThreads(pat, ref));
         ListenableFuture<SourceItems<PrReaction>> descriptionReactions = fetchOptionalListAsync(
-                "fetchPrDescriptionReactions", "reactions", ref, () -> gitHub.fetchPrDescriptionReactions(pat, ref));
+                "fetchPrDescriptionReactions", StoredPrDetail.REACTIONS, ref, () -> gitHub.fetchPrDescriptionReactions(pat, ref));
         ListenableFuture<SourceItems<PrCheckRunState>> checks = transformAsync(
                 detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor());
 
@@ -147,7 +147,7 @@ class PullRequestDetailFetcher
             return com.google.common.util.concurrent.Futures.immediateFuture(
                     new SourceItems<>(ImmutableList.of(), null));
         }
-        return fetchOptionalListAsync("fetchPrCheckRuns", "checks", ref,
+        return fetchOptionalListAsync("fetchPrCheckRuns", StoredPrDetail.CHECKS, ref,
                 () -> actions.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
     }
 

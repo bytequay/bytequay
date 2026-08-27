@@ -21,11 +21,9 @@ import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
-import com.bytequay.core.domain.WatchedRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.RemoteSourceStore;
-import com.bytequay.core.store.WatchedRepoStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -66,7 +64,6 @@ public class DefaultWorkspaceRepositoryService
     private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
 
     private final WorkspaceStore store;
-    private final WatchedRepoStore legacyStore;
     private final CherryPickExecutionStore executions;
     private final RemoteSourceStore remoteSources;
     private final WorkspaceCredentialStore workspaceCredentials;
@@ -83,7 +80,6 @@ public class DefaultWorkspaceRepositoryService
 
     public DefaultWorkspaceRepositoryService(
             WorkspaceStore store,
-            WatchedRepoStore legacyStore,
             CherryPickExecutionStore executions,
             RemoteSourceStore remoteSources,
             WorkspaceCredentialStore workspaceCredentials,
@@ -97,7 +93,6 @@ public class DefaultWorkspaceRepositoryService
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
-        this.legacyStore = requireNonNull(legacyStore, "legacyStore is null");
         this.executions = requireNonNull(executions, "executions is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
@@ -173,7 +168,6 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public List<WorkspaceSummary> listWorkspaces()
     {
-        migrateLegacyRows();
         return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
     }
 
@@ -402,26 +396,6 @@ public class DefaultWorkspaceRepositoryService
         }
         validate(upstream);
         return upstream;
-    }
-
-    private void migrateLegacyRows()
-    {
-        for (WatchedRepo legacy : legacyStore.findAll()) {
-            try {
-                UserRepo selected = gitHub.fetchRepository(
-                                credentials.resolveGitHubToken(), legacy.owner(), legacy.repo())
-                        .orElseThrow(() -> WorkspaceException.repositoryNotFound(legacy.owner(), legacy.repo()));
-                createWorkspace(
-                        selected,
-                        Optional.of(legacy.fullName()),
-                        OptionalInt.of(legacy.displayOrder()));
-                legacyStore.remove(legacy.owner(), legacy.repo());
-            }
-            catch (RuntimeException failure) {
-                log.warn("Legacy watched repository migration deferred for {}/{}: {}",
-                        legacy.owner(), legacy.repo(), failure.getMessage());
-            }
-        }
     }
 
     private RepositorySearchResult toSearchResult(UserRepo repository)

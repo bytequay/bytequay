@@ -16,32 +16,29 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.scheduler.MonitorLoop;
 import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
 final class CiAutofixMonitorJob
 {
-    private static final Logger log = LoggerFactory.getLogger(CiAutofixMonitorJob.class);
-    private static final int MAXIMUM_LOG_MESSAGE_CHARACTERS = 1000;
-
     private final CiAutofixStore store;
     private final AgentTaskStore taskStore;
     private final CiAutofixService service;
     private final int batchSize;
-    private final AtomicBoolean running = new AtomicBoolean();
+    private final MonitorLoop loop = new MonitorLoop(CiAutofixMonitorJob.class, "CI Autofix run");
 
     CiAutofixMonitorJob(
             CiAutofixStore store,
@@ -61,47 +58,33 @@ final class CiAutofixMonitorJob
             fixedDelayString = "${bytequay.ci-autofix.monitor-interval:PT30S}")
     public void monitor()
     {
-        if (!running.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            for (CiAutofixRun run : store.listNonFinished(batchSize)) {
-                advance(run);
-            }
-            int reconciled = 0;
-            for (AgentTask task : taskStore.listLive()) {
-                if (reconciled >= batchSize) {
-                    break;
-                }
-                if (task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX) {
-                    continue;
-                }
-                Optional<CiAutofixRun> run = store.findByAgentTaskId(task.id().toString())
-                        .filter(value -> value.status() == CiAutofixRun.Status.FINISHED);
-                if (run.isPresent()) {
-                    advance(run.orElseThrow());
-                    reconciled++;
-                }
-            }
-        }
-        finally {
-            running.set(false);
-        }
+        loop.pass(() -> {
+            loop.advanceEach(nonFinished(), service::advance);
+            loop.advanceEach(finishedWithLiveTask(), service::advance);
+        });
     }
 
-    private void advance(CiAutofixRun run)
+    private List<CiAutofixRunId> nonFinished()
     {
-        try {
-            service.advance(run.id());
-        }
-        catch (RuntimeException failure) {
-            log.warn("Cannot advance CI Autofix run {}: {}", run.id(), truncate(failureMessage(failure), MAXIMUM_LOG_MESSAGE_CHARACTERS, "…"));
-        }
+        return store.listNonFinished(batchSize).stream()
+                .map(CiAutofixRun::id)
+                .collect(toImmutableList());
     }
 
-    private static String failureMessage(RuntimeException failure)
+    /**
+     * Runs whose work is done but whose agent task is still live. Advancing them
+     * releases the task, which the finished run no longer polls for.
+     */
+    private List<CiAutofixRunId> finishedWithLiveTask()
     {
-        String message = failure.getMessage();
-        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
+        return taskStore.listLive().stream()
+                .filter(task -> task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX)
+                .map(AgentTask::id)
+                .map(taskId -> store.findByAgentTaskId(taskId.toString()))
+                .flatMap(Optional::stream)
+                .filter(run -> run.status() == CiAutofixRun.Status.FINISHED)
+                .map(CiAutofixRun::id)
+                .limit(batchSize)
+                .collect(toImmutableList());
     }
 }

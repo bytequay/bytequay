@@ -13,29 +13,28 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.app.scheduler.MonitorLoop;
 import com.bytequay.core.rebase.BranchRebase;
+import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Selects running rebases and delegates one bounded transition to the service. */
 @Component
 final class BranchRebaseMonitorJob
 {
-    private static final Logger log = LoggerFactory.getLogger(BranchRebaseMonitorJob.class);
-
     private final BranchRebaseStore store;
     private final BranchRebaseService service;
     private final int batchSize;
-    private final AtomicBoolean running = new AtomicBoolean();
+    private final MonitorLoop loop = new MonitorLoop(BranchRebaseMonitorJob.class, "branch rebase");
 
     BranchRebaseMonitorJob(
             BranchRebaseStore store,
@@ -53,21 +52,13 @@ final class BranchRebaseMonitorJob
             fixedDelayString = "${bytequay.rebase.monitor-interval:PT5S}")
     public void monitor()
     {
-        if (!running.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            for (BranchRebase rebase : store.listRunning(batchSize)) {
-                try {
-                    service.advance(rebase.id());
-                }
-                catch (RuntimeException failure) {
-                    log.warn("Cannot advance branch rebase {}", rebase.id(), failure);
-                }
-            }
-        }
-        finally {
-            running.set(false);
-        }
+        loop.pass(() -> loop.advanceEach(running(), service::advance));
+    }
+
+    private List<BranchRebaseId> running()
+    {
+        return store.listRunning(batchSize).stream()
+                .map(BranchRebase::id)
+                .collect(toImmutableList());
     }
 }

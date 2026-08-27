@@ -710,3 +710,57 @@ samp {
 .app-sidebar.is-collapsed .app-sidebar__history button { width: 20px; }
 .app-sidebar.is-collapsed .app-sidebar__nav { padding: 6px; }
 .app-sidebar.is-collapsed .app-sidebar__item { justify-content: center; gap: 0; padding: 7px 0; }
+
+.find-bar {
+  position: fixed;
+  /* Above the zoomed pull-request pane (70) and the Home overlays (110),
+     below modals (200), which trap focus and should cover the bar. */
+  z-index: 150;
+  top: 10px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  padding: 5px 6px;
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.18);
+}
+
+.find-bar__input {
+  width: 190px;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  padding: 3px 4px;
+  font: var(--ui-font-size) var(--font-sans);
+  outline: none;
+}
+
+.find-bar__count {
+  min-width: 42px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-bar button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.find-bar button:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}

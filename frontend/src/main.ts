@@ -178,6 +178,12 @@ async function createWindow(): Promise<void> {
     requestBrowser(url);
   });
   mainWindow.webContents.on('did-start-loading', destroyBrowserView);
+  mainWindow.webContents.on('found-in-page', (_event, result) => {
+    mainWindow?.webContents.send('find:result', {
+      activeMatchOrdinal: result.activeMatchOrdinal,
+      matches: result.matches,
+    });
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     await mainWindow.loadURL(normalizeDevServerUrl(MAIN_WINDOW_VITE_DEV_SERVER_URL));
@@ -234,6 +240,10 @@ function registerIpc(): void {
     if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
   ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
+  ipcMain.handle('find:start', (_event, text: string, options: Electron.FindInPageOptions) => {
+    mainWindow?.webContents.findInPage(text, options);
+  });
+  ipcMain.handle('find:stop', () => mainWindow?.webContents.stopFindInPage('clearSelection'));
 
   // Cherry-pick endpoints sit behind the desktop session filter, and the token
   // stays here: the renderer never sees it, so a page in the embedded GitHub

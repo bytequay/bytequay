@@ -388,6 +388,12 @@ export type InAppNavState = {
   loading: boolean;
 };
 
+/** Match counts reported by the window's find-in-page search. */
+export type FindResult = {
+  activeMatchOrdinal: number;
+  matches: number;
+};
+
 /** One conflicted path a simulated pick would hit. */
 export type CherryPickConflictFile = {
   path: string;
@@ -794,6 +800,9 @@ export type Bridge = {
   getFullScreen: () => Promise<boolean>;
   onFullScreenChange: (callback: (fullScreen: boolean) => void) => () => void;
   getAppVersion: () => Promise<{ version: string }>;
+  findInPage: (text: string, options: { forward: boolean; findNext: boolean }) => Promise<void>;
+  stopFindInPage: () => Promise<void>;
+  onFindResult: (callback: (result: FindResult) => void) => () => void;
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
   getCherryPickPreview: (previewId: string) => Promise<CherryPickPreview>;

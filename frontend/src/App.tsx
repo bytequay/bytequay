@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
+import FindBar from './FindBar';
 import HomePage from './home/HomePage';
 import { pullRequestFromRoute, pullRequestRoute } from './githubReference';
 import InAppBrowser from './InAppBrowser';
@@ -289,6 +290,7 @@ export default function App() {
       {browserUrl !== null && (
         <InAppBrowser url={browserUrl} fullScreen={fullScreen} onClose={() => setBrowserUrl(null)} />
       )}
+      {browserUrl === null && <FindBar />}
     </div>
   );
 }

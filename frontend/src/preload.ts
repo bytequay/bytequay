@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bridge, InAppNavState } from './types';
+import type { Bridge, FindResult, InAppNavState } from './types';
 
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
@@ -125,6 +125,13 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+  findInPage: (text, options) => ipcRenderer.invoke('find:start', text, options),
+  stopFindInPage: () => ipcRenderer.invoke('find:stop'),
+  onFindResult: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, result: FindResult) => callback(result);
+    ipcRenderer.on('find:result', listener);
+    return () => ipcRenderer.removeListener('find:result', listener);
+  },
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
   getCherryPickPreview: previewId => ipcRenderer.invoke('cherrypick:preview:get', previewId),

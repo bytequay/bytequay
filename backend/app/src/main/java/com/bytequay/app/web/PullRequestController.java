@@ -282,19 +282,16 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/review")
-    public Map<String, String> review(
+    public PullRequestDetail review(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam("id") long prId,
             @RequestBody ReviewRequest request)
     {
         if (request.comments() == null) {
-            pullRequests.submitReview(repo, number, prId, request.event(), request.body());
+            return pullRequests.submitReview(repo, number, prId, request.event(), request.body());
         }
-        else {
-            pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
-        }
-        return ImmutableMap.of("result", "reviewed");
+        return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
     }
 
     @PostMapping("/prs/review-comment")

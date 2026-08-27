@@ -735,7 +735,7 @@ function registerIpc(): void {
   ) => {
     const url = prUrl('/prs/review', repo, number);
     url.searchParams.set('id', String(prId));
-    return backendVoid(url, {
+    return backendJson(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event, body, comments }),

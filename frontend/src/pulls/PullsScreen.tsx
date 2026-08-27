@@ -21,6 +21,7 @@ import {
   PULL_TABS,
   reconcilePostedComment,
   reconcilePullRequestDetail,
+  reconcileSubmittedReview,
   rowsForSearch,
   rowsForTab,
   tabForInitialPullRequest,
@@ -465,6 +466,19 @@ export default function PullsScreen({
     }
   }, [applyDetail]);
 
+  const applySubmittedReview = useCallback((
+    value: PullRequestDetailDto,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+  ) => {
+    const current = selectedPullRequest.current;
+    if (current?.key === `${value.repo.toLowerCase()}#${value.number}`) {
+      applyDetail(current.id, value, false);
+      setPrs(rows => rows.map(pr => pr.id === current.id
+        ? reconcileSubmittedReview(pr, value, event, new Date().toISOString())
+        : pr));
+    }
+  }, [applyDetail]);
+
   useEffect(() => {
     const returned = returnedFromInAppBrowser(browserWasOpen.current, browserOpen);
     browserWasOpen.current = browserOpen;
@@ -593,6 +607,7 @@ export default function PullsScreen({
             tab={detailTab}
             onTab={setDetailTab}
             onRefresh={refresh}
+            onReviewSubmitted={applySubmittedReview}
             refreshing={detailLoading}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
@@ -669,6 +684,7 @@ export function PullDetailHeader({
   tab,
   onTab,
   onRefresh,
+  onReviewSubmitted,
   refreshing,
   pendingComments,
   onPendingCommentsChange,
@@ -680,6 +696,10 @@ export function PullDetailHeader({
   tab: DetailTab;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
+  onReviewSubmitted: (
+    detail: PullRequestDetailDto,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+  ) => void;
   refreshing: boolean;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
@@ -795,7 +815,7 @@ export function PullDetailHeader({
         <ReviewDialog pr={pr} detail={detail}
           pendingComments={pendingComments}
           onPendingCommentsChange={onPendingCommentsChange}
-          onClose={() => setReviewOpen(false)} onRefresh={onRefresh} />
+          onClose={() => setReviewOpen(false)} onReviewSubmitted={onReviewSubmitted} />
       )}
       {mergeOpen && detail && typeof mergeQueue === 'boolean' && (
         <MergeDialog pr={pr} detail={detail} mergeQueue={mergeQueue}
@@ -857,15 +877,18 @@ export function ReviewDialog({
   detail,
   pendingComments = [],
   onPendingCommentsChange = () => undefined,
+  onReviewSubmitted,
   onClose,
-  onRefresh,
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   pendingComments?: InlineReviewCommentDto[];
   onPendingCommentsChange?: (comments: InlineReviewCommentDto[]) => void;
+  onReviewSubmitted: (
+    detail: PullRequestDetailDto,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+  ) => void;
   onClose: () => void;
-  onRefresh: () => Promise<void>;
 }) {
   const [body, setBody] = useState('');
   const [event, setEvent] = useState<ReviewEvent>('APPROVE');
@@ -885,7 +908,7 @@ export function ReviewDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await window.bridge.submitReview(
+      const reviewed = await window.bridge.submitReview(
         pr.id,
         detail.repo,
         detail.number,
@@ -894,7 +917,9 @@ export function ReviewDialog({
         pendingComments,
       );
       onPendingCommentsChange([]);
-      await onRefresh();
+      // A review cannot move the diff, so the patched detail is enough and the
+      // Changes tab keeps what it already loaded.
+      onReviewSubmitted(reviewed, event);
       onClose();
     }
     catch (value) {

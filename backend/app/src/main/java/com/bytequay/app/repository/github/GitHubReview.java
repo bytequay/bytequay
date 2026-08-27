@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.PrReviewState;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -30,4 +31,18 @@ public record GitHubReview(
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+    public PrReviewState toReviewState()
+    {
+        return new PrReviewState(
+                id,
+                user == null ? null : user.login(),
+                user == null ? null : user.avatarUrl(),
+                user != null && "Bot".equalsIgnoreCase(user.type()),
+                state,
+                submittedAt,
+                body,
+                htmlUrl,
+                commitId);
+    }
 }

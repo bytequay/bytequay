@@ -113,6 +113,8 @@ class TestPullRequestService
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
 
+    private static final Instant REVIEWED_AT = Instant.parse("2026-08-27T00:00:00Z");
+
     @BeforeEach
     void setUp()
     {
@@ -715,27 +717,63 @@ class TestPullRequestService
     }
 
     @Test
-    void submitsReviewVerdictsAndInvalidatesDetail()
+    void submitsReviewVerdictsAndPatchesTheCachedDetail()
     {
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(writes.submitReview(
+                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this"))
+                .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
 
-        service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this");
+        PullRequestDetail detail = service.submitReview(
+                "owner/repo", 7, 12L, "request_changes", "Please fix this");
 
-        verify(writes).submitReview(
-                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this");
         verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED, "head");
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        // The submitted review is spliced into the cache, so nothing is thrown away
+        // and the caller needs no follow-up fetch.
+        verify(detailStore, never()).deleteByPrIds(any());
+        verify(gitHub, never()).fetchReviewComments(anyString(), any(), anyLong());
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(12L), saved.capture());
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(501L);
+        assertThat(detail.number()).isEqualTo(7);
+    }
+
+    @Test
+    void readsBackTheInlineCommentsAReviewWasSubmittedWith()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head");
+        PrTimelineEvent thread = new PrTimelineEvent(
+                901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment)))
+                .thenReturn(review(502L, "COMMENTED", ""));
+        when(gitHub.fetchReviewComments("pat", ref, 502L)).thenReturn(ImmutableList.of(thread));
+
+        service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
+
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(12L), saved.capture());
+        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::githubId).contains(901L);
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
     }
 
     @Test
     void marksACommentReviewAsHandled()
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(writes.submitReview(
+                "pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note"))
+                .thenReturn(review(503L, "COMMENTED", "Looks good with one note"));
 
         service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note");
 
         verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
+    }
+
+    private static PrReviewState review(long githubId, String state, String body)
+    {
+        return new PrReviewState(githubId, "me", null, false, state, REVIEWED_AT, body, null, "head");
     }
 
     @Test

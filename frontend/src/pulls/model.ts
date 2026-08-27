@@ -125,6 +125,19 @@ export function reconcilePostedComment(
     : { ...updated, handledAction: 'COMMENTED', reviewedAt: postedAt };
 }
 
+export function reconcileSubmittedReview(
+  pr: PullRequestDto,
+  detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>,
+  event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+  reviewedAt: string,
+): PullRequestDto {
+  const updated = reconcilePullRequestDetail(pr, detail);
+  const handledAction = event === 'APPROVE'
+    ? 'APPROVED'
+    : event === 'REQUEST_CHANGES' ? 'CHANGES_REQUESTED' : 'COMMENTED';
+  return { ...updated, handledAction, reviewedAt };
+}
+
 function pullRequestKind(state: string | null): PullRow['kind'] {
   const normalized = state?.toLowerCase();
   return normalized === 'merged' ? 'merged' : normalized === 'closed' ? 'closed' : 'open';

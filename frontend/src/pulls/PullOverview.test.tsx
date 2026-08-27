@@ -131,7 +131,7 @@ describe('PullOverview', () => {
       pr={pullRequest()}
       detail={detail()}
       onClose={() => {}}
-      onRefresh={async () => {}} />);
+      onReviewSubmitted={() => {}} />);
 
     expect(html).toContain('class="pr-sheet-overlay"');
     expect(html).toContain('class="pr-review-sheet" role="dialog"');
@@ -675,6 +675,7 @@ describe('PullOverview', () => {
       tab="changes"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
       zoomed={false}
@@ -703,6 +704,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing
       pendingComments={[]}
       zoomed={false}
@@ -723,6 +725,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
       zoomed={false}
@@ -749,6 +752,7 @@ describe('PullOverview', () => {
       tab="changes"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[pendingComment]}
       zoomed={false}
@@ -766,6 +770,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
       zoomed
@@ -789,6 +794,7 @@ describe('PullOverview', () => {
       tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
       zoomed={false}

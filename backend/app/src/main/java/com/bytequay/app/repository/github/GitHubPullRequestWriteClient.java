@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -270,33 +271,22 @@ public class GitHubPullRequestWriteClient
         return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
-    public void approve(String pat, PullRequestRef pr)
+    public PrReviewState approve(String pat, PullRequestRef pr)
     {
-        submitReview(pat, pr, "APPROVE", "");
+        return submitReview(pat, pr, "APPROVE", "");
     }
 
-    public void submitReview(String pat, PullRequestRef pr, String event, String body)
+    public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body)
     {
-        try {
-            Map<String, String> request = new LinkedHashMap<>();
-            request.put("event", event);
-            if (body != null && !body.isBlank()) {
-                request.put("body", body);
-            }
-            gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .toBodilessEntity();
+        Map<String, String> request = new LinkedHashMap<>();
+        request.put("event", event);
+        if (body != null && !body.isBlank()) {
+            request.put("body", body);
         }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return postReview(pat, pr, request);
     }
 
-    public void submitReview(
+    public PrReviewState submitReview(
             String pat,
             PullRequestRef pr,
             String event,
@@ -317,13 +307,30 @@ public class GitHubPullRequestWriteClient
                         .map(GitHubPullRequestWriteClient::toReviewCommentRequest)
                         .toList());
             }
-            gitHubRestClient.post()
+            return postReview(pat, pr, request);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    /** Posts a review and returns what GitHub created, so callers need not re-read it. */
+    private PrReviewState postReview(String pat, PullRequestRef pr, Map<String, ?> request)
+    {
+        try {
+            GitHubReview created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(GitHubReview.class);
+            if (created == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when submitting review");
+            }
+            return created.toReviewState();
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

@@ -731,7 +731,7 @@ export type Bridge = {
     event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
     body: string,
     comments?: InlineReviewCommentDto[],
-  ) => Promise<void>;
+  ) => Promise<PullRequestDetailDto>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;

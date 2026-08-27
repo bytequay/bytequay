@@ -274,7 +274,12 @@ class TestGitHubPullRequestWriteClient
                           }]
                         }
                         """))
-                .andRespond(withSuccess());
+                .andRespond(withSuccess(
+                        """
+                        {"id":501,"user":{"login":"me","avatar_url":"https://avatars/me","type":"User"},
+                         "state":"COMMENTED","body":"","submitted_at":"2026-08-27T00:00:00Z",
+                         "html_url":"https://github.com/review/501","commit_id":"head-sha"}
+                        """, MediaType.APPLICATION_JSON));
 
         client.submitReview(
                 "pat",

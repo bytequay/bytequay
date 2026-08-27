@@ -567,7 +567,7 @@ public class PullRequestService
         invalidatePullRequestCaches(repo, number);
     }
 
-    public void submitReview(String repo, int number, long prId, String event, String body)
+    public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body)
     {
         requireNotBlank(event, "review event must not be blank");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
@@ -580,12 +580,14 @@ public class PullRequestService
         }
 
         String pat = credentialService.resolveGitHubToken();
-        pullRequestWrites.submitReview(pat, parseRef(repo, number), normalizedEvent, reviewBody);
+        PrReviewState created = pullRequestWrites.submitReview(
+                pat, parseRef(repo, number), normalizedEvent, reviewBody);
+        PullRequestDetail detail = patchCachedReview(repo, number, prId, created, ImmutableList.of());
         markReviewed(prId, normalizedEvent);
-        invalidatePullRequestCaches(repo, number);
+        return detail;
     }
 
-    public void submitReview(
+    public PullRequestDetail submitReview(
             String repo,
             int number,
             long prId,
@@ -606,10 +608,55 @@ public class PullRequestService
         }
 
         String pat = credentialService.resolveGitHubToken();
-        pullRequestWrites.submitReview(
-                pat, parseRef(repo, number), normalizedEvent, reviewBody, reviewComments);
+        PullRequestRef ref = parseRef(repo, number);
+        PrReviewState created = pullRequestWrites.submitReview(
+                pat, ref, normalizedEvent, reviewBody, reviewComments);
+        // The review response carries the review alone, so the inline comments it
+        // was submitted with have to be read back or they vanish from the diff
+        // until the next poll.
+        List<PrTimelineEvent> threads = reviewComments.isEmpty() || created.githubId() == null
+                ? ImmutableList.of()
+                : gitHub.fetchReviewComments(pat, ref, created.githubId());
+        PullRequestDetail detail = patchCachedReview(repo, number, prId, created, threads);
         markReviewed(prId, normalizedEvent);
-        invalidatePullRequestCaches(repo, number);
+        return detail;
+    }
+
+    /**
+     * Splices a submitted review, and any inline comments it carried, into the
+     * cached detail. Approving cannot change the diff or the checks, so nothing
+     * else is invalidated and the poll picks up whatever else moved.
+     */
+    private PullRequestDetail patchCachedReview(
+            String repo,
+            int number,
+            long prId,
+            PrReviewState created,
+            List<PrTimelineEvent> threads)
+    {
+        requireNonNull(created, "created is null");
+        Optional<StoredPrDetail> patched = snapshots.patchDetail(prId, cached -> {
+            List<PrReviewState> reviews = new ArrayList<>(cached.reviews());
+            reviews.removeIf(review -> Objects.equals(review.githubId(), created.githubId()));
+            reviews.add(created);
+            List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
+            for (PrTimelineEvent thread : threads) {
+                timeline.removeIf(event -> Objects.equals(event.githubId(), thread.githubId())
+                        && thread.event().equals(event.event()));
+                timeline.add(thread);
+            }
+            return new StoredPrDetail(
+                    cached.raw(),
+                    ImmutableList.copyOf(reviews),
+                    ImmutableList.copyOf(timeline),
+                    cached.checkRuns(),
+                    cached.unavailableSections(),
+                    cached.viewerCanWrite());
+        });
+        return patched
+                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
+                        prId, repo, number, detail, detail.viewerCanWrite()))
+                .orElseGet(() -> getPullRequestDetail(repo, number));
     }
 
     private void markReviewed(long prId, String event)

@@ -439,16 +439,7 @@ public class GitHubPullRequestReadClient
                     pr.number());
             return reviews.stream()
                     .filter(r -> r.user() != null)
-                    .map(r -> new PrReviewState(
-                            r.id(),
-                            r.user().login(),
-                            r.user().avatarUrl(),
-                            "Bot".equalsIgnoreCase(r.user().type()),
-                            r.state(),
-                            r.submittedAt(),
-                            r.body(),
-                            r.htmlUrl(),
-                            r.commitId()))
+                    .map(GitHubReview::toReviewState)
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
@@ -906,7 +897,36 @@ public class GitHubPullRequestReadClient
         if (comments.isEmpty()) {
             return ImmutableList.of();
         }
-        Map<Long, ReviewThreadFacts> facts = fetchReviewThreadFacts(pat, pr);
+        return toReviewThreadEvents(comments, fetchReviewThreadFacts(pat, pr));
+    }
+
+    /**
+     * The inline comments one review was submitted with. Submitting a review
+     * returns the review alone, so the comments it carried have to be read
+     * back. They were created moments ago, so they are unresolved thread roots
+     * and need no thread-state query.
+     */
+    public List<PrTimelineEvent> fetchReviewComments(String pat, PullRequestRef pr, long reviewId)
+    {
+        return toReviewThreadEvents(
+                paginator.paginate(
+                        pat,
+                        "/repos/{owner}/{repo}/pulls/{number}/reviews/{reviewId}/comments",
+                        new ParameterizedTypeReference<List<GitHubReviewComment>>() {},
+                        pr.owner(),
+                        pr.repo(),
+                        pr.number(),
+                        reviewId),
+                ImmutableMap.of());
+    }
+
+    private static List<PrTimelineEvent> toReviewThreadEvents(
+            List<GitHubReviewComment> comments,
+            Map<Long, ReviewThreadFacts> facts)
+    {
+        if (comments.isEmpty()) {
+            return ImmutableList.of();
+        }
         Map<Long, Long> roots = new LinkedHashMap<>();
         Map<Long, List<GitHubReviewComment>> grouped = new LinkedHashMap<>();
         comments.stream()

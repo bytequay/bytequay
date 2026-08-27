@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from 'react';
+import Avatar from '../Avatar';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import type {
   Bridge,
@@ -20,9 +21,11 @@ import type {
   DiffFileDto,
   InlineReviewCommentDto,
   PullRequestDetailDto,
+  UserProfileDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
 import { relativeTime, remoteErrorMessage } from './PullOverview';
+import MarkdownBody from './MarkdownBody';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -99,6 +102,20 @@ export default function PullChanges({
   );
 }
 
+/** The signed-in account, for the avatar on the review composer. */
+function useViewer(enabled: boolean): UserProfileDto | null {
+  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    window.bridge.getUserProfile()
+      .then(profile => { if (live) setViewer(profile); })
+      .catch(() => { /* the composer just falls back to an initial */ });
+    return () => { live = false; };
+  }, [enabled]);
+  return viewer;
+}
+
 export function DiffViewer({
   files,
   commits = [],
@@ -108,6 +125,7 @@ export function DiffViewer({
   review,
   loadFileContent,
 }: DiffViewerProps) {
+  const viewer = useViewer(review?.canReview ?? false);
   const [treeOpen, setTreeOpen] = useState(true);
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
@@ -214,6 +232,7 @@ export function DiffViewer({
               baseSha={baseSha}
               headSha={headSha}
               review={review}
+              viewer={viewer}
               loadFileContent={loadFileContent}
               open={!closed.has(file.filename) && (!singleFileMode || selected === file.filename)}
               onToggle={() => toggle(file.filename)}
@@ -413,11 +432,128 @@ export function nextCommitRange(range: CommitRange, index: number, commitCount: 
     : { start: range.start, end: index - 1 };
 }
 
+export type MarkdownCommand =
+  | 'heading' | 'bold' | 'italic' | 'quote' | 'code' | 'link' | 'bullet' | 'number' | 'task';
+
+const MARKDOWN_PREFIXES: Partial<Record<MarkdownCommand, string>> = {
+  heading: '### ',
+  quote: '> ',
+  bullet: '- ',
+  number: '1. ',
+  task: '- [ ] ',
+};
+
+const MARKDOWN_WRAPS: Partial<Record<MarkdownCommand, string>> = {
+  bold: '**',
+  italic: '_',
+  code: '`',
+};
+
+/**
+ * Applies a toolbar command to `value` over the [start, end) selection and
+ * returns the text plus the selection to restore. Insert-only: clicking Bold
+ * twice nests markers rather than toggling them off, which is the cheap
+ * behaviour the textarea's own undo already covers.
+ */
+export function applyMarkdownCommand(value: string, start: number, end: number, command: MarkdownCommand):
+  { value: string; start: number; end: number } {
+  const prefix = MARKDOWN_PREFIXES[command];
+  if (prefix !== undefined) {
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+    const lineBreak = value.indexOf('\n', end);
+    const lineEnd = lineBreak === -1 ? value.length : lineBreak;
+    const block = value.slice(lineStart, lineEnd).split('\n')
+      .map((line, index) => (command === 'number' ? `${index + 1}. ` : prefix) + line)
+      .join('\n');
+    return {
+      value: value.slice(0, lineStart) + block + value.slice(lineEnd),
+      start: lineStart,
+      end: lineStart + block.length,
+    };
+  }
+  const selected = value.slice(start, end);
+  if (command === 'link') {
+    const urlStart = start + selected.length + 3;
+    return {
+      value: `${value.slice(0, start)}[${selected}](url)${value.slice(end)}`,
+      start: urlStart,
+      end: urlStart + 3,
+    };
+  }
+  // A fenced block is the only thing that renders a multi-line code selection.
+  const fenced = command === 'code' && selected.includes('\n');
+  const open = fenced ? '```\n' : MARKDOWN_WRAPS[command] ?? '';
+  const close = fenced ? '\n```' : open;
+  return {
+    value: value.slice(0, start) + open + selected + close + value.slice(end),
+    start: start + open.length,
+    end: end + open.length,
+  };
+}
+
+const MARKDOWN_ICONS: Record<MarkdownCommand, string[]> = {
+  heading: ['M4 3v10', 'M12 3v10', 'M4 8h8'],
+  bold: ['M5.5 3h3.2a2.4 2.4 0 0 1 0 4.8H5.5z', 'M5.5 7.8h3.8a2.6 2.6 0 0 1 0 5.2H5.5z'],
+  italic: ['M6.5 3h4.5', 'M5 13h4.5', 'M9.5 3 7 13'],
+  quote: ['M3.2 3.5v9', 'M6.5 5h6.3', 'M6.5 8h6.3', 'M6.5 11h4'],
+  code: ['m5.8 4.8-3 3.2 3 3.2', 'm10.2 4.8 3 3.2-3 3.2'],
+  link: [
+    'M6.6 9.4 9.4 6.6',
+    'M8.6 5.4 10 4a2.6 2.6 0 0 1 3.7 3.7L12.3 9.1',
+    'M7.4 10.6 6 12a2.6 2.6 0 0 1-3.7-3.7L3.7 6.9',
+  ],
+  bullet: ['M3 4.4h.01', 'M3 8h.01', 'M3 11.6h.01', 'M6.2 4.4h7', 'M6.2 8h7', 'M6.2 11.6h7'],
+  number: ['M2.3 3.7 3.4 3v3.4', 'M2.2 10.2h1.9L2.2 12.6h2', 'M6.2 4.4h7', 'M6.2 8h7', 'M6.2 11.6h7'],
+  task: ['m2 4.3 1.2 1.3L5.6 3', 'm2 10.8 1.2 1.3L5.6 9.5', 'M8 4.4h5.4', 'M8 10.9h5.4'],
+};
+
+const MARKDOWN_GROUPS: Array<Array<{ command: MarkdownCommand; label: string }>> = [
+  [
+    { command: 'heading', label: 'Heading' },
+    { command: 'bold', label: 'Bold' },
+    { command: 'italic', label: 'Italic' },
+  ],
+  [
+    { command: 'quote', label: 'Quote' },
+    { command: 'code', label: 'Code' },
+    { command: 'link', label: 'Link' },
+  ],
+  [
+    { command: 'bullet', label: 'Bulleted list' },
+    { command: 'number', label: 'Numbered list' },
+    { command: 'task', label: 'Task list' },
+  ],
+];
+
+function MarkdownToolbar({ onCommand }: { onCommand: (command: MarkdownCommand) => void }) {
+  return (
+    <div className="pull-diff-review__toolbar">
+      {MARKDOWN_GROUPS.map((group, groupIndex) => (
+        <Fragment key={groupIndex}>
+          {groupIndex > 0 && <span className="pull-diff-review__divider" aria-hidden="true" />}
+          {group.map(({ command, label }) => (
+            <button type="button" key={command} title={label} aria-label={label}
+              // The textarea keeps its selection because the button never takes focus.
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => onCommand(command)}>
+              <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {MARKDOWN_ICONS[command].map((path, index) => <path d={path} key={index} />)}
+              </svg>
+            </button>
+          ))}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
 function DiffFileCard({
   file,
   baseSha,
   headSha,
   review,
+  viewer,
   loadFileContent,
   open,
   onToggle,
@@ -426,6 +562,7 @@ function DiffFileCard({
   baseSha?: string;
   headSha?: string;
   review?: ReviewOptions;
+  viewer?: UserProfileDto | null;
   loadFileContent?: DiffViewerProps['loadFileContent'];
   open: boolean;
   onToggle: () => void;
@@ -445,6 +582,8 @@ function DiffFileCard({
   const dragAnchor = useRef<DragAnchor | null>(null);
   const [reviewBody, setReviewBody] = useState('');
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [posting, setPosting] = useState(false);
   const oldLines = sourceLines(content?.oldContent);
   const newLines = sourceLines(content?.newContent);
@@ -532,12 +671,29 @@ function DiffFileCard({
     };
   };
 
+  const runMarkdownCommand = (command: MarkdownCommand) => {
+    const textarea = bodyRef.current;
+    if (textarea === null) return;
+    const next = applyMarkdownCommand(
+      textarea.value, textarea.selectionStart, textarea.selectionEnd, command);
+    setReviewBody(next.value);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(next.start, next.end);
+    });
+  };
+
+  const closeComposer = () => {
+    setReviewBody('');
+    setSelection(null);
+    setPreview(false);
+  };
+
   const addPending = () => {
     const value = comment();
     if (value === null || review === undefined) return;
     review.onPendingCommentsChange([...review.pendingComments, value]);
-    setReviewBody('');
-    setSelection(null);
+    closeComposer();
   };
 
   const postNow = async () => {
@@ -548,8 +704,7 @@ function DiffFileCard({
     try {
       await submitInlineReviewComment(
         window.bridge, review.repo, review.number, value, review.onDetailChange);
-      setReviewBody('');
-      setSelection(null);
+      closeComposer();
     }
     catch (error) {
       setReviewError(remoteErrorMessage(error));
@@ -639,14 +794,35 @@ function DiffFileCard({
         {composerAfter && !selectingRange && (
           <tr className="is-review-composer"><td colSpan={3}>
             <div className="pull-diff-review">
-              <strong>{selection.start === selection.end
-                ? `Add a comment on line ${selectionPrefix}${selection.start}`
-                : `Add a comment on lines ${selectionPrefix}${selection.start} to ${selectionPrefix}${selection.end}`}</strong>
-              <textarea value={reviewBody} autoFocus placeholder="Leave a review comment…"
-                onChange={event => setReviewBody(event.target.value)} />
+              <header className="pull-diff-review__header">
+                <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22}
+                  allowGitHubFallback={false} />
+                <strong>{selection.start === selection.end
+                  ? `Add a comment on line ${selectionPrefix}${selection.start}`
+                  : `Add a comment on lines ${selectionPrefix}${selection.start} to ${selectionPrefix}${selection.end}`}</strong>
+              </header>
+              <div className="pull-diff-review__bar">
+                <div className="pull-diff-review__tabs" role="tablist">
+                  <button type="button" role="tab" aria-selected={!preview}
+                    className={preview ? '' : 'is-active'} onClick={() => setPreview(false)}>Write</button>
+                  <button type="button" role="tab" aria-selected={preview}
+                    className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
+                </div>
+                {!preview && <MarkdownToolbar onCommand={runMarkdownCommand} />}
+              </div>
+              {preview ? (
+                <div className="pull-diff-review__preview">
+                  {reviewBody.trim()
+                    ? <MarkdownBody body={reviewBody} />
+                    : <p className="pull-diff-review__nothing">Nothing to preview</p>}
+                </div>
+              ) : (
+                <textarea ref={bodyRef} value={reviewBody} autoFocus placeholder="Leave a review comment…"
+                  onChange={event => setReviewBody(event.target.value)} />
+              )}
               {reviewError && <span role="alert">{reviewError}</span>}
               <footer>
-                <button type="button" onClick={() => { setSelection(null); setReviewBody(''); }}>Cancel</button>
+                <button type="button" onClick={closeComposer}>Cancel</button>
                 <button type="button" disabled={!reviewBody.trim() || posting} onClick={addPending}>Add to review</button>
                 <button className="is-primary" type="button" disabled={!reviewBody.trim() || posting}
                   onClick={() => { void postNow(); }}>{posting ? 'Posting…' : 'Post now'}</button>

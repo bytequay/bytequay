@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto } from '../types';
 import {
+  applyMarkdownCommand,
   buildFileTree,
   DiffViewer,
   draggedLineSelection,
@@ -306,5 +307,33 @@ describe('nextCommitRange', () => {
     const range = { start: 0, end: 3 };
 
     expect(nextCommitRange(range, 5, 5)).toBe(range);
+  });
+});
+
+describe('applyMarkdownCommand', () => {
+  it('wraps the selection and keeps it selected', () => {
+    expect(applyMarkdownCommand('a bold word', 2, 6, 'bold'))
+      .toEqual({ value: 'a **bold** word', start: 4, end: 8 });
+  });
+
+  it('parks the caret between the markers when nothing is selected', () => {
+    expect(applyMarkdownCommand('', 0, 0, 'italic')).toEqual({ value: '__', start: 1, end: 1 });
+  });
+
+  it('fences a multi-line code selection', () => {
+    expect(applyMarkdownCommand('one\ntwo', 0, 7, 'code'))
+      .toEqual({ value: '```\none\ntwo\n```', start: 4, end: 11 });
+  });
+
+  it('selects the placeholder of an inserted link', () => {
+    expect(applyMarkdownCommand('see docs', 4, 8, 'link'))
+      .toEqual({ value: 'see [docs](url)', start: 11, end: 14 });
+  });
+
+  it('prefixes every line the selection touches', () => {
+    expect(applyMarkdownCommand('one\ntwo\nthree', 5, 5, 'quote'))
+      .toEqual({ value: 'one\n> two\nthree', start: 4, end: 9 });
+    expect(applyMarkdownCommand('one\ntwo', 0, 7, 'number'))
+      .toEqual({ value: '1. one\n2. two', start: 0, end: 13 });
   });
 });

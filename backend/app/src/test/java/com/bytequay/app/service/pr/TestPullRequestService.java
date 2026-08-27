@@ -704,19 +704,6 @@ class TestPullRequestService
     }
 
     @Test
-    void approvesAndMarksReviewed()
-    {
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-
-        service.approvePullRequest("owner/repo", 7, 12L);
-
-        verify(writes).approve("pat", PullRequestRef.of("owner", "repo", 7));
-        verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED, "head");
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
-    }
-
-    @Test
     void submitsReviewVerdictsAndPatchesTheCachedDetail()
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));

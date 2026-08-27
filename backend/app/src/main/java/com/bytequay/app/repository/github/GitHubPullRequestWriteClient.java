@@ -271,11 +271,6 @@ public class GitHubPullRequestWriteClient
         return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
-    public PrReviewState approve(String pat, PullRequestRef pr)
-    {
-        return submitReview(pat, pr, "APPROVE", "");
-    }
-
     public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body)
     {
         Map<String, String> request = new LinkedHashMap<>();

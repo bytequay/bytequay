@@ -271,16 +271,6 @@ public class PullRequestController
         return ImmutableMap.of("result", request.resolved() ? "resolved" : "unresolved");
     }
 
-    @PostMapping("/prs/approve")
-    public Map<String, String> approve(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestParam("id") long prId)
-    {
-        pullRequests.approvePullRequest(repo, number, prId);
-        return ImmutableMap.of("result", "approved");
-    }
-
     @PostMapping("/prs/review")
     public PullRequestDetail review(
             @RequestParam("repo") String repo,

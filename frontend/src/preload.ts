@@ -52,7 +52,6 @@ const bridge: Bridge = {
   setReviewThreadResolved: (repo, number, commentId, resolved) =>
     ipcRenderer.invoke('prs:review-thread:resolution', repo, number, commentId, resolved),
   rerunFailedPrChecks: (repo, number) => ipcRenderer.invoke('prs:checks:rerun-failed', repo, number),
-  approvePr: (prId, repo, number) => ipcRenderer.invoke('prs:approve', prId, repo, number),
   submitReview: (prId, repo, number, event, body, comments) =>
     ipcRenderer.invoke('prs:review', prId, repo, number, event, body, comments),
   mergePr: (prId, repo, number, strategy) =>

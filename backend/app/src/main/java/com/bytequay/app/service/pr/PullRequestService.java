@@ -559,14 +559,6 @@ public class PullRequestService
     /**
      * Submits an approval review for the given pull request on GitHub and records a local reviewed state.
      */
-    public void approvePullRequest(String repo, int number, long prId)
-    {
-        String pat = credentialService.resolveGitHubToken();
-        pullRequestWrites.approve(pat, parseRef(repo, number));
-        viewStateStore.markReviewed(prId, HandledAction.APPROVED, currentHeadSha(prId));
-        invalidatePullRequestCaches(repo, number);
-    }
-
     public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body)
     {
         requireNotBlank(event, "review event must not be blank");

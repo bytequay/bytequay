@@ -729,7 +729,6 @@ export type Bridge = {
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;
-  approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   submitReview: (
     prId: number,
     repo: string,

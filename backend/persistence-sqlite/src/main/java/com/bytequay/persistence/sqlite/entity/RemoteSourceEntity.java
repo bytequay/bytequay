@@ -18,14 +18,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(
-        name = "workspace_remote_sources",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_workspace_remote_sources_workspace_name",
-                columnNames = {"workspace_id", "name"}))
+@Table(name = "workspace_remote_sources")
 public class RemoteSourceEntity
 {
     @Id

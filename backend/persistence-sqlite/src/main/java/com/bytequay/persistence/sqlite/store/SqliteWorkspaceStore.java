@@ -17,7 +17,6 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,13 +69,7 @@ public class SqliteWorkspaceStore
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
-        try {
-            return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
-        }
-        catch (DataAccessException duplicate) {
-            return findBySelectedRepositoryId(workspace.selectedRepositoryId())
-                    .orElseThrow(() -> duplicate);
-        }
+        return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
     }
 
     @Override

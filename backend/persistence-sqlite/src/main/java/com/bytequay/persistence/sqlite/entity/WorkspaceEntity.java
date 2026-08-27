@@ -22,17 +22,12 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 import java.time.Instant;
 import java.util.Optional;
 
 @Entity
-@Table(
-        name = "watched_repo_workspaces",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_watched_repo_workspaces_selected_repo_id",
-                columnNames = "selected_repository_id"))
+@Table(name = "watched_repo_workspaces")
 public class WorkspaceEntity
 {
     @Id

@@ -86,6 +86,8 @@ function stripHtml(value: string) {
 
 function htmlToMarkdown(value: string) {
   return decodeEntities(value
+    .replace(/```[^]*?(?:```|$)|`[^`\n]+`/g,
+      code => code.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(/<!--[^]*?-->/g, '')
     .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
     .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,

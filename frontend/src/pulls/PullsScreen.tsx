@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
+import Toast from '../Toast';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
@@ -59,6 +60,12 @@ export function returnedFromInAppBrowser(wasOpen: boolean, isOpen: boolean) {
 
 export function showBlockingDetailLoading(loading: boolean, hasDetail: boolean) {
   return loading && !hasDetail;
+}
+
+export function pullRequestSyncNotice(failure: unknown): string | null {
+  return remoteErrorMessage(failure).includes('A pull request refresh is already in progress')
+    ? 'Pull requests are already refreshing.'
+    : null;
 }
 
 /** Toolbar width under which counts drop and the search placeholder shortens. */
@@ -169,6 +176,7 @@ export default function PullsScreen({
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   // The toolbar, not the window: it also renders inside the narrower split pane.
@@ -184,6 +192,7 @@ export default function PullsScreen({
   const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
   const diffRequest = useRef(0);
+  const toastId = useRef(0);
   const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
@@ -250,7 +259,13 @@ export default function PullsScreen({
     catch (e) {
       if (listContext.current.workspaceId === workspaceId
         && (request === null || request === listRequest.current)) {
-        setSyncError(e instanceof Error ? e.message : String(e));
+        const notice = pullRequestSyncNotice(e);
+        if (notice !== null) {
+          toastId.current += 1;
+          setToast({ id: toastId.current, text: notice });
+        } else {
+          setSyncError(e instanceof Error ? e.message : String(e));
+        }
       }
     }
     finally {
@@ -784,6 +799,8 @@ export default function PullsScreen({
           )}
         </section>
       )}
+
+      {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

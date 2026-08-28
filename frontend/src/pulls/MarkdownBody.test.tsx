@@ -65,6 +65,17 @@ describe('MarkdownBody', () => {
     expect(html).toBe('<div class="markdown-body"><p>Use `ClickHouseClient.toColumnMapping()`.</p></div>');
   });
 
+  it('preserves generic types inside inline and fenced code', () => {
+    const releaseNote = '## SPI\n* {{breaking}} Change return type of `ConnectorMetadata.finishMerge` method '
+      + 'to `Optional<ConnectorOutputMetadata>`. ({issue}`30934`)';
+
+    const inline = renderToStaticMarkup(<MarkdownBody body={releaseNote} />);
+    const fenced = renderToStaticMarkup(<MarkdownBody body={`\`\`\`markdown\n${releaseNote}\n\`\`\``} />);
+
+    expect(inline).toContain('<code>Optional&lt;ConnectorOutputMetadata&gt;</code>');
+    expect(fenced).toContain('Optional&lt;ConnectorOutputMetadata&gt;');
+  });
+
   it('links bare URLs in comments', () => {
     const url = 'https://github.com/apache/avro/blob/release-1.12.2/lang/java/avro/src/main/java/org/apache/avro/util/ClassSecurityValidator.java';
 

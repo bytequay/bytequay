@@ -22,6 +22,7 @@ import {
   mergePullRequestDetailStatus,
   PullFilterTabs,
   pullRequestDetailRefreshDelay,
+  pullRequestSyncNotice,
   returnedFromInAppBrowser,
   shortcutTab,
   showBlockingDetailLoading,
@@ -76,6 +77,13 @@ describe('mergePullRequestDetailStatus', () => {
     expect(showBlockingDetailLoading(true, false)).toBe(true);
     expect(showBlockingDetailLoading(true, true)).toBe(false);
     expect(showBlockingDetailLoading(false, false)).toBe(false);
+  });
+
+  it('turns an overlapping list refresh into a transient notice', () => {
+    expect(pullRequestSyncNotice(new Error(
+      "Error invoking remote method 'prs:sync': Error: A pull request refresh is already in progress; try again shortly",
+    ))).toBe('Pull requests are already refreshing.');
+    expect(pullRequestSyncNotice(new Error('GitHub is unavailable'))).toBeNull();
   });
 });
 

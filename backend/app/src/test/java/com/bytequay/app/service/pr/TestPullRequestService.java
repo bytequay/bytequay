@@ -811,7 +811,19 @@ class TestPullRequestService
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(12L), saved.capture());
         assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(501L);
-        assertThat(detail.number()).isEqualTo(7);
+        assertThat(saved.getValue().timeline()).singleElement().satisfies(review -> {
+            assertThat(review.githubId()).isEqualTo(501L);
+            assertThat(review.event()).isEqualTo("reviewed");
+            assertThat(review.actor()).isEqualTo("me");
+            assertThat(review.body()).isEqualTo("Please fix this");
+            assertThat(review.payload().state()).isEqualTo("REQUEST_CHANGES");
+        });
+        assertThat(detail.recentActivity()).singleElement().satisfies(review -> {
+            assertThat(review.githubId()).isEqualTo(501L);
+            assertThat(review.eventType()).isEqualTo("reviewed");
+            assertThat(review.body()).isEqualTo("Please fix this");
+            assertThat(review.payload().state()).isEqualTo("REQUEST_CHANGES");
+        });
     }
 
     @Test

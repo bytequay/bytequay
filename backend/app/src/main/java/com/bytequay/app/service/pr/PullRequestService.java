@@ -35,6 +35,7 @@ import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -648,6 +649,10 @@ public class PullRequestService
             reviews.removeIf(review -> Objects.equals(review.githubId(), created.githubId()));
             reviews.add(created);
             List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
+            PrTimelineEvent reviewed = reviewedTimelineEvent(created);
+            timeline.removeIf(event -> Objects.equals(event.githubId(), reviewed.githubId())
+                    && reviewed.event().equals(event.event()));
+            timeline.add(reviewed);
             for (PrTimelineEvent thread : threads) {
                 timeline.removeIf(event -> Objects.equals(event.githubId(), thread.githubId())
                         && thread.event().equals(event.event()));
@@ -665,6 +670,23 @@ public class PullRequestService
                 .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
                         prId, repo, number, detail, detail.viewerCanWrite()))
                 .orElseGet(() -> getPullRequestDetail(repo, number));
+    }
+
+    private static PrTimelineEvent reviewedTimelineEvent(PrReviewState review)
+    {
+        return new PrTimelineEvent(
+                review.githubId(),
+                "reviewed",
+                review.login(),
+                review.submittedAt(),
+                review.body(),
+                PrTimelinePayload.builder()
+                        .actorAvatarUrl(review.avatarUrl())
+                        .actorBot(review.bot())
+                        .state(review.state())
+                        .htmlUrl(review.htmlUrl())
+                        .build(),
+                Optional.empty());
     }
 
     private void markReviewed(long prId, String event)

@@ -27,6 +27,7 @@ public record GitHubTimelineEvent(
         @JsonProperty("submitted_at") Instant submittedAt,
         Actor actor,
         User user,
+        @JsonProperty("requested_reviewer") User requestedReviewer,
         String body,
         String state,
         @JsonProperty("html_url") String htmlUrl,

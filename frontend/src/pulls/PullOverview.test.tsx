@@ -33,6 +33,7 @@ const emptyPayload: PullTimelinePayloadDto = {
   sourceUrl: null,
   sourceNumber: null,
   milestoneTitle: null,
+  requestedReviewer: null,
   path: null,
   diffHunk: null,
   line: null,
@@ -228,6 +229,33 @@ describe('PullOverview', () => {
     expect(html).toContain('force-pushed the head branch 2 times');
     expect(html.match(/force-pushed the head branch/g)).toHaveLength(1);
     expect(html.indexOf('Retry BigQuery Storage Write API')).toBeLessThan(html.indexOf('force-pushed the head branch'));
+  });
+
+  it('groups review requests and names every requested reviewer', () => {
+    const value = detail();
+    value.recentActivity = [
+      {
+        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 1,
+        payload: { ...emptyPayload, requestedReviewer: 'wren-d' },
+      },
+      {
+        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 2,
+        payload: { ...emptyPayload, requestedReviewer: 'lou-sip' },
+      },
+      {
+        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 3,
+        payload: { ...emptyPayload, requestedReviewer: 'ravi-moreau' },
+      },
+    ];
+
+    const groups = groupTimelineActivities(value.recentActivity);
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toHaveLength(3);
+    expect(html.match(/requested review from/g)).toHaveLength(1);
+    expect(html.indexOf('lou-sip')).toBeLessThan(html.indexOf('ravi-moreau'));
+    expect(html.indexOf('ravi-moreau')).toBeLessThan(html.indexOf('wren-d'));
   });
 
   it('shows running checks in yellow and completed check times', () => {

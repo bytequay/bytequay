@@ -37,7 +37,6 @@ const HIDDEN_TIMELINE_EVENTS = new Set([
   'mentioned',
   'ready_for_review',
   'review_request_removed',
-  'review_requested',
   'subscribed',
   'unsubscribed',
 ]);
@@ -537,6 +536,9 @@ function canGroupTimelineEvents(previous: Activity, activity: Activity) {
     return false;
   }
   if (activity.eventType === 'head_ref_force_pushed') return true;
+  if (activity.eventType === 'review_requested') {
+    return activity.timestamp !== null && activity.timestamp === previous.timestamp;
+  }
   if (!LABEL_EVENT_TYPES.has(activity.eventType)) return false;
   const previousTime = Date.parse(previous.timestamp ?? '');
   const activityTime = Date.parse(activity.timestamp ?? '');
@@ -865,27 +867,36 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
       <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
       <div>
         <strong>{actor}</strong>{payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
-        <span>{eventText(activity, activities.length)}</span>
+        <span>{eventText(activity, activities)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
       </div>
     </div>
   );
 }
 
-function eventText(activity: Activity, count = 1) {
+function eventText(activity: Activity, activities: Activity[]) {
   const p = activity.payload;
   switch (activity.eventType) {
     case 'labeled': return <>added <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
     case 'unlabeled': return <>removed <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
     case 'renamed': return <>changed the title from <del>{p.renameFrom}</del> to <strong>{p.renameTo}</strong></>;
     case 'cross-referenced': return <>mentioned this in <GitHubReferenceLink href={p.sourceUrl}>{p.sourceTitle ?? `#${p.sourceNumber ?? ''}`}</GitHubReferenceLink></>;
-    case 'review_requested': return <>requested a review</>;
+    case 'review_requested': {
+      const reviewers = [...new Set(activities
+        .map(item => item.payload.requestedReviewer)
+        .filter((reviewer): reviewer is string => typeof reviewer === 'string' && reviewer.length > 0))]
+        .sort((left, right) => left.localeCompare(right));
+      if (reviewers.length === 0) return <>requested a review</>;
+      return <>requested review from {reviewers.map((reviewer, index) => (
+        <span key={reviewer}>{index === 0 ? '' : index === reviewers.length - 1 ? ' and ' : ', '}<strong>{reviewer}</strong></span>
+      ))}</>;
+    }
     case 'review_request_removed': return <>removed a review request</>;
     case 'milestoned': return <>added this to the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'demilestoned': return <>removed this from the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'added_to_merge_queue': return <>added this to the merge queue</>;
     case 'removed_from_merge_queue': return <>removed this from the merge queue</>;
-    case 'head_ref_force_pushed': return <>force-pushed the head branch{count > 1 ? ` ${count} times` : ''}</>;
+    case 'head_ref_force_pushed': return <>force-pushed the head branch{activities.length > 1 ? ` ${activities.length} times` : ''}</>;
     case 'convert_to_draft': return <>converted this pull request to draft</>;
     case 'ready_for_review': return <>marked this pull request ready for review</>;
     case 'closed': return <>closed this</>;

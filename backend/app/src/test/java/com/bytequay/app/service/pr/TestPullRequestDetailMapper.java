@@ -85,7 +85,7 @@ class TestPullRequestDetailMapper
     void mapsACompleteHeaderAndChronologicalTypedTimeline()
     {
         PrTimelinePayload label = new PrTimelinePayload(
-                "https://avatars/bot", true, null, null, "docs", "d4c5f9",
+                "https://avatars/bot", true, null, null, null, "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, false, false, ImmutableList.of(), ImmutableList.of());
         StoredPrDetail stored = new StoredPrDetail(

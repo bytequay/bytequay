@@ -418,11 +418,22 @@ function javaCode(line: string, keyPrefix: string) {
   });
 }
 
+function dedentCodeReferenceLines(lines: GitHubCodeSnippetDto['lines']) {
+  const contentLines = lines.filter(line => line.content.trim().length > 0);
+  const commonIndent = contentLines.length === 0
+    ? 0
+    : Math.min(...contentLines.map(line => line.content.match(/^[\t ]*/)?.[0].length ?? 0));
+  return commonIndent === 0
+    ? lines
+    : lines.map(line => ({ ...line, content: line.content.slice(commonIndent) }));
+}
+
 export function CodeReferenceCard({ reference, snippet }: {
   reference: GitHubCodePermalink;
   snippet: GitHubCodeSnippetDto | null | undefined;
 }) {
   if (snippet === null) return <p>{inline(reference.href, 'code-reference-fallback')}</p>;
+  const lines = snippet ? dedentCodeReferenceLines(snippet.lines) : [];
   const lineLabel = reference.startLine === reference.endLine
     ? `Line ${reference.startLine}`
     : `Lines ${reference.startLine}–${reference.endLine}`;
@@ -442,7 +453,7 @@ export function CodeReferenceCard({ reference, snippet }: {
       {snippet === undefined
         ? <div className="md-code-reference__status" role="status">Loading code…</div>
         : <div className="md-code-reference__source">
-            {snippet.lines.map(line => (
+            {lines.map(line => (
               <pre key={line.number}>
                 <span>{line.number}</span>
                 <code>{highlightJava ? javaCode(line.content || ' ', `line-${line.number}`) : line.content || ' '}</code>

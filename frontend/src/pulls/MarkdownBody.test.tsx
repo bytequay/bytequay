@@ -100,14 +100,15 @@ describe('MarkdownBody', () => {
   });
 
   it('renders resolved source lines and restores the ordinary link on failure', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L11';
+    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L12';
     const reference = parseGitHubCodePermalink(url, 'trinodb/trino');
     expect(reference).not.toBeNull();
     if (!reference) throw new Error('expected a code permalink');
 
     const loaded = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={{ lines: [
-      { number: 10, content: 'try (JsonStreamWriter writer = open("https://example.com")) { // retry' },
-      { number: 11, content: '}' },
+      { number: 10, content: '    try (JsonStreamWriter writer = open("https://example.com")) { // retry' },
+      { number: 11, content: '        return writer;' },
+      { number: 12, content: '    }' },
     ] }} />);
     const failed = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={null} />);
 
@@ -115,7 +116,8 @@ describe('MarkdownBody', () => {
     expect(loaded).toContain('<span class="md-code-type">JsonStreamWriter</span>');
     expect(loaded).toContain('<span class="md-code-string">&quot;https://example.com&quot;</span>');
     expect(loaded).toContain('<span class="md-code-comment">// retry</span>');
-    expect(loaded).toContain('<span>11</span><code>}</code>');
+    expect(loaded).toContain('<span>11</span><code>    <span class="md-code-keyword">return</span> writer;</code>');
+    expect(loaded).toContain('<span>12</span><code>}</code>');
     expect(loaded).not.toContain('Loading code…');
     expect(failed).toBe(`<p><a href="${url}">${url}</a></p>`);
   });

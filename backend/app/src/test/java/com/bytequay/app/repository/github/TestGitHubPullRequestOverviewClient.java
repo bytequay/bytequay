@@ -246,6 +246,27 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void mapsRequestedReviewersFromTimelineEvents()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"},"requested_reviewer":{"login":"bob"}},
+                         {"id":2,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"},"requested_reviewer":{"login":"carol"}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST, null);
+
+        assertThat(timeline)
+                .extracting(event -> event.githubId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
+                .containsExactly("1:alice:bob", "2:alice:carol");
+        fixture.verify();
+    }
+
+    @Test
     void addsGraphQlReactionsToReviewTimelineEvents()
     {
         Fixture fixture = fixture();

@@ -28,6 +28,7 @@ public record PrTimelinePayload(
         boolean actorBot,
         String state,
         String htmlUrl,
+        String requestedReviewer,
         String label,
         String labelColor,
         String renameFrom,
@@ -79,6 +80,7 @@ public record PrTimelinePayload(
                 .actorBot(payload.actorBot())
                 .state(payload.state())
                 .htmlUrl(payload.htmlUrl())
+                .requestedReviewer(payload.requestedReviewer())
                 .label(payload.label())
                 .labelColor(payload.labelColor())
                 .renameFrom(payload.renameFrom())
@@ -109,6 +111,7 @@ public record PrTimelinePayload(
         private boolean actorBot;
         private String state;
         private String htmlUrl;
+        private String requestedReviewer;
         private String label;
         private String labelColor;
         private String renameFrom;
@@ -154,6 +157,12 @@ public record PrTimelinePayload(
         public Builder htmlUrl(String htmlUrl)
         {
             this.htmlUrl = htmlUrl;
+            return this;
+        }
+
+        public Builder requestedReviewer(String requestedReviewer)
+        {
+            this.requestedReviewer = requestedReviewer;
             return this;
         }
 
@@ -290,6 +299,7 @@ public record PrTimelinePayload(
                     actorBot,
                     state,
                     htmlUrl,
+                    requestedReviewer,
                     label,
                     labelColor,
                     renameFrom,

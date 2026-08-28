@@ -31,6 +31,7 @@ const payload: PullTimelinePayloadDto = {
   sourceUrl: null,
   sourceNumber: null,
   milestoneTitle: null,
+  requestedReviewer: null,
   path: null,
   diffHunk: null,
   line: null,

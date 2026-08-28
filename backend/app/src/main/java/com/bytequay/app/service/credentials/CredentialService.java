@@ -88,6 +88,17 @@ public class CredentialService
                         "GitHub PAT not configured. Add it in Settings → GitHub token."));
     }
 
+    /**
+     * The signed-in login when one is already cached, without contacting
+     * GitHub. Read paths that must answer offline use this instead of
+     * {@link #resolveGitHubCredential()}, which fetches the profile on a cold
+     * cache.
+     */
+    public synchronized Optional<String> cachedLogin()
+    {
+        return Optional.ofNullable(cachedGitHubCredential).map(credential -> credential.profile().login());
+    }
+
     public synchronized GitHubCredential resolveGitHubCredential()
     {
         String token = resolveGitHubToken();

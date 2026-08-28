@@ -23,6 +23,13 @@ public interface PrViewStateStore
 {
     Map<Long, PrViewState> findByPrIds(Set<Long> prIds);
 
+    /**
+     * Records that the user opened this pull request. Independent of
+     * {@link #markReviewed}, which only fires when a verdict is submitted, so
+     * this is what dates the "since you last looked" comparison.
+     */
+    void markViewed(long prId);
+
     void markReviewed(long prId, HandledAction action, String headSha);
 
     void markNeedsReview(long prId);

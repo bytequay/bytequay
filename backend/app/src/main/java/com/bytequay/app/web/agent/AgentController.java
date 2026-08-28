@@ -16,7 +16,9 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
@@ -31,7 +33,10 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -60,12 +65,15 @@ public class AgentController
 {
     public static final String SESSION_HEADER = "X-ByteQuay-Session";
 
+    private static final Logger log = LoggerFactory.getLogger(AgentController.class);
+
     private final AgentTaskService taskService;
     private final AgentTurnService turnService;
     private final AgentEventService eventService;
     private final AgentApprovalService approvalService;
     private final AgentCompletionService completionService;
     private final AgentDriverRegistry driverRegistry;
+    private final RecentTouchRecorder recent;
 
     public AgentController(
             AgentTaskService taskService,
@@ -73,7 +81,8 @@ public class AgentController
             AgentEventService eventService,
             AgentApprovalService approvalService,
             AgentCompletionService completionService,
-            AgentDriverRegistry driverRegistry)
+            AgentDriverRegistry driverRegistry,
+            RecentTouchRecorder recent)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
@@ -81,6 +90,7 @@ public class AgentController
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
+        this.recent = requireNonNull(recent, "recent is null");
     }
 
     @PostMapping("/tasks")
@@ -127,11 +137,25 @@ public class AgentController
                 : request.attachments().stream()
                         .map(AttachmentRequest::toAttachment)
                         .collect(toImmutableList());
-        return ResponseEntity.accepted().body(AgentHttpModels.turn(turnService.start(new StartAgentTurnCommand(
+        AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 TaskId.valueOf(taskId),
                 request.message(),
                 attachments,
-                idempotencyKey))));
+                idempotencyKey));
+        recordPrompt(taskId, request.message());
+        return ResponseEntity.accepted().body(AgentHttpModels.turn(turn));
+    }
+
+    /** Files the user's prompt in Recent. Never on the path that decides the response. */
+    private void recordPrompt(String taskId, String message)
+    {
+        try {
+            AgentTask task = taskService.get(TaskId.valueOf(taskId));
+            recent.taskPrompted(taskId, message, task.repository().toString(), task.laneId().value());
+        }
+        catch (RuntimeException failure) {
+            log.debug("Prompt not recorded for task {}: {}", taskId, failure.toString());
+        }
     }
 
     @GetMapping("/turns/{turnId}")

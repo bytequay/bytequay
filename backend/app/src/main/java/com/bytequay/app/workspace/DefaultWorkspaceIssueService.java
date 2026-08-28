@@ -15,8 +15,11 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -44,6 +47,7 @@ public final class DefaultWorkspaceIssueService
     private final RepositoryIssueDetailStore details;
     private final GitHubPullRequestWriteClient issueWrites;
     private final CredentialService credentials;
+    private final RecentTouchRecorder recent;
     private final Clock clock;
 
     public DefaultWorkspaceIssueService(
@@ -52,6 +56,7 @@ public final class DefaultWorkspaceIssueService
             RepositoryIssueDetailStore details,
             GitHubPullRequestWriteClient issueWrites,
             CredentialService credentials,
+            RecentTouchRecorder recent,
             Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -59,6 +64,7 @@ public final class DefaultWorkspaceIssueService
         this.details = requireNonNull(details, "details is null");
         this.issueWrites = requireNonNull(issueWrites, "issueWrites is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.recent = requireNonNull(recent, "recent is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -102,6 +108,13 @@ public final class DefaultWorkspaceIssueService
         RepositoryIssueDetail current = details.find(workspace.monitoredRepositoryId(), issueNumber)
                 .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
         details.save(current.append(created));
+        recent.issueAction(workspaceId, issueNumber, RecentReason.COMMENTED);
+        recent.wroteOnIssue(
+                workspaceId,
+                issueNumber,
+                RecentTextKind.COMMENT,
+                "comment:" + (created.githubId() == null ? created.timestamp() : created.githubId()),
+                body.trim());
         return created;
     }
 
@@ -110,6 +123,7 @@ public final class DefaultWorkspaceIssueService
     {
         Workspace workspace = requireWorkspace(workspaceId);
         issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
+        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
         issues.delete(workspace.monitoredRepositoryId(), issueNumber);
     }
 
@@ -128,6 +142,7 @@ public final class DefaultWorkspaceIssueService
                 .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber))
                 .withType(current);
         details.save(detail);
+        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
         return new IssueTypeOptions(current, detail.availableTypes());
     }
 
@@ -152,6 +167,7 @@ public final class DefaultWorkspaceIssueService
                 updated.assignees(),
                 updated.labels(),
                 updated.updatedAt() == null ? clock.instant() : updated.updatedAt());
+        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
         return new IssueMetadata(updated.assignees(), updated.labels());
     }
 

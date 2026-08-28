@@ -22,6 +22,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -40,6 +41,8 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -122,6 +125,7 @@ public class PullRequestService
     private final PullRequestSnapshotService snapshots;
     private final PullRequestDetailFetcher detailFetcher;
     private final PrViewStateStore viewStateStore;
+    private final RecentTouchRecorder recent;
     private final Executor executor;
     private final CredentialService credentialService;
     private final WorkspaceMetadataService metadata;
@@ -137,6 +141,7 @@ public class PullRequestService
             PullRequestSnapshotService snapshots,
             PullRequestDetailFetcher detailFetcher,
             PrViewStateStore viewStateStore,
+            RecentTouchRecorder recent,
             CredentialService credentialService,
             WorkspaceMetadataService metadata,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
@@ -151,6 +156,7 @@ public class PullRequestService
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.detailFetcher = requireNonNull(detailFetcher, "detailFetcher is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
+        this.recent = requireNonNull(recent, "recent is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -339,10 +345,24 @@ public class PullRequestService
     {
         parseRef(repo, number);
         Optional<PullRequestDetail> stored = findPullRequestDetail(repo, number);
-        if (stored.isPresent()) {
-            return stored.orElseThrow();
+        PullRequestDetail detail = stored.isPresent()
+                ? stored.orElseThrow()
+                : refreshPullRequestDetailFromGitHub(repo, number).detail();
+        // Opening the pull request dates the "since you last looked"
+        // comparison. It is deliberately unconditional and separate from the
+        // Recent stream, which needs a stronger signal than a triage click.
+        markViewed(detail.id());
+        return detail;
+    }
+
+    private void markViewed(long prId)
+    {
+        try {
+            viewStateStore.markViewed(prId);
         }
-        return refreshPullRequestDetailFromGitHub(repo, number).detail();
+        catch (RuntimeException failure) {
+            log.debug("Could not stamp viewed_at for {}: {}", prId, failure.toString());
+        }
     }
 
     DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number)
@@ -456,6 +476,7 @@ public class PullRequestService
         PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
         PullRequestDetail detail = patchCachedTimeline(repo, number, prId, created);
         prId.ifPresent(id -> markReviewed(id, "COMMENT"));
+        recordComment(repo, number, "review-comment", created, comment.body());
         return detail;
     }
 
@@ -465,7 +486,9 @@ public class PullRequestService
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
-        return patchCachedTimeline(repo, number, store.findIdByRepoAndNumber(repo, number), created);
+        PullRequestDetail detail = patchCachedTimeline(repo, number, store.findIdByRepoAndNumber(repo, number), created);
+        recordComment(repo, number, "comment", created, body);
+        return detail;
     }
 
     public void toggleReaction(String repo, int number, String target, Long commentId, String content)
@@ -506,6 +529,7 @@ public class PullRequestService
     {
         pullRequestWrites.closePullRequest(
                 credentialService.resolveGitHubToken(), parseRef(repo, number));
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -516,6 +540,7 @@ public class PullRequestService
                 parseRef(repo, number),
                 normalizeNames(assignees, "assignees"),
                 normalizeNames(labels, "labels"));
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -524,6 +549,7 @@ public class PullRequestService
         requireNotBlank(login, "reviewer login must not be blank");
         pullRequestWrites.updateReviewerRequest(
                 credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -544,6 +570,8 @@ public class PullRequestService
         requireNotBlank(body, "reply body must not be blank");
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.replyToReviewComment(pat, parseRef(repo, number), commentId, body);
+        recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
+        recent.wroteOnPullRequest(repo, number, RecentTextKind.COMMENT, "reply:" + commentId, body);
         invalidatePullRequestCaches(repo, number);
     }
 
@@ -576,6 +604,7 @@ public class PullRequestService
                 pat, parseRef(repo, number), normalizedEvent, reviewBody);
         PullRequestDetail detail = patchCachedReview(repo, number, prId, created, ImmutableList.of());
         markReviewed(prId, normalizedEvent);
+        recordReview(repo, number, normalizedEvent, reviewBody, created);
         return detail;
     }
 
@@ -611,6 +640,13 @@ public class PullRequestService
                 : gitHub.fetchReviewComments(pat, ref, created.githubId());
         PullRequestDetail detail = patchCachedReview(repo, number, prId, created, threads);
         markReviewed(prId, normalizedEvent);
+        recordReview(repo, number, normalizedEvent, reviewBody, created);
+        reviewComments.forEach(inline -> recent.wroteOnPullRequest(
+                repo,
+                number,
+                RecentTextKind.COMMENT,
+                "review-comment:" + created.githubId() + ":" + inline.path() + ":" + inline.line(),
+                inline.body()));
         return detail;
     }
 
@@ -661,6 +697,35 @@ public class PullRequestService
         viewStateStore.markReviewed(prId, action, currentHeadSha(prId));
     }
 
+    private void recordComment(String repo, int number, String kind, PrTimelineEvent created, String body)
+    {
+        recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
+        recent.wroteOnPullRequest(repo, number, RecentTextKind.COMMENT, textKey(kind, created), body);
+    }
+
+    private void recordReview(String repo, int number, String event, String body, PrReviewState created)
+    {
+        RecentReason reason = switch (event) {
+            case "APPROVE" -> RecentReason.APPROVED;
+            case "REQUEST_CHANGES" -> RecentReason.CHANGES_REQUESTED;
+            default -> RecentReason.COMMENTED;
+        };
+        recent.pullRequestAction(repo, number, reason, 0);
+        recent.wroteOnPullRequest(
+                repo,
+                number,
+                RecentTextKind.REVIEW_BODY,
+                "review:" + Objects.toString(created == null ? null : created.githubId(), "latest"),
+                body);
+    }
+
+    /** Stable id for one written body, so re-posting cannot pile up duplicates. */
+    private static String textKey(String kind, PrTimelineEvent created)
+    {
+        Long githubId = created == null ? null : created.githubId();
+        return kind + ":" + (githubId != null ? githubId : Objects.toString(created == null ? null : created.timestamp(), "local"));
+    }
+
     private String currentHeadSha(long prId)
     {
         return snapshots.findHeadSha(prId).orElse(null);
@@ -708,6 +773,7 @@ public class PullRequestService
             throw e;
         }
         viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId));
+        recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync

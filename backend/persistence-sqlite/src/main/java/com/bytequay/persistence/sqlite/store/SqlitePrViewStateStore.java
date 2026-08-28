@@ -51,6 +51,14 @@ public class SqlitePrViewStateStore
         return entities.collect(toImmutableMap(PrViewStateEntity::getPrId, PrViewStateEntity::toDomain));
     }
 
+    @Override
+    public void markViewed(long prId)
+    {
+        PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
+        entity.setViewedAt(Instant.now());
+        jpaRepository.save(entity);
+    }
+
     /** Records that the user handled this PR with the given action. */
     @Override
     public void markReviewed(long prId, HandledAction action, String headSha)

@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,8 @@ class TestAgentHttpErrors
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
                 mock(AgentCompletionService.class),
-                driverRegistry);
+                driverRegistry,
+                mock(RecentTouchRecorder.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

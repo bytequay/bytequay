@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -56,6 +57,7 @@ class TestDefaultWorkspaceIssueService
     private final RepositoryIssueDetailStore detailStore = mock(RepositoryIssueDetailStore.class);
     private final GitHubPullRequestWriteClient issueWrites = mock(GitHubPullRequestWriteClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
+    private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private DefaultWorkspaceIssueService service;
 
     @BeforeEach
@@ -70,6 +72,7 @@ class TestDefaultWorkspaceIssueService
                 detailStore,
                 issueWrites,
                 credentials,
+                recent,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

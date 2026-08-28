@@ -22,6 +22,7 @@ import com.bytequay.app.git.GitBrowseService.DiffFile;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.google.common.collect.ImmutableMap;
@@ -52,15 +53,18 @@ public class GitBrowseController
     private final WorkspaceRepositoryService workspaces;
     private final GitBrowseService service;
     private final CommitHistoryService commits;
+    private final RecentTouchRecorder recent;
 
     public GitBrowseController(
             WorkspaceRepositoryService workspaces,
             GitBrowseService service,
-            CommitHistoryService commits)
+            CommitHistoryService commits,
+            RecentTouchRecorder recent)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.service = requireNonNull(service, "service is null");
         this.commits = requireNonNull(commits, "commits is null");
+        this.recent = requireNonNull(recent, "recent is null");
     }
 
     @GetMapping("/overview")
@@ -132,10 +136,12 @@ public class GitBrowseController
     @PostMapping("/commit")
     public Map<String, String> commit(@PathVariable String workspaceId, @RequestBody GitCommitRequest request)
     {
-        return ImmutableMap.of("sha", service.commit(
+        String sha = service.commit(
                 context(workspaceId).repository(),
                 request.summary(),
-                request.description() == null ? "" : request.description()));
+                request.description() == null ? "" : request.description());
+        recent.committed(workspaceId, request.summary(), sha);
+        return ImmutableMap.of("sha", sha);
     }
 
     @PostMapping("/reword")

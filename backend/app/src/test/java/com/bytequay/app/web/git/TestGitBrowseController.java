@@ -21,6 +21,7 @@ import com.bytequay.app.git.CommitHistorySnapshot;
 import com.bytequay.app.git.GitBrowseService;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.RepoOverview;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -63,7 +64,7 @@ class TestGitBrowseController
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
         commits = mock(CommitHistoryService.class);
-        mvc = standaloneSetup(new GitBrowseController(workspaces, git, commits))
+        mvc = standaloneSetup(new GitBrowseController(workspaces, git, commits, mock(RecentTouchRecorder.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

@@ -30,6 +30,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -109,6 +110,7 @@ class TestPullRequestService
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
     @Mock private WorkspaceMetadataService metadata;
+    @Mock private RecentTouchRecorder recent;
 
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
@@ -122,7 +124,7 @@ class TestPullRequestService
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
                 new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run),
-                viewStateStore, credentialService, metadata, Runnable::run, 53123);
+                viewStateStore, recent, credentialService, metadata, Runnable::run, 53123);
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(

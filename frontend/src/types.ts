@@ -671,6 +671,106 @@ export type GitWorktreeStatusDto = {
   files: GitDiffFileDto[];
 };
 
+/* ── Recent ─────────────────────────────────────────────────────────────── */
+
+export type RecentItemType = 'PULL_REQUEST' | 'ISSUE' | 'TASK' | 'COMMIT';
+
+export type RecentReason =
+  | 'READ'
+  | 'EDITED'
+  | 'PROMPTED'
+  | 'PUSHED'
+  | 'COMMENTED'
+  | 'CHANGES_REQUESTED'
+  | 'APPROVED'
+  | 'MERGED';
+
+export type RecentTextKind = 'COMMENT' | 'REVIEW_BODY' | 'TASK_PROMPT' | 'DRAFT';
+
+export type RecentRowDto = {
+  id: string;
+  type: RecentItemType;
+  itemKey: string;
+  number: number | null;
+  title: string;
+  repo: string | null;
+  workspaceId: string | null;
+  mine: boolean;
+  touchedAt: string;
+  reason: RecentReason;
+  /** Badge text, formatted by the backend so every surface says the same thing. */
+  reasonLabel: string;
+  htmlUrl: string | null;
+  subtitle: string | null;
+  /** What the user wrote on this item, when there is any. */
+  snippet: string | null;
+  textId: string | null;
+};
+
+export type RecentDayPageDto = {
+  /** ISO date, or null when the window holds nothing. */
+  day: string | null;
+  rows: RecentRowDto[];
+  nextCursor: string | null;
+  endOfWindow: boolean;
+  activeDays: string[];
+  retentionDays: number;
+};
+
+export type RecentMatchRangeDto = { start: number; end: number };
+
+export type RecentWordHitDto = {
+  id: string;
+  type: RecentItemType;
+  itemKey: string;
+  kind: RecentTextKind;
+  kindLabel: string;
+  neverPosted: boolean;
+  sentence: string;
+  highlights: RecentMatchRangeDto[];
+  body: string;
+  number: number | null;
+  repo: string | null;
+  title: string | null;
+  htmlUrl: string | null;
+  writtenAt: string;
+};
+
+export type RecentChangeDto = {
+  itemKey: string;
+  moved: boolean;
+  wantsYou: boolean;
+  summary: string | null;
+};
+
+export type RecentFilterQuery = {
+  from?: string;
+  to?: string;
+  types?: RecentItemType[];
+  action?: RecentReason;
+  workspace?: string;
+  changedSinceRead?: boolean;
+  text?: string;
+  cursor?: string;
+};
+
+export type RecentTouchRequest = {
+  type: RecentItemType;
+  repo: string;
+  number: number;
+  workspaceId?: string | null;
+  signal: 'DWELL' | 'DIFF_OPENED';
+  dwellSeconds: number;
+};
+
+export type RecentDraftRequest = {
+  type: RecentItemType;
+  repo: string;
+  number: number;
+  workspaceId?: string | null;
+  body: string;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -882,6 +982,15 @@ export type Bridge = {
   saveWorkspaceGitHubToken: (workspaceId: string, value: string) => Promise<{ login: string }>;
   deleteWorkspaceGitHubToken: (workspaceId: string) => Promise<void>;
   copyWorkspaceGitHubToken: (workspaceId: string) => Promise<boolean>;
+
+  fetchRecent: (query: RecentFilterQuery) => Promise<RecentDayPageDto>;
+  searchRecent: (query: string, limit?: number) => Promise<RecentRowDto[]>;
+  searchRecentWords: (query: string, limit?: number) => Promise<RecentWordHitDto[]>;
+  fetchRecentChanges: () => Promise<RecentChangeDto[]>;
+  recordRecentTouch: (touch: RecentTouchRequest) => Promise<void>;
+  saveRecentDraft: (draft: RecentDraftRequest) => Promise<void>;
+  clearRecent: () => Promise<void>;
+  clearRecentRow: (id: string) => Promise<void>;
 };
 
 export type WorkspaceIssueMetadataDto = {

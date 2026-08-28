@@ -34,6 +34,7 @@ import {
 } from '../pulls/PullOverview';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
+import { useRecentTouch } from '../recent/useRecentTouch';
 import type {
   PullReactionDto,
   RepoLabelDto,
@@ -303,6 +304,15 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', stop);
   };
+
+  // Reading an issue closely and doing nothing is exactly the case the other
+  // surfaces miss, so the dwell timer records it.
+  useRecentTouch(selected === null ? null : {
+    type: 'ISSUE',
+    repo: repository,
+    number: selected.number,
+    workspaceId,
+  });
 
   const paneShown = paneOpen && selected !== null;
   const labelColors = Object.fromEntries((metadata?.labels ?? []).map(label => [label.name, label.color]));

@@ -105,15 +105,21 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           onRefresh={onRefresh}
           onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
-          <TimelineItem activities={activities} key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
-            pr={pr} onRefresh={onRefresh}
-            onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
+          // display:contents wrapper — Recent needs an addressable node per
+          // activity without changing the timeline's own layout.
+          <div className="pr-timeline__slot" key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
+            id={activities[0].githubId === null ? undefined : `pr-activity-${activities[0].githubId}`}>
+            <TimelineItem activities={activities}
+              pr={pr} onRefresh={onRefresh}
+              onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
+          </div>
         ))}
         <ChecksCard pr={pr} detail={detail} onRefresh={onRefresh} />
       </section>
       <DiscussionComposer
         candidates={mentionCandidates(detail)}
         quotedReply={quotedReply}
+        onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
         onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
           ? async () => {
               await window.bridge.closePr(pr.repo, pr.number);
@@ -1018,11 +1024,20 @@ export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
-export function DiscussionComposer({ candidates, quotedReply, closeLabel = 'Close pull request', onClose, onSubmit }: {
+export function DiscussionComposer({
+  candidates,
+  quotedReply,
+  closeLabel = 'Close pull request',
+  onClose,
+  onDraftChange,
+  onSubmit,
+}: {
   candidates: MentionCandidate[];
   quotedReply?: QuoteRequest;
   closeLabel?: string;
   onClose?: () => Promise<void>;
+  /** Called as the composer settles, so a reply never posted stays findable. */
+  onDraftChange?: (body: string) => void;
   onSubmit: (body: string) => Promise<void>;
 }) {
   const [body, setBody] = useState('');
@@ -1045,6 +1060,11 @@ export function DiscussionComposer({ candidates, quotedReply, closeLabel = 'Clos
       textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   }, [quotedReply]);
+  useEffect(() => {
+    if (!onDraftChange) return;
+    const timer = window.setTimeout(() => onDraftChange(body), 1200);
+    return () => window.clearTimeout(timer);
+  }, [body, onDraftChange]);
   const chooseMention = (candidate: MentionCandidate) => {
     if (!mention) return;
     const replacement = replaceMention(body, mention, candidate.login);
@@ -1197,6 +1217,17 @@ export async function submitPullReaction(
 ) {
   await bridge.togglePrReaction(action.repo, action.number, action.target, action.commentId, content);
   await action.onRefresh();
+}
+
+/**
+ * Keeps the composer's unsent text in Recent, tagged "Never posted" in Words
+ * mode. Posting clears it, because the reply is no longer the one that got away.
+ */
+function saveDraft(repo: string, number: number, body: string) {
+  return window.bridge.saveRecentDraft({ type: 'PULL_REQUEST', repo, number, body })
+    .catch(() => {
+      // Losing a draft record is never worth interrupting the composer.
+    });
 }
 
 export async function submitPullRequestComment(

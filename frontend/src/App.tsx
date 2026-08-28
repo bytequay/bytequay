@@ -31,8 +31,11 @@ import {
 } from './navigationHistory';
 import OnboardingScreen from './OnboardingScreen';
 import PullsScreen from './pulls/PullsScreen';
+import RecentPage from './recent/RecentPage';
+import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
+import { splitRepo } from './recent/model';
 import SettingsShell from './settings/SettingsShell';
-import type { WorkspaceDto } from './types';
+import type { RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
@@ -46,8 +49,14 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 
 function pageFromRoute(hash: string): AppPage {
-  const match = /^#\/(home|pulls|workspaces|settings)$/.exec(hash);
+  const match = /^#\/(home|recent|pulls|workspaces|settings)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
+}
+
+/** Splits a Recent item key back into the repository and number it points at. */
+export function parseItemKey(itemKey: string): { repo: string; number: number } | null {
+  const match = /^[a-z]+:(.+)#(\d+)$/.exec(itemKey);
+  return match ? { repo: match[1], number: Number(match[2]) } : null;
 }
 
 export default function App() {
@@ -59,6 +68,7 @@ export default function App() {
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
   const navigationSession = useRef(crypto.randomUUID());
@@ -167,6 +177,18 @@ export default function App() {
   }, [replaceCurrentRoute, status, updateWorkspace]);
 
   useEffect(() => {
+    if (status !== 'ready') return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen(open => !open);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [status]);
+
+  useEffect(() => {
     if (status !== 'ready' || browserUrl !== null) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const direction = navigationShortcutDirection(event);
@@ -198,6 +220,36 @@ export default function App() {
     const current = workspaceRef.current;
     if (current) navigateTo(workspaceIssueRoute(current.id, number), mode);
   }, [navigateTo]);
+
+  const openRecentRow = (row: RecentRowDto) => {
+    setPaletteOpen(false);
+    const reference = parseItemKey(row.itemKey);
+    const repo = splitRepo(reference?.repo);
+    if (row.type === 'PULL_REQUEST' && reference && repo) {
+      window.location.hash = row.workspaceId
+        ? workspacePullRequestRoute(row.workspaceId, reference.number)
+        : pullRequestRoute({ owner: repo.owner, repo: repo.name, number: reference.number });
+      // Land on the thread the user wrote in, not the top of the item.
+      scrollToWrittenText(row.textId);
+      return;
+    }
+    if (row.type === 'ISSUE' && reference && row.workspaceId) {
+      window.location.hash = workspaceIssueRoute(row.workspaceId, reference.number);
+      return;
+    }
+    if (row.workspaceId) {
+      window.location.hash = workspaceRoute(row.workspaceId, row.type === 'COMMIT' ? 'commits' : 'tasks');
+    }
+  };
+
+  const openRecentWordHit = (hit: RecentWordHitDto) => {
+    setPaletteOpen(false);
+    const reference = parseItemKey(hit.itemKey);
+    const repo = splitRepo(reference?.repo);
+    if (!reference || !repo || hit.type !== 'PULL_REQUEST') return;
+    window.location.hash = pullRequestRoute({ owner: repo.owner, repo: repo.name, number: reference.number });
+    scrollToWrittenText(hit.id);
+  };
 
   if (status === 'checking') return <LogoLoading />;
   if (status === 'needs-pat') {
@@ -258,6 +310,7 @@ export default function App() {
             onOpenWorkspace={openWorkspace}
           />
         )}
+        {page === 'recent' && <RecentPage onOpenRow={openRecentRow} />}
         {page === 'pulls' && (
           <PullsScreen
             initialPr={initialPr}
@@ -287,6 +340,13 @@ export default function App() {
         )}
         {page === 'settings' && <SettingsShell />}
       </main>
+      {paletteOpen && (
+        <RecentPalette
+          onClose={() => setPaletteOpen(false)}
+          onOpenRow={openRecentRow}
+          onOpenWordHit={openRecentWordHit}
+        />
+      )}
       {browserUrl !== null && (
         <InAppBrowser url={browserUrl} fullScreen={fullScreen} onClose={() => setBrowserUrl(null)} />
       )}

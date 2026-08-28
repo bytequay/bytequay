@@ -1,0 +1,543 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* ── Shared vocabulary ────────────────────────────────────────────── */
+
+.rc-glyph {
+  flex: none;
+  font-size: 13px;
+  line-height: 1;
+}
+.rc-glyph.is-mine { color: var(--purple); }
+.rc-glyph.is-theirs { color: #1a7f37; }
+.rc-glyph.is-own { color: var(--text-4); }
+
+.rc-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 500;
+  border-radius: 10px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.rc-badge.is-green { color: #136a2c; background: #d7f5de; border-color: rgba(26, 127, 55, 0.2); }
+.rc-badge.is-purple { color: #6f42c1; background: #f4ebff; border-color: rgba(130, 80, 223, 0.2); }
+.rc-badge.is-amber { color: #8a6400; background: #fff6cc; border-color: rgba(154, 103, 0, 0.22); }
+.rc-badge.is-neutral { color: var(--text-2); background: #eff1f4; border-color: rgba(15, 20, 25, 0.1); }
+
+.rc-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.rc-dot.is-moved { background: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.16); }
+.rc-dot.is-wants { background: #bf8700; box-shadow: 0 0 0 3px rgba(191, 135, 0, 0.15); }
+
+/* ── The page ─────────────────────────────────────────────────────── */
+
+.rc-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+.rc-head {
+  padding: 22px 28px 0;
+  position: relative;
+  z-index: 5;
+}
+
+.rc-head__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.rc-head h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.35px;
+}
+
+.rc-head__spacer { flex: 1; }
+
+.rc-control {
+  padding: 4.5px 11px;
+  border: 1px solid rgba(15, 20, 25, 0.14);
+  border-radius: 7px;
+  background: linear-gradient(#ffffff, #f7f8fa);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 1px rgba(15, 20, 25, 0.05);
+}
+.rc-control.is-strong {
+  border-color: rgba(15, 20, 25, 0.18);
+  background: linear-gradient(#f3f5f8, #e9ecf1);
+  font-weight: 500;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.rc-narrow {
+  width: 196px;
+  padding: 5.5px 11px;
+  border: 1px solid rgba(15, 20, 25, 0.14);
+  border-radius: 7px;
+  font-size: 12.5px;
+  background: #fbfbfc;
+  box-shadow: inset 0 1px 2px rgba(15, 20, 25, 0.05);
+}
+
+.rc-menu-anchor { position: relative; display: inline-flex; }
+
+.rc-menu {
+  position: absolute;
+  top: 33px;
+  right: 0;
+  min-width: 200px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(253, 253, 254, 0.97);
+  backdrop-filter: saturate(180%) blur(24px);
+  box-shadow: 0 0 0 1px rgba(15, 20, 25, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 14px 34px -10px rgba(15, 20, 25, 0.35);
+  z-index: 6;
+  padding: 5px;
+}
+
+/* Direct children only: the calendar nested inside a menu has its own buttons. */
+.rc-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 12.5px;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+}
+.rc-menu > button:hover { background: var(--bg-hover); }
+.rc-menu > button.is-selected { background: #0969da; color: #ffffff; }
+.rc-menu > button.is-selected:hover { background: #0860c4; }
+.rc-menu__check { width: 12px; }
+.rc-menu__rule { height: 1px; background: rgba(15, 20, 25, 0.08); margin: 4px 0; }
+
+/* Jump to a date */
+.rc-cal { width: 242px; padding: 0; }
+.rc-cal__title {
+  padding: 12px 14px 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: center;
+  letter-spacing: -0.1px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rc-cal__title span { flex: 1; white-space: nowrap; }
+.rc-cal__title button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 0 6px;
+}
+.rc-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 10px 12px;
+}
+.rc-cal__grid.is-head { padding-bottom: 4px; }
+.rc-cal__weekday { text-align: center; font-size: 10px; font-weight: 500; color: var(--text-4); }
+.rc-cal__day {
+  height: 29px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.rc-cal__day:disabled { color: #c4cad1; cursor: default; }
+.rc-cal__day.is-today { font-weight: 600; box-shadow: inset 0 0 0 1px rgba(9, 105, 218, 0.45); }
+.rc-cal__day.is-picked { background: #0969da; color: #ffffff; font-weight: 500; }
+.rc-cal__mark { width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; }
+.rc-cal__day.has-activity .rc-cal__mark { background: #0969da; }
+.rc-cal__day.is-picked .rc-cal__mark { background: #ffffff; }
+
+.rc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-bottom: 4px;
+}
+
+.rc-chip {
+  padding: 3.5px 11px;
+  border: 1px solid rgba(15, 20, 25, 0.13);
+  border-radius: 14px;
+  background: linear-gradient(#ffffff, #f8f9fb);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Same border and weight in both states: a chip that resizes as it toggles
+   shifts the ones beside it out from under the pointer. */
+.rc-chip.is-active {
+  border-color: transparent;
+  background: linear-gradient(#3a4048, #24292f);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 20, 25, 0.2);
+}
+.rc-chip.is-flagged {
+  border-color: rgba(9, 105, 218, 0.28);
+  background: #e8f1fd;
+  color: #0969da;
+}
+.rc-chip__rule { width: 1px; height: 16px; background: rgba(15, 20, 25, 0.1); margin: 0 5px; }
+
+.rc-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 0;
+}
+
+.rc-daymark {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 18px 8px 5px;
+}
+.rc-daymark:first-child { margin-top: 0; }
+.rc-daymark span:first-child {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: var(--text-1);
+}
+.rc-daymark__rule { flex: 1; height: 1px; background: rgba(15, 20, 25, 0.08); }
+
+.rc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  scroll-margin-top: 8px;
+}
+.rc-row:hover, .rc-row.is-open { background: rgba(15, 20, 25, 0.035); }
+
+.rc-row__time {
+  flex: none;
+  width: 58px;
+  padding-top: 3px;
+  white-space: nowrap;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-row__glyph { padding-top: 2px; }
+
+.rc-row__main { flex: 1; min-width: 0; }
+
+.rc-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+}
+.rc-row__text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Outside the truncating span, so the number always survives the ellipsis. */
+.rc-row__number { flex: none; color: var(--text-4); font-weight: 400; }
+
+.rc-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.rc-row__meta.is-changed { color: #0969da; }
+/* Avatars sit in the metadata line, so they must never absorb the row's
+   remaining width or push the reason badge around. */
+.rc-row__meta .avatar,
+.rc-row__meta .repo-avatar { flex: none; }
+.rc-row__meta .repo-avatar { margin-right: -1px; }
+.rc-row__meta .avatar { margin-right: -1px; }
+.rc-row__sep { color: rgba(15, 20, 25, 0.2); }
+
+.rc-row__tail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 1px;
+}
+
+.rc-row__actions { display: none; gap: 6px; }
+.rc-row:hover .rc-row__actions, .rc-row.is-open .rc-row__actions { display: flex; }
+
+.rc-mini {
+  padding: 3px 9px;
+  border: 1px solid rgba(15, 20, 25, 0.14);
+  border-radius: 6px;
+  background: linear-gradient(#ffffff, #f7f8fa);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-1);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 1px rgba(15, 20, 25, 0.05);
+}
+.rc-mini.is-plain { border-color: transparent; background: none; box-shadow: none; color: #0969da; }
+
+.rc-wrote {
+  margin: 3px 0 7px 81px;
+  border-radius: 9px;
+  background: linear-gradient(#ffffff, #fbfbfc);
+  box-shadow: 0 0 0 1px rgba(15, 20, 25, 0.08), inset 0 1px 0 #ffffff, 0 1px 2px rgba(15, 20, 25, 0.05);
+  padding: 11px 13px;
+  max-width: 640px;
+}
+.rc-wrote__head {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  color: var(--text-3);
+}
+.rc-wrote__body {
+  border-left: 2px solid rgba(9, 105, 218, 0.3);
+  padding-left: 11px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.rc-wrote__actions { display: flex; gap: 7px; margin-top: 11px; }
+
+.rc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 18px 10px 24px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.rc-foot.is-end { font-size: 11.5px; color: var(--text-4); }
+
+.rc-spin {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(15, 20, 25, 0.12);
+  border-top-color: #0969da;
+  border-radius: 50%;
+  display: inline-block;
+  animation: rc-spin 1s linear infinite;
+}
+@keyframes rc-spin { to { transform: rotate(360deg); } }
+
+.rc-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ── The ⌘K palette ───────────────────────────────────────────────── */
+
+.rc-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(32, 40, 50, 0.4), rgba(14, 18, 24, 0.64));
+}
+
+.rc-palette {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 13px;
+  overflow: hidden;
+  background: rgba(253, 253, 254, 0.94);
+  backdrop-filter: saturate(180%) blur(30px);
+  box-shadow: 0 0 0 1px rgba(15, 20, 25, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 20px -8px rgba(15, 20, 25, 0.22), 0 36px 72px -20px rgba(15, 20, 25, 0.5);
+}
+
+.rc-palette__head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 17px;
+  border-bottom: 1px solid rgba(15, 20, 25, 0.07);
+}
+.rc-palette__head span:first-child { font-size: 15px; color: var(--text-4); }
+.rc-palette__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-size: 15px;
+  color: var(--text-1);
+  letter-spacing: -0.1px;
+}
+
+.rc-modes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(15, 20, 25, 0.06);
+  border-radius: 7px;
+}
+.rc-modes button {
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 2.5px 9px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rc-modes button.is-active {
+  font-weight: 500;
+  color: var(--text-1);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 20, 25, 0.12), 0 0 0 0.5px rgba(15, 20, 25, 0.06);
+}
+
+.rc-palette__list {
+  padding: 7px 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.rc-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 6px 10px;
+  border-radius: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+.rc-item:hover { background: rgba(15, 20, 25, 0.035); }
+.rc-item.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 #0969da; }
+
+.rc-item__line { display: flex; align-items: center; gap: 11px; }
+.rc-item__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-item.is-active .rc-item__title { font-weight: 500; }
+
+/* Metadata belongs to the active row alone; the list stays scannable. */
+.rc-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 24px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-item__meta code { font-family: ui-monospace, Menlo, monospace; }
+.rc-item__meta .rc-changed { color: #0969da; font-weight: 500; }
+
+/* Words mode inverts the hierarchy: the sentence is the headline. */
+.rc-word { display: block; width: 100%; border: none; background: none; padding: 10px 12px; border-radius: 8px; text-align: left; cursor: pointer; }
+.rc-word:hover { background: rgba(15, 20, 25, 0.035); }
+.rc-word.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 #0969da; }
+.rc-word__sentence { font-size: 14px; color: var(--text-2); line-height: 1.6; letter-spacing: -0.1px; }
+.rc-word.is-active .rc-word__sentence { color: var(--text-1); }
+.rc-word__sentence mark { background: #fff2a8; color: inherit; padding: 0 2px; border-radius: 3px; }
+.rc-word__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--text-4);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rc-word.is-active .rc-word__meta { color: var(--text-2); }
+.rc-word__meta code { font-family: ui-monospace, Menlo, monospace; }
+
+.rc-palette__empty { padding: 26px 12px; text-align: center; font-size: 12.5px; color: var(--text-3); }
+
+/* ── Settings › Recent ────────────────────────────────────────────── */
+
+.rc-settings-note { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }

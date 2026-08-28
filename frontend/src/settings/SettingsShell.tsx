@@ -20,6 +20,7 @@ import type {
   ModelSettingsDto,
   QuietHoursDto,
 } from '../types';
+import { RETENTION_DAYS as RECENT_RETENTION_DAYS } from '../recent/model';
 import {
   formatMinuteOfDay,
   MINUTE_OPTIONS,
@@ -44,6 +45,7 @@ export default function SettingsShell() {
       <ModelsCard />
       <GitHubAccountCard />
       <QuietHoursCard />
+      <RecentCard />
       <footer className="sets-footer">ByteQuay {version}</footer>
     </main>
   );
@@ -473,6 +475,61 @@ function GitHubAccountCard() {
           The full token is never shown — copy uses the stored value. If it&apos;s lost, replace
           it with Update.
         </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentCard() {
+  const [cleared, setCleared] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const clear = () => {
+    setError(null);
+    window.bridge.clearRecent()
+      .then(() => {
+        setCleared(true);
+        setConfirming(false);
+      })
+      .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+  };
+
+  return (
+    <section className="sets-card">
+      <div className="sets-card-head">
+        <span className="sets-card-title">Recent</span>
+        <span className="sets-card-hint">this Mac only — never synced</span>
+      </div>
+      {error && <div className="sets-error" role="alert">{error}</div>}
+      <div className="sets-row">
+        <div className="sets-row-main">
+          <div className="sets-row-title">What you touched is kept for {RECENT_RETENTION_DAYS} days</div>
+          <div className="sets-row-sub sets-row-sub-plain">
+            Pull requests, issues, tasks and commits you opened, commented on or changed, plus the
+            text you wrote on them. Anything older is swept automatically.
+          </div>
+        </div>
+      </div>
+      <div className="sets-row">
+        <div className="sets-row-main">
+          <div className="sets-row-title">Clear history</div>
+          <div className="sets-row-sub sets-row-sub-plain">
+            {cleared
+              ? 'Cleared. The stream and the word search are both empty.'
+              : 'Empties the stream and the word search together. This cannot be undone.'}
+          </div>
+        </div>
+        {confirming ? (
+          <>
+            <button type="button" className="sets-btn is-danger" onClick={clear}>Clear everything</button>
+            <button type="button" className="sets-btn" onClick={() => setConfirming(false)}>Cancel</button>
+          </>
+        ) : (
+          <button type="button" className="sets-btn is-danger" onClick={() => { setCleared(false); setConfirming(true); }}>
+            Clear history
+          </button>
+        )}
       </div>
     </section>
   );

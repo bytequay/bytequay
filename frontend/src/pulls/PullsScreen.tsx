@@ -17,6 +17,7 @@ import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDet
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
+import { useRecentTouch } from '../recent/useRecentTouch';
 import {
   PULL_TABS,
   reconcilePostedComment,
@@ -524,6 +525,15 @@ export default function PullsScreen({
     window.addEventListener('mouseup', stop);
   };
 
+  // Recent records reading, not clicking: the dwell timer decides, and
+  // opening the diff lands immediately because that is already intent.
+  const recordDiffOpened = useRecentTouch(selectedPr === null ? null : {
+    type: 'PULL_REQUEST',
+    repo: selectedPr.repo,
+    number: selectedPr.number,
+    workspaceId: repositoryScope?.workspaceId ?? null,
+  });
+
   const paneShown = paneOpen && selectedPr !== null;
 
   return (
@@ -622,7 +632,10 @@ export default function PullsScreen({
             pr={selectedPr}
             detail={detail}
             tab={detailTab}
-            onTab={setDetailTab}
+            onTab={next => {
+              if (next === 'changes' && detailTab !== 'changes') recordDiffOpened();
+              setDetailTab(next);
+            }}
             onRefresh={refresh}
             onReviewSubmitted={applySubmittedReview}
             refreshing={detailLoading}

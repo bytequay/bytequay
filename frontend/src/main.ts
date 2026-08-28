@@ -19,6 +19,9 @@ import type {
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
   CommitHistorySourceDto,
+  RecentDraftRequest,
+  RecentFilterQuery,
+  RecentTouchRequest,
 } from './types';
 import {
   BACKEND_BASE,
@@ -532,6 +535,53 @@ function registerIpc(): void {
     );
     clipboard.writeText(result.value);
     return true;
+  });
+
+  // Recent is local-only: every read answers from SQLite, so these stay
+  // useful with the network off.
+  ipcMain.handle('recent:list', (_event, query: RecentFilterQuery) => {
+    const url = new URL(`${BACKEND_BASE}/recent`);
+    if (query.from) url.searchParams.set('from', query.from);
+    if (query.to) url.searchParams.set('to', query.to);
+    if (query.types?.length) url.searchParams.set('types', query.types.join(','));
+    if (query.action) url.searchParams.set('action', query.action);
+    if (query.workspace) url.searchParams.set('workspace', query.workspace);
+    if (query.changedSinceRead) url.searchParams.set('changedSinceRead', 'true');
+    if (query.text) url.searchParams.set('text', query.text);
+    if (query.cursor) url.searchParams.set('cursor', query.cursor);
+    return backendJson(url);
+  });
+  ipcMain.handle('recent:search', (_event, query: string, limit: number) => {
+    const url = new URL(`${BACKEND_BASE}/recent/search`);
+    url.searchParams.set('q', query ?? '');
+    url.searchParams.set('limit', String(limit));
+    return backendJson(url);
+  });
+  ipcMain.handle('recent:words', (_event, query: string, limit: number) => {
+    const url = new URL(`${BACKEND_BASE}/recent/words`);
+    url.searchParams.set('q', query ?? '');
+    url.searchParams.set('limit', String(limit));
+    return backendJson(url);
+  });
+  ipcMain.handle('recent:changes', () => backendJson(`${BACKEND_BASE}/recent/changes`));
+  ipcMain.handle('recent:touch', (_event, touch: RecentTouchRequest) =>
+    backendVoid(`${BACKEND_BASE}/recent/touch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(touch),
+    }));
+  ipcMain.handle('recent:draft', (_event, draft: RecentDraftRequest) =>
+    backendVoid(`${BACKEND_BASE}/recent/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    }));
+  ipcMain.handle('recent:clear', () => backendVoid(`${BACKEND_BASE}/recent`, { method: 'DELETE' }));
+  ipcMain.handle('recent:clear-row', (_event, id: string) => {
+    // The id spans path segments because it carries the repository; encode each
+    // segment and keep the separators.
+    const path = id.split('/').map(encodeURIComponent).join('/');
+    return backendVoid(`${BACKEND_BASE}/recent/${path}`, { method: 'DELETE' });
   });
 
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {

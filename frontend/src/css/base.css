@@ -708,6 +708,13 @@ samp {
 .app-sidebar.is-collapsed .app-sidebar__toggle { margin-left: 0; }
 .app-sidebar.is-collapsed .app-sidebar__history { justify-content: center; padding-right: 3px; padding-left: 3px; }
 .app-sidebar.is-collapsed .app-sidebar__history button { width: 20px; }
+/* Recent sits with Home above the work surfaces, per the left-nav design. */
+.app-sidebar__rule {
+  height: 1px;
+  background: rgba(15, 20, 25, 0.07);
+  margin: 5px 10px;
+}
+
 .app-sidebar.is-collapsed .app-sidebar__nav { padding: 6px; }
 .app-sidebar.is-collapsed .app-sidebar__item { justify-content: center; gap: 0; padding: 7px 0; }
 

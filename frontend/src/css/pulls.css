@@ -993,3 +993,11 @@
   .pr-thread-row,
   .pr-inline-thread { margin-left: 34px; }
 }
+
+/* Addressable wrapper for one timeline group. It must keep a box: the spine is
+   painted by .pr-timeline::before underneath, and .pr-timeline > * is what
+   lifts each entry above it. A display:contents wrapper generates no box, so
+   that rule — and the :has() lift that raises an open menu over later cards —
+   would land on nothing. Carries no styling of its own, so the flex column
+   spaces these exactly as it spaced the cards directly. */
+.pr-timeline__slot { display: block; min-width: 0; }

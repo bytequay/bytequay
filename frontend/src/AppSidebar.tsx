@@ -17,10 +17,11 @@ import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
 import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, type WorkspaceTab } from './workspaces/model';
 
-export type AppPage = 'home' | 'pulls' | 'workspaces' | 'settings';
+export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'settings';
 
 const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
+  { page: 'recent', label: 'Recent', icon: <RecentIcon /> },
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
   { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
 ];
@@ -154,7 +155,9 @@ export default function AppSidebar({
         <>
           <div className="app-sidebar__brand app-sidebar__label">BYTEQUAY</div>
           <nav className="app-sidebar__nav" aria-label="Main navigation">
-            {NAV_ITEMS.map(navItem)}
+            {NAV_ITEMS.map(item => (item.page === 'recent'
+              ? [navItem(item), <div key="recent-rule" className="app-sidebar__rule" />]
+              : navItem(item)))}
           </nav>
           <div className="app-sidebar__spacer" />
           <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application navigation">
@@ -208,6 +211,15 @@ function Icon({ children }: { children: ReactNode }) {
 
 function HomeIcon() {
   return <Icon><path d="M3 9.8 12 3l9 6.8" /><path d="M5.5 8.8V20a1 1 0 0 0 1 1H17.5a1 1 0 0 0 1-1V8.8" /></Icon>;
+}
+
+function RecentIcon() {
+  return (
+    <Icon>
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
+      <path d="M3 4.4v4.2h4.2M12 7.6V12l3 1.8" />
+    </Icon>
+  );
 }
 
 function PullsIcon() {

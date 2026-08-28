@@ -197,6 +197,15 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:token:delete', workspaceId),
   copyWorkspaceGitHubToken: workspaceId =>
     ipcRenderer.invoke('workspaces:token:copy', workspaceId),
+
+  fetchRecent: query => ipcRenderer.invoke('recent:list', query),
+  searchRecent: (query, limit = 10) => ipcRenderer.invoke('recent:search', query, limit),
+  searchRecentWords: (query, limit = 10) => ipcRenderer.invoke('recent:words', query, limit),
+  fetchRecentChanges: () => ipcRenderer.invoke('recent:changes'),
+  recordRecentTouch: touch => ipcRenderer.invoke('recent:touch', touch),
+  saveRecentDraft: draft => ipcRenderer.invoke('recent:draft', draft),
+  clearRecent: () => ipcRenderer.invoke('recent:clear'),
+  clearRecentRow: id => ipcRenderer.invoke('recent:clear-row', id),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

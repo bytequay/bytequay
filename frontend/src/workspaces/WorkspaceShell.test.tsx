@@ -13,6 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import AppSidebar from '../AppSidebar';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { WorkspaceCards } from './WorkspacesPage';
@@ -20,6 +21,32 @@ import WorkspaceSettings from './WorkspaceSettings';
 import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
 
 describe('watched repository workspace UI', () => {
+  it('keeps global navigation above app and workspace navigation', () => {
+    const props = {
+      canGoBack: false,
+      canGoForward: false,
+      onBack: () => {},
+      onForward: () => {},
+      onNavigate: () => {},
+      workspaceTab: 'home' as const,
+      onWorkspaceTab: () => {},
+    };
+    const app = renderToStaticMarkup(<AppSidebar {...props} page="home" workspace={null} />);
+    const workspaceSidebar = renderToStaticMarkup(<AppSidebar
+      {...props}
+      page="workspaces"
+      workspace={workspace('FORK')}
+    />);
+
+    expect(app).not.toContain('BYTEQUAY');
+    expect(app).toMatch(/aria-label="Global navigation">.*aria-label="Home".*aria-label="Recent".*<\/nav><nav .*aria-label="Application navigation"/);
+    expect(workspaceSidebar).toMatch(/aria-label="Global navigation">.*aria-label="Home".*aria-label="Recent".*<\/nav><button type="button" class="app-sidebar__ws-head"/);
+    expect(app).toContain('class="app-sidebar__item is-active" aria-label="Home"');
+    expect(workspaceSidebar).toContain('class="app-sidebar__item" aria-label="Home"');
+    expect(workspaceSidebar).toContain('class="app-sidebar__item is-active" aria-label="Workspace home"');
+    expect(workspaceSidebar).toContain('aria-label="contributor/project workspace home"');
+  });
+
   it('shows the same durable ID and state on Home and Workspaces', () => {
     const value = workspace('FORK');
     const home = renderToStaticMarkup(<WatchedReposGrid

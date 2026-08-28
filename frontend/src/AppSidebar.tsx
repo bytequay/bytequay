@@ -19,15 +19,20 @@ import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, typ
 
 export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'settings';
 
-const NAV_ITEMS: Array<{ page: AppPage; label: string; icon: ReactNode }> = [
+type NavItem = { page: AppPage; label: string; icon: ReactNode };
+
+const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
   { page: 'recent', label: 'Recent', icon: <RecentIcon /> },
+];
+
+const APP_NAV_ITEMS: NavItem[] = [
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
   { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
 ];
 
 const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
-  { tab: 'home', label: 'Home', icon: <HomeIcon /> },
+  { tab: 'home', label: 'Workspace home', icon: <HomeIcon /> },
   { tab: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
   { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
@@ -65,7 +70,7 @@ export default function AppSidebar({
     </div>
   );
 
-  const navItem = ({ page: destination, label, icon }: typeof NAV_ITEMS[number]) => (
+  const navItem = ({ page: destination, label, icon }: NavItem) => (
     <button
       key={destination}
       type="button"
@@ -151,22 +156,29 @@ export default function AppSidebar({
         )}
       </div>
       {collapsed && historyControls}
+      <nav className="app-sidebar__nav" aria-label="Global navigation">
+        {GLOBAL_NAV_ITEMS.map(navItem)}
+        <div className="app-sidebar__rule" />
+      </nav>
       {workspace === null ? (
         <>
-          <div className="app-sidebar__brand app-sidebar__label">BYTEQUAY</div>
-          <nav className="app-sidebar__nav" aria-label="Main navigation">
-            {NAV_ITEMS.map(item => (item.page === 'recent'
-              ? [navItem(item), <div key="recent-rule" className="app-sidebar__rule" />]
-              : navItem(item)))}
+          <nav className="app-sidebar__nav" aria-label="Application navigation">
+            {APP_NAV_ITEMS.map(navItem)}
           </nav>
           <div className="app-sidebar__spacer" />
-          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application navigation">
+          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
             {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
           </nav>
         </>
       ) : (
         <>
-          <div className="app-sidebar__ws-head" title={workspace.localRepositoryPath}>
+          <button
+            type="button"
+            className="app-sidebar__ws-head"
+            aria-label={`${workspace.name} workspace home`}
+            title={workspace.localRepositoryPath}
+            onClick={() => onWorkspaceTab('home')}
+          >
             <Avatar login={workspace.selectedOwner} size={18} />
             <span
               className="app-sidebar__ws-dot"
@@ -176,7 +188,7 @@ export default function AppSidebar({
               title={`Workspace ${workspacePhaseLabel(workspace).toLowerCase()}`}
             />
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
-          </div>
+          </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}
           </nav>

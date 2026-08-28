@@ -676,12 +676,20 @@ samp {
 
 .app-sidebar__ws-head {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 7px;
   padding: 8px 16px 10px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--border);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+
+.app-sidebar__ws-head:hover { background: var(--left-nav-hover-bg); }
+.app-sidebar__ws-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .app-sidebar__ws-dot {
   width: 8px;

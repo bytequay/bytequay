@@ -6,6 +6,9 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 .sets-page { max-width: 820px; margin: 0 auto; padding: 26px 32px 32px; }
+.sets-page, .sets-page * { font-weight: 400 !important; }
+.sets-page .sets-menu-desc { display: none; }
+.sets-page .sets-caret { display: none; }
 .sets-page h1 { margin: 0; font-size: 20px; font-weight: 700; }
 .sets-sub { font-size: var(--ui-font-size); color: #57606a; margin: 4px 0 0; }
 .sets-footer { margin-top: 18px; color: #8c959f; font-size: 12px; }

@@ -274,7 +274,11 @@ reuse a successful dashboard snapshot for six minutes after it completes. A cred
 for older in-flight work and then starts a new scan. This keeps a manual refresh from queuing behind
 scheduled repository work and then repeating the same GitHub discovery scan. The frontend keeps the
 persisted list visible while a refresh is in progress, reloads the current search when it completes,
-and reports sync failures in the list without replacing cached rows.
+and reports sync failures in the list without replacing cached rows. The pull-request toolbar reuses
+the existing dashboard and repository list scans, running the repository scan once for each currently
+monitored repository. It persists only fields returned by those list APIs; detail-derived metrics and
+diffs remain cached until the selected PR's focused polling or the scheduled full refresh updates
+them. The global list combines personalized dashboard rows with current workspace projections.
 
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are

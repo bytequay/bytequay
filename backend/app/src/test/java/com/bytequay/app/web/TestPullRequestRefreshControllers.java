@@ -30,8 +30,10 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 
@@ -59,9 +61,36 @@ class TestPullRequestRefreshControllers
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         PullRequestController controller = new PullRequestController(pullRequests, refresh);
 
-        controller.triggerSync();
+        controller.triggerSync(false);
 
         verify(refresh).refreshDashboard();
+    }
+
+    @Test
+    void dashboardListRefreshUsesTheExistingNarrowSync()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, refresh);
+
+        controller.triggerSync(true);
+
+        verify(refresh).refreshDashboardRows();
+    }
+
+    @Test
+    void dashboardListRefreshReportsAnInFlightRefresh()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, refresh);
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "refresh already in progress"))
+                .when(refresh).refreshDashboardRows();
+
+        standaloneSetup(controller).build()
+                .perform(post("/api/settings/sync/trigger").queryParam("listOnly", "true"))
+                .andExpect(status().isConflict());
     }
 
     @Test

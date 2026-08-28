@@ -20,7 +20,11 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -38,13 +42,18 @@ public class PullRequestRefreshService
 
     private final PullRequestService pullRequests;
     private final CredentialService credentials;
+    private final WorkspaceStore workspaces;
     private final Lock refreshLock = new ReentrantLock();
     private volatile DashboardSnapshot dashboardSnapshot;
 
-    public PullRequestRefreshService(PullRequestService pullRequests, CredentialService credentials)
+    public PullRequestRefreshService(
+            PullRequestService pullRequests,
+            CredentialService credentials,
+            WorkspaceStore workspaces)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
     /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
@@ -91,6 +100,26 @@ public class PullRequestRefreshService
         GitHubCredential credential = credentials.resolveGitHubCredential();
         if (!dashboardIsFresh(credential)) {
             refresh(this::refreshDashboardIfStale);
+        }
+    }
+
+    /** Uses the existing list scans without fetching pull-request detail or diffs. */
+    public void refreshDashboardRows()
+    {
+        if (!refreshLock.tryLock()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A pull request refresh is already in progress; try again shortly");
+        }
+        try {
+            pullRequests.syncFromGitHub(false);
+            workspaces.findAll().stream()
+                    .map(Workspace::monitoredRepository)
+                    .distinct()
+                    .forEach(pullRequests::syncRepository);
+        }
+        finally {
+            refreshLock.unlock();
         }
     }
 

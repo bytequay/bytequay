@@ -282,12 +282,17 @@ public class PullRequestService
      */
     public void syncFromGitHub()
     {
+        syncFromGitHub(true);
+    }
+
+    void syncFromGitHub(boolean refreshDetails)
+    {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String currentLogin = credential.profile().login();
         String syncMarker = java.util.UUID.randomUUID().toString();
         Set<String> seen = new HashSet<>();
-        syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED);
+        syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED, refreshDetails);
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
         syncDashboardQuery(
                 pat,
@@ -295,12 +300,19 @@ public class PullRequestService
                 syncMarker,
                 seen,
                 "is:pr is:closed author:@me closed:>=" + sinceDate,
-                AUTHORED);
+                AUTHORED,
+                refreshDetails);
         syncDashboardQuery(
-                pat, currentLogin, syncMarker, seen, "is:pr is:open user-review-requested:@me", REVIEW_REQUESTED);
+                pat,
+                currentLogin,
+                syncMarker,
+                seen,
+                "is:pr is:open user-review-requested:@me",
+                REVIEW_REQUESTED,
+                refreshDetails);
         syncDashboardQuery(
-                pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER);
-        syncNotificationPullRequests(pat, currentLogin, syncMarker, seen);
+                pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER, refreshDetails);
+        syncNotificationPullRequests(pat, currentLogin, syncMarker, seen, refreshDetails);
         deleteDetails(store.completeDashboardSync(syncMarker));
     }
 
@@ -788,7 +800,8 @@ public class PullRequestService
             String syncMarker,
             Set<String> seen,
             String query,
-            PullRequest.Origin origin)
+            PullRequest.Origin origin,
+            boolean refreshDetails)
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
@@ -797,7 +810,7 @@ public class PullRequestService
                     .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
                     .map(pullRequest -> withOrigin(pullRequest, origin))
                     .collect(toImmutableList());
-            syncDashboardPage(pat, currentLogin, syncMarker, fresh);
+            syncDashboardPage(pat, currentLogin, syncMarker, fresh, refreshDetails);
             if (!result.hasMore()) {
                 break;
             }
@@ -808,9 +821,14 @@ public class PullRequestService
             String pat,
             String currentLogin,
             String syncMarker,
-            List<FetchedPullRequest> pullRequests)
+            List<FetchedPullRequest> pullRequests,
+            boolean refreshDetails)
     {
         if (pullRequests.isEmpty()) {
+            return;
+        }
+        if (!refreshDetails) {
+            store.saveDashboardSyncPage(pullRequests, syncMarker);
             return;
         }
         Map<Long, Instant> previous = updatedAtBeforeSync(pullRequests);
@@ -882,7 +900,8 @@ public class PullRequestService
             String pat,
             String currentLogin,
             String syncMarker,
-            Set<String> seen)
+            Set<String> seen,
+            boolean refreshDetails)
     {
         for (AttentionPrRef attention : gitHub.fetchAttentionPrRefs(pat)) {
             PullRequestRef ref = attention.ref();
@@ -898,7 +917,8 @@ public class PullRequestService
                             syncMarker,
                             ImmutableList.of(attention.reviewRequested()
                                     ? withOrigin(pullRequest, REVIEW_REQUESTED)
-                                    : workspaceOrigin(pullRequest, currentLogin)));
+                                    : workspaceOrigin(pullRequest, currentLogin)),
+                            refreshDetails);
                 }
             }
             catch (RuntimeException failure) {
@@ -923,6 +943,7 @@ public class PullRequestService
             RefreshMode mode = refreshMode(
                     pullRequest,
                     previous.get(pullRequest.id()),
+                    snapshots.findDetailUpdatedAt(pullRequest.id()),
                     snapshots.findDetailSyncedAt(pullRequest.repo(), pullRequest.number()),
                     now);
             if (mode == RefreshMode.FULL && !detailFailedRecently(pullRequest, now)) {
@@ -939,11 +960,13 @@ public class PullRequestService
     static RefreshMode refreshMode(
             PullRequest pullRequest,
             Instant previousUpdatedAt,
+            Optional<Instant> detailUpdatedAt,
             Optional<Instant> detailSyncedAt,
             Instant now)
     {
         if (previousUpdatedAt == null
                 || !Objects.equals(previousUpdatedAt, pullRequest.updatedAt())
+                || !Objects.equals(detailUpdatedAt.orElse(null), pullRequest.updatedAt())
                 || detailSyncedAt.isEmpty()) {
             return RefreshMode.FULL;
         }
@@ -978,7 +1001,8 @@ public class PullRequestService
     {
         try {
             ListenableFuture<StoredPrDetail> pending = detailFetcher.fetch(pat, parseRef(pullRequest.repo(), pullRequest.number()));
-            StoredPrDetail detail = snapshots.saveDetail(pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
+            StoredPrDetail detail = snapshots.saveDetail(
+                    pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
             storeDetail(pullRequest, detail, currentLogin);
             syncDiffQuietly(pat, pullRequest);
             detailFailures.remove(detailFailureKey(pullRequest));

@@ -20,10 +20,15 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +41,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -89,6 +95,64 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void toolbarRefreshesDashboardAndDistinctWorkspaceRows()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        RepoRef firstRepository = RepoRef.of("owner", "first");
+        RepoRef secondRepository = RepoRef.of("owner", "second");
+        Workspace first = workspace("first", 1, firstRepository, 0);
+        Workspace duplicate = workspace("duplicate", 2, firstRepository, 1);
+        Workspace second = workspace("second", 3, secondRepository, 2);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(first, duplicate, second));
+        PullRequestRefreshService service = service(pullRequests, workspaces);
+
+        service.refreshDashboardRows();
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).syncFromGitHub(false);
+        order.verify(pullRequests).syncRepository(firstRepository);
+        order.verify(pullRequests).syncRepository(secondRepository);
+    }
+
+    @Test
+    void toolbarReportsAnInFlightRefreshWithoutWaitingOrReloadingStaleRows()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).syncFromGitHub();
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            PullRequestRefreshService service = service(pullRequests, workspaces);
+            var fullRefresh = executor.submit(service::refreshDashboard);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            try {
+                assertThatThrownBy(service::refreshDashboardRows)
+                        .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
+                            assertThat(failure.getStatusCode().value()).isEqualTo(409);
+                            assertThat(failure.getReason()).isEqualTo(
+                                    "A pull request refresh is already in progress; try again shortly");
+                        });
+            }
+            finally {
+                release.countDown();
+            }
+            fullRefresh.get(5, TimeUnit.SECONDS);
+        }
+
+        verify(pullRequests, never()).syncFromGitHub(false);
+        verify(workspaces, never()).findAll();
+    }
+
+    @Test
     void reusesARecentDashboardRefresh()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
@@ -137,7 +201,8 @@ class TestPullRequestRefreshService
         GitHubCredential secondCredential = credential("token-b", "bob");
         AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
         when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials);
+        PullRequestRefreshService service = new PullRequestRefreshService(
+                pullRequests, credentials, noWorkspaces());
 
         service.refreshDashboard();
         current.set(secondCredential);
@@ -163,7 +228,8 @@ class TestPullRequestRefreshService
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
         }).when(pullRequests).syncFromGitHub();
-        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials);
+        PullRequestRefreshService service = new PullRequestRefreshService(
+                pullRequests, credentials, noWorkspaces());
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(service::refreshDashboard);
@@ -309,8 +375,47 @@ class TestPullRequestRefreshService
 
     private static PullRequestRefreshService service(PullRequestService pullRequests)
     {
+        return service(pullRequests, noWorkspaces());
+    }
+
+    private static PullRequestRefreshService service(
+            PullRequestService pullRequests,
+            WorkspaceStore workspaces)
+    {
         return new PullRequestRefreshService(
-                pullRequests, credentials(credential("token-a", "alice")));
+                pullRequests, credentials(credential("token-a", "alice")), workspaces);
+    }
+
+    private static WorkspaceStore noWorkspaces()
+    {
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of());
+        return workspaces;
+    }
+
+    private static Workspace workspace(String id, long repositoryId, RepoRef repository, int displayOrder)
+    {
+        Instant now = Instant.parse("2026-08-21T00:00:00Z");
+        return new Workspace(
+                id,
+                repository.fullName(),
+                repositoryId,
+                repository,
+                Optional.empty(),
+                Optional.empty(),
+                repositoryId,
+                repository,
+                Workspace.Topology.DIRECT,
+                "main",
+                "https://github.com/" + repository.fullName() + ".git",
+                Optional.empty(),
+                Optional.empty(),
+                "/tmp/workspaces/" + id + "/repository",
+                Optional.empty(),
+                Optional.empty(),
+                displayOrder,
+                now,
+                now);
     }
 
     private static CredentialService credentials(GitHubCredential credential)

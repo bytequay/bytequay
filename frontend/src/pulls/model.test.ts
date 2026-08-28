@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto } from '../types';
-import { reconcilePostedComment, reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
+import { PULL_TABS, reconcilePostedComment, reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
 
 function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
   return {
@@ -85,6 +85,19 @@ describe('rowsForTab', () => {
     expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
   });
 
+  it('keeps all authored work in Mine regardless of state', () => {
+    const open = pr({ id: 1, origin: 'AUTHORED', state: 'open' });
+    const merged = pr({ id: 2, origin: 'AUTHORED', state: 'merged' });
+    const closed = pr({ id: 3, origin: 'AUTHORED', state: 'closed' });
+    const someoneElse = pr({ id: 4, origin: 'OTHER', state: 'open' });
+
+    expect(rowsForTab([open, merged, closed, someoneElse], 'active').map(row => row.id)).toEqual([1, 2, 3]);
+  });
+
+  it('calls the compact reviewed tab Viewed', () => {
+    expect(PULL_TABS.find(tab => tab.key === 'reviewed')?.short).toBe('Viewed');
+  });
+
   it('keeps a commented pull request open after it leaves Needs review', () => {
     const current = pr({ id: 1, origin: 'REVIEW_REQUESTED' });
     const waiting = pr({ id: 2, origin: 'REVIEW_REQUESTED' });
@@ -117,7 +130,7 @@ describe('rowsForTab', () => {
     });
 
     expect(rowsForTab([updated], 'all')).toEqual([]);
-    expect(rowsForTab([updated], 'active')).toEqual([]);
+    expect(rowsForTab([updated], 'active')[0]?.kind).toBe('merged');
     expect(rowsForTab([updated], 'req')).toEqual([]);
     expect(rowsForTab([updated], 'reviewed')).toEqual([]);
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');

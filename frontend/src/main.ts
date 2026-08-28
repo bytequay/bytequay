@@ -613,7 +613,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
     ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
-    : `${BACKEND_BASE}/api/settings/sync/trigger`, {
+    : `${BACKEND_BASE}/api/settings/sync/trigger?listOnly=true`, {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));

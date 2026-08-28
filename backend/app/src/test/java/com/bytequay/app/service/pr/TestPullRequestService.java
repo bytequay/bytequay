@@ -265,6 +265,61 @@ class TestPullRequestService
     }
 
     @Test
+    void dashboardListSyncLeavesDetailAndDiffForTheNextFullRefresh()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        Instant currentUpdatedAt = pullRequest().updatedAt();
+        when(gitHub.searchPullRequestsPaged(
+                eq("pat"), anyString(), anyInt(), anyInt(), eq("updated"), eq("desc")))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), 1, 100, 1, false));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(store.findUpdatedAtByIds(ImmutableSet.of(12L)))
+                .thenReturn(ImmutableMap.of(12L, currentUpdatedAt));
+        when(store.saveDashboardSyncPage(anyList(), anyString()))
+                .thenReturn(ImmutableList.of(storedPullRequest()));
+        when(store.completeDashboardSync(anyString())).thenReturn(ImmutableSet.of());
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(detailStore.findSyncedAt("owner/repo", 7))
+                .thenReturn(Optional.of(Instant.parse("2026-08-21T00:00:00Z")));
+        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
+        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
+                .thenReturn(ImmutableList.of());
+        when(viewStateStore.findByPrIds(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of());
+        when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"files\"")));
+        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"commits\"")));
+
+        service.syncFromGitHub(false);
+
+        verify(store).saveDashboardSyncPage(anyList(), anyString());
+        verify(store, never()).findUpdatedAtByIds(any());
+        verify(store, never()).updateEnrichment(
+                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), any());
+        verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
+        verify(gitHub, never()).fetchPrDetail(anyString(), any());
+        verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());
+        verify(detailStore, never()).save(anyLong(), any());
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
+        verify(diffStore, never()).saveDefault(anyLong(), any(), any());
+
+        service.syncFromGitHub();
+
+        verify(gitHub).fetchPrDetail("pat", ref);
+        verify(detailStore).save(eq(12L), any());
+        verify(diffStore).saveDefault(eq(12L), any(), any());
+    }
+
+    @Test
     void workspaceSyncRefreshesSearchMissingPullRequestByExactReference()
     {
         RepoRef repository = RepoRef.of("owner", "repo");
@@ -498,13 +553,29 @@ class TestPullRequestService
         Instant now = Instant.parse("2026-08-24T12:00:00Z");
         PullRequest pullRequest = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
 
-        assertThat(PullRequestService.refreshMode(pullRequest, null, Optional.empty(), now))
+        assertThat(PullRequestService.refreshMode(
+                pullRequest, null, Optional.empty(), Optional.empty(), now))
                 .isEqualTo(PullRequestService.RefreshMode.FULL);
         assertThat(PullRequestService.refreshMode(
-                pullRequest, now.minusSeconds(120), Optional.of(now.minusSeconds(60)), now))
+                pullRequest,
+                now.minusSeconds(120),
+                Optional.of(pullRequest.updatedAt()),
+                Optional.of(now.minusSeconds(60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.FULL);
         assertThat(PullRequestService.refreshMode(
-                pullRequest, pullRequest.updatedAt(), Optional.empty(), now))
+                pullRequest,
+                pullRequest.updatedAt(),
+                Optional.of(pullRequest.updatedAt()),
+                Optional.empty(),
+                now))
+                .isEqualTo(PullRequestService.RefreshMode.FULL);
+        assertThat(PullRequestService.refreshMode(
+                pullRequest,
+                pullRequest.updatedAt(),
+                Optional.of(pullRequest.updatedAt().minusSeconds(1)),
+                Optional.of(now.minusSeconds(60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.FULL);
     }
 
@@ -527,16 +598,32 @@ class TestPullRequestService
         PullRequest closed = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
 
         assertThat(PullRequestService.refreshMode(
-                recentOpen, recentOpen.updatedAt(), Optional.of(now.minusSeconds(6 * 60)), now))
+                recentOpen,
+                recentOpen.updatedAt(),
+                Optional.of(recentOpen.updatedAt()),
+                Optional.of(now.minusSeconds(6 * 60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.STATUS);
         assertThat(PullRequestService.refreshMode(
-                recentOpen, recentOpen.updatedAt(), Optional.of(now.minusSeconds(5 * 60)), now))
+                recentOpen,
+                recentOpen.updatedAt(),
+                Optional.of(recentOpen.updatedAt()),
+                Optional.of(now.minusSeconds(5 * 60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.NONE);
         assertThat(PullRequestService.refreshMode(
-                oldOpen, oldOpen.updatedAt(), Optional.of(now.minusSeconds(7 * 60)), now))
+                oldOpen,
+                oldOpen.updatedAt(),
+                Optional.of(oldOpen.updatedAt()),
+                Optional.of(now.minusSeconds(7 * 60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.NONE);
         assertThat(PullRequestService.refreshMode(
-                closed, closed.updatedAt(), Optional.of(now.minusSeconds(7 * 60)), now))
+                closed,
+                closed.updatedAt(),
+                Optional.of(closed.updatedAt()),
+                Optional.of(now.minusSeconds(7 * 60)),
+                now))
                 .isEqualTo(PullRequestService.RefreshMode.NONE);
     }
 

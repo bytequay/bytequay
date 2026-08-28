@@ -244,6 +244,13 @@ public class PullRequestSnapshotService
         return details.findSyncedAt(repo, number);
     }
 
+    Optional<Instant> findDetailUpdatedAt(long prId)
+    {
+        return details.find(prId)
+                .map(StoredPrDetail::raw)
+                .map(PrRawDetail::updatedAt);
+    }
+
     Optional<String> findDetailEtag(long prId)
     {
         return details.findEtag(prId);

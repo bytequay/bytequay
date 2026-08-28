@@ -25,7 +25,7 @@ export const PULL_TABS: { key: PullTab; label: string; short: string; empty: str
   { key: 'all', label: 'Open', short: 'Open', empty: 'open pull requests' },
   { key: 'active', label: 'My PRs', short: 'Mine', empty: 'pull requests you authored' },
   { key: 'req', label: 'Needs review', short: 'Review', empty: 'pull requests needing your review' },
-  { key: 'reviewed', label: 'Reviewed', short: 'Done', empty: 'pull requests you reviewed' },
+  { key: 'reviewed', label: 'Reviewed', short: 'Viewed', empty: 'pull requests you reviewed' },
   { key: 'done', label: 'Closed', short: 'Closed', empty: 'closed pull requests' },
 ];
 
@@ -75,9 +75,9 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
     .filter(pr => {
       const done = pullRequestKind(pr.state) !== 'open';
       const reviewed = pr.origin !== 'AUTHORED' && pr.handledAction !== null;
+      if (tab === 'active') return pr.origin === 'AUTHORED';
       if (tab === 'done') return done;
       if (done) return false;
-      if (tab === 'active') return pr.origin === 'AUTHORED';
       if (tab === 'req') return pullRequestNeedsReview(pr);
       if (tab === 'reviewed') return reviewed;
       return true;

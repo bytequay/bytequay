@@ -78,8 +78,12 @@ public class PullRequestController
 
     @PostMapping("/api/settings/sync/trigger")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void triggerSync()
+    public void triggerSync(@RequestParam(defaultValue = "false") boolean listOnly)
     {
+        if (listOnly) {
+            refreshService.refreshDashboardRows();
+            return;
+        }
         refreshService.refreshDashboard();
     }
 

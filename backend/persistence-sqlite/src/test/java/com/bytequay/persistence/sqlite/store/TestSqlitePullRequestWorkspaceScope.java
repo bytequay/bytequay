@@ -17,6 +17,8 @@ import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,6 +33,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +58,9 @@ class TestSqlitePullRequestWorkspaceScope
     @Autowired
     private SqlitePrViewStateStore viewStateStore;
 
+    @Autowired
+    private SqliteWorkspaceStore workspaceStore;
+
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
@@ -66,12 +72,14 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void workspaceRowsReuseTheStoreWithoutLeakingIntoGlobalList()
+    void currentWorkspaceRowsAppearInTheGlobalListWithoutLeakingRemovedWorkspaces()
     {
         FetchedPullRequest global = pullRequest(1, "account/repo", 1);
         FetchedPullRequest shared = pullRequest(2, "owner/project", 2);
         FetchedPullRequest workspaceOnly = pullRequest(3, "owner/project", 3);
         FetchedPullRequest otherWorkspace = pullRequest(4, "other/project", 4);
+        Workspace workspace = workspace("current", 100, RepoRef.of("owner", "project"));
+        workspaceStore.createOrGet(workspace);
 
         store.saveDashboardSyncPage(ImmutableList.of(global, shared), "global-1");
         store.completeDashboardSync("global-1");
@@ -80,7 +88,14 @@ class TestSqlitePullRequestWorkspaceScope
         store.saveRepositorySyncPage("other/project", ImmutableList.of(otherWorkspace), "workspace-2");
         store.completeRepositorySync("other/project", RETENTION_CUTOFF);
 
-        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(store.findPage(0, 50).pullRequests())
+                .extracting(PullRequest::id)
+                .containsExactlyInAnyOrder(1L, 2L, 3L);
+        assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
+        assertThat(store.findPage(0, 50, "#3").pullRequests())
+                .extracting(PullRequest::id)
+                .containsExactly(3L);
+        assertThat(store.findPage(0, 50, "#4").pullRequests()).isEmpty();
         assertThat(store.findRepositoryPage("OWNER/PROJECT", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
@@ -91,10 +106,19 @@ class TestSqlitePullRequestWorkspaceScope
         store.saveDashboardSyncPage(ImmutableList.of(global), "global-2");
         store.completeDashboardSync("global-2");
 
-        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(store.findPage(0, 50).pullRequests())
+                .extracting(PullRequest::id)
+                .containsExactlyInAnyOrder(1L, 2L, 3L);
         assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
+
+        workspaceStore.delete(workspace.id());
+
+        assertThat(store.findPage(0, 50).pullRequests())
+                .extracting(PullRequest::id)
+                .containsExactlyInAnyOrder(1L, 2L);
+        assertThat(store.findPage(0, 50, "#3").pullRequests()).isEmpty();
     }
 
     @Test
@@ -265,5 +289,30 @@ class TestSqlitePullRequestWorkspaceScope
                 null,
                 null,
                 "feature");
+    }
+
+    private static Workspace workspace(String id, long repositoryId, RepoRef repository)
+    {
+        Instant now = Instant.parse("2026-08-21T00:00:00Z");
+        return new Workspace(
+                id,
+                repository.fullName(),
+                repositoryId,
+                repository,
+                Optional.empty(),
+                Optional.empty(),
+                repositoryId,
+                repository,
+                Workspace.Topology.DIRECT,
+                "main",
+                "https://github.com/" + repository.fullName() + ".git",
+                Optional.empty(),
+                Optional.empty(),
+                "/tmp/workspaces/" + id + "/repository",
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                now,
+                now);
     }
 }

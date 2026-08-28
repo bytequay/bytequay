@@ -479,9 +479,9 @@ not a second implementation. Reuse:
 The minimal additions are a repository-filtered local query/sync path and an optional repository
 scope passed to `PullsScreen`. The workspace controller resolves `workspaceId` to the monitored
 repository slug and delegates to the existing pull-request service. When linked, that slug is the
-persisted upstream snapshot. The workspace tab must never show PRs from another repository, while the
-global Pull Requests page remains unchanged and continues to show its complete account-centric
-list.
+persisted upstream snapshot. The workspace tab must never show PRs from another repository. The
+global Pull Requests page combines its account-centric rows with the projections for repositories
+monitored by current workspaces.
 
 `PullRequestRefreshService` is the single synchronous refresh boundary. Its dashboard and
 repository methods update PR rows, changed PR details, and derived local view state through the

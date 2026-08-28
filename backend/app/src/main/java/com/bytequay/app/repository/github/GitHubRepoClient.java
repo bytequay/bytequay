@@ -38,7 +38,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
-import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -139,7 +139,7 @@ public class GitHubRepoClient
 
     public RepositoryOverview fetchOverview(String pat, RepoRef repo)
     {
-        try {
+        return translating(() -> {
             GitHubRepoResponse response = gitHubRestClient
                     .get()
                     .uri("/repos/{owner}/{repo}", repo.owner(), repo.repo())
@@ -155,10 +155,7 @@ public class GitHubRepoClient
                     response.stargazersCount(),
                     Optional.ofNullable(response.topics()).orElse(ImmutableList.of()),
                     fetchLanguages(pat, repo));
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public IssuePage fetchOpenIssuesPage(String pat, RepoRef repo, int page)
@@ -202,7 +199,7 @@ public class GitHubRepoClient
     public String fetchIssueType(String pat, RepoRef repo, int issueNumber)
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
-        try {
+        return translating(() -> {
             IssueResponse issue = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
                     .header("Authorization", authorization(pat))
@@ -213,15 +210,12 @@ public class GitHubRepoClient
                 throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty issue response from GitHub");
             }
             return issueTypeName(issue.type());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public List<String> fetchIssueTypes(String pat, RepoRef repo)
     {
-        try {
+        return translating(() -> {
             List<IssueTypeResponse> types = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/issue-types", repo.owner(), repo.repo())
                     .header("Authorization", authorization(pat))
@@ -234,10 +228,7 @@ public class GitHubRepoClient
                     .filter(name -> !name.isBlank())
                     .distinct()
                     .collect(toImmutableList());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private static String issueTypeName(JsonNode type)

@@ -59,7 +59,6 @@ public class CherryPickPreviewController
             @PathVariable String workspaceId,
             @RequestBody CherryPickPreviewRequest request)
     {
-        requireNonNull(request, "request is null");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         boolean explicitSource = request.sourceRemote() != null && !request.sourceRemote().isBlank();
         if (!explicitSource && context.sourceRemote().equals(context.targetRemote())) {

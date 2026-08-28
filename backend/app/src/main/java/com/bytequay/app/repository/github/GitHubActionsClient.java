@@ -67,6 +67,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.extractGitHubErrorMessage;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -172,44 +173,39 @@ public class GitHubActionsClient
         Optional<String> responseEtag = etag;
         for (int page = 1; page <= MAX_PAGES; page++) {
             int currentPage = page;
-            try {
-                RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
-                        .uri(uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/check-runs")
-                                .queryParam("per_page", PAGE_SIZE)
-                                .queryParam("page", currentPage)
-                                .build(owner, repo, sha))
-                        .header("Authorization", authorization(pat));
-                if (currentPage == 1) {
-                    etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
-                }
-                ResponseEntity<GitHubCheckRunsResponse> entity = request.retrieve().toEntity(GitHubCheckRunsResponse.class);
-                if (currentPage == 1) {
-                    responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
-                    if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                        return new ConditionalChecks(Optional.empty(), responseEtag);
-                    }
-                }
-                GitHubCheckRunsResponse response = entity.getBody();
-                if (response == null || response.checkRuns() == null) {
-                    break;
-                }
-                for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
-                    result.add(new PrCheckRunState(
-                            check.id(),
-                            check.name(),
-                            check.status(),
-                            check.conclusion(),
-                            check.detailsUrl(),
-                            "check_run",
-                            check.completedAt()));
-                }
-                collected += response.checkRuns().size();
-                if (collected >= response.totalCount() || response.checkRuns().size() < PAGE_SIZE) {
-                    break;
+            RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/check-runs")
+                            .queryParam("per_page", PAGE_SIZE)
+                            .queryParam("page", currentPage)
+                            .build(owner, repo, sha))
+                    .header("Authorization", authorization(pat));
+            if (currentPage == 1) {
+                etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+            }
+            ResponseEntity<GitHubCheckRunsResponse> entity = translating(() -> request.retrieve().toEntity(GitHubCheckRunsResponse.class));
+            if (currentPage == 1) {
+                responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
+                if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                    return new ConditionalChecks(Optional.empty(), responseEtag);
                 }
             }
-            catch (RestClientResponseException e) {
-                throw toReadableException(e);
+            GitHubCheckRunsResponse response = entity.getBody();
+            if (response == null || response.checkRuns() == null) {
+                break;
+            }
+            for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
+                result.add(new PrCheckRunState(
+                        check.id(),
+                        check.name(),
+                        check.status(),
+                        check.conclusion(),
+                        check.detailsUrl(),
+                        "check_run",
+                        check.completedAt()));
+            }
+            collected += response.checkRuns().size();
+            if (collected >= response.totalCount() || response.checkRuns().size() < PAGE_SIZE) {
+                break;
             }
         }
         return new ConditionalChecks(Optional.of(ImmutableList.copyOf(result)), responseEtag);
@@ -222,7 +218,7 @@ public class GitHubActionsClient
             String sha,
             Optional<String> etag)
     {
-        try {
+        return translating(() -> {
             RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
                     .uri("/repos/{owner}/{repo}/commits/{sha}/status", owner, repo, sha)
                     .header("Authorization", authorization(pat));
@@ -249,10 +245,7 @@ public class GitHubActionsClient
                             "pending".equals(status.state()) ? null : status.updatedAt()))
                     .collect(toImmutableList());
             return new ConditionalChecks(Optional.of(statuses), responseEtag);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private static List<PrCheckRunState> checksFrom(List<PrCheckRunState> checks, String source)
@@ -382,7 +375,7 @@ public class GitHubActionsClient
 
     private PullRequestResponse fetchPullRequest(String pat, PullRequestRef pullRequest)
     {
-        try {
+        return translating(() -> {
             PullRequestResponse response = gitHubRestClient.get()
                     .uri(
                             "/repos/{owner}/{repo}/pulls/{number}",
@@ -396,10 +389,7 @@ public class GitHubActionsClient
                 throw badGateway("GitHub returned an empty pull request");
             }
             return response;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private List<CiWorkflowRun> fetchWorkflowRuns(String pat, PullRequestRef pullRequest, String headSha)
@@ -431,7 +421,7 @@ public class GitHubActionsClient
             String headSha,
             int page)
     {
-        try {
+        return translating(() -> {
             WorkflowRunsResponse response = gitHubRestClient.get()
                     .uri(uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
                             .queryParam("head_sha", headSha)
@@ -442,10 +432,7 @@ public class GitHubActionsClient
                     .retrieve()
                     .body(WorkflowRunsResponse.class);
             return response == null ? new WorkflowRunsResponse(0, ImmutableList.of()) : response;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private CiWorkflowRun toWorkflowRun(
@@ -500,7 +487,7 @@ public class GitHubActionsClient
             long workflowRunId,
             int page)
     {
-        try {
+        return translating(() -> {
             JobsResponse response = gitHubRestClient.get()
                     .uri(uri -> uri.path("/repos/{owner}/{repo}/actions/runs/{runId}/jobs")
                             .queryParam("filter", "all")
@@ -511,10 +498,7 @@ public class GitHubActionsClient
                     .retrieve()
                     .body(JobsResponse.class);
             return response == null ? new JobsResponse(0, ImmutableList.of()) : response;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private static CiJob toJob(
@@ -545,7 +529,7 @@ public class GitHubActionsClient
 
     private WorkflowRunResponse fetchWorkflowRun(String pat, PullRequestRef pullRequest, long runId)
     {
-        try {
+        return translating(() -> {
             WorkflowRunResponse response = gitHubRestClient.get()
                     .uri(
                             "/repos/{owner}/{repo}/actions/runs/{runId}",
@@ -559,10 +543,7 @@ public class GitHubActionsClient
                 throw badGateway("GitHub returned an empty workflow run");
             }
             return response;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private LogHop requestLogRedirect(

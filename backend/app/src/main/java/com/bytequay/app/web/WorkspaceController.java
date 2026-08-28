@@ -97,7 +97,6 @@ public class WorkspaceController
     @PostMapping
     public WorkspaceSummary watch(@RequestBody WatchRequest request)
     {
-        requireNonNull(request, "body is required");
         return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
                 request.selectedRepositoryId(),
                 request.previewFingerprint(),
@@ -107,7 +106,6 @@ public class WorkspaceController
     @PostMapping("/watch-preview")
     public WatchRepositoryPreview previewWatch(@RequestBody WatchPreviewRequest request)
     {
-        requireNonNull(request, "body is required");
         return workspaces.previewWatch(request.selectedRepositoryId());
     }
 
@@ -200,7 +198,6 @@ public class WorkspaceController
             @PathVariable int issueNumber,
             @RequestBody IssueCommentRequest request)
     {
-        requireNonNull(request, "body is required");
         return issues.comment(workspaceId, issueNumber, request.body());
     }
 
@@ -217,7 +214,6 @@ public class WorkspaceController
             @PathVariable int issueNumber,
             @RequestBody IssueTypeRequest request)
     {
-        requireNonNull(request, "body is required");
         return issues.updateIssueType(workspaceId, issueNumber, request.type());
     }
 
@@ -227,7 +223,6 @@ public class WorkspaceController
             @PathVariable int issueNumber,
             @RequestBody IssueMetadataRequest request)
     {
-        requireNonNull(request, "body is required");
         return issues.updateMetadata(workspaceId, issueNumber, request.assignees(), request.labels());
     }
 
@@ -240,7 +235,6 @@ public class WorkspaceController
     @PutMapping("/{workspaceId}/upstream")
     public WorkspaceSummary setUpstream(@PathVariable String workspaceId, @RequestBody UpstreamRequest request)
     {
-        requireNonNull(request, "body is required");
         return WorkspaceSummary.of(workspaces.setUpstream(
                 workspaceId,
                 Optional.ofNullable(request.upstreamRepositoryId())));
@@ -256,7 +250,6 @@ public class WorkspaceController
     @PatchMapping("/{workspaceId}")
     public WorkspaceSummary rename(@PathVariable String workspaceId, @RequestBody RenameRequest request)
     {
-        requireNonNull(request, "body is required");
         return WorkspaceSummary.of(workspaces.rename(workspaceId, request.name()));
     }
 
@@ -273,7 +266,6 @@ public class WorkspaceController
     @PostMapping("/{workspaceId}/remotes")
     public List<WorkspaceRemote> addRemote(@PathVariable String workspaceId, @RequestBody RemoteRequest request)
     {
-        requireNonNull(request, "body is required");
         return remoteSources.add(workspaceId, request.name(), request.url());
     }
 
@@ -288,7 +280,6 @@ public class WorkspaceController
             @PathVariable String workspaceId,
             @RequestBody AgentModelRequest request)
     {
-        requireNonNull(request, "body is required");
         workspaces.getWorkspace(workspaceId);
         return models.setWorkspaceOverride(
                 workspaceId,
@@ -308,7 +299,6 @@ public class WorkspaceController
             @PathVariable String workspaceId,
             @RequestBody TokenRequest request)
     {
-        requireNonNull(request, "body is required");
         workspaces.getWorkspace(workspaceId);
         return ImmutableMap.of("login", credentials.saveWorkspaceGitHubToken(workspaceId, request.value()));
     }

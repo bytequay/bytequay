@@ -411,12 +411,6 @@ public class PullRequestService
     }
 
     /** Returns locally persisted diff files without contacting GitHub. */
-    public List<DiffFile> getPullRequestDiffFiles(String repo, int number)
-    {
-        parseRef(repo, number);
-        return snapshots.getDiffFiles(storedPullRequestId(repo, number), null, null);
-    }
-
     public List<DiffFile> getPullRequestDiffFiles(
             String repo, int number, String baseSha, String headSha)
     {
@@ -431,13 +425,7 @@ public class PullRequestService
         return snapshots.getDiffCommits(storedPullRequestId(repo, number));
     }
 
-    public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path)
-    {
-        parseRef(repo, number);
-        return snapshots.getFileContent(
-                storedPullRequestId(repo, number), path, null, null);
-    }
-
+    /** Returns locally persisted file content without contacting GitHub. */
     public DiffFileContent getPullRequestDiffFileContent(
             String repo, int number, String path, String baseSha, String headSha)
     {
@@ -585,29 +573,9 @@ public class PullRequestService
     }
 
     /**
-     * Submits an approval review for the given pull request on GitHub and records a local reviewed state.
+     * Submits a review, with any inline comments, for the given pull request on GitHub and
+     * records a local reviewed state.
      */
-    public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body)
-    {
-        requireNotBlank(event, "review event must not be blank");
-        String normalizedEvent = event.toUpperCase(Locale.ROOT);
-        if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
-        }
-        String reviewBody = body == null ? "" : body.trim();
-        if (!"APPROVE".equals(normalizedEvent)) {
-            requireNotBlank(reviewBody, "review body must not be blank");
-        }
-
-        String pat = credentialService.resolveGitHubToken();
-        PrReviewState created = pullRequestWrites.submitReview(
-                pat, parseRef(repo, number), normalizedEvent, reviewBody);
-        PullRequestDetail detail = patchCachedReview(repo, number, prId, created, ImmutableList.of());
-        markReviewed(prId, normalizedEvent);
-        recordReview(repo, number, normalizedEvent, reviewBody, created);
-        return detail;
-    }
-
     public PullRequestDetail submitReview(
             String repo,
             int number,

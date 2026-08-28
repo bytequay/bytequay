@@ -121,9 +121,7 @@ public class PullRequestController
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha)
     {
-        return baseSha == null && headSha == null
-                ? pullRequests.getPullRequestDiffFiles(repo, number)
-                : pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
     }
 
     @GetMapping("/prs/diffCommits")
@@ -152,9 +150,7 @@ public class PullRequestController
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha)
     {
-        return baseSha == null && headSha == null
-                ? pullRequests.getPullRequestDiffFileContent(repo, number, path)
-                : pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
     }
 
     @PostMapping("/prs/diffContent/refresh")
@@ -196,7 +192,6 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody MetadataRequest request)
     {
-        requireNonNull(request, "body is required");
         pullRequests.updateMetadata(repo, number, request.assignees(), request.labels());
     }
 
@@ -207,7 +202,6 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody ReviewerRequest request)
     {
-        requireNonNull(request, "body is required");
         pullRequests.updateReviewerRequest(repo, number, request.login(), request.requested());
     }
 
@@ -227,7 +221,6 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody ReactionRequest request)
     {
-        requireNonNull(request, "body is required");
         pullRequests.toggleReaction(repo, number, request.target(), request.commentId(), request.content());
     }
 
@@ -278,9 +271,6 @@ public class PullRequestController
             @RequestParam("id") long prId,
             @RequestBody ReviewRequest request)
     {
-        if (request.comments() == null) {
-            return pullRequests.submitReview(repo, number, prId, request.event(), request.body());
-        }
         return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
     }
 

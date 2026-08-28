@@ -151,11 +151,6 @@ class PullRequestDetailFetcher
                 () -> actions.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
     }
 
-    private <T> ListenableFuture<List<T>> fetchListAsync(String name, PullRequestRef ref, Supplier<List<T>> task)
-    {
-        return fetchAsync(name, ref, () -> requireNonNullElse(task.get(), ImmutableList.of()));
-    }
-
     private <T> ListenableFuture<SourceItems<T>> fetchOptionalListAsync(
             String name,
             String section,

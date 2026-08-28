@@ -32,6 +32,7 @@ import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -253,59 +256,75 @@ public class SqlitePrDetailStore
 
     /**
      * Reconciles the stored reviews for a PR against the full list GitHub
-     * returned: rows keep their identity across refreshes, rows GitHub no
-     * longer reports are swept. Matching is on {@code github_id}; a row
-     * without one cannot be matched and is replaced.
+     * returned. Matching is on {@code github_id}.
      */
     private void saveReviews(long prId, List<PrReviewState> reviews, boolean complete)
     {
-        Map<Long, PrReviewEntity> stored = new HashMap<>();
-        List<PrReviewEntity> unmatchable = new ArrayList<>();
-        for (PrReviewEntity row : reviewRepo.findByPrId(prId)) {
-            if (row.getGithubId() == null || stored.putIfAbsent(row.getGithubId(), row) != null) {
-                unmatchable.add(row);
-            }
-        }
-        reviewRepo.deleteAll(unmatchable);
-
-        List<PrReviewEntity> merged = new ArrayList<>(reviews.size());
-        for (PrReviewState review : reviews) {
-            PrReviewEntity entity = review.githubId() == null ? null : stored.remove(review.githubId());
-            merged.add((entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review));
-        }
-        reviewRepo.saveAll(merged);
-        if (complete) {
-            reviewRepo.deleteAll(stored.values());
-        }
+        reconcile(
+                reviewRepo,
+                reviewRepo.findByPrId(prId),
+                PrReviewEntity::getGithubId,
+                reviews,
+                PrReviewState::githubId,
+                (entity, review) -> (entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review),
+                complete);
     }
 
     /**
-     * Counterpart of {@link #saveReviews} for the timeline. Locally recorded
-     * events are never part of what GitHub returns, so they are neither
-     * rewritten nor swept.
+     * Counterpart of {@link #saveReviews} for the timeline, matched on
+     * {@link #sourceKey}. Locally recorded events are never part of what
+     * GitHub returns, so they are neither rewritten nor swept.
      */
     private void saveTimeline(long prId, List<PrTimelineEvent> events, boolean complete)
     {
-        Map<String, PrTimelineEntity> stored = new HashMap<>();
-        List<PrTimelineEntity> unmatchable = new ArrayList<>();
-        for (PrTimelineEntity row : timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId)) {
-            if (row.getLocalEventKey() == null && stored.putIfAbsent(sourceKey(row.toDomain()), row) != null) {
+        reconcile(
+                timelineRepo,
+                timelineRepo.findByPrIdOrderByTimestampAscIdAsc(prId).stream()
+                        .filter(row -> row.getLocalEventKey() == null)
+                        .collect(toImmutableList()),
+                row -> sourceKey(row.toDomain()),
+                events.stream()
+                        .filter(event -> event.localEventKey().isEmpty())
+                        .collect(toImmutableList()),
+                SqlitePrDetailStore::sourceKey,
+                (entity, event) -> (entity == null ? new PrTimelineEntity() : entity).updateFrom(prId, event),
+                complete);
+    }
+
+    /**
+     * Reconciles one PR-scoped detail table against the full list GitHub
+     * returned: rows keep their identity across refreshes, and when the list
+     * is {@code complete}, rows GitHub no longer reports are swept. A stored
+     * row with a null or duplicate key cannot be matched and is replaced; an
+     * incoming item with a null key always creates a new row.
+     */
+    private static <K, E, D> void reconcile(
+            CrudRepository<E, ?> repo,
+            List<E> stored,
+            Function<E, K> storedKey,
+            List<D> incoming,
+            Function<D, K> incomingKey,
+            BiFunction<E, D, E> merge,
+            boolean complete)
+    {
+        Map<K, E> byKey = new HashMap<>();
+        List<E> unmatchable = new ArrayList<>();
+        for (E row : stored) {
+            K key = storedKey.apply(row);
+            if (key == null || byKey.putIfAbsent(key, row) != null) {
                 unmatchable.add(row);
             }
         }
-        timelineRepo.deleteAll(unmatchable);
+        repo.deleteAll(unmatchable);
 
-        List<PrTimelineEntity> merged = new ArrayList<>(events.size());
-        for (PrTimelineEvent event : events) {
-            if (event.localEventKey().isPresent()) {
-                continue;
-            }
-            PrTimelineEntity entity = stored.remove(sourceKey(event));
-            merged.add((entity == null ? new PrTimelineEntity() : entity).updateFrom(prId, event));
+        List<E> merged = new ArrayList<>(incoming.size());
+        for (D item : incoming) {
+            K key = incomingKey.apply(item);
+            merged.add(merge.apply(key == null ? null : byKey.remove(key), item));
         }
-        timelineRepo.saveAll(merged);
+        repo.saveAll(merged);
         if (complete) {
-            timelineRepo.deleteAll(stored.values());
+            repo.deleteAll(byKey.values());
         }
     }
 
@@ -332,23 +351,13 @@ public class SqlitePrDetailStore
      *  new {@code github_id}, so superseded runs are swept here. */
     private void saveCheckRuns(long prId, List<PrCheckRunState> checkRuns, boolean complete)
     {
-        Map<Long, PrCheckRunEntity> stored = new HashMap<>();
-        List<PrCheckRunEntity> unmatchable = new ArrayList<>();
-        for (PrCheckRunEntity row : checkRunRepo.findByPrId(prId)) {
-            if (row.getGithubId() == null || stored.putIfAbsent(row.getGithubId(), row) != null) {
-                unmatchable.add(row);
-            }
-        }
-        checkRunRepo.deleteAll(unmatchable);
-
-        List<PrCheckRunEntity> merged = new ArrayList<>(checkRuns.size());
-        for (PrCheckRunState check : checkRuns) {
-            PrCheckRunEntity entity = check.githubId() == null ? null : stored.remove(check.githubId());
-            merged.add((entity == null ? new PrCheckRunEntity() : entity).updateFrom(prId, check));
-        }
-        checkRunRepo.saveAll(merged);
-        if (complete) {
-            checkRunRepo.deleteAll(stored.values());
-        }
+        reconcile(
+                checkRunRepo,
+                checkRunRepo.findByPrId(prId),
+                PrCheckRunEntity::getGithubId,
+                checkRuns,
+                PrCheckRunState::githubId,
+                (entity, check) -> (entity == null ? new PrCheckRunEntity() : entity).updateFrom(prId, check),
+                complete);
     }
 }

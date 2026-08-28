@@ -710,11 +710,11 @@ class TestPullRequestService
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview(
-                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this"))
+                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
                 .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
 
         PullRequestDetail detail = service.submitReview(
-                "owner/repo", 7, 12L, "request_changes", "Please fix this");
+                "owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of());
 
         verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED, "head");
         // The submitted review is spliced into the cache, so nothing is thrown away
@@ -752,10 +752,10 @@ class TestPullRequestService
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview(
-                "pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note"))
+                "pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of()))
                 .thenReturn(review(503L, "COMMENTED", "Looks good with one note"));
 
-        service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note");
+        service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of());
 
         verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
     }
@@ -768,9 +768,9 @@ class TestPullRequestService
     @Test
     void rejectsCommentReviewWithoutBody()
     {
-        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " "))
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " ", ImmutableList.of()))
                 .isInstanceOf(ResponseStatusException.class);
-        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString());
+        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList());
     }
 
     @Test
@@ -831,7 +831,7 @@ class TestPullRequestService
         when(diffStore.find(12L, null, null))
                 .thenReturn(Optional.of(new StoredPrDiff(files, ImmutableList.of())));
 
-        assertThat(service.getPullRequestDiffFiles("owner/repo", 7)).isEqualTo(files);
+        assertThat(service.getPullRequestDiffFiles("owner/repo", 7, null, null)).isEqualTo(files);
 
         verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
         verify(credentialService, never()).resolveGitHubToken();

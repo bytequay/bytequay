@@ -53,7 +53,6 @@ public class SettingsController
     @PutMapping("/models/{configId}/selection")
     public ModelSettings select(@PathVariable String configId, @RequestBody SelectionRequest request)
     {
-        requireNonNull(request, "body is required");
         models.select(configId, request.model(), Optional.ofNullable(request.effort()));
         return models.get();
     }
@@ -61,7 +60,6 @@ public class SettingsController
     @PutMapping("/models/main")
     public ModelSettings setMain(@RequestBody MainRequest request)
     {
-        requireNonNull(request, "body is required");
         models.setMain(request.configId());
         return models.get();
     }
@@ -69,7 +67,6 @@ public class SettingsController
     @PostMapping("/api-keys")
     public ModelSettings addApiKey(@RequestBody ApiKeyRequest request)
     {
-        requireNonNull(request, "body is required");
         requireNotBlank(request.key(), "key must not be blank");
         return models.addApiKey(request.provider(), request.alias(), request.key());
     }
@@ -89,7 +86,6 @@ public class SettingsController
     @PutMapping("/quiet-hours")
     public QuietHours saveQuietHours(@RequestBody QuietHours request)
     {
-        requireNonNull(request, "body is required");
         return settings.saveQuietHours(request);
     }
 

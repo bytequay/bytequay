@@ -22,6 +22,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.util.function.Supplier;
 
 /**
  * Shared GitHub client mechanics that should stay identical across REST and
@@ -48,6 +49,17 @@ final class GitHubApiSupport
     {
         if (pat == null || pat.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
+        }
+    }
+
+    /** Runs one GitHub call, translating API failures into readable exceptions. */
+    static <T> T translating(Supplier<T> call)
+    {
+        try {
+            return call.get();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
         }
     }
 

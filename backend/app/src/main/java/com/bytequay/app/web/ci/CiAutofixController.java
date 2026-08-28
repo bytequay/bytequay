@@ -60,7 +60,6 @@ public class CiAutofixController
             @RequestBody StartRequest request)
     {
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNonNull(request, "request is null");
         requireNotBlank(request.repository(), "repository must not be blank");
         requireNotBlank(request.worktree(), "worktree must not be blank");
         requireNotBlank(request.laneId(), "laneId must not be blank");
@@ -96,7 +95,6 @@ public class CiAutofixController
             @RequestBody MessageRequest request)
     {
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNonNull(request, "request is null");
         requireNotBlank(request.message(), "message must not be blank");
         CiAutofixRun run = service.sendMessage(new SendCiAutofixMessageCommand(
                 CiAutofixRunId.valueOf(runId),

@@ -68,9 +68,7 @@ public class PullRequestRefreshService
             String headSha)
     {
         pullRequests.refreshPullRequestDiffFromGitHub(repo, number, baseSha, headSha);
-        return baseSha == null && headSha == null
-                ? pullRequests.getPullRequestDiffFiles(repo, number)
-                : pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
     }
 
     /** Refreshes one file body and returns the newly persisted content. */
@@ -83,10 +81,8 @@ public class PullRequestRefreshService
     {
         pullRequests.refreshPullRequestDiffFileContentFromGitHub(
                 repo, number, path, baseSha, headSha);
-        return baseSha == null && headSha == null
-                ? pullRequests.getPullRequestDiffFileContent(repo, number, path)
-                : pullRequests.getPullRequestDiffFileContent(
-                        repo, number, path, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFileContent(
+                repo, number, path, baseSha, headSha);
     }
 
     /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */

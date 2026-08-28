@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -134,21 +135,17 @@ public class SqlitePullRequestStore
         Instant now = Instant.now();
         ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
         for (FetchedPullRequest pullRequest : pullRequests) {
-            PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
-            PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
-            entity.setId(previous == null ? null : previous.getId());
-            entity.setDashboardVisible(true);
-            entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
-            entity.setDashboardSyncMarker(syncMarker);
-            entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
-            if (previous != null) {
-                if (syncMarker.equals(previous.getDashboardSyncMarker())
+            saved.add(upsert(pullRequest, now, (entity, previous) -> {
+                entity.setDashboardVisible(true);
+                entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
+                entity.setDashboardSyncMarker(syncMarker);
+                entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+                if (previous != null
+                        && syncMarker.equals(previous.getDashboardSyncMarker())
                         && PullRequest.Origin.AUTHORED.name().equals(previous.getOrigin())) {
                     entity.setOrigin(PullRequest.Origin.AUTHORED.name());
                 }
-                entity.preserveEnrichmentFrom(previous);
-            }
-            saved.add(jpaRepository.save(entity).toDomain(null));
+            }));
         }
         return saved.build();
     }
@@ -174,17 +171,12 @@ public class SqlitePullRequestStore
         Instant now = Instant.now();
         ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
         for (FetchedPullRequest pullRequest : pullRequests) {
-            PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
-            PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
-            entity.setId(previous == null ? null : previous.getId());
-            entity.setDashboardVisible(previous != null && dashboardVisible(previous));
-            entity.setWorkspaceVisible(true);
-            entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
-            entity.setWorkspaceSyncMarker(syncMarker);
-            if (previous != null) {
-                entity.preserveEnrichmentFrom(previous);
-            }
-            saved.add(jpaRepository.save(entity).toDomain(null));
+            saved.add(upsert(pullRequest, now, (entity, previous) -> {
+                entity.setDashboardVisible(previous != null && dashboardVisible(previous));
+                entity.setWorkspaceVisible(true);
+                entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
+                entity.setWorkspaceSyncMarker(syncMarker);
+            }));
         }
         return saved.build();
     }
@@ -205,13 +197,30 @@ public class SqlitePullRequestStore
     public PullRequest saveObserved(FetchedPullRequest pullRequest)
     {
         requireNonNull(pullRequest, "pullRequest is null");
+        return upsert(pullRequest, Instant.now(), (entity, previous) -> {
+            entity.setDashboardVisible(true);
+            entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
+            entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
+            entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+        });
+    }
+
+    /**
+     * Shared save skeleton for every path that persists a fetched pull
+     * request: looks up the stored row, carries its id forward, applies the
+     * caller's visibility and sync-marker choices, and preserves enrichment
+     * so a resync cannot silently drop it. {@code mark} receives the
+     * previous row, which is null for a first sighting.
+     */
+    private PullRequest upsert(
+            FetchedPullRequest pullRequest,
+            Instant now,
+            BiConsumer<PullRequestEntity, PullRequestEntity> mark)
+    {
         PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
-        PullRequestEntity entity = PullRequestEntity.from(pullRequest, Instant.now());
+        PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
         entity.setId(previous == null ? null : previous.getId());
-        entity.setDashboardVisible(true);
-        entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
-        entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
-        entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
+        mark.accept(entity, previous);
         if (previous != null) {
             entity.preserveEnrichmentFrom(previous);
         }

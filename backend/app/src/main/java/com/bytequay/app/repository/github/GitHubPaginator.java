@@ -19,7 +19,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -28,7 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
-import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -99,35 +98,30 @@ final class GitHubPaginator
         Optional<String> responseEtag = etag;
         for (int page = 1; page <= MAX_PAGES; page++) {
             int currentPage = page;
-            try {
-                RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
-                        .uri(u -> u.path(pathTemplate)
-                                .queryParam("per_page", PAGE_SIZE)
-                                .queryParam("page", currentPage)
-                                .build(uriVariables))
-                        .header("Authorization", authorization(pat));
-                if (currentPage == 1) {
-                    etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
-                }
-                ResponseEntity<List<T>> entity = request.retrieve().toEntity(typeRef);
-                if (currentPage == 1) {
-                    responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
-                    if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                        return new ConditionalList<>(Optional.empty(), responseEtag);
-                    }
-                }
-                List<T> rows = entity.getBody() == null ? ImmutableList.of() : entity.getBody();
-                if (rows.isEmpty()) {
-                    break;
-                }
-                int size = seen.size();
-                seen.addAll(rows);
-                if (rows.size() < PAGE_SIZE || seen.size() == size) {
-                    break;
+            RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
+                    .uri(u -> u.path(pathTemplate)
+                            .queryParam("per_page", PAGE_SIZE)
+                            .queryParam("page", currentPage)
+                            .build(uriVariables))
+                    .header("Authorization", authorization(pat));
+            if (currentPage == 1) {
+                etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
+            }
+            ResponseEntity<List<T>> entity = translating(() -> request.retrieve().toEntity(typeRef));
+            if (currentPage == 1) {
+                responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
+                if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                    return new ConditionalList<>(Optional.empty(), responseEtag);
                 }
             }
-            catch (RestClientResponseException e) {
-                throw toReadableException(e);
+            List<T> rows = entity.getBody() == null ? ImmutableList.of() : entity.getBody();
+            if (rows.isEmpty()) {
+                break;
+            }
+            int size = seen.size();
+            seen.addAll(rows);
+            if (rows.size() < PAGE_SIZE || seen.size() == size) {
+                break;
             }
         }
         return new ConditionalList<>(Optional.of(ImmutableList.copyOf(seen)), responseEtag);
@@ -160,7 +154,7 @@ final class GitHubPaginator
             int page,
             Object... uriVariables)
     {
-        try {
+        return translating(() -> {
             List<T> rows = gitHubRestClient.get()
                     .uri(u -> {
                         u.path(pathTemplate)
@@ -175,9 +169,6 @@ final class GitHubPaginator
                     .retrieve()
                     .body(typeRef);
             return rows == null ? ImmutableList.of() : rows;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 }

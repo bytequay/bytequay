@@ -54,7 +54,6 @@ public final class WorkspacePullRequestController
             @PathVariable String executionId,
             @RequestBody WorkspaceDeliveryRequest request)
     {
-        requireNonNull(request, "request is null");
         return pullRequests.push(new PushCommand(workspaceId, executionId(executionId), request.confirmed()));
     }
 
@@ -64,7 +63,6 @@ public final class WorkspacePullRequestController
             @PathVariable String executionId,
             @RequestBody WorkspaceDeliveryRequest request)
     {
-        requireNonNull(request, "request is null");
         return pullRequests.createPullRequest(
                 new PullRequestCommand(workspaceId, executionId(executionId), request.confirmed()));
     }

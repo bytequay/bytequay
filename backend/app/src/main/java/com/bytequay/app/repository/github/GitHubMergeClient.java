@@ -24,7 +24,6 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
@@ -34,7 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
-import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -58,7 +57,7 @@ public class GitHubMergeClient
         Map<String, Object> body = ImmutableMap.of(
                 "query", query,
                 "variables", ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch));
-        try {
+        return translating(() -> {
             MergeQueueResponse response = graphqlRestClient
                     .post()
                     .header("Authorization", authorization(pat))
@@ -75,10 +74,7 @@ public class GitHubMergeClient
                         HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
             }
             return response.data().repository().mergeQueue() != null;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public MergeResult mergePullRequest(
@@ -89,7 +85,7 @@ public class GitHubMergeClient
         command.commitTitle().ifPresent(value -> body.put("commit_title", value));
         command.commitMessage().ifPresent(value -> body.put("commit_message", value));
         command.sha().ifPresent(value -> body.put("sha", value));
-        try {
+        return translating(() -> {
             MergeResponse response = gitHubRestClient
                     .put()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/merge", pr.owner(), pr.repo(), pr.number())
@@ -99,10 +95,7 @@ public class GitHubMergeClient
                     .retrieve()
                     .body(MergeResponse.class);
             return response == null ? null : response.toDomain();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
@@ -117,17 +110,12 @@ public class GitHubMergeClient
         Map<String, Object> body = ImmutableMap.of(
                 "query", query,
                 "variables", ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()));
-        try {
-            return graphqlRestClient
-                    .post()
-                    .header("Authorization", authorization(pat))
-                    .body(body)
-                    .retrieve()
-                    .body(ProbeResponse.class);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return translating(() -> graphqlRestClient
+                .post()
+                .header("Authorization", authorization(pat))
+                .body(body)
+                .retrieve()
+                .body(ProbeResponse.class));
     }
 
     private static ProbePullRequest requirePullRequest(ProbeResponse response, String operation)
@@ -153,7 +141,7 @@ public class GitHubMergeClient
         String mutation = "mutation($id: ID!) {"
                 + " enqueuePullRequest(input: { pullRequestId: $id }) {"
                 + " mergeQueueEntry { position state } } }";
-        try {
+        return translating(() -> {
             EnqueueResponse response = graphqlRestClient
                     .post()
                     .header("Authorization", authorization(pat))
@@ -177,10 +165,7 @@ public class GitHubMergeClient
                         HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
             }
             return MergeResult.enqueued(queueMessage(entry));
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private static String queueMessage(QueueEntry entry)

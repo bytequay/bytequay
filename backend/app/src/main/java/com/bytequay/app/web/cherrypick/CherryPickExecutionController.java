@@ -60,7 +60,6 @@ public class CherryPickExecutionController
             @PathVariable String workspaceId,
             @RequestBody CherryPickExecutionRequest request)
     {
-        requireNonNull(request, "request is null");
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         return CherryPickExecutionResponse.of(executions.start(
                 new StartCherryPickExecutionCommand(
@@ -98,7 +97,6 @@ public class CherryPickExecutionController
             @PathVariable String executionId,
             @RequestBody CherryPickMessageRequest request)
     {
-        requireNonNull(request, "request is null");
         return CherryPickExecutionResponse.of(executions.sendMessage(
                 executionId(executionId), text(request.message(), "message")));
     }

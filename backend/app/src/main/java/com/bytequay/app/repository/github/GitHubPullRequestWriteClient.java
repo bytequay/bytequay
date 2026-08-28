@@ -41,6 +41,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.utils.StringInputUtil.requireText;
 import static java.util.Objects.requireNonNull;
 
@@ -64,7 +65,7 @@ public class GitHubPullRequestWriteClient
 
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
     {
-        try {
+        return translating(() -> {
             GitHubIssueComment posted = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{number}/comments", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
@@ -78,10 +79,7 @@ public class GitHubPullRequestWriteClient
                         "Empty response from GitHub when posting issue comment");
             }
             return GitHubPullRequestReadClient.toCommentedTimelineEvent(posted);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public void togglePullRequestReaction(String pat, PullRequestRef pr, String content, String viewerLogin)
@@ -138,48 +136,33 @@ public class GitHubPullRequestWriteClient
 
     private void addReaction(String pat, String uri, String content, Object... uriVariables)
     {
-        try {
-            gitHubRestClient.post()
-                    .uri(uri, uriVariables)
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("content", content))
-                    .retrieve()
-                    .toBodilessEntity();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        translating(() -> gitHubRestClient.post()
+                .uri(uri, uriVariables)
+                .header("Authorization", authorization(pat))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ImmutableMap.of("content", content))
+                .retrieve()
+                .toBodilessEntity());
     }
 
     private void deleteReaction(String pat, String uri, long reactionId, Object... uriVariables)
     {
-        try {
-            gitHubRestClient.delete()
-                    .uri(uri + "/" + reactionId, uriVariables)
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .toBodilessEntity();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        translating(() -> gitHubRestClient.delete()
+                .uri(uri + "/" + reactionId, uriVariables)
+                .header("Authorization", authorization(pat))
+                .retrieve()
+                .toBodilessEntity());
     }
 
     public void closePullRequest(String pat, PullRequestRef pr)
     {
-        try {
-            gitHubRestClient.patch()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("state", "closed"))
-                    .retrieve()
-                    .toBodilessEntity();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        translating(() -> gitHubRestClient.patch()
+                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                .header("Authorization", authorization(pat))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ImmutableMap.of("state", "closed"))
+                .retrieve()
+                .toBodilessEntity());
     }
 
     public void closeIssue(String pat, PullRequestRef issue)
@@ -225,7 +208,7 @@ public class GitHubPullRequestWriteClient
 
     private UpdatedIssue updateIssue(String pat, PullRequestRef issue, Map<String, Object> request)
     {
-        try {
+        return translating(() -> {
             UpdatedIssue updated = gitHubRestClient.patch()
                     .uri("/repos/{owner}/{repo}/issues/{number}", issue.owner(), issue.repo(), issue.number())
                     .header("Authorization", authorization(pat))
@@ -239,28 +222,20 @@ public class GitHubPullRequestWriteClient
                         HttpStatusCode.valueOf(502), "Empty response from GitHub when updating issue");
             }
             return updated;
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public void updateReviewerRequest(String pat, PullRequestRef pullRequest, String login, boolean requested)
     {
         requireText(login, "reviewer login");
-        try {
-            gitHubRestClient.method(requested ? HttpMethod.POST : HttpMethod.DELETE)
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
-                            pullRequest.owner(), pullRequest.repo(), pullRequest.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("reviewers", ImmutableList.of(login)))
-                    .retrieve()
-                    .toBodilessEntity();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        translating(() -> gitHubRestClient.method(requested ? HttpMethod.POST : HttpMethod.DELETE)
+                .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
+                        pullRequest.owner(), pullRequest.repo(), pullRequest.number())
+                .header("Authorization", authorization(pat))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ImmutableMap.of("reviewers", ImmutableList.of(login)))
+                .retrieve()
+                .toBodilessEntity());
     }
 
     private static String issueTypeName(JsonNode type)
@@ -271,16 +246,6 @@ public class GitHubPullRequestWriteClient
         return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
-    public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body)
-    {
-        Map<String, String> request = new LinkedHashMap<>();
-        request.put("event", event);
-        if (body != null && !body.isBlank()) {
-            request.put("body", body);
-        }
-        return postReview(pat, pr, request);
-    }
-
     public PrReviewState submitReview(
             String pat,
             PullRequestRef pr,
@@ -288,7 +253,7 @@ public class GitHubPullRequestWriteClient
             String body,
             List<InlineReviewComment> comments)
     {
-        try {
+        return translating(() -> {
             Map<String, Object> request = new LinkedHashMap<>();
             request.put("event", event);
             if (body != null && !body.isBlank()) {
@@ -303,16 +268,13 @@ public class GitHubPullRequestWriteClient
                         .toList());
             }
             return postReview(pat, pr, request);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     /** Posts a review and returns what GitHub created, so callers need not re-read it. */
     private PrReviewState postReview(String pat, PullRequestRef pr, Map<String, ?> request)
     {
-        try {
+        return translating(() -> {
             GitHubReview created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
@@ -326,15 +288,12 @@ public class GitHubPullRequestWriteClient
                         "Empty response from GitHub when submitting review");
             }
             return created.toReviewState();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     public PrTimelineEvent createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
     {
-        try {
+        return translating(() -> {
             Map<String, Object> request = toReviewCommentRequest(comment);
             request.put("commit_id", comment.commitId());
             GitHubReviewComment posted = gitHubRestClient.post()
@@ -350,10 +309,7 @@ public class GitHubPullRequestWriteClient
                         "Empty response from GitHub when posting review comment");
             }
             return GitHubPullRequestReadClient.toReviewThreadEvent(posted);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     private static Map<String, Object> toReviewCommentRequest(InlineReviewComment comment)
@@ -372,19 +328,14 @@ public class GitHubPullRequestWriteClient
 
     public void replyToReviewComment(String pat, PullRequestRef pr, long commentId, String body)
     {
-        try {
-            gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
-                            pr.owner(), pr.repo(), pr.number(), commentId)
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("body", body))
-                    .retrieve()
-                    .toBodilessEntity();
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        translating(() -> gitHubRestClient.post()
+                .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
+                        pr.owner(), pr.repo(), pr.number(), commentId)
+                .header("Authorization", authorization(pat))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ImmutableMap.of("body", body))
+                .retrieve()
+                .toBodilessEntity());
     }
 
     public void setReviewThreadResolved(String pat, String threadId, boolean resolved)
@@ -429,7 +380,7 @@ public class GitHubPullRequestWriteClient
         requireText(base, "base");
         requireText(title, "title");
         requireNonNull(body, "body is null");
-        try {
+        return translating(() -> {
             GitHubCreatedPullRequest created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
                     .header("Authorization", authorization(pat))
@@ -443,10 +394,7 @@ public class GitHubPullRequestWriteClient
                         "Empty response from GitHub when creating pull request");
             }
             return new CreatedPullRequest(created.id(), created.number(), created.htmlUrl());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        });
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

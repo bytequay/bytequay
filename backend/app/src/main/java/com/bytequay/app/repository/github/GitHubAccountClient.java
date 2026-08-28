@@ -43,6 +43,7 @@ import java.util.Optional;
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -64,23 +65,21 @@ public class GitHubAccountClient
     }
 
     public UserProfile fetchUserProfile(String pat) {
-        try {
-            GitHubUserProfileResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri("/user")
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubUserProfileResponse.class);
-            if (response == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub /user");
-            }
-            return toUserProfile(response);
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return translating(
+                () -> {
+                    GitHubUserProfileResponse response =
+                            gitHubRestClient
+                                    .get()
+                                    .uri("/user")
+                                    .header("Authorization", authorization(pat))
+                                    .retrieve()
+                                    .body(GitHubUserProfileResponse.class);
+                    if (response == null) {
+                        throw new ResponseStatusException(
+                                HttpStatusCode.valueOf(502), "Empty response from GitHub /user");
+                    }
+                    return toUserProfile(response);
+                });
     }
 
     private static UserProfile toUserProfile(GitHubUserProfileResponse response) {
@@ -310,38 +309,41 @@ public class GitHubAccountClient
         List<UserRepo> all = new ArrayList<>();
         for (int page = 1; page <= maxPages; page++) {
             int currentPage = page;
-            try {
-                List<GitHubUserRepoItem> items =
-                        gitHubRestClient
-                                .get()
-                                .uri(
-                                        u ->
-                                                u.path("/user/repos")
-                                                        .queryParam("sort", "pushed")
-                                                        // Include org repos the user has access to
-                                                        // — without
-                                                        // `organization_member`, company repos
-                                                        // never appear in
-                                                        // the list regardless of the token's scope.
-                                                        .queryParam(
-                                                                "affiliation",
-                                                                "owner,collaborator,organization_member")
-                                                        .queryParam("per_page", perPage)
-                                                        .queryParam("page", currentPage)
-                                                        .build())
-                                .header("Authorization", authorization(pat))
-                                .retrieve()
-                                .body(new ParameterizedTypeReference<>() {});
-                if (items == null || items.isEmpty()) {
-                    break;
-                }
-                items.stream().map(GitHubAccountClient::toUserRepo).forEach(all::add);
-                if (items.size() < perPage) {
-                    break;
-                }
+            // break can't cross a lambda boundary, so only the call sits
+            // inside translating(); the loop control below cannot throw
+            // RestClientResponseException.
+            List<GitHubUserRepoItem> items =
+                    translating(
+                            () ->
+                                    gitHubRestClient
+                                            .get()
+                                            .uri(
+                                                    u ->
+                                                            u.path("/user/repos")
+                                                                    .queryParam("sort", "pushed")
+                                                                    // Include org repos the user
+                                                                    // has access to — without
+                                                                    // `organization_member`,
+                                                                    // company repos never appear
+                                                                    // in the list regardless of
+                                                                    // the token's scope.
+                                                                    .queryParam(
+                                                                            "affiliation",
+                                                                            "owner,collaborator,organization_member")
+                                                                    .queryParam(
+                                                                            "per_page", perPage)
+                                                                    .queryParam(
+                                                                            "page", currentPage)
+                                                                    .build())
+                                            .header("Authorization", authorization(pat))
+                                            .retrieve()
+                                            .body(new ParameterizedTypeReference<>() {}));
+            if (items == null || items.isEmpty()) {
+                break;
             }
-            catch (RestClientResponseException e) {
-                throw toReadableException(e);
+            items.stream().map(GitHubAccountClient::toUserRepo).forEach(all::add);
+            if (items.size() < perPage) {
+                break;
             }
         }
         return ImmutableList.copyOf(all);
@@ -386,29 +388,27 @@ public class GitHubAccountClient
     record GitHubRepoPermissions(Boolean push) {}
 
     public List<UserRepo> searchRepositories(String pat, String query) {
-        try {
-            GitHubRepoSearchResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path("/search/repositories")
-                                                    .queryParam("q", query)
-                                                    .queryParam("per_page", 30)
-                                                    .build())
-                            .header("Authorization", authorization(pat))
-                            .retrieve()
-                            .body(GitHubRepoSearchResponse.class);
-            if (response == null || response.items() == null) {
-                return ImmutableList.of();
-            }
-            return response.items().stream()
-                    .map(GitHubAccountClient::toUserRepoFromSearch)
-                    .collect(toImmutableList());
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return translating(
+                () -> {
+                    GitHubRepoSearchResponse response =
+                            gitHubRestClient
+                                    .get()
+                                    .uri(
+                                            u ->
+                                                    u.path("/search/repositories")
+                                                            .queryParam("q", query)
+                                                            .queryParam("per_page", 30)
+                                                            .build())
+                                    .header("Authorization", authorization(pat))
+                                    .retrieve()
+                                    .body(GitHubRepoSearchResponse.class);
+                    if (response == null || response.items() == null) {
+                        return ImmutableList.of();
+                    }
+                    return response.items().stream()
+                            .map(GitHubAccountClient::toUserRepoFromSearch)
+                            .collect(toImmutableList());
+                });
     }
 
     public Optional<UserRepo> fetchRepository(String pat, String owner, String repo) {

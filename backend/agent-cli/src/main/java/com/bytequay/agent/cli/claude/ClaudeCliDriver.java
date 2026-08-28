@@ -161,6 +161,12 @@ public final class ClaudeCliDriver
     }
 
     @Override
+    public String label()
+    {
+        return "Claude Code";
+    }
+
+    @Override
     public AgentCapabilities capabilities()
     {
         return new AgentCapabilities(

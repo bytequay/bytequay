@@ -34,6 +34,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,6 +56,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public final class CodexCliDriver
@@ -149,6 +151,12 @@ public final class CodexCliDriver
     }
 
     @Override
+    public String label()
+    {
+        return "Codex";
+    }
+
+    @Override
     public AgentCapabilities capabilities()
     {
         return CAPABILITIES;
@@ -204,6 +212,28 @@ public final class CodexCliDriver
                     Optional.empty(),
                     "Codex CLI is not available: " + e.getMessage());
         }
+    }
+
+    @Override
+    public List<ProviderModel> models()
+    {
+        CodexProtocol.ModelListResponse response = client.request(
+                "model/list",
+                new CodexProtocol.ModelListParams(),
+                CodexProtocol.ModelListResponse.class,
+                REQUEST_TIMEOUT);
+        return response.data().stream()
+                .filter(entry -> !entry.hidden())
+                .map(entry -> new ProviderModel(
+                        entry.id(),
+                        entry.displayName(),
+                        entry.description(),
+                        entry.supportedReasoningEfforts().stream()
+                                .map(CodexProtocol.ReasoningEffortOption::reasoningEffort)
+                                .collect(toImmutableList()),
+                        entry.defaultReasoningEffort(),
+                        entry.isDefault()))
+                .collect(toImmutableList());
     }
 
     @Override

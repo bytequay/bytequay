@@ -16,6 +16,7 @@ import { relativeTime } from '../relativeTime';
 import type {
   GitHubAccountDto,
   ModelApiKeyDto,
+  ModelOptionDto,
   ModelProviderDto,
   ModelSettingsDto,
   QuietHoursDto,
@@ -38,10 +39,6 @@ export default function SettingsShell() {
   return (
     <main className="sets-page">
       <h1>Settings</h1>
-      <p className="sets-sub">
-        Defaults for every workspace. A workspace can override the model and GitHub token
-        in its own settings.
-      </p>
       <ModelsCard />
       <GitHubAccountCard />
       <QuietHoursCard />
@@ -83,9 +80,6 @@ function ModelsCard() {
     <section className="sets-card">
       <div className="sets-card-head">
         <span className="sets-card-title">Models &amp; credentials</span>
-        <span className="sets-card-hint">
-          exactly one model is marked main — agent tasks use it by default
-        </span>
       </div>
       {error && <div className="sets-error" role="alert">{error}</div>}
       <div className="sets-card-subhead">CLI providers — detected automatically</div>
@@ -173,11 +167,10 @@ function ProviderRow({ provider, checking, checkedAt, onRecheck, onSelect, onSet
         </div>
       </div>
       <ModelChip
-        label={provider.selectedModel}
+        label={modelLabel(provider.models, provider.selectedModel)}
         detail={provider.selectedEffort}
         disabled={!available}
         models={provider.models}
-        efforts={provider.efforts}
         selectedModel={provider.selectedModel}
         selectedEffort={provider.selectedEffort}
         onSelect={onSelect}
@@ -215,8 +208,7 @@ function ApiKeyRow({ apiKey, onSelect, onSetMain, onRemove }: {
       </div>
       <ModelChip
         label={apiKey.selectedModel}
-        models={apiKey.models.map(name => ({ name, description: '' }))}
-        efforts={[]}
+        models={apiKey.models.map((name): ModelOptionDto => ({ id: name, name, description: '', efforts: [] }))}
         selectedModel={apiKey.selectedModel}
         onSelect={model => onSelect(model)}
       />
@@ -227,17 +219,21 @@ function ApiKeyRow({ apiKey, onSelect, onSetMain, onRemove }: {
   );
 }
 
-export function ModelChip({ label, detail, disabled, models, efforts, selectedModel, selectedEffort, onSelect }: {
+export function modelLabel(models: ModelOptionDto[], id: string): string {
+  return models.find(model => model.id === id)?.name ?? id;
+}
+
+export function ModelChip({ label, detail, disabled, models, selectedModel, selectedEffort, onSelect }: {
   label: string;
   detail?: string;
   disabled?: boolean;
-  models: Array<{ name: string; description: string }>;
-  efforts: string[];
+  models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort?: string;
   onSelect: (model: string, effort: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const efforts = models.find(model => model.id === selectedModel)?.efforts ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -263,16 +259,21 @@ export function ModelChip({ label, detail, disabled, models, efforts, selectedMo
           {models.map(model => (
             <button
               type="button"
-              key={model.name}
-              className={`sets-menu-item${model.name === selectedModel ? ' is-current' : ''}`}
+              key={model.id}
+              className={`sets-menu-item${model.id === selectedModel ? ' is-current' : ''}`}
               onClick={() => {
-                onSelect(model.name, selectedEffort ?? null);
+                onSelect(
+                  model.id,
+                  selectedEffort && model.efforts.includes(selectedEffort)
+                    ? selectedEffort
+                    : model.defaultEffort ?? null,
+                );
                 setOpen(false);
               }}
             >
               <span className="sets-menu-name">
                 {model.name}
-                {model.name === selectedModel && <span className="sets-check">✓</span>}
+                {model.id === selectedModel && <span className="sets-check">✓</span>}
               </span>
               {model.description && <span className="sets-menu-desc">{model.description}</span>}
             </button>
@@ -471,17 +472,12 @@ function GitHubAccountCard() {
           </div>
         )}
         {message && <div className="sets-error" role="alert">{message}</div>}
-        <div className="sets-card-note">
-          The full token is never shown — copy uses the stored value. If it&apos;s lost, replace
-          it with Update.
-        </div>
       </div>
     </section>
   );
 }
 
 function RecentCard() {
-  const [cleared, setCleared] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -489,7 +485,6 @@ function RecentCard() {
     setError(null);
     window.bridge.clearRecent()
       .then(() => {
-        setCleared(true);
         setConfirming(false);
       })
       .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
@@ -505,20 +500,11 @@ function RecentCard() {
       <div className="sets-row">
         <div className="sets-row-main">
           <div className="sets-row-title">What you touched is kept for {RECENT_RETENTION_DAYS} days</div>
-          <div className="sets-row-sub sets-row-sub-plain">
-            Pull requests, issues, tasks and commits you opened, commented on or changed, plus the
-            text you wrote on them. Anything older is swept automatically.
-          </div>
         </div>
       </div>
       <div className="sets-row">
         <div className="sets-row-main">
           <div className="sets-row-title">Clear history</div>
-          <div className="sets-row-sub sets-row-sub-plain">
-            {cleared
-              ? 'Cleared. The stream and the word search are both empty.'
-              : 'Empties the stream and the word search together. This cannot be undone.'}
-          </div>
         </div>
         {confirming ? (
           <>
@@ -526,7 +512,7 @@ function RecentCard() {
             <button type="button" className="sets-btn" onClick={() => setConfirming(false)}>Cancel</button>
           </>
         ) : (
-          <button type="button" className="sets-btn is-danger" onClick={() => { setCleared(false); setConfirming(true); }}>
+          <button type="button" className="sets-btn is-danger" onClick={() => setConfirming(true)}>
             Clear history
           </button>
         )}
@@ -589,10 +575,6 @@ function QuietHoursCard() {
         </select>
       </div>
       {error && <div className="sets-error" role="alert">{error}</div>}
-      <div className="sets-card-note">
-        Pull requests, issues, and metadata stop refreshing in this window to preserve API
-        quota. Manual <strong>Sync now</strong> still works.
-      </div>
     </section>
   );
 }

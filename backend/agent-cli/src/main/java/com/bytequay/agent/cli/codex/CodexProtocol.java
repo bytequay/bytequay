@@ -809,6 +809,44 @@ final class CodexProtocol
         }
     }
 
+    record ModelListParams() {}
+
+    record ModelListResponse(List<ModelEntry> data)
+    {
+        ModelListResponse
+        {
+            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+        }
+    }
+
+    record ModelEntry(
+            String id,
+            String displayName,
+            String description,
+            boolean hidden,
+            boolean isDefault,
+            Optional<String> defaultReasoningEffort,
+            List<ReasoningEffortOption> supportedReasoningEfforts)
+    {
+        ModelEntry
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(displayName, "displayName");
+            requireNonNull(description, "description is null");
+            requireNonNull(defaultReasoningEffort, "defaultReasoningEffort is null");
+            supportedReasoningEfforts = ImmutableList.copyOf(
+                    requireNonNull(supportedReasoningEfforts, "supportedReasoningEfforts is null"));
+        }
+    }
+
+    record ReasoningEffortOption(String reasoningEffort)
+    {
+        ReasoningEffortOption
+        {
+            checkIdentifier(reasoningEffort, "reasoningEffort");
+        }
+    }
+
     private static void checkIdentifier(String value, String name)
     {
         requireNonNull(value, name + " is null");

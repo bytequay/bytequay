@@ -597,6 +597,7 @@ export type WorkspaceAgentModelDto = {
   configId: string;
   label: string;
   model: string;
+  modelLabel: string;
   effort?: string | null;
 };
 
@@ -612,7 +613,14 @@ export type WorkspaceSettingsDto = {
   githubToken?: WorkspaceTokenDto | null;
 };
 
-export type ModelOptionDto = { name: string; description: string };
+export type ModelOptionDto = {
+  /** Stable value passed to the provider (CLI alias or model slug). */
+  id: string;
+  name: string;
+  description: string;
+  efforts: string[];
+  defaultEffort?: string | null;
+};
 
 export type ModelProviderDto = {
   id: string;
@@ -622,7 +630,6 @@ export type ModelProviderDto = {
   version?: string | null;
   diagnostic: string;
   models: ModelOptionDto[];
-  efforts: string[];
   selectedModel: string;
   selectedEffort: string;
   main: boolean;

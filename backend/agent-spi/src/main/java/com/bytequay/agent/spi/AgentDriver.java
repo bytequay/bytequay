@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.spi;
 
+import java.util.List;
+
 /**
  * Adapts one provider lane to ByteQuay's resumable session contract.
  *
@@ -30,6 +32,16 @@ public interface AgentDriver
     AgentLaneId id();
 
     /**
+     * Human-readable provider name for settings surfaces.
+     *
+     * @return display label
+     */
+    default String label()
+    {
+        return id().value();
+    }
+
+    /**
      * Describes event fidelity and features supported by this driver version.
      *
      * @return immutable provider capabilities
@@ -42,6 +54,22 @@ public interface AgentDriver
      * @return health and actionable diagnostic information
      */
     AgentProviderStatus probe();
+
+    /**
+     * Enumerates the models this provider currently offers, when the provider
+     * can report them. Drivers without a native catalog surface return an
+     * empty list and callers fall back to seeded defaults.
+     *
+     * <p>May start or contact the provider process, so callers should cache
+     * the result rather than calling on hot paths.
+     *
+     * @return current provider models, or empty when not enumerable
+     * @throws AgentUnavailableException when the provider cannot be reached
+     */
+    default List<ProviderModel> models()
+    {
+        return List.of();
+    }
 
     /**
      * Opens a new provider session or resumes the reference in the context.

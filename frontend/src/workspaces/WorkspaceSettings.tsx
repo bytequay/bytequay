@@ -330,9 +330,15 @@ function AgentModelCard({ workspaceId, settings, models, onChanged, onError }: {
           {provider.models.map(model => (
             <button
               type="button"
-              key={model.name}
+              key={model.id}
               className="sets-menu-item"
-              onClick={() => set(provider.id, model.name, provider.selectedEffort || null)}
+              onClick={() => set(
+                provider.id,
+                model.id,
+                model.efforts.includes(provider.selectedEffort)
+                  ? provider.selectedEffort
+                  : model.defaultEffort ?? null,
+              )}
             >
               <span className="sets-menu-name">{model.name}</span>
               {model.description && <span className="sets-menu-desc">{model.description}</span>}
@@ -369,8 +375,8 @@ function AgentModelCard({ workspaceId, settings, models, onChanged, onError }: {
           <div className="sets-row-title">
             <span className="sets-name">
               {override
-                ? `${override.label} · ${override.model}${override.effort ? ` · ${override.effort}` : ''}`
-                : `${main.label} · ${main.model}${main.effort ? ` · ${main.effort}` : ''}`}
+                ? `${override.label} · ${override.modelLabel}${override.effort ? ` · ${override.effort}` : ''}`
+                : `${main.label} · ${main.modelLabel}${main.effort ? ` · ${main.effort}` : ''}`}
             </span>
             {override
               ? <span className="sets-badge wss-override">WORKSPACE OVERRIDE</span>
@@ -378,16 +384,15 @@ function AgentModelCard({ workspaceId, settings, models, onChanged, onError }: {
           </div>
           <div className="sets-row-sub">
             {override
-              ? `Overrides the global main model (${main.label} · ${main.model}${main.effort ? ` · ${main.effort}` : ''}) in this workspace only`
+              ? `Overrides the global main model (${main.label} · ${main.modelLabel}${main.effort ? ` · ${main.effort}` : ''}) in this workspace only`
               : 'The global main model from Settings applies here'}
           </div>
         </div>
         {override && overrideConfig && (
           <ModelChip
-            label={override.model}
+            label={override.modelLabel}
             detail={override.effort ?? undefined}
             models={overrideConfig.models}
-            efforts={overrideConfig.efforts}
             selectedModel={override.model}
             selectedEffort={override.effort ?? undefined}
             onSelect={(model, effort) => set(override.configId, model, effort)}

@@ -77,6 +77,8 @@ public final class ClaudeCliDriver
     private static final int CONTRACT_VERSION = 1;
     private static final Version MINIMUM_VERSION = new Version(2, 1, 200);
     private static final Version SUBAGENT_TEXT_VERSION = new Version(2, 1, 219);
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final int MAX_STDOUT_BYTES = 64 * 1024 * 1024;
     private static final int MAX_STDERR_BYTES = 1024 * 1024;
@@ -164,6 +166,22 @@ public final class ClaudeCliDriver
     public String label()
     {
         return "Claude Code";
+    }
+
+    @Override
+    public Optional<String> update()
+    {
+        try {
+            CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
+            if (result.exitCode() != 0) {
+                throw new AgentUnavailableException("Claude CLI update failed: " + result.output());
+            }
+            return Optional.of(redactor.redact(result.output()));
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Claude CLI update was interrupted", e);
+        }
     }
 
     @Override
@@ -352,25 +370,32 @@ public final class ClaudeCliDriver
     private CommandResult run(String... command)
             throws InterruptedException
     {
+        return run(PROBE_TIMEOUT, command);
+    }
+
+    private CommandResult run(Duration maximumRuntime, String... command)
+            throws InterruptedException
+    {
         StringBuilder output = new StringBuilder();
         ManagedProcess process = supervisor.start(
                 processSpec(
                         ImmutableList.copyOf(command),
                         Path.of(System.getProperty("user.dir")).toAbsolutePath(),
-                        Duration.ofSeconds(10),
+                        maximumRuntime,
                         MAX_PROBE_OUTPUT_BYTES,
                         MAX_PROBE_OUTPUT_BYTES),
                 (stream, bytes) -> append(output, bytes));
         try {
-            ProcessExit result = process.exit().toCompletableFuture().get(12, TimeUnit.SECONDS);
+            ProcessExit result = process.exit().toCompletableFuture()
+                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(-1, "Claude CLI probe timed out");
+                return new CommandResult(-1, "Claude CLI command timed out");
             }
             return new CommandResult(result.exitCode(), output.toString().trim());
         }
         catch (ExecutionException | TimeoutException e) {
             process.cancel();
-            return new CommandResult(-1, "Claude CLI probe failed: " + e.getMessage());
+            return new CommandResult(-1, "Claude CLI command failed: " + e.getMessage());
         }
     }
 

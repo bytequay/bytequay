@@ -64,8 +64,13 @@ public final class CodexCliDriver
 {
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
-    private static final String SUPPORTED_VERSION_PREFIX = "0.145.";
+    // Minimum, not an exact pin: the app self-updates the CLI at startup, so
+    // newer releases must stay acceptable. Raise this when the app-server
+    // protocol we use is re-validated against a newer baseline.
+    private static final Version MINIMUM_VERSION = new Version(0, 145, 0);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
@@ -157,6 +162,22 @@ public final class CodexCliDriver
     }
 
     @Override
+    public Optional<String> update()
+    {
+        try {
+            CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
+            if (result.exitCode() != 0) {
+                throw new AgentUnavailableException("Codex CLI update failed: " + result.output());
+            }
+            return Optional.of(redactor.redact(result.output()));
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Codex CLI update was interrupted", e);
+        }
+    }
+
+    @Override
     public AgentCapabilities capabilities()
     {
         return CAPABILITIES;
@@ -184,11 +205,12 @@ public final class CodexCliDriver
                         Optional.empty(),
                         "Unable to read Codex CLI version");
             }
-            if (!version.startsWith(SUPPORTED_VERSION_PREFIX)) {
+            Optional<Version> parsed = Version.parse(version);
+            if (parsed.isEmpty() || parsed.orElseThrow().compareTo(MINIMUM_VERSION) < 0) {
                 return status(
                         AgentProviderStatus.Health.UNAVAILABLE,
                         Optional.of(version),
-                        "Unsupported Codex CLI version; expected " + SUPPORTED_VERSION_PREFIX + "x");
+                        "Unsupported Codex CLI version; expected " + MINIMUM_VERSION + " or newer");
             }
             CommandResult login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
@@ -297,24 +319,31 @@ public final class CodexCliDriver
     private CommandResult run(String... command)
             throws InterruptedException
     {
+        return run(PROBE_TIMEOUT, command);
+    }
+
+    private CommandResult run(Duration maximumRuntime, String... command)
+            throws InterruptedException
+    {
         StringBuilder output = new StringBuilder();
         ManagedProcess process = supervisor.start(
                 processSpec(
                         ImmutableList.copyOf(command),
-                        Duration.ofSeconds(10),
+                        maximumRuntime,
                         MAX_PROBE_OUTPUT_BYTES,
                         MAX_PROBE_OUTPUT_BYTES),
                 (stream, bytes) -> append(output, bytes));
         try {
-            ProcessExit result = process.exit().toCompletableFuture().get(12, TimeUnit.SECONDS);
+            ProcessExit result = process.exit().toCompletableFuture()
+                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(-1, "Codex CLI probe timed out");
+                return new CommandResult(-1, "Codex CLI command timed out");
             }
             return new CommandResult(result.exitCode(), output.toString().trim());
         }
         catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
             process.cancel();
-            return new CommandResult(-1, "Codex CLI probe failed: " + e.getMessage());
+            return new CommandResult(-1, "Codex CLI command failed: " + e.getMessage());
         }
     }
 
@@ -354,6 +383,48 @@ public final class CodexCliDriver
     }
 
     private record CommandResult(int exitCode, String output) {}
+
+    private record Version(int major, int minor, int patch)
+            implements Comparable<Version>
+    {
+        // Codex ships pre-release builds like "0.150.0-alpha.8"; the
+        // pre-release suffix is ignored when comparing against the minimum.
+        private static Optional<Version> parse(String text)
+        {
+            String release = text.strip().split("\\s+", 2)[0].split("-", 2)[0];
+            String[] parts = release.split("\\.");
+            if (parts.length != 3) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.of(new Version(
+                        Integer.parseInt(parts[0]),
+                        Integer.parseInt(parts[1]),
+                        Integer.parseInt(parts[2])));
+            }
+            catch (NumberFormatException ignored) {
+                return Optional.empty();
+            }
+        }
+
+        @Override
+        public int compareTo(Version other)
+        {
+            requireNonNull(other, "other is null");
+            int majorComparison = Integer.compare(major, other.major);
+            if (majorComparison != 0) {
+                return majorComparison;
+            }
+            int minorComparison = Integer.compare(minor, other.minor);
+            return minorComparison != 0 ? minorComparison : Integer.compare(patch, other.patch);
+        }
+
+        @Override
+        public String toString()
+        {
+            return major + "." + minor + "." + patch;
+        }
+    }
 
     private final class CodexSession
             implements AgentSession, CodexAppServerClient.Listener

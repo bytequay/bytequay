@@ -14,6 +14,7 @@
 package com.bytequay.agent.spi;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Adapts one provider lane to ByteQuay's resumable session contract.
@@ -69,6 +70,19 @@ public interface AgentDriver
     default List<ProviderModel> models()
     {
         return List.of();
+    }
+
+    /**
+     * Runs the provider's own self-updater, which installs a newer CLI only
+     * when one is available. Blocking and potentially slow (it may download a
+     * release), so callers run it off hot paths and re-probe afterwards.
+     *
+     * @return updater output, or empty when the driver has no updater
+     * @throws AgentUnavailableException when the updater fails
+     */
+    default Optional<String> update()
+    {
+        return Optional.empty();
     }
 
     /**

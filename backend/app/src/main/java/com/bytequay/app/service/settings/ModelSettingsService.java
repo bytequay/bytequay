@@ -27,8 +27,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -106,13 +104,6 @@ public class ModelSettingsService
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
-    }
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void onApplicationReady()
-    {
-        seedCatalogs();
-        Thread.ofVirtual().name("bytequay-model-catalog-refresh").start(this::refreshCatalogs);
     }
 
     /**

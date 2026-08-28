@@ -396,6 +396,26 @@ function CodeReferenceBlock({ reference }: { reference: GitHubCodePermalink }) {
   return <CodeReferenceCard reference={reference} snippet={snippet} />;
 }
 
+const JAVA_KEYWORDS = new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public record return sealed short static strictfp super switch synchronized this throw throws transient try var void volatile while yield true false null'.split(' '));
+const JAVA_TOKEN = /(\/\/.*|\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b[A-Za-z_$][\w$]*\b)/g;
+
+function javaCode(line: string, keyPrefix: string) {
+  return line.split(JAVA_TOKEN).filter(Boolean).map((part, index) => {
+    const className = part.startsWith('//') || part.startsWith('/*')
+      ? 'md-code-comment'
+      : part.startsWith('"') || part.startsWith("'")
+        ? 'md-code-string'
+        : JAVA_KEYWORDS.has(part)
+          ? 'md-code-keyword'
+          : /^[A-Z]/.test(part)
+            ? 'md-code-type'
+            : null;
+    return className
+      ? <span className={className} key={`${keyPrefix}-${index}`}>{part}</span>
+      : <Fragment key={`${keyPrefix}-${index}`}>{part}</Fragment>;
+  });
+}
+
 export function CodeReferenceCard({ reference, snippet }: {
   reference: GitHubCodePermalink;
   snippet: GitHubCodeSnippetDto | null | undefined;
@@ -404,6 +424,7 @@ export function CodeReferenceCard({ reference, snippet }: {
   const lineLabel = reference.startLine === reference.endLine
     ? `Line ${reference.startLine}`
     : `Lines ${reference.startLine}–${reference.endLine}`;
+  const highlightJava = /\.java$/i.test(reference.path);
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     void window.bridge.openInAppBrowser(reference.href);
@@ -422,7 +443,7 @@ export function CodeReferenceCard({ reference, snippet }: {
             {snippet.lines.map(line => (
               <pre key={line.number}>
                 <span>{line.number}</span>
-                <code>{line.content || ' '}</code>
+                <code>{highlightJava ? javaCode(line.content || ' ', `line-${line.number}`) : line.content || ' '}</code>
               </pre>
             ))}
           </div>}

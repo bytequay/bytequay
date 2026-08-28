@@ -95,12 +95,15 @@ describe('MarkdownBody', () => {
     if (!reference) throw new Error('expected a code permalink');
 
     const loaded = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={{ lines: [
-      { number: 10, content: 'try (writer) {' },
+      { number: 10, content: 'try (JsonStreamWriter writer = open("https://example.com")) { // retry' },
       { number: 11, content: '}' },
     ] }} />);
     const failed = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={null} />);
 
-    expect(loaded).toContain('<span>10</span><code>try (writer) {</code>');
+    expect(loaded).toContain('<span class="md-code-keyword">try</span>');
+    expect(loaded).toContain('<span class="md-code-type">JsonStreamWriter</span>');
+    expect(loaded).toContain('<span class="md-code-string">&quot;https://example.com&quot;</span>');
+    expect(loaded).toContain('<span class="md-code-comment">// retry</span>');
     expect(loaded).toContain('<span>11</span><code>}</code>');
     expect(loaded).not.toContain('Loading code…');
     expect(failed).toBe(`<p><a href="${url}">${url}</a></p>`);

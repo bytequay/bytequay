@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
@@ -60,6 +61,79 @@ export function showBlockingDetailLoading(loading: boolean, hasDetail: boolean) 
   return loading && !hasDetail;
 }
 
+/** Toolbar width under which counts drop and the search placeholder shortens. */
+const TOOLBAR_COMPACT_WIDTH = 420;
+
+/**
+ * Counts hide for every tab at once. Hiding one tab's count would resize that
+ * tab alone and shift the ones after it.
+ */
+export function compactToolbar(width: number) {
+  return width < TOOLBAR_COMPACT_WIDTH;
+}
+
+/** Tab an arrow, Home, or End press moves to, or null when the key is not a move. */
+export function tabKeyTarget(key: string, index: number, count: number): number | null {
+  if (key === 'ArrowLeft') return (index - 1 + count) % count;
+  if (key === 'ArrowRight') return (index + 1) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
+/** Filter a Command-digit press selects, or null. */
+export function shortcutTab(event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey'>): PullTab | null {
+  if (!event.metaKey || event.ctrlKey || event.altKey) return null;
+  const index = Number(event.key) - 1;
+  return Number.isInteger(index) && index >= 0 && index < PULL_TABS.length ? PULL_TABS[index].key : null;
+}
+
+/**
+ * The pull-request list filters. Its own component rather than the segmented
+ * control the issue list still uses: selection here may only change color and
+ * background, so no tab moves when another is picked.
+ */
+export function PullFilterTabs({ tab, searching, counts, compact, panelId, onSelect }: {
+  tab: PullTab;
+  /** A search overrides the filter, so no tab reads as selected while one runs. */
+  searching: boolean;
+  counts: string[];
+  compact: boolean;
+  panelId: string;
+  onSelect: (tab: PullTab) => void;
+}) {
+  const moveSelection = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = tabKeyTarget(event.key, PULL_TABS.findIndex(item => item.key === tab), PULL_TABS.length);
+    if (target === null) return;
+    event.preventDefault();
+    onSelect(PULL_TABS[target].key);
+    (event.currentTarget.children[target] as HTMLElement | undefined)?.focus();
+  };
+
+  return (
+    <div className="pulls-toolbar__tabs" role="tablist" aria-label="Pull request filters" onKeyDown={moveSelection}>
+      {PULL_TABS.map((item, index) => (
+        <button
+          key={item.key}
+          id={`${panelId}-${item.key}`}
+          className="pulls-tab"
+          type="button"
+          role="tab"
+          title={item.label}
+          aria-label={item.label}
+          aria-selected={!searching && item.key === tab}
+          aria-controls={panelId}
+          tabIndex={item.key === tab ? 0 : -1}
+          onClick={() => onSelect(item.key)}
+        >
+          {item.short}
+          {!compact && <span className="pulls-tab__count">{counts[index]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function PullsScreen({
   initialPr,
   initialTab,
@@ -97,6 +171,11 @@ export default function PullsScreen({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
+  // The toolbar, not the window: it also renders inside the narrower split pane.
+  const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
+  const toolbar = useRef<HTMLElement | null>(null);
+  const searchInput = useRef<HTMLInputElement | null>(null);
+  const rowsId = useId();
   const loadingMoreRequest = useRef(false);
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
@@ -215,6 +294,39 @@ export default function PullsScreen({
     return () => window.clearTimeout(timeout);
   }, [search]);
 
+  const selectTab = useCallback((next: PullTab) => {
+    setTab(next);
+    setSearch('');
+    setQuery('');
+  }, []);
+
+  useEffect(() => {
+    const node = toolbar.current;
+    if (node === null) return;
+    const observer = new ResizeObserver(entries => setToolbarWidth(entries[0].borderBoxSize[0].inlineSize));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Capture phase: on this screen Command-F belongs to the list search, and
+  // the window-level find bar would otherwise open on top of it.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isFindShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        searchInput.current?.select();
+        return;
+      }
+      const shortcut = shortcutTab(event);
+      if (shortcut === null) return;
+      event.preventDefault();
+      selectTab(shortcut);
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [selectTab]);
+
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;
     const request = listRequest.current;
@@ -284,6 +396,13 @@ export default function PullsScreen({
   }, [applyDetail, initialPr, loading, prs]);
 
   const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab), [prs, query, tab]);
+  const compact = compactToolbar(toolbarWidth);
+  // ponytail: one pass per tab over the loaded page; revisit only if the list
+  // ever holds thousands of rows. Unloaded pages make each count a floor.
+  const tabCounts = useMemo(
+    () => PULL_TABS.map(item => `${rowsForTab(prs, item.key).length}${hasMore ? '+' : ''}`),
+    [hasMore, prs],
+  );
   const visibleSelected = visibleSelectedId(rows, selected);
   const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;
   const selectedPrId = selectedPr?.id;
@@ -539,25 +658,20 @@ export default function PullsScreen({
   return (
     <div className="pulls-page">
       <section className="pulls-list">
-        <header className="pulls-list__toolbar">
+        <header className="pulls-toolbar" ref={toolbar}>
           {repositoryScope && (
             <span className="pulls-scope" title={`Showing ${repositoryScope.repository}`}>
               {repositoryScope.repository}
             </span>
           )}
-          <nav className="pulls-tabs" aria-label="Pull request filters">
-          {PULL_TABS.map(item => (
-            <button
-              key={item.key}
-              type="button"
-              className={!query && tab === item.key ? 'is-active' : ''}
-              aria-pressed={!query && tab === item.key}
-              onClick={() => { setTab(item.key); setSearch(''); setQuery(''); }}
-            >
-              {item.label}
-            </button>
-          ))}
-          </nav>
+          <PullFilterTabs
+            tab={tab}
+            searching={query !== ''}
+            counts={tabCounts}
+            compact={compact}
+            panelId={rowsId}
+            onSelect={selectTab}
+          />
           <button
             className={`pulls-toolbar-button${syncing ? ' is-syncing' : ''}`}
             type="button"
@@ -581,16 +695,16 @@ export default function PullsScreen({
           </button>
         </header>
         <div className="pulls-search">
-          <SearchIcon />
           <input
+            ref={searchInput}
             type="search"
             value={search}
-            placeholder="Search pull requests by title or #number"
+            placeholder={compact ? '⌕  Search pull requests' : '⌕  Search pull requests by title or #number'}
             aria-label="Search pull requests by title or number"
             onChange={event => setSearch(event.target.value)}
           />
         </div>
-        <div className="pulls-list__rows">
+        <div className="pulls-list__rows" id={rowsId} role="tabpanel" aria-labelledby={`${rowsId}-${tab}`}>
           {loading && <div className="hp-loading">Loading…</div>}
           {!loading && syncError && (
             <div className="pulls-sync-error" role="alert">
@@ -606,7 +720,8 @@ export default function PullsScreen({
             <div className="hp-empty">
               {query
                 ? `No pull requests match “${query}”.`
-                : `No pull requests${repositoryScope ? ` for ${repositoryScope.repository}` : ''} in this view.`}
+                : `No ${PULL_TABS.find(item => item.key === tab)?.empty ?? 'pull requests'}`
+                  + `${repositoryScope ? ` for ${repositoryScope.repository}` : ''}.`}
             </div>
           )}
           {!loading && rows.map(row => (
@@ -1219,15 +1334,6 @@ function ZoomIcon({ zoomed }: { zoomed: boolean }) {
       {zoomed
         ? <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
         : <path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" />}
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
     </svg>
   );
 }

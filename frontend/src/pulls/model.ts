@@ -15,12 +15,18 @@ import type { PullRequestDetailDto, PullRequestDto } from '../types';
 import { relativeTime } from '../relativeTime';
 
 export type PullTab = 'all' | 'active' | 'req' | 'reviewed' | 'done';
-export const PULL_TABS: { key: PullTab; label: string }[] = [
-  { key: 'all', label: 'Open' },
-  { key: 'active', label: 'My PRs' },
-  { key: 'req', label: 'Needs review' },
-  { key: 'reviewed', label: 'Reviewed' },
-  { key: 'done', label: 'Done' },
+/**
+ * `short` is what the tab shows; `label` is the full name, kept for the
+ * tooltip and the screen-reader name, and `empty` names the filter in the
+ * empty state. Short labels are what keep four filters plus the toolbar
+ * buttons on one row in a narrow split pane.
+ */
+export const PULL_TABS: { key: PullTab; label: string; short: string; empty: string }[] = [
+  { key: 'all', label: 'Open', short: 'Open', empty: 'open pull requests' },
+  { key: 'active', label: 'My PRs', short: 'Mine', empty: 'pull requests you authored' },
+  { key: 'req', label: 'Needs review', short: 'Review', empty: 'pull requests needing your review' },
+  { key: 'reviewed', label: 'Reviewed', short: 'Done', empty: 'pull requests you reviewed' },
+  { key: 'done', label: 'Closed', short: 'Closed', empty: 'closed pull requests' },
 ];
 
 export type PullRow = {

@@ -22,6 +22,7 @@
   overflow: hidden;
 }
 
+/* Issue-list toolbar; the pull-request list has its own .pulls-toolbar below. */
 .pulls-list__toolbar {
   display: flex;
   height: 47px;
@@ -94,26 +95,74 @@
   .pull-detail__icon-action.is-refreshing svg { animation: none; }
 }
 
-.pulls-search {
+.pulls-toolbar {
   display: flex;
-  flex: 0 0 38px;
+  flex: none;
   align-items: center;
-  gap: 7px;
-  border-bottom: 1px solid #e7e9ec;
-  color: #8b949e;
-  padding: 5px 14px;
+  gap: 2px;
+  padding: 8px;
+  border-bottom: 1px solid #f0f0f2;
 }
-.pulls-search input {
+
+/* The one element in the row allowed to clip: the icon buttons after it are
+   flex: none, so a narrow window eats into the labels, never the buttons. */
+.pulls-toolbar__tabs {
+  display: flex;
   min-width: 0;
   flex: 1;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.pulls-toolbar .pulls-toolbar-button { width: 26px; height: 26px; flex: 0 0 26px; }
+
+.pulls-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
   border: 0;
-  outline: 0;
+  border-radius: 7px;
   background: transparent;
+  color: #57606a;
+  font-size: 12.5px;
+  /* Constant across every state on purpose: a heavier or padded selected tab
+     is wider, and every sibling slides sideways when one is clicked. */
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pulls-tab:hover { background: #f0f1f3; }
+.pulls-tab[aria-selected='true'] { background: #e4e4e8; color: #1f2328; }
+
+.pulls-tab__count {
+  color: #8c959f;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pulls-tab[aria-selected='true'] .pulls-tab__count { color: #57606a; }
+
+.pulls-search {
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f0f2;
+}
+.pulls-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border: 1px solid #d0d7de;
+  border-radius: 7px;
+  outline: 0;
+  background: #fff;
   color: #17191c;
   font: inherit;
-  font-size: var(--ui-font-size);
+  font-size: 12.5px;
 }
-.pulls-search:focus-within { color: #0969da; }
+.pulls-search input:focus {
+  border-color: #0969da;
+  box-shadow: 0 0 0 3px rgb(9 105 218 / 12%);
+}
 .pulls-search input::placeholder { color: #8b949e; }
 
 .pulls-list__rows {

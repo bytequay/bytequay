@@ -37,6 +37,7 @@ import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
+import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
 import java.nio.file.Path;
@@ -51,6 +52,7 @@ public class CherryPickExecutionEntity
         implements Persistable<String>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(nullable = false, unique = true)
@@ -147,6 +149,7 @@ public class CherryPickExecutionEntity
     private Boolean rangeReviewTruncated;
 
     @Version
+    @Getter
     private long version;
 
     @Column(nullable = false)
@@ -259,17 +262,6 @@ public class CherryPickExecutionEntity
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
-    }
-
-    public long getVersion()
-    {
-        return version;
-    }
-
-    @Override
-    public String getId()
-    {
-        return id;
     }
 
     @Override

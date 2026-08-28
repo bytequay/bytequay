@@ -17,6 +17,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "app_settings")
@@ -27,6 +29,8 @@ public class AppSettingEntity
     private String key;
 
     @Column(name = "setting_value", nullable = false)
+    @Getter
+    @Setter
     private String value;
 
     public AppSettingEntity() {}
@@ -34,16 +38,6 @@ public class AppSettingEntity
     public AppSettingEntity(String key, String value)
     {
         this.key = key;
-        this.value = value;
-    }
-
-    public String getValue()
-    {
-        return value;
-    }
-
-    public void setValue(String value)
-    {
         this.value = value;
     }
 }

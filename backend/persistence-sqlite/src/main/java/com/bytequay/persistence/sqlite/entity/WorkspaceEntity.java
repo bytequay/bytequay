@@ -22,6 +22,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -31,12 +32,14 @@ import java.util.Optional;
 public class WorkspaceEntity
 {
     @Id
+    @Getter
     private String id;
 
     @Column(nullable = false)
     private String name;
 
     @Column(name = "selected_repository_id", nullable = false, unique = true)
+    @Getter
     private long selectedRepositoryId;
 
     @Column(nullable = false)
@@ -83,6 +86,7 @@ public class WorkspaceEntity
     private Instant lastMetadataSyncAt;
 
     @Column(nullable = false)
+    @Getter
     private int displayOrder;
 
     @Column(nullable = false)
@@ -155,10 +159,4 @@ public class WorkspaceEntity
                 createdAt,
                 updatedAt);
     }
-
-    public String getId() { return id; }
-
-    public long getSelectedRepositoryId() { return selectedRepositoryId; }
-
-    public int getDisplayOrder() { return displayOrder; }
 }

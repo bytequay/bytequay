@@ -24,6 +24,8 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +33,8 @@ import java.util.Map;
 
 @Entity
 @Table(name = "pr_detail")
+@Getter
+@Setter
 public class PrDetailEntity
 {
     @Id
@@ -120,99 +124,6 @@ public class PrDetailEntity
     private Instant syncedAt;
 
     public PrDetailEntity() {}
-
-    public Long getPrId() { return prId; }
-    public void setPrId(Long prId) { this.prId = prId; }
-
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
-
-    public String getHtmlUrl() { return htmlUrl; }
-    public void setHtmlUrl(String htmlUrl) { this.htmlUrl = htmlUrl; }
-
-    public String getState() { return state; }
-    public void setState(String state) { this.state = state; }
-
-    public String getAuthor() { return author; }
-    public void setAuthor(String author) { this.author = author; }
-
-    public String getAuthorAvatarUrl() { return authorAvatarUrl; }
-    public void setAuthorAvatarUrl(String authorAvatarUrl) { this.authorAvatarUrl = authorAvatarUrl; }
-
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-
-    public Instant getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
-
-    public Instant getMergedAt() { return mergedAt; }
-    public void setMergedAt(Instant mergedAt) { this.mergedAt = mergedAt; }
-
-    public String getBody() { return body; }
-    public void setBody(String body) { this.body = body; }
-
-    public List<String> getLabels() { return labels; }
-    public void setLabels(List<String> labels) { this.labels = labels; }
-
-    public Map<String, String> getLabelColors() { return labelColors; }
-    public void setLabelColors(Map<String, String> labelColors) { this.labelColors = labelColors; }
-
-    public List<String> getAssignees() { return assignees; }
-    public void setAssignees(List<String> assignees) { this.assignees = assignees; }
-
-    public String getMilestone() { return milestone; }
-    public void setMilestone(String milestone) { this.milestone = milestone; }
-
-    public List<String> getUnavailableSections() { return unavailableSections; }
-    public void setUnavailableSections(List<String> unavailableSections) { this.unavailableSections = unavailableSections; }
-
-    public boolean isDraft() { return draft; }
-    public void setDraft(boolean draft) { this.draft = draft; }
-
-    public Boolean getMergeable() { return mergeable; }
-    public void setMergeable(Boolean mergeable) { this.mergeable = mergeable; }
-
-    public String getMergeableState() { return mergeableState; }
-    public void setMergeableState(String mergeableState) { this.mergeableState = mergeableState; }
-
-    public int getAdditions() { return additions; }
-    public void setAdditions(int additions) { this.additions = additions; }
-
-    public int getDeletions() { return deletions; }
-    public void setDeletions(int deletions) { this.deletions = deletions; }
-
-    public int getChangedFiles() { return changedFiles; }
-    public void setChangedFiles(int changedFiles) { this.changedFiles = changedFiles; }
-
-    public int getRequestedReviewerCount() { return requestedReviewerCount; }
-    public void setRequestedReviewerCount(int requestedReviewerCount) { this.requestedReviewerCount = requestedReviewerCount; }
-
-    public List<String> getRequestedReviewers() { return requestedReviewers; }
-    public void setRequestedReviewers(List<String> requestedReviewers) { this.requestedReviewers = requestedReviewers; }
-
-    public String getHeadSha() { return headSha; }
-    public void setHeadSha(String headSha) { this.headSha = headSha; }
-
-    public String getHeadRef() { return headRef; }
-    public void setHeadRef(String headRef) { this.headRef = headRef; }
-
-    public String getBaseRef() { return baseRef; }
-    public void setBaseRef(String baseRef) { this.baseRef = baseRef; }
-
-    public Boolean getViewerCanWrite() { return viewerCanWrite; }
-    public void setViewerCanWrite(Boolean viewerCanWrite) { this.viewerCanWrite = viewerCanWrite; }
-
-    public String getEtag() { return etag; }
-    public void setEtag(String etag) { this.etag = etag; }
-
-    public String getCheckRunsEtag() { return checkRunsEtag; }
-    public void setCheckRunsEtag(String checkRunsEtag) { this.checkRunsEtag = checkRunsEtag; }
-
-    public String getCommitStatusesEtag() { return commitStatusesEtag; }
-    public void setCommitStatusesEtag(String commitStatusesEtag) { this.commitStatusesEtag = commitStatusesEtag; }
-
-    public Instant getSyncedAt() { return syncedAt; }
-    public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
 
     public PrRawDetail toRawDetail()
     {

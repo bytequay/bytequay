@@ -35,6 +35,7 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
@@ -49,9 +50,11 @@ public class CiAutofixAttemptEntity
         implements Persistable<String>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(name = "run_id", nullable = false)
+    @Getter
     private String runId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -63,6 +66,7 @@ public class CiAutofixAttemptEntity
     private CiAutofixRunEntity run;
 
     @Column(nullable = false)
+    @Getter
     private int attemptNumber;
 
     @Column(nullable = false, unique = true)
@@ -175,22 +179,6 @@ public class CiAutofixAttemptEntity
                 Optional.ofNullable(timelineEventKey),
                 createdAt,
                 updatedAt);
-    }
-
-    public String getRunId()
-    {
-        return runId;
-    }
-
-    public int getAttemptNumber()
-    {
-        return attemptNumber;
-    }
-
-    @Override
-    public String getId()
-    {
-        return id;
     }
 
     @Override

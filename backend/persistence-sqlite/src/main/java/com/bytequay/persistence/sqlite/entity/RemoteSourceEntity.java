@@ -18,6 +18,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Setter;
 
 @Entity
 @Table(name = "workspace_remote_sources")
@@ -33,6 +34,7 @@ public class RemoteSourceEntity
     private String name;
 
     @Column(nullable = false)
+    @Setter
     private String url;
 
     public RemoteSourceEntity() {}
@@ -55,10 +57,5 @@ public class RemoteSourceEntity
     public RemoteSource toDomain()
     {
         return new RemoteSource(workspaceId, name, url);
-    }
-
-    public void setUrl(String url)
-    {
-        this.url = url;
     }
 }

@@ -34,6 +34,9 @@ import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,6 +50,8 @@ import java.util.Optional;
         indexes = @Index(
                 name = "idx_pull_requests_repo_number",
                 columnList = "repo, number"))
+@Getter
+@Setter
 public class PullRequestEntity
 {
     @Id
@@ -168,10 +173,14 @@ public class PullRequestEntity
 
     @Column(nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private Instant internalCreatedAt;
 
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private Instant internalUpdatedAt;
 
     public PullRequestEntity() {}
@@ -191,100 +200,6 @@ public class PullRequestEntity
         this.repo = repo.toLowerCase(Locale.ROOT);
         this.internalUpdatedAt = Instant.now();
     }
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public Long getGithubId() { return githubId; }
-
-    public void setGithubId(Long githubId) { this.githubId = githubId; }
-
-    public String getRepo() { return repo; }
-    public void setRepo(String repo) { this.repo = repo; }
-
-    public int getNumber() { return number; }
-    public void setNumber(int number) { this.number = number; }
-
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
-
-    public String getAuthor() { return author; }
-    public void setAuthor(String author) { this.author = author; }
-
-    public String getHtmlUrl() { return htmlUrl; }
-    public void setHtmlUrl(String htmlUrl) { this.htmlUrl = htmlUrl; }
-
-    public Instant getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
-
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-
-    public String getOrigin() { return origin; }
-    public void setOrigin(String origin) { this.origin = origin; }
-
-    public List<String> getLabels() { return labels; }
-    public void setLabels(List<String> labels) { this.labels = labels; }
-
-    public Map<String, String> getLabelColors() { return labelColors; }
-    public void setLabelColors(Map<String, String> labelColors) { this.labelColors = labelColors; }
-
-    public boolean isDraft() { return draft; }
-    public void setDraft(boolean draft) { this.draft = draft; }
-
-    public Instant getSyncedAt() { return syncedAt; }
-    public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
-
-    public Boolean getDashboardVisible() { return dashboardVisible; }
-    public void setDashboardVisible(Boolean dashboardVisible) { this.dashboardVisible = dashboardVisible; }
-
-    public Boolean getWorkspaceVisible() { return workspaceVisible; }
-    public void setWorkspaceVisible(Boolean workspaceVisible) { this.workspaceVisible = workspaceVisible; }
-
-    public String getDashboardSyncMarker() { return dashboardSyncMarker; }
-    public void setDashboardSyncMarker(String dashboardSyncMarker) { this.dashboardSyncMarker = dashboardSyncMarker; }
-
-    public String getWorkspaceSyncMarker() { return workspaceSyncMarker; }
-    public void setWorkspaceSyncMarker(String workspaceSyncMarker) { this.workspaceSyncMarker = workspaceSyncMarker; }
-
-    public PullRequestDetail.CiStatus getCiStatus() { return ciStatus; }
-    public void setCiStatus(PullRequestDetail.CiStatus ciStatus) { this.ciStatus = ciStatus; }
-
-    public int getCommentCount() { return commentCount; }
-    public void setCommentCount(int commentCount) { this.commentCount = commentCount; }
-
-    public int getAdditions() { return additions; }
-    public void setAdditions(int additions) { this.additions = additions; }
-
-    public int getDeletions() { return deletions; }
-    public void setDeletions(int deletions) { this.deletions = deletions; }
-
-    public AttentionReason getAttentionReason() { return attentionReason; }
-    public void setAttentionReason(AttentionReason attentionReason) { this.attentionReason = attentionReason; }
-
-    public String getState() { return state; }
-    public void setState(String state) { this.state = state; }
-
-    public Instant getClosedAt() { return closedAt; }
-    public void setClosedAt(Instant closedAt) { this.closedAt = closedAt; }
-
-    public Instant getMergedAt() { return mergedAt; }
-    public void setMergedAt(Instant mergedAt) { this.mergedAt = mergedAt; }
-
-    public Boolean getMergeable() { return mergeable; }
-    public void setMergeable(Boolean mergeable) { this.mergeable = mergeable; }
-
-    public String getMergeableState() { return mergeableState; }
-    public void setMergeableState(String mergeableState) { this.mergeableState = mergeableState; }
-
-    public Instant getHeadPushedAt() { return headPushedAt; }
-    public void setHeadPushedAt(Instant headPushedAt) { this.headPushedAt = headPushedAt; }
-
-    public Map<String, String> getReviewerVerdicts() { return reviewerVerdicts; }
-    public void setReviewerVerdicts(Map<String, String> reviewerVerdicts) { this.reviewerVerdicts = reviewerVerdicts; }
-
-    public String getHeadRef() { return headRef; }
-    public void setHeadRef(String headRef) { this.headRef = headRef; }
 
     /** The row for a pull request GitHub reported. */
     public static PullRequestEntity from(FetchedPullRequest pr, Instant syncedAt)

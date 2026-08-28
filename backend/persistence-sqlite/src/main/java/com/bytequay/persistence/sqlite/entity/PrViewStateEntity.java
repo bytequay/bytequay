@@ -23,11 +23,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "pr_view_state")
+@Getter
+@Setter
 public class PrViewStateEntity
 {
     @Id
@@ -40,6 +45,8 @@ public class PrViewStateEntity
     private Instant reviewedAt;
 
     @Column(name = "handled_action")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private String handledAction;
 
     @Column(name = "reviewed_head_sha")
@@ -47,10 +54,14 @@ public class PrViewStateEntity
 
     @Column(nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private Instant internalCreatedAt;
 
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
     private Instant internalUpdatedAt;
 
     public PrViewStateEntity() {}
@@ -69,20 +80,8 @@ public class PrViewStateEntity
         this.internalUpdatedAt = Instant.now();
     }
 
-    public Long getPrId() { return prId; }
-    public void setPrId(Long prId) { this.prId = prId; }
-
-    public Instant getViewedAt() { return viewedAt; }
-    public void setViewedAt(Instant viewedAt) { this.viewedAt = viewedAt; }
-
-    public Instant getReviewedAt() { return reviewedAt; }
-    public void setReviewedAt(Instant reviewedAt) { this.reviewedAt = reviewedAt; }
-
     public HandledAction getHandledAction() { return handledAction == null ? null : HandledAction.valueOf(handledAction); }
     public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction == null ? null : handledAction.name(); }
-
-    public String getReviewedHeadSha() { return reviewedHeadSha; }
-    public void setReviewedHeadSha(String reviewedHeadSha) { this.reviewedHeadSha = reviewedHeadSha; }
 
     public PrViewState toDomain()
     {

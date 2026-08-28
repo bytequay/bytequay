@@ -21,6 +21,8 @@ import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -29,6 +31,8 @@ import java.util.Optional;
 
 @Entity
 @Table(name = "commit_enrichment")
+@Getter
+@Setter
 public class CommitEnrichmentEntity
 {
     @EmbeddedId
@@ -67,40 +71,8 @@ public class CommitEnrichmentEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant lastSeenAt;
 
-    public Key getId() { return id; }
-    public void setId(Key id) { this.id = id; }
-
-    public String getAuthorLogin() { return authorLogin; }
-    public void setAuthorLogin(String authorLogin) { this.authorLogin = authorLogin; }
-
-    public String getAvatarKey() { return avatarKey; }
-    public void setAvatarKey(String avatarKey) { this.avatarKey = avatarKey; }
-
-    public String getCommitterLogin() { return committerLogin; }
-    public void setCommitterLogin(String committerLogin) { this.committerLogin = committerLogin; }
-
-    public String getCommitterAvatarKey() { return committerAvatarKey; }
-    public void setCommitterAvatarKey(String committerAvatarKey) { this.committerAvatarKey = committerAvatarKey; }
-
-    public Integer getPullRequestNumber() { return pullRequestNumber; }
-    public void setPullRequestNumber(Integer pullRequestNumber) { this.pullRequestNumber = pullRequestNumber; }
-
-    public String getPullRequestTitle() { return pullRequestTitle; }
-    public void setPullRequestTitle(String pullRequestTitle) { this.pullRequestTitle = pullRequestTitle; }
-
-    public String getPullRequestUrl() { return pullRequestUrl; }
-    public void setPullRequestUrl(String pullRequestUrl) { this.pullRequestUrl = pullRequestUrl; }
-
-    public Instant getAvatarCheckedAt() { return avatarCheckedAt; }
-    public void setAvatarCheckedAt(Instant avatarCheckedAt) { this.avatarCheckedAt = avatarCheckedAt; }
-
-    public Instant getAssociationCheckedAt() { return associationCheckedAt; }
-    public void setAssociationCheckedAt(Instant associationCheckedAt) { this.associationCheckedAt = associationCheckedAt; }
-
-    public Instant getLastSeenAt() { return lastSeenAt; }
-    public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
-
     @Embeddable
+    @Getter
     public static class Key
             implements Serializable
     {
@@ -117,9 +89,6 @@ public class CommitEnrichmentEntity
             this.repositoryId = repositoryId;
             this.sha = sha;
         }
-
-        public Long getRepositoryId() { return repositoryId; }
-        public String getSha() { return sha; }
 
         @Override
         public boolean equals(Object object)

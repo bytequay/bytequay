@@ -26,6 +26,7 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
@@ -39,12 +40,15 @@ public class RepositoryIssueEntity
         implements Persistable<Long>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private Long id;
 
     @Column(name = "repository_id", nullable = false)
+    @Getter
     private Long repositoryId;
 
     @Column(nullable = false)
+    @Getter
     private Integer number;
 
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -79,6 +83,7 @@ public class RepositoryIssueEntity
 
     @Column(name = "updated_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
+    @Getter
     private Instant updatedAt;
 
     @Column(name = "sync_marker")
@@ -137,16 +142,9 @@ public class RepositoryIssueEntity
     }
 
     @Override
-    public Long getId() { return id; }
-
-    @Override
     public boolean isNew() { return newEntity; }
 
     @PostLoad
     @PostPersist
     private void markPersisted() { newEntity = false; }
-
-    public Long getRepositoryId() { return repositoryId; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public Integer getNumber() { return number; }
 }

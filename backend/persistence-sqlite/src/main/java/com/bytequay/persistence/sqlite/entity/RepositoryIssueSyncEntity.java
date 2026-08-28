@@ -19,11 +19,15 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "repository_issue_sync")
+@Getter
+@Setter
 public class RepositoryIssueSyncEntity
 {
     @Id
@@ -39,16 +43,4 @@ public class RepositoryIssueSyncEntity
     @Column(name = "synced_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
-
-    public Long getRepositoryId() { return repositoryId; }
-    public void setRepositoryId(Long repositoryId) { this.repositoryId = repositoryId; }
-
-    public String getOwner() { return owner; }
-    public void setOwner(String owner) { this.owner = owner; }
-
-    public String getRepo() { return repo; }
-    public void setRepo(String repo) { this.repo = repo; }
-
-    public Instant getSyncedAt() { return syncedAt; }
-    public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
 }

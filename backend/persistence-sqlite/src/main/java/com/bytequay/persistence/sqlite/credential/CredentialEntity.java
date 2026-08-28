@@ -19,6 +19,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "credentials")
@@ -29,16 +32,14 @@ class CredentialEntity
     private Long id;
 
     @Column(nullable = false)
+    @Getter(AccessLevel.PACKAGE)
+    @Setter(AccessLevel.PACKAGE)
     private String ciphertext;
 
     @Column(name = "config_json")
+    @Getter(AccessLevel.PACKAGE)
+    @Setter(AccessLevel.PACKAGE)
     private String source;
 
     protected CredentialEntity() {}
-
-    String getCiphertext() { return ciphertext; }
-    void setCiphertext(String ciphertext) { this.ciphertext = ciphertext; }
-
-    String getSource() { return source; }
-    void setSource(String source) { this.source = source; }
 }

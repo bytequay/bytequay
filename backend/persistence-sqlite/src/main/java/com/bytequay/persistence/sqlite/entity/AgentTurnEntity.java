@@ -36,6 +36,7 @@ import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
+import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
@@ -49,6 +50,7 @@ public class AgentTurnEntity
         implements Persistable<String>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(name = "task_id", nullable = false)
@@ -76,6 +78,7 @@ public class AgentTurnEntity
     private String activeTaskId;
 
     @Version
+    @Getter
     private long version;
 
     @Column(nullable = false)
@@ -173,17 +176,6 @@ public class AgentTurnEntity
                         Optional.ofNullable(cost),
                         costProvenance,
                         Duration.ofMillis(elapsedMillis)));
-    }
-
-    public long getVersion()
-    {
-        return version;
-    }
-
-    @Override
-    public String getId()
-    {
-        return id;
     }
 
     @Override

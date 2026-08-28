@@ -21,6 +21,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 
@@ -30,10 +33,13 @@ import java.time.Instant;
         indexes = @Index(
                 name = "idx_pr_check_runs_pr_github",
                 columnList = "pr_id, github_id"))
+@Getter
+@Setter
 public class PrCheckRunEntity
 {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Setter(AccessLevel.NONE)
     private Long id;
 
     @Column(nullable = false)
@@ -56,32 +62,6 @@ public class PrCheckRunEntity
     private Instant completedAt;
 
     public PrCheckRunEntity() {}
-
-    public Long getId() { return id; }
-
-    public Long getPrId() { return prId; }
-    public void setPrId(Long prId) { this.prId = prId; }
-
-    public Long getGithubId() { return githubId; }
-    public void setGithubId(Long githubId) { this.githubId = githubId; }
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-
-    public String getConclusion() { return conclusion; }
-    public void setConclusion(String conclusion) { this.conclusion = conclusion; }
-
-    public String getDetailsUrl() { return detailsUrl; }
-    public void setDetailsUrl(String detailsUrl) { this.detailsUrl = detailsUrl; }
-
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
-
-    public Instant getCompletedAt() { return completedAt; }
-    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
 
     public PrCheckRunState toDomain()
     {

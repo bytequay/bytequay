@@ -24,16 +24,22 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.Optional;
 
 @Entity
 @Table(name = "pr_timeline")
+@Getter
+@Setter
 public class PrTimelineEntity
 {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Setter(AccessLevel.NONE)
     private Long id;
 
     @Column(name = "pr_id", nullable = false)
@@ -60,32 +66,6 @@ public class PrTimelineEntity
     private PrTimelinePayload payload;
 
     public PrTimelineEntity() {}
-
-    public Long getId() { return id; }
-
-    public Long getPrId() { return prId; }
-    public void setPrId(Long prId) { this.prId = prId; }
-
-    public String getEvent() { return event; }
-    public void setEvent(String event) { this.event = event; }
-
-    public String getActor() { return actor; }
-    public void setActor(String actor) { this.actor = actor; }
-
-    public Instant getTimestamp() { return timestamp; }
-    public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
-
-    public String getBody() { return body; }
-    public void setBody(String body) { this.body = body; }
-
-    public Long getGithubId() { return githubId; }
-    public void setGithubId(Long githubId) { this.githubId = githubId; }
-
-    public String getLocalEventKey() { return localEventKey; }
-    public void setLocalEventKey(String localEventKey) { this.localEventKey = localEventKey; }
-
-    public PrTimelinePayload getPayload() { return payload; }
-    public void setPayload(PrTimelinePayload payload) { this.payload = payload; }
 
     public PrTimelineEvent toDomain()
     {

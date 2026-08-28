@@ -20,12 +20,16 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.Optional;
 
 @Entity
 @Table(name = "commit_refresh_metadata")
+@Getter
+@Setter
 public class CommitRefreshMetadataEntity
 {
     @Id
@@ -42,18 +46,6 @@ public class CommitRefreshMetadataEntity
 
     @Column(columnDefinition = "TEXT")
     private String error;
-
-    public String getWorkspaceId() { return workspaceId; }
-    public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
-
-    public Instant getLastAttemptAt() { return lastAttemptAt; }
-    public void setLastAttemptAt(Instant lastAttemptAt) { this.lastAttemptAt = lastAttemptAt; }
-
-    public Instant getLastSucceededAt() { return lastSucceededAt; }
-    public void setLastSucceededAt(Instant lastSucceededAt) { this.lastSucceededAt = lastSucceededAt; }
-
-    public String getError() { return error; }
-    public void setError(String error) { this.error = error; }
 
     public CommitRefreshMetadata toDomain()
     {

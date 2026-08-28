@@ -25,6 +25,8 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +34,8 @@ import java.util.Map;
 
 @Entity
 @Table(name = "pr_diff")
+@Getter
+@Setter
 public class PrDiffEntity
 {
     @Id
@@ -65,34 +69,4 @@ public class PrDiffEntity
     private String commitsEtag;
 
     public PrDiffEntity() {}
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-
-    public Long getPrId() { return prId; }
-    public void setPrId(Long prId) { this.prId = prId; }
-
-    public String getBaseSha() { return baseSha; }
-    public void setBaseSha(String baseSha) { this.baseSha = baseSha; }
-
-    public String getHeadSha() { return headSha; }
-    public void setHeadSha(String headSha) { this.headSha = headSha; }
-
-    public String getFilesEtag() { return filesEtag; }
-    public void setFilesEtag(String filesEtag) { this.filesEtag = filesEtag; }
-
-    public String getCommitsEtag() { return commitsEtag; }
-    public void setCommitsEtag(String commitsEtag) { this.commitsEtag = commitsEtag; }
-
-    public List<DiffFile> getFiles() { return files; }
-    public void setFiles(List<DiffFile> files) { this.files = files; }
-
-    public List<DiffCommit> getCommits() { return commits; }
-    public void setCommits(List<DiffCommit> commits) { this.commits = commits; }
-
-    public Map<String, DiffFileContent> getFileContents() { return fileContents; }
-    public void setFileContents(Map<String, DiffFileContent> fileContents) { this.fileContents = fileContents; }
-
-    public Instant getSyncedAt() { return syncedAt; }
-    public void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }
 }

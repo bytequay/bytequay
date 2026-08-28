@@ -23,6 +23,8 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +32,8 @@ import java.util.Optional;
 
 @Entity
 @Table(name = "repository_issue_details")
+@Getter
+@Setter
 public class RepositoryIssueDetailEntity
 {
     @Id
@@ -57,27 +61,6 @@ public class RepositoryIssueDetailEntity
     private Instant refreshedAt;
 
     public RepositoryIssueDetailEntity() {}
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-
-    public Long getRepositoryId() { return repositoryId; }
-    public void setRepositoryId(Long repositoryId) { this.repositoryId = repositoryId; }
-
-    public Integer getIssueNumber() { return issueNumber; }
-    public void setIssueNumber(Integer issueNumber) { this.issueNumber = issueNumber; }
-
-    public List<PrTimelineEvent> getTimeline() { return timeline; }
-    public void setTimeline(List<PrTimelineEvent> timeline) { this.timeline = timeline; }
-
-    public String getCurrentType() { return currentType; }
-    public void setCurrentType(String currentType) { this.currentType = currentType; }
-
-    public List<String> getAvailableTypes() { return availableTypes; }
-    public void setAvailableTypes(List<String> availableTypes) { this.availableTypes = availableTypes; }
-
-    public Instant getRefreshedAt() { return refreshedAt; }
-    public void setRefreshedAt(Instant refreshedAt) { this.refreshedAt = refreshedAt; }
 
     public RepositoryIssueDetail toDomain()
     {

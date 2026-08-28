@@ -40,6 +40,7 @@ import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
+import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
 import java.nio.file.Path;
@@ -55,6 +56,7 @@ public class CiAutofixRunEntity
         implements Persistable<String>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(nullable = false, unique = true)
@@ -182,6 +184,7 @@ public class CiAutofixRunEntity
     private String warningsJson;
 
     @Version
+    @Getter
     private long version;
 
     @Column(nullable = false)
@@ -294,11 +297,6 @@ public class CiAutofixRunEntity
                 Optional.ofNullable(terminalAt));
     }
 
-    public long getVersion()
-    {
-        return version;
-    }
-
     private void updateFinalCheck(Optional<FinalFixupCheck> check)
     {
         finalCheckHeadSha = check.map(FinalFixupCheck::headSha).orElse(null);
@@ -355,12 +353,6 @@ public class CiAutofixRunEntity
                         rerunPreviousAttempt,
                         rerunStartedAt,
                         Optional.ofNullable(rerunObservedAttempt)));
-    }
-
-    @Override
-    public String getId()
-    {
-        return id;
     }
 
     @Override

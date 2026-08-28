@@ -17,11 +17,14 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "model_api_keys")
+@Getter(AccessLevel.PACKAGE)
 class ModelApiKeyEntity
 {
     @Id
@@ -45,12 +48,4 @@ class ModelApiKeyEntity
         this.ciphertext = ciphertext;
         this.createdAt = createdAt;
     }
-
-    String getAlias() { return alias; }
-
-    String getProvider() { return provider; }
-
-    String getCiphertext() { return ciphertext; }
-
-    Instant getCreatedAt() { return createdAt; }
 }

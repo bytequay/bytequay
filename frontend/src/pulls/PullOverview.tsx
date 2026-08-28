@@ -33,7 +33,6 @@ const LABEL_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const HIDDEN_TIMELINE_EVENTS = new Set([
   'convert_to_draft',
   'description_reactions',
-  'head_ref_force_pushed',
   'mentioned',
   'ready_for_review',
   'review_request_removed',
@@ -511,7 +510,7 @@ export function groupTimelineActivities(activities: Activity[]) {
     }
     const previous = groups.at(-1);
     const previousActivity = previous?.at(-1);
-    if (previousActivity && canGroupLabelEvents(previousActivity, activity)) {
+    if (previousActivity && canGroupTimelineEvents(previousActivity, activity)) {
       previous.push(activity);
     }
     else {
@@ -528,12 +527,13 @@ function reviewIdForThread(activity: Activity) {
     ?? null;
 }
 
-function canGroupLabelEvents(previous: Activity, activity: Activity) {
-  if (!LABEL_EVENT_TYPES.has(activity.eventType)
-      || activity.eventType !== previous.eventType
+function canGroupTimelineEvents(previous: Activity, activity: Activity) {
+  if (activity.eventType !== previous.eventType
       || activity.actor !== previous.actor) {
     return false;
   }
+  if (activity.eventType === 'head_ref_force_pushed') return true;
+  if (!LABEL_EVENT_TYPES.has(activity.eventType)) return false;
   const previousTime = Date.parse(previous.timestamp ?? '');
   const activityTime = Date.parse(activity.timestamp ?? '');
   return Number.isFinite(previousTime)
@@ -853,14 +853,14 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
       <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
       <div>
         <strong>{actor}</strong>{payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
-        <span>{eventText(activity)}</span>
+        <span>{eventText(activity, activities.length)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
       </div>
     </div>
   );
 }
 
-function eventText(activity: Activity) {
+function eventText(activity: Activity, count = 1) {
   const p = activity.payload;
   switch (activity.eventType) {
     case 'labeled': return <>added <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
@@ -873,7 +873,7 @@ function eventText(activity: Activity) {
     case 'demilestoned': return <>removed this from the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'added_to_merge_queue': return <>added this to the merge queue</>;
     case 'removed_from_merge_queue': return <>removed this from the merge queue</>;
-    case 'head_ref_force_pushed': return <>force-pushed the head branch</>;
+    case 'head_ref_force_pushed': return <>force-pushed the head branch{count > 1 ? ` ${count} times` : ''}</>;
     case 'convert_to_draft': return <>converted this pull request to draft</>;
     case 'ready_for_review': return <>marked this pull request ready for review</>;
     case 'closed': return <>closed this</>;

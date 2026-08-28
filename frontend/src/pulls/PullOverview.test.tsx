@@ -200,6 +200,35 @@ describe('PullOverview', () => {
     expect(html).toContain('M10.5 7.75a2.75 2.75');
   });
 
+  it('shows commits and force pushes in the timeline', () => {
+    const value = detail();
+    value.recentActivity = [
+      {
+        actor: 'Yuri Ebbing', eventType: 'committed', timestamp: '2026-08-20T10:00:00Z', body: null, githubId: null,
+        payload: { ...emptyPayload, commitSha: '4f81d3193402', commitMessage: 'Retry BigQuery Storage Write API' },
+      },
+      {
+        actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:02:00Z', body: null, githubId: 21,
+        payload: emptyPayload,
+      },
+      {
+        actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:03:00Z', body: null, githubId: 22,
+        payload: emptyPayload,
+      },
+    ];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(groupTimelineActivities(value.recentActivity).map(group => group[0].eventType))
+      .toEqual(['committed', 'head_ref_force_pushed']);
+    expect(groupTimelineActivities(value.recentActivity)[1]).toHaveLength(2);
+    expect(html).toContain('Retry BigQuery Storage Write API');
+    expect(html).toContain('<code>4f81d31</code>');
+    expect(html).toContain('force-pushed the head branch 2 times');
+    expect(html.match(/force-pushed the head branch/g)).toHaveLength(1);
+    expect(html.indexOf('Retry BigQuery Storage Write API')).toBeLessThan(html.indexOf('force-pushed the head branch'));
+  });
+
   it('shows running checks in yellow and completed check times', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-20T10:00:00Z'));
     const value = detail();

@@ -217,6 +217,35 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void datesCommitEventsByCommitterTime()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"event":"committed","sha":"abc","message":"Fix it",
+                          "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
+                          "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/pulls/42/commits?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"sha":"abc","commit":{"message":"Fix it",
+                          "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
+                          "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST, null);
+        List<PrTimelineEvent> commits = fixture.client().fetchPrCommits("pat", PULL_REQUEST);
+
+        assertThat(timeline).singleElement().extracting(PrTimelineEvent::timestamp)
+                .isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
+        assertThat(commits).singleElement().extracting(PrTimelineEvent::timestamp)
+                .isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
+        fixture.verify();
+    }
+
+    @Test
     void addsGraphQlReactionsToReviewTimelineEvents()
     {
         Fixture fixture = fixture();

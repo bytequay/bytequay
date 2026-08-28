@@ -31,6 +31,7 @@ public record GitHubTimelineEvent(
         String state,
         @JsonProperty("html_url") String htmlUrl,
         Author author,
+        Author committer,
         Label label,
         Rename rename,
         Milestone milestone,

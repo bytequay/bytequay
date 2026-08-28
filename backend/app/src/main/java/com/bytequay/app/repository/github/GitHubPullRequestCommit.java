@@ -31,7 +31,7 @@ public record GitHubPullRequestCommit(
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Commit(String message, Author author) {}
+    public record Commit(String message, Author author, Author committer) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Author(String name, Instant date) {}

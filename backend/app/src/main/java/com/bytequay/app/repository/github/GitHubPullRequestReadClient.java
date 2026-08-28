@@ -891,9 +891,11 @@ public class GitHubPullRequestReadClient
                             .map(GitHubTimelineEvent.User::login)
                             .orElse(null));
         };
+        // GitHub's committed timeline row has no created_at; committer time keeps rewritten commits near their push.
         Instant timestamp = switch (type) {
-            case "committed" -> Optional.ofNullable(event.author())
+            case "committed" -> Optional.ofNullable(event.committer())
                     .map(GitHubTimelineEvent.Author::date)
+                    .or(() -> Optional.ofNullable(event.author()).map(GitHubTimelineEvent.Author::date))
                     .orElse(null);
             case "reviewed" -> event.submittedAt();
             default -> event.createdAt();
@@ -966,7 +968,11 @@ public class GitHubPullRequestReadClient
                 null,
                 "committed",
                 actor,
-                Optional.ofNullable(author).map(GitHubPullRequestCommit.Author::date).orElse(null),
+                Optional.ofNullable(commit.commit())
+                        .map(GitHubPullRequestCommit.Commit::committer)
+                        .map(GitHubPullRequestCommit.Author::date)
+                        .or(() -> Optional.ofNullable(author).map(GitHubPullRequestCommit.Author::date))
+                        .orElse(null),
                 null,
                 new PrTimelinePayload(
                         user == null ? null : user.avatarUrl(),

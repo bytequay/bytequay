@@ -59,6 +59,12 @@ describe('MarkdownBody', () => {
     expect(html).not.toContain('](cci:1://');
   });
 
+  it('renders escaped backticks as literal delimiters', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'Use \\`ClickHouseClient.toColumnMapping()\\`.'} />);
+
+    expect(html).toBe('<div class="markdown-body"><p>Use `ClickHouseClient.toColumnMapping()`.</p></div>');
+  });
+
   it('links bare URLs in comments', () => {
     const url = 'https://github.com/apache/avro/blob/release-1.12.2/lang/java/avro/src/main/java/org/apache/avro/util/ClassSecurityValidator.java';
 

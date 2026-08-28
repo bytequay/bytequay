@@ -233,9 +233,10 @@ export function markdownBlocks(markdown: string): Block[] {
 }
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
-  const token = /(\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+  const token = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
   return text.split(token).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
+    if (part === '\\`' || part === '\\\\') return <Fragment key={key}>{part.slice(1)}</Fragment>;
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
     if (linkedImage) return (
       <a className="md-image-link" key={key} href={linkedImage[3]} onClick={event => {

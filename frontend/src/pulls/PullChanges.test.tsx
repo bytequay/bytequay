@@ -81,7 +81,6 @@ describe('DiffViewer', () => {
 
     expect(html).toContain('↕ 94 unmodified lines');
     expect(html).toContain('↕ Show unchanged lines below');
-    expect(html).toContain('Click + to comment on one line. Drag across line numbers, or Shift-click another line, to select a range.');
     expect(html).toContain('aria-label="Select old line 95">95</button>');
     expect(html.match(/pull-diff-code__add-comment/g)).toHaveLength(4);
     expect(html).toContain('aria-label="Add a comment on new line 95">+</button>');

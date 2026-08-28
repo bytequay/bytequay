@@ -871,7 +871,6 @@ function DiffFileCard({
       )}
       {open && hunks.length > 0 && (
         <div className="pull-diff-file__code-scroll">
-          {canReview && <p className="pull-diff-file__hint">Click + to comment on one line. Drag across line numbers, or Shift-click another line, to select a range.</p>}
           {contentError && <p className="pull-diff-file__content-error" role="alert">{contentError}</p>}
           <table className="pull-diff-code" onMouseUp={() => {
             dragAnchor.current = null;

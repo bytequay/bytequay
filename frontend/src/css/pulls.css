@@ -885,7 +885,6 @@
 .pull-diff-file__blocks i.is-del { background: #cf222e; }
 .pull-diff-file__empty { padding: 26px 16px; color: #8b949e; font-size: var(--ui-font-size); text-align: center; }
 .pull-diff-file__code-scroll { min-width: 0; overflow-x: hidden; }
-.pull-diff-file__hint { margin: 0; border-bottom: 1px solid #d8dee4; background: #fff; color: #6e7781; padding: 6px 12px; font-size: var(--ui-font-size); }
 .pull-diff-file__content-error { margin: 0; border-bottom: 1px solid #ff8182; background: #ffebe9; color: #cf222e; padding: 7px 12px; font-size: var(--ui-font-size); }
 .pull-diff-code { width: 100%; table-layout: fixed; border-collapse: collapse; font-family: var(--font-mono); font-size: var(--pr-code-font-size); line-height: 1.7; }
 .pull-diff-code__line-column { width: 42px; }

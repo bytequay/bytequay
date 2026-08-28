@@ -27,8 +27,33 @@ public record AgentSessionContext(
         Path providerDirectory,
         AgentPermissionPolicy permissionPolicy,
         Optional<AgentSessionRef> sessionReference,
-        AgentApprovalHandler approvals)
+        AgentApprovalHandler approvals,
+        Optional<String> model,
+        Optional<String> effort,
+        boolean textOnly)
 {
+    public AgentSessionContext(
+            String taskId,
+            Path worktree,
+            Path runtimeDirectory,
+            Path providerDirectory,
+            AgentPermissionPolicy permissionPolicy,
+            Optional<AgentSessionRef> sessionReference,
+            AgentApprovalHandler approvals)
+    {
+        this(
+                taskId,
+                worktree,
+                runtimeDirectory,
+                providerDirectory,
+                permissionPolicy,
+                sessionReference,
+                approvals,
+                Optional.empty(),
+                Optional.empty(),
+                false);
+    }
+
     public AgentSessionContext
     {
         checkNotBlank(taskId, "taskId");
@@ -38,6 +63,9 @@ public record AgentSessionContext(
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(approvals, "approvals is null");
+        requireNonNull(model, "model is null").ifPresent(value -> checkNotBlank(value, "model"));
+        requireNonNull(effort, "effort is null").ifPresent(value -> checkNotBlank(value, "effort"));
+        checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");
         checkArgument(providerDirectory.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "providerDirectory escapes runtimeDirectory");

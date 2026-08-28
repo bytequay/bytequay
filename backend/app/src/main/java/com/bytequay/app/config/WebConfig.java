@@ -32,6 +32,8 @@ public class WebConfig
     private static final String USER_AGENT = "bytequay -app";
 
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
+    private static final String OPENAI_API_BASE_URL = "https://api.openai.com";
+    private static final String DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
 
     // Bound stuck GitHub calls caused by rate limits, dead connections, or
     // network blips. This stays below the frontend's one-minute request timeout.
@@ -80,6 +82,31 @@ public class WebConfig
         return RestClient.builder()
                 .baseUrl(GITHUB_GRAPHQL_API_URL)
                 .defaultHeader("Accept", "application/json")
+                .defaultHeader("Content-Type", "application/json")
+                .defaultHeader("User-Agent", USER_AGENT)
+                .requestFactory(newTimeoutRequestFactory(
+                        CONNECT_TIMEOUT,
+                        READ_TIMEOUT,
+                        HttpClient.Redirect.NEVER))
+                .build();
+    }
+
+    @Bean
+    public RestClient openAiRestClient()
+    {
+        return modelRestClient(OPENAI_API_BASE_URL);
+    }
+
+    @Bean
+    public RestClient deepSeekRestClient()
+    {
+        return modelRestClient(DEEPSEEK_API_BASE_URL);
+    }
+
+    private static RestClient modelRestClient(String baseUrl)
+    {
+        return RestClient.builder()
+                .baseUrl(baseUrl)
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestFactory(newTimeoutRequestFactory(

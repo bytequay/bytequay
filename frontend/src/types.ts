@@ -857,6 +857,7 @@ export type Bridge = {
     body: string,
     comments?: InlineReviewCommentDto[],
   ) => Promise<PullRequestDetailDto>;
+  betterWords: (text: string, repository: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;

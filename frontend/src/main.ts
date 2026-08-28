@@ -249,6 +249,23 @@ function registerIpc(): void {
   });
   ipcMain.handle('find:stop', () => mainWindow?.webContents.stopFindInPage('clearSelection'));
 
+  ipcMain.handle('agent:better-words', async (
+    _event,
+    text: string,
+    repository: string,
+    workspaceId?: string,
+  ) => {
+    const response = await backendJson<{ text: string }>(`${BACKEND_BASE}/agent/better-words`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ByteQuay-Session': sessionToken(),
+      },
+      body: JSON.stringify({ text, repository, workspaceId }),
+    });
+    return response.text;
+  });
+
   // Cherry-pick endpoints sit behind the desktop session filter, and the token
   // stays here: the renderer never sees it, so a page in the embedded GitHub
   // view cannot reach them.

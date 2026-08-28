@@ -193,6 +193,7 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Add or remove thumbs up reaction"');
     expect(html).toContain('aria-label="More actions"');
     expect(html).toContain('>Close pull request</button>');
+    expect(html).toContain('>Better words</button>');
     expect(html).not.toContain('pr-composer__tools');
     expect(html).toContain('>Copy link</button>');
     expect(html).toContain('>Copy Markdown</button>');

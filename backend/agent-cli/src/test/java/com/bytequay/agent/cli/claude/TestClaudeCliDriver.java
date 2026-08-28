@@ -170,6 +170,23 @@ class TestClaudeCliDriver
         assertThat(settingsFile).exists();
         autoSession.close();
         assertThat(settingsFile).doesNotExist();
+
+        AgentSession textSession = driver.open(context(
+                Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("sonnet"), Optional.of("Extra"), true),
+                events::add);
+        assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        ProcessSpec textSpec = supervisor.turns().getLast().spec();
+        assertThat(textSpec.argv()).contains("--tools=");
+        assertThat(textSpec.argv()).contains("--disable-slash-commands", "--no-session-persistence");
+        assertThat(textSpec.argv()).containsSequence("--model", "sonnet");
+        assertThat(textSpec.argv()).containsSequence("--effort", "xhigh");
+        assertThat(settingsFile).exists();
+        assertThat(objectMapper.readTree(Files.readString(settingsFile))
+                .at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+        assertThat(objectMapper.readTree(Files.readString(settingsFile))
+                .at("/sandbox/network/allowedDomains")).isEmpty();
+        textSession.close();
+        assertThat(settingsFile).doesNotExist();
         driver.close();
     }
 
@@ -182,6 +199,24 @@ class TestClaudeCliDriver
             Optional<AgentSessionRef> reference,
             AgentPermissionPolicy permissionPolicy)
     {
+        return context(reference, permissionPolicy, false);
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AgentPermissionPolicy permissionPolicy,
+            boolean textOnly)
+    {
+        return context(reference, permissionPolicy, Optional.empty(), Optional.empty(), textOnly);
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AgentPermissionPolicy permissionPolicy,
+            Optional<String> model,
+            Optional<String> effort,
+            boolean textOnly)
+    {
         return new AgentSessionContext(
                 "task-1",
                 worktree,
@@ -189,7 +224,10 @@ class TestClaudeCliDriver
                 runtimeDirectory().resolve("provider/scratch"),
                 permissionPolicy,
                 reference,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                model,
+                effort,
+                textOnly);
     }
 
     private Path runtimeDirectory()
@@ -242,6 +280,7 @@ class TestClaudeCliDriver
                         --output-format --include-partial-messages --include-hook-events
                         --forward-subagent-text --permission-mode --mcp-config
                         --settings --setting-sources --strict-mcp-config --add-dir
+                        --tools --no-session-persistence --disable-slash-commands --model --effort
                         """));
                 return ImmediateProcess.success();
             }

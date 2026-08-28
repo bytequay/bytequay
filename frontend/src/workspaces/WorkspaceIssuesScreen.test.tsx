@@ -105,6 +105,7 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).not.toContain('aria-label="Add reaction"');
     expect(html).toContain('class="pr-composer"');
     expect(html).toContain('>Close issue</button>');
+    expect(html).not.toContain('>Better words</button>');
   });
 
   it('deduplicates participants and keeps the best avatar', () => {

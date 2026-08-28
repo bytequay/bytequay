@@ -24,6 +24,7 @@ import type {
   PullTimelineCommentDto,
   RepoUserDto,
 } from '../types';
+import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { GitHubReferenceLink } from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
 
@@ -109,15 +110,17 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           <div className="pr-timeline__slot" key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
             id={activities[0].githubId === null ? undefined : `pr-activity-${activities[0].githubId}`}>
             <TimelineItem activities={activities}
-              pr={pr} onRefresh={onRefresh}
+              pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
         ))}
         <ChecksCard pr={pr} detail={detail} onRefresh={onRefresh} />
       </section>
       <DiscussionComposer
-        repository={pr.repo}
+        betterWords
+        workspaceId={contributorsWorkspaceId}
         candidates={mentionCandidates(detail)}
+        repository={pr.repo}
         quotedReply={quotedReply}
         onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
         onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
@@ -467,18 +470,19 @@ function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onRefresh, onQuo
   );
 }
 
-function TimelineItem({ activities, pr, onRefresh, onQuote }: {
+function TimelineItem({ activities, pr, workspaceId, onRefresh, onQuote }: {
   activities: Activity[];
   pr: PullRequestDto;
+  workspaceId?: string;
   onRefresh: () => Promise<void>;
   onQuote: (body: string) => void;
 }) {
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
-    return <ReviewGroup activities={activities} pr={pr} onRefresh={onRefresh} />;
+    return <ReviewGroup activities={activities} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />;
   }
   if (activity.eventType === 'review_thread') {
-    return <ReviewThread activity={activity} pr={pr} onRefresh={onRefresh} />;
+    return <ReviewThread activity={activity} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
     return <CommentCard activity={activity} pr={pr} onRefresh={onRefresh} onQuote={onQuote} />;
@@ -602,9 +606,10 @@ function CommentCard({ activity, pr, onRefresh, onQuote }: {
   );
 }
 
-function ReviewGroup({ activities, pr, onRefresh }: {
+function ReviewGroup({ activities, pr, workspaceId, onRefresh }: {
   activities: Activity[];
   pr: PullRequestDto;
+  workspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
   const review = activities[0];
@@ -622,15 +627,17 @@ function ReviewGroup({ activities, pr, onRefresh }: {
         {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
       </div>
       {activities.slice(1).map(thread => (
-        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread} pr={pr} onRefresh={onRefresh} />
+        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread}
+          pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />
       ))}
     </section>
   );
 }
 
-function ReviewThread({ activity, pr, onRefresh }: {
+function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
   activity: Activity;
   pr: PullRequestDto;
+  workspaceId?: string;
   onRefresh: () => Promise<void>;
 }) {
   const { payload } = activity;
@@ -690,22 +697,27 @@ function ReviewThread({ activity, pr, onRefresh }: {
     <footer className="pr-thread-reply">
       <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
         <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
-          onClick={() => setPreview(false)}>Write</button>
+          onClick={() => {
+            setPreview(false);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}>Write</button>
         <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
           onClick={() => setPreview(true)}>Preview</button>
       </div>
-      {preview
-        ? <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} />
-        : <textarea ref={textareaRef} autoFocus aria-label="Reply to review thread" value={body} rows={4}
-          placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
-          onKeyDown={event => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault();
-              void submit();
-            }
-          }} />}
+      {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} />}
+      <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Reply to review thread" value={body} rows={4}
+        placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
+        onKeyDown={event => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            void submit();
+          }
+        }} />
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       <div className="pr-thread-reply__actions">
+        <BetterWordsButton text={body} textareaRef={textareaRef} repository={pr.repo} workspaceId={workspaceId}
+          disabled={preview || posting}
+          onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
         <button type="button" onClick={() => { setReplying(false); setBody(''); setPreview(false); setError(''); }}>Cancel</button>
         <button className="is-primary" type="button" disabled={posting || !body.trim()}
           onClick={() => { void submit(); }}>{posting ? 'Replying…' : 'Reply'}</button>
@@ -1026,16 +1038,20 @@ type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
 export function DiscussionComposer({
-  repository,
+  betterWords = false,
+  workspaceId,
   candidates,
+  repository,
   quotedReply,
   closeLabel = 'Close pull request',
   onClose,
   onDraftChange,
   onSubmit,
 }: {
-  repository: string;
+  betterWords?: boolean;
+  workspaceId?: string;
   candidates: MentionCandidate[];
+  repository: string;
   quotedReply?: QuoteRequest;
   closeLabel?: string;
   onClose?: () => Promise<void>;
@@ -1047,6 +1063,8 @@ export function DiscussionComposer({
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [betterWordsError, setBetterWordsError] = useState<string | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1058,6 +1076,7 @@ export function DiscussionComposer({
     setBody(current => appendQuotedReply(current, quotedReply.body));
     setPreview(false);
     setMention(null);
+    setBetterWordsError(null);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1084,6 +1103,8 @@ export function DiscussionComposer({
     try {
       await onSubmit(body.trim());
       setBody('');
+      setBetterWordsError(null);
+      setDraftRevision(revision => revision + 1);
     }
     finally { setPosting(false); }
   };
@@ -1096,17 +1117,20 @@ export function DiscussionComposer({
   return (
     <section className="pr-composer">
       <header>
-        <button className={!preview ? 'is-active' : ''} type="button" onClick={() => setPreview(false)}>Write</button>
+        <button className={!preview ? 'is-active' : ''} type="button" onClick={() => {
+          setPreview(false);
+          requestAnimationFrame(() => textareaRef.current?.focus());
+        }}>Write</button>
         <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); }}>Preview</button>
       </header>
-      {preview
-        ? <MarkdownBody body={body || 'Nothing to preview.'} repository={repository} />
-        : <div className="pr-composer__input">
+      {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={repository} />}
+      <div className="pr-composer__input" hidden={preview}>
           <textarea ref={textareaRef} value={body} placeholder="Add a comment" rows={7}
             aria-autocomplete="list" aria-controls="pr-mention-list" aria-expanded={mention !== null}
             onBlur={() => setMention(null)}
             onChange={event => {
               setBody(event.target.value);
+              setBetterWordsError(null);
               setMention(activeMention(event.target.value, event.target.selectionStart));
               setMentionIndex(0);
             }}
@@ -1143,8 +1167,13 @@ export function DiscussionComposer({
                 ))}
             </div>
           )}
-        </div>}
+        </div>
+      {betterWordsError && <span className="pr-composer__error" role="alert">{betterWordsError}</span>}
       <footer>
+        {betterWords && <BetterWordsButton key={draftRevision} text={body} textareaRef={textareaRef}
+          repository={repository} workspaceId={workspaceId}
+          disabled={preview || posting || closing}
+          onError={failure => setBetterWordsError(failure === null ? null : remoteErrorMessage(failure))} />}
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing}
           onClick={() => { void close(); }}>{closing ? 'Closing…' : closeLabel}</button>}
         <button type="button" disabled={posting || closing || !body.trim()} onClick={() => { void submit(); }}>

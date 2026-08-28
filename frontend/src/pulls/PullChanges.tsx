@@ -24,6 +24,7 @@ import type {
   UserProfileDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
+import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody from './MarkdownBody';
 import { CopyLinkButton, relativeTime, remoteErrorMessage } from './PullOverview';
 
@@ -34,6 +35,7 @@ const SINGLE_FILE_MODE_THRESHOLD = 20;
 type PullChangesProps = {
   repo: string;
   number: number;
+  workspaceId?: string;
   files: DiffFileDto[];
   commits: DiffCommitDto[];
   commitRange: CommitRange;
@@ -48,6 +50,7 @@ type PullChangesProps = {
 type ReviewOptions = {
   repo: string;
   number: number;
+  workspaceId?: string;
   canReview: boolean;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
@@ -71,6 +74,7 @@ export type DiffViewerProps = {
 export default function PullChanges({
   repo,
   number,
+  workspaceId,
   files,
   commits,
   commitRange,
@@ -91,6 +95,7 @@ export default function PullChanges({
       review={{
         repo,
         number,
+        workspaceId,
         canReview,
         pendingComments,
         onPendingCommentsChange,
@@ -804,24 +809,28 @@ function DiffFileCard({
               <div className="pull-diff-review__bar">
                 <div className="pull-diff-review__tabs" role="tablist">
                   <button type="button" role="tab" aria-selected={!preview}
-                    className={preview ? '' : 'is-active'} onClick={() => setPreview(false)}>Write</button>
+                    className={preview ? '' : 'is-active'} onClick={() => {
+                      setPreview(false);
+                      requestAnimationFrame(() => bodyRef.current?.focus());
+                    }}>Write</button>
                   <button type="button" role="tab" aria-selected={preview}
                     className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
                 </div>
                 {!preview && <MarkdownToolbar onCommand={runMarkdownCommand} />}
               </div>
-              {preview ? (
-                <div className="pull-diff-review__preview">
-                  {reviewBody.trim()
-                    ? <MarkdownBody body={reviewBody} repository={review.repo} />
-                    : <p className="pull-diff-review__nothing">Nothing to preview</p>}
-                </div>
-              ) : (
-                <textarea ref={bodyRef} value={reviewBody} autoFocus placeholder="Leave a review comment…"
-                  onChange={event => setReviewBody(event.target.value)} />
-              )}
+              {preview && <div className="pull-diff-review__preview">
+                {reviewBody.trim()
+                  ? <MarkdownBody body={reviewBody} repository={review.repo} />
+                  : <p className="pull-diff-review__nothing">Nothing to preview</p>}
+              </div>}
+              <textarea ref={bodyRef} value={reviewBody} autoFocus hidden={preview}
+                placeholder="Leave a review comment…" onChange={event => setReviewBody(event.target.value)} />
               {reviewError && <span role="alert">{reviewError}</span>}
               <footer>
+                <BetterWordsButton text={reviewBody} textareaRef={bodyRef} repository={review.repo}
+                  workspaceId={review.workspaceId}
+                  disabled={preview || posting}
+                  onError={failure => setReviewError(failure === null ? null : remoteErrorMessage(failure))} />
                 <button type="button" onClick={closeComposer}>Cancel</button>
                 <button type="button" disabled={!reviewBody.trim() || posting} onClick={addPending}>Add to review</button>
                 <button className="is-primary" type="button" disabled={!reviewBody.trim() || posting}

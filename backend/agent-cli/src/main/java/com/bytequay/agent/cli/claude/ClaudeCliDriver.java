@@ -87,14 +87,19 @@ public final class ClaudeCliDriver
     private static final int MAX_PROBE_OUTPUT_BYTES = 32 * 1024;
     private static final Set<String> REQUIRED_FLAGS = ImmutableSet.of(
             "--add-dir",
+            "--disable-slash-commands",
             "--include-hook-events",
             "--include-partial-messages",
             "--mcp-config",
+            "--model",
+            "--no-session-persistence",
             "--output-format",
             "--permission-mode",
+            "--effort",
             "--settings",
             "--setting-sources",
-            "--strict-mcp-config");
+            "--strict-mcp-config",
+            "--tools");
     private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
             "ALL_PROXY",
             "ANTHROPIC_API_KEY",
@@ -288,6 +293,7 @@ public final class ClaudeCliDriver
                 context.runtimeDirectory(),
                 context.providerDirectory(),
                 context.permissionPolicy(),
+                context.textOnly(),
                 context.approvals(),
                 redactor);
         ClaudeSession session = new ClaudeSession(
@@ -310,6 +316,9 @@ public final class ClaudeCliDriver
     private List<String> argv(
             ClaudePermissionBroker.Registration registration,
             AgentPermissionPolicy permissionPolicy,
+            Optional<String> model,
+            Optional<String> effort,
+            boolean textOnly,
             String sessionId,
             boolean resume,
             List<AgentAttachment> attachments)
@@ -326,10 +335,19 @@ public final class ClaudeCliDriver
         if (forwardSubagentText) {
             argv.add("--forward-subagent-text");
         }
+        model.ifPresent(value -> argv.add("--model", value));
+        effort.map(ClaudeCliDriver::effortArgument)
+                .ifPresent(value -> argv.add("--effort", value));
         argv.add(
                 "--strict-mcp-config",
                 "--setting-sources=",
                 "--settings", registration.settingsFile().toString());
+        if (textOnly) {
+            argv.add(
+                    "--tools=",
+                    "--disable-slash-commands",
+                    "--no-session-persistence");
+        }
         if (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX) {
             allowedTools.add("mcp__bytequay__read_ci_memory");
         }
@@ -356,6 +374,12 @@ public final class ClaudeCliDriver
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
         return argv.build();
+    }
+
+    private static String effortArgument(String effort)
+    {
+        String normalized = effort.toLowerCase(Locale.ROOT);
+        return normalized.equals("extra") ? "xhigh" : normalized;
     }
 
     private AgentProviderStatus status(
@@ -578,6 +602,9 @@ public final class ClaudeCliDriver
                     argv(
                             session.registration,
                             session.context.permissionPolicy(),
+                            session.context.model(),
+                            session.context.effort(),
+                            session.context.textOnly(),
                             session.reference.providerValue(),
                             resume,
                             attachments),

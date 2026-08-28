@@ -1182,6 +1182,7 @@ function DetailBody({
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
       repo={detail.repo}
       number={detail.number}
+      workspaceId={contributorsWorkspaceId}
       files={diffs}
       commits={diffCommits}
       commitRange={diffRange}

@@ -54,6 +54,8 @@ const bridge: Bridge = {
   rerunFailedPrChecks: (repo, number) => ipcRenderer.invoke('prs:checks:rerun-failed', repo, number),
   submitReview: (prId, repo, number, event, body, comments) =>
     ipcRenderer.invoke('prs:review', prId, repo, number, event, body, comments),
+  betterWords: (text, repository, workspaceId) =>
+    ipcRenderer.invoke('agent:better-words', text, repository, workspaceId),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
 

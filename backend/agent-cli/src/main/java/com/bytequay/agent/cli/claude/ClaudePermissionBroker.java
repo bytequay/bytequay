@@ -91,6 +91,27 @@ public final class ClaudePermissionBroker
             AgentApprovalHandler approvals,
             SecretRedactor redactor)
     {
+        return register(
+                taskId,
+                worktree,
+                runtimeDirectory,
+                providerDirectory,
+                permissionPolicy,
+                false,
+                approvals,
+                redactor);
+    }
+
+    Registration register(
+            String taskId,
+            Path worktree,
+            Path runtimeDirectory,
+            Path providerDirectory,
+            AgentPermissionPolicy permissionPolicy,
+            boolean textOnly,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(runtimeDirectory, "runtimeDirectory is null");
@@ -111,7 +132,7 @@ public final class ClaudePermissionBroker
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token)))));
             writeOwnerOnly(configFile, json);
-            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, runtimeDirectory.toRealPath()));
+            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, runtimeDirectory.toRealPath()));
             return new Registration(configFile, settingsFile, token);
         }
         catch (IOException e) {
@@ -337,7 +358,10 @@ public final class ClaudePermissionBroker
         return query == null || query.isNull() || query.isTextual();
     }
 
-    private String sandboxSettings(AgentPermissionPolicy permissionPolicy, Path runtimeDirectory)
+    private String sandboxSettings(
+            AgentPermissionPolicy permissionPolicy,
+            boolean textOnly,
+            Path runtimeDirectory)
             throws IOException
     {
         ImmutableList.Builder<String> deny = ImmutableList.builder();
@@ -354,7 +378,7 @@ public final class ClaudePermissionBroker
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
                 .put("autoAllowBashIfSandboxed", permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
-                .put("allowUnsandboxedCommands", !permissionPolicy.unattended())
+                .put("allowUnsandboxedCommands", !permissionPolicy.unattended() && !textOnly)
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
                         "denyRead", ImmutableList.of(
@@ -366,7 +390,7 @@ public final class ClaudePermissionBroker
                         // settings file. The agent reads its attachments from there and must not
                         // be able to rewrite the evidence its own work is judged on.
                         "denyWrite", ImmutableList.of(runtimeDirectory.toString())));
-        if (permissionPolicy.unattended()) {
+        if (permissionPolicy.unattended() || textOnly) {
             deny.add("WebFetch", "WebSearch");
             sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
         }

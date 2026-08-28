@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
@@ -180,37 +181,42 @@ export default function AttentionList({
               onMouseEnter={event => enterRow(item, event.currentTarget)}
               onMouseLeave={leaveRow}
             >
-              <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />
               <span
                 className="atn-chip atn-row__reason"
                 style={{ color: kind.color, background: kind.background }}
               >
                 {kind.label}
               </span>
-              <span className="atn-row__title">{item.title}</span>
-              <span className="atn-row__meta">#{item.number}</span>
+              <span className="atn-row__subject">
+                <span className="atn-row__title">{item.title}</span>
+                <span className="atn-row__meta">#{item.number}</span>
+              </span>
+              <span className="atn-row__avatars">
+                <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />
+                <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={18} />
+              </span>
               <span className="atn-row__age">{relativeTime(item.updatedAt, { suffix: false })}</span>
               <div className="atn-row__actions">
                 <button
-                  className="atn-row__icon is-ack"
+                  className="atn-row__action is-ack"
                   type="button"
                   title="Acknowledge — clears it from this list"
                   aria-label={`Acknowledge #${item.number}`}
                   onClick={event => { event.stopPropagation(); acknowledge(item); }}
                 >
-                  ✓
+                  ✓ Ack
                 </button>
                 <button
-                  className="atn-row__icon is-snooze"
+                  className="atn-row__action is-snooze"
                   type="button"
                   title="Snooze"
                   aria-label={`Snooze #${item.number}`}
                   onClick={event => { event.stopPropagation(); openSnoozeMenu(item, event.currentTarget); }}
                 >
-                  ◷
+                  ◷ Snooze
                 </button>
                 <button
-                  className="atn-row__open"
+                  className="atn-row__action is-open"
                   type="button"
                   onClick={event => { event.stopPropagation(); onOpen(item); }}
                 >

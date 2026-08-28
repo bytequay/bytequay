@@ -813,7 +813,7 @@ function DiffFileCard({
               {preview ? (
                 <div className="pull-diff-review__preview">
                   {reviewBody.trim()
-                    ? <MarkdownBody body={reviewBody} />
+                    ? <MarkdownBody body={reviewBody} repository={review.repo} />
                     : <p className="pull-diff-review__nothing">Nothing to preview</p>}
                 </div>
               ) : (

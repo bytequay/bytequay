@@ -632,25 +632,26 @@ export function IssueOverview({
                   body: issue.body || 'No description provided.',
                 })),
               }} />
-            <MarkdownBody body={issue.body || 'No description provided.'} />
+            <MarkdownBody body={issue.body || 'No description provided.'} repository={repository} />
           </article>
           {visibleTimeline.map((event, index) => event.event === 'commented'
-            ? <IssueComment event={event} fallbackUrl={issue.htmlUrl}
+            ? <IssueComment event={event} fallbackUrl={issue.htmlUrl} repository={repository}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))}
               key={event.githubId ?? `comment-${index}`} />
             : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
           {timelineLoading && <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>}
         </section>
-        <DiscussionComposer candidates={candidates} quotedReply={quotedReply} closeLabel="Close issue"
+        <DiscussionComposer candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"
           onClose={onClose} onSubmit={onComment} />
       </main>
     </div>
   );
 }
 
-function IssueComment({ event, fallbackUrl, onQuote }: {
+function IssueComment({ event, fallbackUrl, repository, onQuote }: {
   event: WorkspaceIssueTimelineEventDto;
   fallbackUrl: string;
+  repository: string;
   onQuote: (body: string) => void;
 }) {
   const actor = event.actor ?? 'github';
@@ -663,7 +664,7 @@ function IssueComment({ event, fallbackUrl, onQuote }: {
           markdown: body,
           onQuote: () => onQuote(body),
         }} />
-      <MarkdownBody body={body} />
+      <MarkdownBody body={body} repository={repository} />
       <ReactionCounts reactions={event.payload.reactions} />
     </article>
   );

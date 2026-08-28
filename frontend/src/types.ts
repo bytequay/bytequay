@@ -72,6 +72,19 @@ export type DiffFileContentDto = {
   newContent: string | null;
 };
 
+export type GitHubCodeSnippetRequest = {
+  owner: string;
+  repo: string;
+  commit: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+};
+
+export type GitHubCodeSnippetDto = {
+  lines: Array<{ number: number; content: string }>;
+};
+
 export type InlineReviewCommentDto = {
   path: string;
   body: string;
@@ -879,6 +892,7 @@ export type Bridge = {
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
+  fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
 

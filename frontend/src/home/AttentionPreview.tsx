@@ -159,7 +159,7 @@ export default function AttentionPreview({
           {item.type === 'issue' ? 'ISSUE DESCRIPTION' : 'PULL REQUEST DESCRIPTION'}
         </div>
         <div className={`atn-preview__body${body === '' && !loading ? ' is-empty' : ''}`}>
-          {loading ? null : body === '' ? 'No description.' : <MarkdownBody body={body} />}
+          {loading ? null : body === '' ? 'No description.' : <MarkdownBody body={body} repository={item.repo} />}
         </div>
         <div className="atn-preview__actions">
           {labels.map(label => (

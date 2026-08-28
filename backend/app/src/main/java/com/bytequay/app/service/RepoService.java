@@ -20,6 +20,7 @@ import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentEvent;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrViewStateStore;
@@ -43,7 +44,11 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RepoService
 {
+    private static final int MAX_CODE_SNIPPET_LINES = 20;
+    private static final int MAX_CODE_PATH_LENGTH = 4096;
     private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+    private static final Pattern GITHUB_NAME = Pattern.compile("^[A-Za-z0-9_.-]+$");
+    private static final Pattern COMMIT_SHA = Pattern.compile("^[0-9a-fA-F]{40}$");
 
     private final GitHubPullRequestReadClient pullRequests;
     private final GitHubAccountClient accounts;
@@ -102,6 +107,44 @@ public class RepoService
         // state hangs off that id.
         PullRequest stored = pullRequestStore.saveObserved(pullRequests.getPullRequest(pat, ref));
         return stored.withViewState(viewStateStore.findByPrIds(ImmutableSet.of(stored.id())).get(stored.id()));
+    }
+
+    public List<String> getCodeSnippet(
+            String owner,
+            String repo,
+            String commit,
+            String path,
+            int startLine,
+            int endLine)
+    {
+        requireNotBlank(owner, "owner must not be blank");
+        requireNotBlank(repo, "repo must not be blank");
+        requireNotBlank(path, "path must not be blank");
+        if (!GITHUB_NAME.matcher(owner).matches() || !GITHUB_NAME.matcher(repo).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid GitHub repository");
+        }
+        if (commit == null || !COMMIT_SHA.matcher(commit).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "commit must be a full SHA");
+        }
+        if (path.length() > MAX_CODE_PATH_LENGTH || path.startsWith("/") || path.indexOf('\0') >= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid repository path");
+        }
+        if (startLine <= 0 || endLine < startLine
+                || (long) endLine - startLine + 1 > MAX_CODE_SNIPPET_LINES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
+        }
+        List<String> lines = pullRequests.fetchRepositoryFileLines(
+                        credentialService.resolveGitHubToken(),
+                        RepoRef.of(owner, repo),
+                        path,
+                        commit,
+                        startLine,
+                        endLine)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "repository file not found"));
+        if (lines.size() != (long) endLine - startLine + 1) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "code line range not found");
+        }
+        return ImmutableList.copyOf(lines);
     }
 
     public List<RecentEvent> getRecentEvents(String login)

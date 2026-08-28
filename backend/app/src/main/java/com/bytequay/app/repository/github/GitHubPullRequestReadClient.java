@@ -43,7 +43,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -69,6 +74,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubPullRequestReadClient
 {
+    private static final int MAX_CODE_SNIPPET_BYTES = 1024 * 1024;
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
     private final GitHubPaginator paginator;
@@ -589,23 +595,113 @@ public class GitHubPullRequestReadClient
         if (ref == null || ref.isBlank()) {
             return null;
         }
+        return fetchRepositoryFile(pat, RepoRef.of(pr.owner(), pr.repo()), path, ref).orElse(null);
+    }
+
+    public Optional<String> fetchRepositoryFile(String pat, RepoRef repository, String path, String ref)
+    {
+        requirePat(pat);
+        requireNonNull(repository, "repository is null");
+        if (path == null || path.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
+        }
+        if (ref == null || ref.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ref must not be blank");
+        }
         try {
-            return gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/contents/")
-                            .path(path)
-                            .queryParam("ref", ref)
-                            .build(pr.owner(), pr.repo()))
+            return Optional.ofNullable(gitHubRestClient.get()
+                    .uri(repositoryFileUri(repository, path, ref))
                     .header("Authorization", authorization(pat))
                     .header("Accept", "application/vnd.github.raw+json")
                     .retrieve()
-                    .body(String.class);
+                    .body(String.class));
         }
         catch (RestClientResponseException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                return null;
+                return Optional.empty();
             }
-            throw e;
+            throw toReadableException(e);
         }
+    }
+
+    private static URI repositoryFileUri(RepoRef repository, String path, String ref)
+    {
+        return UriComponentsBuilder.newInstance()
+                .pathSegment("repos", repository.owner(), repository.repo(), "contents")
+                .pathSegment(path.split("/", -1))
+                .queryParam("ref", ref)
+                .build()
+                .encode()
+                .toUri();
+    }
+
+    public Optional<List<String>> fetchRepositoryFileLines(
+            String pat,
+            RepoRef repository,
+            String path,
+            String ref,
+            int startLine,
+            int endLine)
+    {
+        requirePat(pat);
+        requireNonNull(repository, "repository is null");
+        if (path == null || path.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
+        }
+        if (ref == null || ref.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ref must not be blank");
+        }
+        if (startLine <= 0 || endLine < startLine) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
+        }
+        return gitHubRestClient.get()
+                .uri(repositoryFileUri(repository, path, ref))
+                .header("Authorization", authorization(pat))
+                .header("Accept", "application/vnd.github.raw+json")
+                .exchange((request, response) -> {
+                    if (response.getStatusCode() == HttpStatus.NOT_FOUND) {
+                        return Optional.empty();
+                    }
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        throw new ResponseStatusException(
+                                response.getStatusCode(),
+                                "GitHub repository file request failed");
+                    }
+                    return Optional.of(readCodeLines(response.getBody(), startLine, endLine));
+                });
+    }
+
+    private static List<String> readCodeLines(InputStream input, int startLine, int endLine)
+            throws IOException
+    {
+        byte[] bytes = input.readNBytes(MAX_CODE_SNIPPET_BYTES + 1);
+        boolean truncated = bytes.length > MAX_CODE_SNIPPET_BYTES;
+        String content = new String(
+                bytes,
+                0,
+                Math.min(bytes.length, MAX_CODE_SNIPPET_BYTES),
+                StandardCharsets.UTF_8);
+        if (content.indexOf('\0') >= 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "repository file is not text");
+        }
+        if (truncated) {
+            int finalLineBreak = Math.max(content.lastIndexOf('\n'), content.lastIndexOf('\r'));
+            content = finalLineBreak < 0 ? "" : content.substring(0, finalLineBreak + 1);
+        }
+        long requestedLines = (long) endLine - startLine + 1;
+        List<String> lines = content.lines()
+                .skip((long) startLine - 1)
+                .limit(requestedLines)
+                .collect(toImmutableList());
+        if (lines.size() == requestedLines) {
+            return lines;
+        }
+        if (truncated) {
+            throw new ResponseStatusException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "code line range exceeds the snippet read limit");
+        }
+        return ImmutableList.of();
     }
 
     private static List<DiffFile> toDiffFiles(List<GitHubPullRequestFileWithPatch> files)

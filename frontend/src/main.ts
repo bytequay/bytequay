@@ -19,6 +19,7 @@ import type {
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
   CommitHistorySourceDto,
+  GitHubCodeSnippetRequest,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
@@ -924,6 +925,16 @@ function registerIpc(): void {
     backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
     ));
+  ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) => {
+    const url = new URL(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet`,
+    );
+    url.searchParams.set('commit', request.commit);
+    url.searchParams.set('path', request.path);
+    url.searchParams.set('startLine', String(request.startLine));
+    url.searchParams.set('endLine', String(request.endLine));
+    return backendJson(url);
+  });
   ipcMain.handle('repos:activity', (_event, login: string) => {
     const url = new URL(`${BACKEND_BASE}/api/activity/recent`);
     url.searchParams.set('login', login);

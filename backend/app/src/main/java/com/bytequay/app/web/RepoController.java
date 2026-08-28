@@ -25,6 +25,7 @@ import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -103,6 +104,23 @@ public class RepoController
         return repos.getRepoPullRequest(owner, repo, number);
     }
 
+    @GetMapping("/repos/{owner}/{repo}/code-snippet")
+    public CodeSnippet getCodeSnippet(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @RequestParam String commit,
+            @RequestParam String path,
+            @RequestParam int startLine,
+            @RequestParam int endLine)
+    {
+        List<String> content = repos.getCodeSnippet(owner, repo, commit, path, startLine, endLine);
+        ImmutableList.Builder<CodeLine> lines = ImmutableList.builderWithExpectedSize(content.size());
+        for (int index = 0; index < content.size(); index++) {
+            lines.add(new CodeLine(startLine + index, content.get(index)));
+        }
+        return new CodeSnippet(lines.build());
+    }
+
     @GetMapping("/repos/{owner}/{repo}/meta")
     public RepositoryMetadataSnapshot getRepoMeta(@PathVariable String owner, @PathVariable String repo)
     {
@@ -143,6 +161,22 @@ public class RepoController
         static WatchedRepoView of(Workspace workspace)
         {
             return of(WorkspaceSummary.of(workspace));
+        }
+    }
+
+    public record CodeSnippet(List<CodeLine> lines)
+    {
+        public CodeSnippet
+        {
+            lines = ImmutableList.copyOf(requireNonNull(lines, "lines is null"));
+        }
+    }
+
+    public record CodeLine(int number, String content)
+    {
+        public CodeLine
+        {
+            requireNonNull(content, "content is null");
         }
     }
 }

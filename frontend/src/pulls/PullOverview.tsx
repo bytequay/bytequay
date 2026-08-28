@@ -117,6 +117,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
         <ChecksCard pr={pr} detail={detail} onRefresh={onRefresh} />
       </section>
       <DiscussionComposer
+        repository={pr.repo}
         candidates={mentionCandidates(detail)}
         quotedReply={quotedReply}
         onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
@@ -461,7 +462,7 @@ function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onRefresh, onQuo
       <CardHeader actor={actor} avatarUrl={detail.authorAvatarUrl} timestamp={detail.createdAt}
         reaction={reaction}
         actions={{ link: detail.htmlUrl ?? fallbackUrl, markdown: body, onQuote: () => onQuote(body) }} />
-      <MarkdownBody body={body} />
+      <MarkdownBody body={body} repository={detail.repo} />
       <Reactions reactions={reactions} reaction={reaction} alwaysShowPicker />
     </article>
   );
@@ -595,7 +596,7 @@ function CommentCard({ activity, pr, onRefresh, onQuote }: {
   return (
     <article className="pr-card pr-comment-card">
       {header}
-      <MarkdownBody body={body} />
+      <MarkdownBody body={body} repository={pr.repo} />
       <Reactions reactions={activity.payload.reactions} reaction={reaction} />
     </article>
   );
@@ -694,7 +695,7 @@ function ReviewThread({ activity, pr, onRefresh }: {
           onClick={() => setPreview(true)}>Preview</button>
       </div>
       {preview
-        ? <MarkdownBody body={body || 'Nothing to preview.'} />
+        ? <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} />
         : <textarea ref={textareaRef} autoFocus aria-label="Reply to review thread" value={body} rows={4}
           placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
           onKeyDown={event => {
@@ -777,7 +778,7 @@ function ThreadComment({ comment, fallbackUrl, pr, onRefresh, onQuote }: {
           onQuote: () => onQuote(comment.body ?? ''),
         }} />}</div>
       </div>
-      {comment.body && <MarkdownBody body={comment.body} />}
+      {comment.body && <MarkdownBody body={comment.body} repository={pr.repo} />}
       <Reactions reactions={comment.reactions} reaction={reaction} />
     </div>
   );
@@ -1025,6 +1026,7 @@ type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
 export function DiscussionComposer({
+  repository,
   candidates,
   quotedReply,
   closeLabel = 'Close pull request',
@@ -1032,6 +1034,7 @@ export function DiscussionComposer({
   onDraftChange,
   onSubmit,
 }: {
+  repository: string;
   candidates: MentionCandidate[];
   quotedReply?: QuoteRequest;
   closeLabel?: string;
@@ -1097,7 +1100,7 @@ export function DiscussionComposer({
         <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); }}>Preview</button>
       </header>
       {preview
-        ? <MarkdownBody body={body || 'Nothing to preview.'} />
+        ? <MarkdownBody body={body || 'Nothing to preview.'} repository={repository} />
         : <div className="pr-composer__input">
           <textarea ref={textareaRef} value={body} placeholder="Add a comment" rows={7}
             aria-autocomplete="list" aria-controls="pr-mention-list" aria-expanded={mention !== null}

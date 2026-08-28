@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   openGitHubReference,
@@ -21,6 +21,17 @@ import {
   resolveLocalGitHubReference,
 } from '../githubReference';
 import { relativeTime } from '../relativeTime';
+import type { GitHubCodeSnippetDto } from '../types';
+
+type GitHubCodePermalink = {
+  href: string;
+  owner: string;
+  repo: string;
+  commit: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+};
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -31,6 +42,7 @@ type Block =
   | { kind: 'table'; headers: string[]; rows: string[][]; aligns: Array<'left' | 'center' | 'right'> }
   | { kind: 'quote'; text: string }
   | { kind: 'alert'; label: string; text: string }
+  | { kind: 'code-reference'; reference: GitHubCodePermalink }
   | { kind: 'rule' };
 
 type Segment =
@@ -111,7 +123,43 @@ function tableAlignments(line: string) {
   });
 }
 
-export function markdownBlocks(markdown: string): Block[] {
+const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+
+export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
+  if (!repository) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  }
+  catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com'
+      || url.port || url.username || url.password
+      || (url.search !== '' && url.search !== '?plain=1')) return null;
+  const file = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/([0-9a-f]{40})\/(.+)$/i);
+  const range = url.hash.match(/^#L(\d+)(?:-L(\d+))?$/i);
+  if (!file || !range) return null;
+  let owner: string;
+  let repo: string;
+  let path: string;
+  try {
+    owner = decodeURIComponent(file[1]);
+    repo = decodeURIComponent(file[2]);
+    path = decodeURIComponent(file[4]);
+  }
+  catch {
+    return null;
+  }
+  if (`${owner}/${repo}`.toLowerCase() !== repository.toLowerCase() || !path) return null;
+  const startLine = Number(range[1]);
+  const endLine = Number(range[2] ?? range[1]);
+  if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine)
+      || startLine <= 0 || endLine < startLine || endLine - startLine >= 20) return null;
+  return { href: value, owner, repo, commit: file[3], path, startLine, endLine };
+}
+
+export function markdownBlocks(markdown: string, repository?: string): Block[] {
   const blocks: Block[] = [];
   const lines = markdown.replaceAll('\r\n', '\n').split('\n');
   let paragraph: string[] = [];
@@ -119,7 +167,24 @@ export function markdownBlocks(markdown: string): Block[] {
   let code: { language: string; lines: string[] } | null = null;
 
   const flushParagraph = () => {
-    if (paragraph.length > 0) blocks.push({ kind: 'paragraph', text: paragraph.join(' ') });
+    if (paragraph.length === 0) return;
+    const text = paragraph.join(' ');
+    let cursor = 0;
+    for (const match of text.matchAll(INLINE_TOKEN)) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      const before = text[start - 1];
+      const after = text[end];
+      if ((before && !/\s/.test(before)) || (after && !/\s/.test(after))) continue;
+      const reference = parseGitHubCodePermalink(match[0], repository);
+      if (!reference) continue;
+      const leading = text.slice(cursor, start).trim();
+      if (leading) blocks.push({ kind: 'paragraph', text: leading });
+      blocks.push({ kind: 'code-reference', reference });
+      cursor = end;
+    }
+    const trailing = text.slice(cursor).trim();
+    if (trailing) blocks.push({ kind: 'paragraph', text: trailing });
     paragraph = [];
   };
   const flushList = () => {
@@ -147,6 +212,13 @@ export function markdownBlocks(markdown: string): Block[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+    const codeReference = parseGitHubCodePermalink(line.trim(), repository);
+    if (codeReference) {
+      flushParagraph();
+      flushList();
+      blocks.push({ kind: 'code-reference', reference: codeReference });
       continue;
     }
     const headers = tableCells(line);
@@ -233,8 +305,7 @@ export function markdownBlocks(markdown: string): Block[] {
 }
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
-  const token = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
-  return text.split(token).filter(Boolean).map((part, index) => {
+  return text.split(INLINE_TOKEN).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (part === '\\`' || part === '\\\\') return <Fragment key={key}>{part.slice(1)}</Fragment>;
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
@@ -287,6 +358,76 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
     if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
     return <Fragment key={key}>{part}</Fragment>;
   });
+}
+
+const codeSnippetRequests = new Map<string, Promise<GitHubCodeSnippetDto | null>>();
+
+function loadCodeSnippet(reference: GitHubCodePermalink) {
+  const existing = codeSnippetRequests.get(reference.href);
+  if (existing) return existing;
+  const request = window.bridge.fetchGitHubCodeSnippet({
+    owner: reference.owner,
+    repo: reference.repo,
+    commit: reference.commit,
+    path: reference.path,
+    startLine: reference.startLine,
+    endLine: reference.endLine,
+  }).then(value => value.lines.length > 0 ? value : null).catch((): null => null);
+  codeSnippetRequests.set(reference.href, request);
+  void request.then(value => {
+    if (value === null) codeSnippetRequests.delete(reference.href);
+  });
+  return request;
+}
+
+function CodeReferenceBlock({ reference }: { reference: GitHubCodePermalink }) {
+  const [snippet, setSnippet] = useState<GitHubCodeSnippetDto | null | undefined>();
+  const { href, owner, repo, commit, path, startLine, endLine } = reference;
+
+  useEffect(() => {
+    let current = true;
+    setSnippet(undefined);
+    void loadCodeSnippet({ href, owner, repo, commit, path, startLine, endLine }).then(value => {
+      if (current) setSnippet(value);
+    });
+    return () => { current = false; };
+  }, [commit, endLine, href, owner, path, repo, startLine]);
+
+  return <CodeReferenceCard reference={reference} snippet={snippet} />;
+}
+
+export function CodeReferenceCard({ reference, snippet }: {
+  reference: GitHubCodePermalink;
+  snippet: GitHubCodeSnippetDto | null | undefined;
+}) {
+  if (snippet === null) return <p>{inline(reference.href, 'code-reference-fallback')}</p>;
+  const lineLabel = reference.startLine === reference.endLine
+    ? `Line ${reference.startLine}`
+    : `Lines ${reference.startLine}–${reference.endLine}`;
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    void window.bridge.openInAppBrowser(reference.href);
+  };
+  return (
+    <div className="md-code-reference">
+      <div className="md-code-reference__header">
+        <a href={reference.href} title={`${reference.repo}/${reference.path}`} onClick={open}>
+          {reference.repo}/{reference.path}
+        </a>
+        <span>{lineLabel} in <a href={reference.href} onClick={open}>{reference.commit.slice(0, 7)}</a></span>
+      </div>
+      {snippet === undefined
+        ? <div className="md-code-reference__status" role="status">Loading code…</div>
+        : <div className="md-code-reference__source">
+            {snippet.lines.map(line => (
+              <pre key={line.number}>
+                <span>{line.number}</span>
+                <code>{line.content || ' '}</code>
+              </pre>
+            ))}
+          </div>}
+    </div>
+  );
 }
 
 type ReferencePreview = LocalGitHubReference;
@@ -458,7 +599,10 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
           {labels.map(label => <span key={label}>{label}</span>)}
         </div>}
         <div className="md-reference-preview__body">
-          <MarkdownBody body={body || 'No description provided.'} />
+          <MarkdownBody
+            body={body || 'No description provided.'}
+            repository={`${reference.owner}/${reference.repo}`}
+          />
         </div>
       </>}
     </aside>
@@ -491,21 +635,25 @@ function markdownCode(text: string, keyPrefix: string) {
   });
 }
 
-export default function MarkdownBody({ body, className = '' }: { body: string; className?: string }) {
+export default function MarkdownBody({ body, className = '', repository }: {
+  body: string;
+  className?: string;
+  repository?: string;
+}) {
   return (
     <div className={`markdown-body ${className}`.trim()}>
       {markdownSegments(body).map((segment, segmentIndex) => segment.kind === 'details' ? (
         <details className="md-details" key={`details-${segmentIndex}`}>
           <summary>{inline(segment.summary, `details-${segmentIndex}`)}</summary>
-          <MarkdownBody body={segment.text} />
+          <MarkdownBody body={segment.text} repository={repository} />
         </details>
-      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} key={`markdown-${segmentIndex}`} />)}
+      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository} key={`markdown-${segmentIndex}`} />)}
     </div>
   );
 }
 
-function MarkdownBlocks({ markdown }: { markdown: string }) {
-  const blocks = markdownBlocks(markdown);
+function MarkdownBlocks({ markdown, repository }: { markdown: string; repository?: string }) {
+  const blocks = markdownBlocks(markdown, repository);
   return <>
       {blocks.map((block, index) => {
         const key = `${block.kind}-${index}`;
@@ -526,6 +674,7 @@ function MarkdownBlocks({ markdown }: { markdown: string }) {
             </div>
           );
         }
+        if (block.kind === 'code-reference') return <CodeReferenceBlock reference={block.reference} key={key} />;
         if (block.kind === 'alert') return (
           <aside className={`md-alert is-${block.label.toLowerCase()}`} key={key}>
             <strong>ⓘ {block.label[0]}{block.label.slice(1).toLowerCase()}</strong>
@@ -546,7 +695,9 @@ function MarkdownBlocks({ markdown }: { markdown: string }) {
             </table>
           </div>
         );
-        if (block.kind === 'quote') return <blockquote key={key}><MarkdownBlocks markdown={block.text} /></blockquote>;
+        if (block.kind === 'quote') return (
+          <blockquote key={key}><MarkdownBlocks markdown={block.text} repository={repository} /></blockquote>
+        );
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
         return <List key={key}>{block.items.map((item, itemIndex) => (

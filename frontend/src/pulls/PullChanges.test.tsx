@@ -105,31 +105,19 @@ describe('DiffViewer', () => {
     expect(toggle).not.toContain('pr-copy-button');
   });
 
-  it('renders one changed-files toggle and a GitHub-style file tree', () => {
+  it('keeps the changed-files column closed by default', () => {
     const firstPath = 'core/trino-main/src/main/java/io/trino/QueryManagerConfig.java';
     const html = renderToStaticMarkup(<DiffViewer files={[
       changedFile(firstPath),
       changedFile('core/trino-main/src/main/java/io/trino/QueryContext.java', 'added'),
     ]} />);
-    const treeHtml = html.match(/<nav[^>]*class="pull-file-tree"[\s\S]*?<\/nav>/)?.[0] ?? '';
     const treeId = html.match(/pull-changes__files-toggle[^>]*aria-controls="([^"]+)"/)?.[1];
-    const fileRows: string[] = treeHtml.match(/<button[^>]*class="pull-file-tree__file[^"]*"[\s\S]*?<\/button>/g) ?? [];
 
-    expect(html).toMatch(/<button[^>]*class="pull-changes__files-toggle is-active"[^>]*aria-expanded="true"[^>]*>[\s\S]*?<span>2 changed files<\/span><\/button>/);
+    expect(html).toMatch(/<button[^>]*class="pull-changes__files-toggle"[^>]*aria-expanded="false"[^>]*title="Show changed files"[^>]*>[\s\S]*?<span>2 changed files<\/span><\/button>/);
     expect(html).not.toContain('aria-label="Toggle changed files"');
     expect(treeId).toBeTruthy();
-    expect(treeHtml).toContain(`id="${treeId}"`);
-    expect(treeHtml).toContain('<details open="">');
-    expect(treeHtml).toContain('core/trino-main/src/main/java/io/trino');
-    expect(treeHtml).toContain('aria-current="true"');
-    expect(treeHtml).toContain('class="pull-file-tree__list is-branch" style="--tree-line-left:13px"');
-    expect(treeHtml).toContain('style="padding-left:25px"');
-    expect(fileRows).toHaveLength(2);
-    expect(fileRows.every(row => !row.includes(' title='))).toBe(true);
-    expect(treeHtml).not.toContain('pull-file-tree__stats');
-    expect(treeHtml).not.toContain('<strong>');
-    expect(treeHtml).not.toContain('+11');
-    expect(treeHtml).not.toContain('−32');
+    expect(html).not.toContain('class="pull-file-tree"');
+    expect(html).not.toContain('aria-label="Resize changed files"');
     expect(html).toContain(`<span class="pull-diff-file__path" aria-label="${firstPath}">`);
     expect(html).toContain('<bdi dir="ltr">core/trino-main/src/main/java/io/trino/</bdi>');
     expect(html).toContain('<span class="pull-diff-file__name">QueryManagerConfig.java</span>');

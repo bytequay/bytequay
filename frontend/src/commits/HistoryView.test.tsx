@@ -78,9 +78,10 @@ describe('workspace commit history', () => {
       patch: '@@ -1 +1 @@\n-old\n+new',
     }]} />);
 
-    expect(html).toContain('pull-file-tree');
+    expect(html).toContain('pull-changes__files-toggle');
+    expect(html).not.toContain('class="pull-file-tree"');
     expect(html).toContain('pull-diff-file');
-    expect(html).toContain('pull-file-tree__resize');
+    expect(html).not.toContain('pull-file-tree__resize');
     expect(html).not.toContain('Leave a review comment');
     expect(html).not.toContain('Add to review');
   });

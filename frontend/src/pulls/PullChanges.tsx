@@ -126,7 +126,7 @@ export function DiffViewer({
   loadFileContent,
 }: DiffViewerProps) {
   const viewer = useViewer(review?.canReview ?? false);
-  const [treeOpen, setTreeOpen] = useState(true);
+  const [treeOpen, setTreeOpen] = useState(false);
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);

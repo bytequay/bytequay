@@ -145,7 +145,6 @@ public class DefaultCiAutofixService
         CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(command.pullRequest()));
         String currentUser = currentUser();
         validatePullRequest(snapshot, command.pullRequest(), currentUser);
-        checkArgument(!snapshot.actionableFailures().isEmpty(), "Pull request has no actionable GitHub Actions failure");
 
         RepositoryIdentity repository = repository(command.pullRequest());
         WorkspaceSnapshot workspace = workspaceService.inspect(command.worktree());
@@ -197,6 +196,9 @@ public class DefaultCiAutofixService
         }
 
         run = store.update(run.assignAgentTask(task.id().toString(), Instant.now(clock)));
+        if (snapshot.actionableFailures().isEmpty()) {
+            return run;
+        }
         try {
             RebaseGate gate = ensureBranchRebase(run, task, snapshot, Instant.now(clock));
             return gate.ready() ? startFixTurn(gate.run(), task, snapshot) : gate.run();
@@ -406,9 +408,10 @@ public class DefaultCiAutofixService
             return refreshPreparedAttempt(run, requireReadyTask(run), now);
         }
         if (run.attempts().isEmpty()) {
-            return snapshot.actionableFailures().isEmpty()
-                    ? run
-                    : prepareFixAttempt(run, requireReadyTask(run), snapshot);
+            if (snapshot.actionableFailures().isEmpty()) {
+                return snapshot.green() ? finishGreenOrCheckFixups(run, now) : run;
+            }
+            return prepareFixAttempt(run, requireReadyTask(run), snapshot);
         }
 
         CiAutofixAttempt attempt = run.attempts().getLast();
@@ -891,7 +894,7 @@ public class DefaultCiAutofixService
     private static boolean needsBranchRebase(CiAutofixRun run, CiHeadSnapshot snapshot)
     {
         if (run.attempts().isEmpty()) {
-            return true;
+            return !snapshot.actionableFailures().isEmpty();
         }
         CiAutofixAttempt attempt = run.attempts().getLast();
         if (attempt.agentTurnId().isEmpty()) {

@@ -14,10 +14,11 @@ full backend verification passed.
   results; the current item is derived from the first `PENDING` result.
 - [x] Presence detection uses ancestry or an exact standard `-x` line only.
 - [x] One Git operation carries one source commit.
-- [x] Only the program may run cherry-pick continue, skip, abort, and
-  normalization.
-- [x] A clean or conflict-resolved `APPLIED` item ends as exactly one final
-  `-x` commit.
+- [x] Only the program may run cherry-pick continue, skip, and abort; a new
+  conflict pair is not rewritten after the agent creates `F`.
+- [x] A clean `APPLIED` item ends as exactly one final `-x` commit.
+- [x] A conflict-resolved `APPLIED` item retains target `C` followed immediately
+  by its one attributed `fixup!` commit `F`.
 - [x] An `EMPTY_SKIPPED` item ends with no commit and no target SHA.
 - [x] Agent prose and `range-diff` never decide an outcome.
 - [x] No path pushes or writes to GitHub.
@@ -106,23 +107,25 @@ Checkpoint gate:
 
 - [x] Focused service and Claude permission tests pass.
 
-## Checkpoint 5 — Validate and normalize before the next source
+## Checkpoint 5 — Validate and finalize the pair before the next source
 
-Goal: expose one final commit per applied source and no temporary history.
+Goal: retain one reviewable target/fixup pair for each resolved conflict.
 
 - [x] Call the private ByteQuay validation hook with `F`.
 - [x] Keep that hook as an explicit successful no-op until a user-approved
   project validation profile exists.
-- [x] If `tree(F)==tree(H0)`, move the generated branch to `H0`, record
-  `EMPTY_SKIPPED`, and create no final commit.
-- [x] Otherwise soft-reset to `H0` and commit with `-C C`.
-- [x] Verify the normalized commit is one child of `H0`, preserves the `-x`
-  message, and has exactly `tree(F)`.
-- [x] Record only the normalized SHA as the item's `targetSha`.
-- [x] Start the next source only after normalization.
-- [x] Test nonempty squash and empty pair removal with real Git repositories.
-- [x] Test the final execution contains one commit for a conflicted applied
-  source, not `C/F`.
+- [x] Verify `C` remains one child of `H0`, `F` remains one child of `C`, and
+  HEAD is the marker-free final tree at `F`.
+- [x] Record `C` as the item's `targetSha` and `F` as the execution's
+  `currentTargetSha` in one durable save.
+- [x] Start the next source from `F` only after pair finalization.
+- [x] Retain `C/F` even when `tree(F)==tree(H0)` so the conflict attribution is
+  not erased.
+- [x] Test nonempty and tree-neutral retained pairs with real Git repositories.
+- [x] Test that the final execution exposes both `C` and `F` for a conflicted
+  applied source.
+- [x] Document that `C` may be broken in isolation and only the adjacent `C/F`
+  boundary is the validated result.
 
 Checkpoint gate:
 
@@ -135,22 +138,22 @@ Goal: repeat no uncertain mutation after a crash.
 - [x] Recover an open conflict before `C`.
 - [x] Adopt a valid `C` created before the result save.
 - [x] Adopt a valid `F` created before the result save.
-- [x] Resume normalization when HEAD is `F`.
-- [x] Resume after the soft reset when HEAD is `H0` and the staged tree equals
-  `tree(F)`.
-- [x] Adopt a completed normalized commit with the expected parent/tree.
-- [x] Adopt an already-completed empty removal.
+- [x] Resume pair finalization when HEAD is the expected `F`.
+- [x] Pause when the pair moves before its final durable save.
+- [x] Keep read compatibility for an in-flight former
+  `NORMALIZE_CONFLICT_PAIR` journal.
 - [x] Pause every mismatched parent, origin, subject, tree, or operation state.
-- [x] Final accounting requires one ordered recorded `-x` commit per `APPLIED`
-  item and none per `EMPTY_SKIPPED` item.
+- [x] Final accounting requires one ordered recorded `-x` target per `APPLIED`
+  item, plus the exact adjacent `F` for every newly conflict-resolved item, and
+  none per `EMPTY_SKIPPED` item.
 - [x] Keep `range-diff` bounded and human-only.
-- [x] Test soft-reset recovery and completed-normalization adoption.
+- [x] Test restart adoption of a completed `C/F` pair.
 - [x] Test restart adoption for ordinary clean commits.
 - [x] Test restart adoption after a guarded empty skip completed before its
   result save.
-- [x] Simulate crashes after snapshot creation, fixup creation, normalization
-  soft reset, normalization commit, and empty removal, then prove restart
-  adopts the Git result without repeating the mutation.
+- [x] Simulate crashes after snapshot creation, fixup creation, and before pair
+  finalization, then prove restart adopts the Git result without repeating the
+  mutation.
 
 Checkpoint gate:
 
@@ -168,7 +171,8 @@ Checkpoint gate:
 Final gate:
 
 - [x] The locked design, code, persistence, API, and tests describe the same
-  one-commit-or-empty result for every source item.
+  one-commit clean result, retained conflict pair, or empty-skip result for
+  every source item.
 
 ## Checkpoint 8 — Confirm and observe from the UI
 

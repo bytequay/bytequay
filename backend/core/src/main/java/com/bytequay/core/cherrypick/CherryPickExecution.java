@@ -194,15 +194,38 @@ public record CherryPickExecution(
         return edit(now, draft -> draft.journal = Optional.empty());
     }
 
-    /** Records the one final target commit created for one source item. */
+    /** Records the target commit created for one source item. */
     public CherryPickExecution recordApplied(String sourceSha, String targetSha, Instant now)
+    {
+        return recordApplied(sourceSha, targetSha, targetSha, now);
+    }
+
+    /**
+     * Records a conflicted source as its target commit followed by the agent's
+     * fixup, while advancing the execution tip to the fixup.
+     */
+    public CherryPickExecution recordAppliedWithFixup(
+            String sourceSha,
+            String targetSha,
+            String fixupSha,
+            Instant now)
+    {
+        return recordApplied(sourceSha, targetSha, fixupSha, now);
+    }
+
+    private CherryPickExecution recordApplied(
+            String sourceSha,
+            String targetSha,
+            String resultingHeadSha,
+            Instant now)
     {
         requireRunning(now);
         checkSha(sourceSha, "sourceSha");
         checkSha(targetSha, "targetSha");
+        checkSha(resultingHeadSha, "resultingHeadSha");
         return edit(now, draft -> {
             draft.items = replace(sourceSha, item -> item.applied(targetSha));
-            draft.currentTargetSha = targetSha;
+            draft.currentTargetSha = resultingHeadSha;
         });
     }
 
@@ -565,6 +588,8 @@ public record CherryPickExecution(
         COMMIT_CONFLICT_SNAPSHOT,
         AGENT_TURN,
         AGENT_REPAIR,
+        FINALIZE_CONFLICT_PAIR,
+        /** Read compatibility for executions journaled by the squashing implementation. */
         NORMALIZE_CONFLICT_PAIR
     }
 

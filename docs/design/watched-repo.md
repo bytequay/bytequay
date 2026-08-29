@@ -527,10 +527,12 @@ the refresh service persists it before the frontend displays it. Viewer write pe
 of the stored detail snapshot, so even action availability does not require a display-time GitHub
 call.
 
-`WorkspacePullRequestService` below owns only the delivery routing for a cherry-pick work branch.
-Its implementation delegates to existing pull-request/GitHub write code wherever the operation
-already exists. Push and pull-request creation remain explicit user actions and shipped after the
-watch-to-local-cherry-pick vertical slice in Checkpoint 8.
+`WorkspacePullRequestService` owns delivery routing for a cherry-pick work branch and the
+post-create handoff. Its implementation delegates to existing pull-request/GitHub write code,
+exact-fetches the created PR into the workspace projection, and, for a direct same-repository PR,
+starts the idempotent CI Autofix watch covered by the same confirmation. Push and pull-request
+creation remain explicit user actions and shipped after the watch-to-local-cherry-pick vertical
+slice in Checkpoint 8.
 
 ```java
 package com.bytequay.app.workspace;
@@ -542,7 +544,7 @@ public interface WorkspacePullRequestService
      *
      * @param workspaceId workspace that owns the execution
      * @param executionId completed cherry-pick execution
-     * @return permission, resolved routing, push result, and pull-request result
+     * @return permission, resolved routing, persisted delivery, and CI-watch result
      */
     DeliveryStatus getStatus(String workspaceId, CherryPickExecutionId executionId);
 
@@ -562,7 +564,8 @@ public interface WorkspacePullRequestService
      *
      * <p>The base repository and branch are resolved from persisted routing. A linked
      * workspace targets upstream; an unlinked workspace targets the selected repository.
-     * This is an explicit GitHub write and requires user confirmation.</p>
+     * This is an explicit GitHub write and requires user confirmation. For a direct
+     * same-repository PR, that confirmation also authorizes the bounded CI Autofix watch.</p>
      *
      * @param command workspace ID, execution ID, and a second explicit confirmation
      * @return provider identity and URL of the created pull request
@@ -574,6 +577,9 @@ public interface WorkspacePullRequestService
 The write commands do not accept a renderer-provided remote, branch, base, title, or body. The
 service loads the completed execution and workspace, rechecks the selected repository by stable
 GitHub ID, then derives every write parameter from persisted routing and the saved PR draft. The
+created PR is exact-fetched and saved through the repository-sync projection instead of waiting for
+GitHub search indexing. A direct PR starts CI Autofix with a stable idempotency key; a linked-fork
+delivery does not because CI Autofix is intentionally same-repository only. The
 read-only delivery status endpoint supports an actionable disabled state without turning execution
 polling into repeated GitHub permission requests. If the workspace has no successful code timestamp,
 delivery first attempts the same synchronous provisioning path used by code refresh.
@@ -851,7 +857,8 @@ sequenceDiagram
 - Every managed path is resolved and checked beneath the ByteQuay workspace root.
 - Search, clone, fetch, and metadata refresh are reads.
 - Push and pull-request creation are explicit GitHub writes and require a user action.
-- No operation force-pushes, deletes a remote branch, or changes a PR base implicitly.
+- Initial delivery never force-pushes, deletes a remote branch, or changes a PR base implicitly.
+  A separately disclosed CI Autofix watch may later push with an exact remote-head lease.
 
 ## Delivery order
 

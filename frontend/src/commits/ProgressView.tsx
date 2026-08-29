@@ -20,7 +20,7 @@ import type {
 } from '../types';
 import PullOverview from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
-import { completedExecutionItems, foldNav, shortSha, taskState } from './model';
+import { completedExecutionItems, foldNav, pullRequestPanelRef, shortSha, taskState } from './model';
 
 type ItemView = {
   item: CherryPickExecutionItem;
@@ -105,13 +105,20 @@ export default function ProgressView({
   useEffect(() => {
     if (execution?.status !== 'FINISHED' || execution.finishReason !== 'COMPLETED') return;
     let active = true;
-    window.bridge.getWorkspaceDeliveryStatus(workspaceId, execution.executionId)
+    const refresh = () => window.bridge.getWorkspaceDeliveryStatus(workspaceId, execution.executionId)
       .then(value => { if (active) setDelivery(value); })
       .catch(failure => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
       });
-    return () => { active = false; };
-  }, [execution?.executionId, execution?.finishReason, execution?.status, workspaceId]);
+    void refresh();
+    const timer = delivery?.ciAutofix?.status === 'ACTIVE'
+      ? window.setInterval(() => { void refresh(); }, 5_000)
+      : null;
+    return () => {
+      active = false;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [delivery?.ciAutofix?.status, execution?.executionId, execution?.finishReason, execution?.status, workspaceId]);
 
   const views = useMemo(
     () => (execution ? execution.items.map(item => itemView(item, execution)) : []),
@@ -198,8 +205,12 @@ export default function ProgressView({
   const createPullRequest = async () => {
     if (!execution || !delivery) return;
     const base = `${delivery.baseRepository.owner}/${delivery.baseRepository.repo}:${delivery.baseBranch}`;
+    const prompt = delivery.pullRequest
+      ? `Retry local setup and CI monitoring for pull request #${delivery.pullRequest.number}?`
+      : `Create a pull request from ${delivery.head} into ${base}? This is a separate GitHub write.`;
     if (!window.confirm(
-      `Create a pull request from ${delivery.head} into ${base}? This is a separate GitHub write.`,
+      `${prompt} `
+      + 'For supported same-repository pull requests, ByteQuay will also monitor CI and may rerun failed jobs, rewrite fixup history, and force-push with an exact lease.',
     )) return;
     setDeliveryBusy(true);
     setError(null);
@@ -207,6 +218,11 @@ export default function ProgressView({
       await window.bridge.createWorkspacePullRequest(workspaceId, execution.executionId);
       await refreshDelivery();
     } catch (failure) {
+      try {
+        await refreshDelivery();
+      } catch {
+        // Preserve the original delivery error; a later status poll can retry the read.
+      }
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setDeliveryBusy(false);
@@ -242,7 +258,11 @@ export default function ProgressView({
   const empty = execution.items.filter(item => item.result === 'EMPTY_SKIPPED').length;
 
   const active = state === 'running' || state === 'paused';
-  const pullRequestNumber = delivery?.pullRequest?.number ?? selected?.item.pullRequestNumber ?? null;
+  const pullRequest = pullRequestPanelRef(
+    delivery,
+    upstreamSlug,
+    selected?.item.pullRequestNumber ?? null,
+  );
 
   return (
     <div
@@ -342,6 +362,15 @@ export default function ProgressView({
                     : delivery.disabledReason
                       ?? `Push to origin, then propose ${delivery.head} into ${delivery.baseBranch}.`}
               </span>
+              {delivery.ciAutofix && (
+                <span>
+                  {delivery.ciAutofix.status === 'ACTIVE'
+                    ? delivery.ciAutofix.attemptsUsed === 0
+                      ? 'CI monitor active — watching checks.'
+                      : `CI monitor active — ${delivery.ciAutofix.attemptsUsed} repair attempt${delivery.ciAutofix.attemptsUsed === 1 ? '' : 's'} used.`
+                    : `CI monitor ${delivery.ciAutofix.status.toLowerCase()}${delivery.ciAutofix.summary ? ` — ${delivery.ciAutofix.summary}` : '.'}`}
+                </span>
+              )}
             </div>
             <div className="cmt-delivery-actions">
               {!delivery.push && (
@@ -369,6 +398,15 @@ export default function ProgressView({
                   onClick={() => { void openPullRequest(); }}
                 >
                   Open pull request ↗
+                </button>
+              )}
+              {delivery.pullRequest && !delivery.ciAutofix && !delivery.head.includes(':') && (
+                <button
+                  type="button"
+                  disabled={deliveryBusy}
+                  onClick={() => { void createPullRequest(); }}
+                >
+                  {deliveryBusy ? 'Starting…' : 'Start CI monitor'}
                 </button>
               )}
             </div>
@@ -497,10 +535,10 @@ export default function ProgressView({
 
       <div className="cmt-prog-pr">
         <PrPanel
-          key={`${upstreamSlug ?? ''}#${pullRequestNumber ?? ''}`}
+          key={`${pullRequest.slug ?? ''}#${pullRequest.number ?? ''}`}
           workspaceId={workspaceId}
-          slug={upstreamSlug}
-          number={pullRequestNumber}
+          slug={pullRequest.slug}
+          number={pullRequest.number}
         />
       </div>
     </div>

@@ -206,6 +206,19 @@ class TestSqliteCherryPickExecutionStore
     }
 
     @Test
+    void keepsAConflictTargetAndItsFixupTipThroughAReload()
+    {
+        CherryPickExecution created = store.createOrGet(execution(
+                "conflict-pair", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        store.save(created.recordAppliedWithFixup(
+                sha(1), created(1), created(2), NOW.plusSeconds(1)));
+
+        CherryPickExecution loaded = store.find(created.id()).orElseThrow();
+        assertThat(loaded.items().getFirst().targetSha()).contains(created(1));
+        assertThat(loaded.currentTargetSha()).isEqualTo(created(2));
+    }
+
+    @Test
     void roundTripsPushAndProviderPullRequestIdentity()
     {
         CherryPickExecution created = store.createOrGet(execution(

@@ -24,7 +24,8 @@ feature; it does not restore the deleted generic development-flow system.
 6. The backend applies one source commit at a time with
    `git cherry-pick -x <sourceSha>`.
 7. A clean commit is recorded immediately. A proven-empty commit is skipped.
-   A conflict uses the agent flow in section 7.
+   A conflict retains the source-marked target and its adjacent agent fixup as
+   described in section 7.
 8. After every item has a result, the backend performs exact Git accounting and
    stores `git range-diff` only for human review.
 
@@ -47,8 +48,11 @@ separate service and a separate user decision.
   comment, approval, merge, CI rerun, or another GitHub write.
 - The program owns order, skips, state transitions, empty decisions, and final
   accounting. Agent messages never decide an outcome.
-- A final `APPLIED` item always has exactly one commit carrying the exact
-  standard `-x` line for its source SHA, whether or not a conflict occurred.
+- A clean final `APPLIED` item has exactly one commit carrying the exact
+  standard `-x` line for its source SHA.
+- A conflict-resolved final `APPLIED` item has exactly two adjacent commits:
+  source-marked target `C`, followed by one `fixup!` commit `F` with no `-x`
+  line. The pair is never rewritten by a new execution.
 - A final `EMPTY_SKIPPED` item has no commit and no target SHA.
 - Commit titles, PR titles, patch similarity, and `range-diff` never cause an
   automatic skip.
@@ -176,12 +180,17 @@ The journal actions used by the conflict path are:
 COMMIT_CONFLICT_SNAPSHOT   expectedHead = H0
 AGENT_TURN                 expectedHead = C
 AGENT_REPAIR               expectedHead = F to amend
-NORMALIZE_CONFLICT_PAIR    expectedHead = F
+FINALIZE_CONFLICT_PAIR     expectedHead = F
 ```
 
-Temporary SHAs do not become final item fields. The journal and Git objects are
-enough for recovery while the item remains `PENDING`. After normalization the
-item stores only the final commit SHA or `EMPTY_SKIPPED`.
+The journal and Git objects are enough for recovery while the item remains
+`PENDING`. A clean item stores its one created commit as `targetSha`. A
+conflict-resolved item stores `C` as `targetSha`, while the execution's
+`currentTargetSha` advances to `F`; the next source commit therefore starts
+from the repaired tree without mislabelling the fixup as the source target.
+
+`NORMALIZE_CONFLICT_PAIR` remains readable only for executions persisted by
+the former squashing implementation. New executions never journal that action.
 
 ## 7. Applying one source commit
 
@@ -189,9 +198,8 @@ Let:
 
 - `S` be the requested source commit;
 - `H0` be the finalized work-branch tip before `S`;
-- `C` be the temporary source-marked conflict snapshot;
-- `F` be the temporary agent fixup; and
-- `C'` be the normalized final commit.
+- `C` be the retained source-marked conflict target; and
+- `F` be the retained directly adjacent agent fixup.
 
 The program runs one command:
 
@@ -249,10 +257,10 @@ git cherry-pick --continue
 ```
 
 The service accepts `C` only when it is one child of `H0`, contains the exact
-`-x` line for `S`, closes the operation, and leaves a clean worktree. `C` is a
-temporary evidence commit: it may contain text markers or Git's selected side
+`-x` line for `S`, closes the operation, and leaves a clean worktree. `C` is the
+durable target commit, but it may contain text markers or Git's selected side
 for a binary/delete/submodule conflict. The item remains `PENDING` and
-`RESOLVING`.
+`RESOLVING` until the adjacent fixup supplies the marker-free final tree.
 
 ### 7.4 Agent fixup
 
@@ -290,7 +298,7 @@ only history action is `git commit --amend --no-edit`; it replaces `F` and may
 not append a third commit. There are at most three total turns. Wrong history
 pauses instead of guessing.
 
-### 7.5 Validation and immediate normalization
+### 7.5 Validation and pair finalization
 
 After structural checks, ByteQuay calls:
 
@@ -303,33 +311,30 @@ ByteQuay cannot infer how an arbitrary project builds. A future feature may
 store and run a user-approved validation profile; until then the agent's build
 attempt is useful user information, not a program control fact.
 
-Before starting the next source commit, the program normalizes the temporary
-history:
+Before starting the next source commit, the program verifies and retains this
+history without rewriting either commit:
 
 ```text
 H0 -- C -- F
 ```
 
-If `tree(F) == tree(H0)`, it moves the ByteQuay-owned work branch back to `H0`,
-drops `C` and `F`, and records `EMPTY_SKIPPED`.
+It accepts the pair only when `C` remains one child of `H0`, `F` remains one
+child of `C`, both messages retain their verified shapes, HEAD is exactly `F`,
+and the worktree is clean with no operation or conflict marker in the final
+`H0..F` tree. The item becomes `APPLIED` with `targetSha=C`, while the execution
+sets `currentTargetSha=F`. The next source commit starts from `F`.
 
-Otherwise it performs the equivalent of:
+The pair remains even when `tree(F) == tree(H0)`. Unlike an originally empty
+pick, a conflicted pick produced a reviewable target and an attributed semantic
+resolution, so dropping both would erase that history.
 
-```text
-git reset --soft H0
-git commit -C C
-```
-
-It accepts `C'` only when:
-
-- `C'` is one child of `H0`;
-- `tree(C') == tree(F)`;
-- the original message and exact `-x` source line from `C` are preserved; and
-- the worktree is clean with no operation or conflict marker.
-
-The item becomes `APPLIED` with `targetSha=C'`. The next source commit starts
-only after this point. Immediate normalization avoids an end-of-range autosquash
-that would rewrite every later target SHA.
+This history shape has a conscious cost. `C` captures Git's unresolved snapshot
+and may not compile or even be marker-free when checked out by itself. ByteQuay
+does not claim that `C` is an independently valid boundary; it validates and
+accounts for `C` plus its immediately adjacent `F` as one conflict-resolution
+unit. Consumers that test every commit must likewise recognize that pair. The
+benefit is that the source target and the agent-authored resolution remain
+separately reviewable and attributable.
 
 ## 8. Recovery and edge cases
 
@@ -346,11 +351,16 @@ which SHA is expected, and actual Git objects explain whether the action ran.
 | Journal says agent turn, one valid `F` exists | Adopt and validate `F`; do not ask for another commit |
 | Journal says repair, HEAD is the expected `F` | Ask the agent to amend that same fixup |
 | Journal says repair, one valid amended `F` exists | Adopt the replacement; reject a third commit |
-| Journal says normalize, HEAD is `F` | Start normalization |
-| Journal says normalize, HEAD is `H0` with staged tree equal to `tree(F)` | Finish `git commit -C C` |
-| Journal says normalize, a valid `C'` already exists | Adopt `C'` |
-| Journal says normalize, HEAD is clean `H0` and `tree(F)==tree(H0)` | Adopt the empty removal |
+| Journal says finalize, HEAD is the expected `F` and `C/F` remain valid | Atomically record `targetSha=C` and `currentTargetSha=F` |
+| Journal says finalize, HEAD or either parent/message changed | Pause without adopting the moved history |
 | Any parent, origin, tree, operation, or path fact disagrees | Pause and preserve the worktree |
+
+An execution carrying the former `NORMALIZE_CONFLICT_PAIR` journal is a legacy
+recovery case, not a new transition. Its compatibility handler may finish the
+already-started soft-reset/commit sequence and produce the former single
+source-marked commit. Removing that journal value would make a persisted
+in-flight execution unreadable, so it remains until those executions have
+settled.
 
 Additional edge cases:
 
@@ -363,8 +373,8 @@ Additional edge cases:
 | Agent runs `--continue` or creates extra history | Permission denies the command; unexpected Git history pauses |
 | Agent creates valid `F` but leaves dirty files or markers | Retry by amending that same `F`; never add a third commit |
 | Agent creates no valid `F` | Retry the same item up to three turns |
-| Final `C/F` tree equals `H0` | Drop both and record `EMPTY_SKIPPED` |
-| Backend stops after soft reset | Compare the staged tree with `tree(F)` and finish once |
+| Final `C/F` tree equals `H0` | Retain both and record the conflict as `APPLIED` |
+| Backend stops after creating `F` but before recording the pair | Reverify `C/F`, then record `C` and advance the execution tip to `F` once |
 | User cancels | Cancel the turn, abort an open cherry-pick, and remove only ByteQuay's generated branch/worktree |
 | Target moves after preview but before start | Reject stale preview before creating the worktree |
 | Target moves during execution | Finish against the frozen target; do not auto-rebase |
@@ -375,12 +385,24 @@ Completion requires:
 
 - every item has a non-`PENDING` result;
 - no Git operation remains and the worktree is clean;
-- the number of commits from initial target to final HEAD equals the number of
-  `APPLIED` items;
-- those commits follow item order;
-- each commit is the recorded target SHA, is a child of the previous finalized
-  target SHA, and carries the exact `-x` line for its source; and
+- HEAD equals the execution's recorded `currentTargetSha`;
+- applied targets follow item order, and each is the recorded `targetSha`, is a
+  child of the previous finalized item boundary, and carries the exact `-x`
+  line for its source;
+- every conflict target is followed immediately by exactly one direct child
+  whose subject is `fixup! <target subject>` and which carries no `-x` line;
+- the next item starts after that fixup, so every created commit is consumed by
+  exactly one clean target or one conflict `C/F` pair; and
 - the whole generated range has no conflict marker.
+
+A persisted execution completed by the former normalization handler may contain
+one normalized conflict target without `F`. Persisted items have no separate
+history-version or fixup field, so accounting recognizes that legacy shape
+structurally: an item carrying persisted conflict-path evidence may omit the
+adjacent fixup, but any adjacent candidate is consumed only when its parent,
+subject, and absent `-x` line exactly match `F`. New pair finalization cannot
+use the exception because it records `currentTargetSha=F`, and the
+no-unrecorded-commit check therefore requires that exact child to be consumed.
 
 Only after these checks does the service store:
 
@@ -413,7 +435,9 @@ items[]:
   position, sourceSha, title, result, targetSha?, pullRequestNumber?
 ```
 
-Temporary `C` and `F` are recovery details and are not final API fields.
+For a conflict, `targetSha` is `C` and `currentTargetSha` is the effective branch
+tip `F` until a later item advances it. The response does not add a separate
+fixup field because Git's required directly adjacent child is the authority.
 
 The renderer starts an execution only from the user's explicit confirmation.
 It sends the frozen preview SHAs, exact skipped source SHAs, selected conflict
@@ -482,7 +506,7 @@ public final class GitSequencerDriver
     /** Reads operation markers, HEAD, status, and full conflict stages. */
     public SequenceState observe(Path worktree);
 
-    /** Stages exact conflict paths and creates temporary snapshot `C`. */
+    /** Stages exact conflict paths and creates source-marked target `C`. */
     public SequenceState commitConflictSnapshot(
             Path worktree,
             String expectedHead,
@@ -493,7 +517,7 @@ public final class GitSequencerDriver
     public SequenceState skipEmpty(
             Path worktree, String expectedHead, String expectedSource);
 
-    /** Squashes `C/F` into one commit or removes an empty pair. */
+    /** Completes a persisted journal from the former squashing implementation. */
     public NormalizationResult normalizeConflictPair(
             Path worktree, String originalHead, String conflictCommit, String fixupCommit);
 
@@ -506,7 +530,7 @@ public final class GitSequencerDriver
 
 Rebase can reuse the low-level observation vocabulary, command runner, agent
 task/turn lifecycle, retry rules, validation hook shape, and action-journal
-pattern. It must not reuse the cherry-pick `C/F/C'` policy.
+pattern. It must not reuse the cherry-pick retained-`C/F` policy.
 
 During a rebase conflict the agent edits and stages only; the program runs
 `git rebase --continue`. A rebase may replay multiple commits and Git owns its
@@ -528,10 +552,12 @@ Tests must prove:
 5. both kinds of original empty commit create no commit and continue;
 6. conflicts persist index stages 1/2/3 before `C` is created;
 7. the agent can produce only one direct fixup-shaped `F`;
-8. nonempty `C/F` is normalized to one final `-x` commit with `tree(C')=tree(F)`;
-9. a `C/F` final tree equal to `H0` is removed and recorded `EMPTY_SKIPPED`;
-10. crash recovery adopts the snapshot, fixup, soft-reset, normalized, and
-    empty-removal states without repeating a mutation;
+8. every conflict retains `H0--C--F`, records `targetSha=C`, and advances the
+   execution tip to `F` without rewriting either commit;
+9. a `C/F` final tree equal to `H0` remains an attributed `APPLIED` pair;
+10. crash recovery adopts the snapshot, fixup, and final recorded pair without
+    repeating a mutation, while persisted former normalization journals remain
+    readable;
 11. invalid parents, origins, subjects, extra commits, dirty files, and markers
     pause rather than guess;
 12. final accounting uses Git and the confirmed plan, never agent prose or

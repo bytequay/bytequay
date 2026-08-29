@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WorkspaceBranchPusher.Push;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestCommand;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestResult;
@@ -29,6 +31,7 @@ import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
@@ -49,6 +52,8 @@ import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -80,6 +85,15 @@ class TestDefaultWorkspacePullRequestService
         verify(fixture.git()).pushBranch(fixture.workspace(), temporaryDirectory, WORK_BRANCH);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
                 "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body");
+        verify(fixture.pullRequestCatalog(), times(2))
+                .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
+        verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
+                command.pullRequest().fullName().equals("owner/project#12")
+                        && command.worktree().equals(temporaryDirectory)
+                        && command.laneId().toString().equals("lane")
+                        && command.allowFailedJobReruns()
+                        && command.allowHistoryRewrites()
+                        && command.allowExactLeasePush()));
         assertThat(result).isEqualTo(repeated);
         assertThat(result.providerId()).isEqualTo(900);
         assertThat(result.url()).isEqualTo("https://github.com/owner/project/pull/12");
@@ -102,8 +116,33 @@ class TestDefaultWorkspacePullRequestService
                 "main",
                 "PR title",
                 "PR body");
+        verify(fixture.pullRequestCatalog())
+                .observeWorkspacePullRequest(RepoRef.of("upstream", "project"), 12);
+        verifyNoInteractions(fixture.ciAutofix());
         assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(result.head()).isEqualTo("contributor:" + WORK_BRANCH);
+    }
+
+    @Test
+    void retriesLocalActivationWithoutCreatingASecondRemotePullRequest()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true));
+        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
+        doThrow(new RuntimeException("projection failed"))
+                .doNothing()
+                .when(fixture.pullRequestCatalog())
+                .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
+
+        assertThatThrownBy(() -> fixture.service().createPullRequest(
+                new PullRequestCommand("workspace", fixture.executionId(), true)))
+                .hasMessageContaining("projection failed");
+        PullRequestResult retried = fixture.service().createPullRequest(
+                new PullRequestCommand("workspace", fixture.executionId(), true));
+
+        assertThat(retried.number()).isEqualTo(12);
+        verify(fixture.pullRequests(), times(1)).createPullRequest(
+                any(), any(), any(), any(), any(), any());
+        verify(fixture.ciAutofix(), times(1)).start(any());
     }
 
     @Test
@@ -187,6 +226,9 @@ class TestDefaultWorkspacePullRequestService
         WorkspaceBranchPusher git = mock(WorkspaceBranchPusher.class);
         when(git.pushBranch(workspace, temporaryDirectory, WORK_BRANCH))
                 .thenReturn(new Push("origin", WORK_BRANCH, SHA));
+        PullRequestService pullRequestCatalog = mock(PullRequestService.class);
+        CiAutofixService ciAutofix = mock(CiAutofixService.class);
+        CiAutofixStore ciAutofixStore = mock(CiAutofixStore.class);
         DefaultWorkspacePullRequestService service = new DefaultWorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
@@ -195,8 +237,19 @@ class TestDefaultWorkspacePullRequestService
                 pullRequests,
                 credentials,
                 git,
+                pullRequestCatalog,
+                ciAutofix,
+                ciAutofixStore,
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        return new Fixture(service, workspace, initial.id(), provisioning, git, pullRequests);
+        return new Fixture(
+                service,
+                workspace,
+                initial.id(),
+                provisioning,
+                git,
+                pullRequests,
+                pullRequestCatalog,
+                ciAutofix);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace)
@@ -346,7 +399,9 @@ class TestDefaultWorkspacePullRequestService
             CherryPickExecutionId executionId,
             WorkspaceProvisioningService provisioning,
             WorkspaceBranchPusher git,
-            GitHubPullRequestWriteClient pullRequests)
+            GitHubPullRequestWriteClient pullRequests,
+            PullRequestService pullRequestCatalog,
+            CiAutofixService ciAutofix)
     {
         private Fixture
         {
@@ -356,6 +411,8 @@ class TestDefaultWorkspacePullRequestService
             requireNonNull(provisioning, "provisioning is null");
             requireNonNull(git, "git is null");
             requireNonNull(pullRequests, "pullRequests is null");
+            requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
+            requireNonNull(ciAutofix, "ciAutofix is null");
         }
     }
 }

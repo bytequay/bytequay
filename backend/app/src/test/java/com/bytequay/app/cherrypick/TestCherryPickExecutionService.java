@@ -393,9 +393,14 @@ class TestCherryPickExecutionService
         assertThat(message)
                 .as("the -x line survives the agent's resolution")
                 .contains("(cherry picked from commit " + conflicting + ")");
+        String fixup = head(worktree);
+        assertThat(git(worktree, "rev-parse", fixup + "^")).isEqualTo(
+                item(finished, conflicting).targetSha().orElseThrow());
+        assertThat(git(worktree, "log", "-1", "--format=%s", fixup))
+                .isEqualTo("fixup! Conflicting change");
         assertThat(git(worktree, "rev-list", "--count", finished.range().initialTargetSha() + "..HEAD"))
-                .as("one source commit creates at most one target commit")
-                .isEqualTo("1");
+                .as("a conflicted source keeps its target and attributed fixup")
+                .isEqualTo("2");
     }
 
     @Test
@@ -443,7 +448,7 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void skipsAResolutionThatBecomesEmptyWithoutAnotherTurn()
+    void retainsAResolutionPairThatReturnsToTheOriginalTree()
     {
         String base = head(upstream);
         write(upstream, "seed.txt", "shared result\n");
@@ -456,15 +461,17 @@ class TestCherryPickExecutionService
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
-        // Resolving back to what the target already has leaves nothing to commit.
+        // Resolving back to what the target already has still preserves conflict attribution.
         agent.then(() -> resolveAndFixup(worktree, "seed.txt", "fork edit\n"), TurnState.COMPLETED);
 
         CherryPickExecution finished = runToCompletion(started);
 
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
-        assertThat(item(finished, conflicting).result()).isEqualTo(Result.EMPTY_SKIPPED);
-        assertThat(item(finished, conflicting).targetSha()).isEmpty();
-        assertThat(agent.turnsStarted()).as("an empty resolution needs no second turn").isEqualTo(1);
+        assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
+        assertThat(item(finished, conflicting).targetSha()).isPresent();
+        assertThat(agent.turnsStarted()).as("a tree-neutral resolution needs no second turn").isEqualTo(1);
+        assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
+                .isEqualTo("3");
     }
 
     @Test
@@ -515,7 +522,7 @@ class TestCherryPickExecutionService
         assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
         assertThat(agent.turnsStarted()).isEqualTo(1);
         assertThat(git(worktree, "rev-list", "--count", finished.range().initialTargetSha() + "..HEAD"))
-                .isEqualTo("1");
+                .isEqualTo("2");
     }
 
     @Test
@@ -546,7 +553,7 @@ class TestCherryPickExecutionService
                 .contains("Fixup commit to repair")
                 .contains("git commit --amend --no-edit");
         assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
-                .isEqualTo("1");
+                .isEqualTo("2");
     }
 
     private static void resolve(Path worktree, String name, String content)
@@ -686,9 +693,10 @@ class TestCherryPickExecutionService
 
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
-        assertThat(item(finished, source).targetSha().orElseThrow()).isNotEqualTo(conflictCommit);
+        assertThat(item(finished, source).targetSha()).contains(conflictCommit);
+        assertThat(git(worktree, "rev-parse", "HEAD^")).isEqualTo(conflictCommit);
         assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
-                .isEqualTo("1");
+                .isEqualTo("2");
     }
 
     @Test
@@ -714,11 +722,11 @@ class TestCherryPickExecutionService
         assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
         assertThat(agent.turnsStarted()).isZero();
         assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
-                .isEqualTo("1");
+                .isEqualTo("2");
     }
 
     @Test
-    void finishesNormalizationAfterACrashFollowingTheSoftReset()
+    void pausesWhenTheConflictPairMovesBeforeFinalization()
     {
         String base = head(upstream);
         write(upstream, "seed.txt", "upstream edit\n");
@@ -731,54 +739,76 @@ class TestCherryPickExecutionService
         Path worktree = started.workspace().worktree();
         agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
 
-        CherryPickExecution current = service.advance(started.id());
-        current = service.advance(current.id());
-        current = service.advance(current.id());
-        current = service.advance(current.id());
-        assertThat(current.journal().map(ActionJournal::type)).contains(ActionType.NORMALIZE_CONFLICT_PAIR);
-        String fixup = current.journal().orElseThrow().expectedHead();
-        String conflictCommit = git(worktree, "rev-parse", fixup + "^");
-        git(worktree, "reset", "--soft", started.currentTargetSha());
+        CherryPickExecution finalizing = reachFinalization(started);
+        git(worktree, "reset", "--hard", started.currentTargetSha());
 
-        CherryPickExecution finished = runToCompletion(current);
+        CherryPickExecution paused = runToCompletion(finalizing);
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.UNSAFE_GIT_STATE);
+        assertThat(item(paused, source).result()).isEqualTo(Result.PENDING);
+    }
+
+    @Test
+    void recordsTheVerifiedConflictPairAfterARestart()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String source = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+        CherryPickExecution finalizing = reachFinalization(started);
+        String fixup = finalizing.journal().orElseThrow().expectedHead();
+        String conflictCommit = git(worktree, "rev-parse", fixup + "^");
+
+        CherryPickExecution finished = runToCompletion(finalizing);
+
+        assertThat(finished.status()).isEqualTo(Status.FINISHED);
+        assertThat(item(finished, source).targetSha()).contains(conflictCommit);
+        assertThat(finished.currentTargetSha()).isEqualTo(fixup);
+        assertThat(head(worktree)).isEqualTo(fixup);
+        assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
+                .isEqualTo("2");
+    }
+
+    @Test
+    void finishesALegacyJournalThatWasWaitingToNormalizeAConflictPair()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String source = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+        CherryPickExecution finalizing = reachFinalization(started);
+        ActionJournal journal = finalizing.journal().orElseThrow();
+        CherryPickExecution legacy = store.save(finalizing.withJournal(new ActionJournal(
+                ActionType.NORMALIZE_CONFLICT_PAIR,
+                journal.sourceSha(),
+                journal.expectedHead(),
+                journal.attempt(),
+                journal.idempotencyKey(),
+                journal.startedAt()), CLOCK.instant()));
+
+        CherryPickExecution finished = runToCompletion(legacy);
 
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
-        assertThat(item(finished, source).targetSha().orElseThrow()).isNotEqualTo(conflictCommit);
         assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
                 .isEqualTo("1");
     }
 
     @Test
-    void adoptsNormalizationCompletedBeforeItsResultWasSaved()
-    {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
-
-        CherryPickExecution started = start(base, ImmutableList.of());
-        Path worktree = started.workspace().worktree();
-        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
-        CherryPickExecution normalizing = reachNormalization(started);
-        String fixup = normalizing.journal().orElseThrow().expectedHead();
-        String conflictCommit = git(worktree, "rev-parse", fixup + "^");
-        GitSequencerDriver.NormalizationResult result = new GitSequencerDriver(GIT).normalizeConflictPair(
-                worktree, started.currentTargetSha(), conflictCommit, fixup);
-        assertThat(result.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
-
-        CherryPickExecution finished = runToCompletion(normalizing);
-
-        assertThat(finished.status()).isEqualTo(Status.FINISHED);
-        assertThat(item(finished, source).targetSha()).contains(result.head());
-        assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
-                .isEqualTo("1");
-    }
-
-    @Test
-    void adoptsEmptyPairRemovalCompletedBeforeItsResultWasSaved()
+    void retainsAnEmptyFixupPairForItsConflictAttribution()
     {
         String base = head(upstream);
         write(upstream, "seed.txt", "upstream edit\n");
@@ -790,19 +820,20 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
         agent.then(() -> resolveAndFixup(worktree, "seed.txt", "fork edit\n"), TurnState.COMPLETED);
-        CherryPickExecution normalizing = reachNormalization(started);
-        String fixup = normalizing.journal().orElseThrow().expectedHead();
+        CherryPickExecution finalizing = reachFinalization(started);
+        String fixup = finalizing.journal().orElseThrow().expectedHead();
         String conflictCommit = git(worktree, "rev-parse", fixup + "^");
-        GitSequencerDriver.NormalizationResult result = new GitSequencerDriver(GIT).normalizeConflictPair(
-                worktree, started.currentTargetSha(), conflictCommit, fixup);
-        assertThat(result.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.EMPTY);
 
-        CherryPickExecution finished = runToCompletion(normalizing);
+        CherryPickExecution finished = runToCompletion(finalizing);
 
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
-        assertThat(item(finished, source).result()).isEqualTo(Result.EMPTY_SKIPPED);
-        assertThat(item(finished, source).targetSha()).isEmpty();
-        assertThat(head(worktree)).isEqualTo(started.currentTargetSha());
+        assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
+        assertThat(item(finished, source).targetSha()).contains(conflictCommit);
+        assertThat(finished.currentTargetSha()).isEqualTo(fixup);
+        assertThat(git(worktree, "rev-parse", fixup + "^{tree}"))
+                .isEqualTo(git(worktree, "rev-parse", started.currentTargetSha() + "^{tree}"));
+        assertThat(git(worktree, "rev-list", "--count", started.currentTargetSha() + "..HEAD"))
+                .isEqualTo("2");
     }
 
     @Test
@@ -906,18 +937,18 @@ class TestCherryPickExecutionService
         return current;
     }
 
-    private CherryPickExecution reachNormalization(CherryPickExecution execution)
+    private CherryPickExecution reachFinalization(CherryPickExecution execution)
     {
         CherryPickExecution current = execution;
         for (int step = 0; step < 6; step++) {
             current = service.advance(current.id());
             if (current.journal().map(ActionJournal::type)
-                    .filter(ActionType.NORMALIZE_CONFLICT_PAIR::equals)
+                    .filter(ActionType.FINALIZE_CONFLICT_PAIR::equals)
                     .isPresent()) {
                 return current;
             }
         }
-        throw new AssertionError("execution did not reach normalization");
+        throw new AssertionError("execution did not reach conflict-pair finalization");
     }
 
     private static List<CherryPickItem.ConflictPath> conflictPaths(

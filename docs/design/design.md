@@ -4,20 +4,21 @@ This directory is the entry point for ByteQuay's whole-system design. ByteQuay
 is a local-first macOS application with an Electron and React frontend, one
 localhost Spring Boot backend, GitHub integration, and SQLite persistence.
 
-The current product implements pull-request workflows. Agent development is a
-new proposed subsystem and is not evidence that the feature already exists.
-The design deliberately separates current behavior from future implementation.
+The current product implements pull-request workflows and a local agent
+subsystem. The design distinguishes shipped behavior, known integration gaps,
+and follow-up work so a proposed replacement is not mistaken for current
+behavior.
 
 ## Design documents
 
 - [Architecture](architecture.md) describes the whole system, Maven module
   boundaries, dependency direction, the dedicated SQLite persistence module,
   runtime composition, and extraction sequence.
-- [Agent Service](agent-service.md) specifies worktree-scoped Codex and Claude
-  tasks, Java service and provider interfaces, event streaming, approvals,
-  metrics, storage, cleanup, recovery, and a future API-driver seam.
+- [Agent Service](agent-service.md) records the current worktree-scoped Codex
+  App Server and Claude task implementation, its event/UI gaps, and the planned
+  follow-up toward one App Server-based framework.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
-  bounded fix/commit/push/monitor loop for failing GitHub Actions checks. Review
+  bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
   separately.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
@@ -36,14 +37,18 @@ The design deliberately separates current behavior from future implementation.
   repository routing, opens Workspace Home, and connects Commits to the
   existing cherry-pick flow.
 
-When a cherry-pick conflicts, ByteQuay temporarily commits Git's conflict
-snapshot with the standard `-x` line. The agent resolves it in one direct
-`fixup!` commit. ByteQuay validates the final tree, then immediately squashes
-the pair to one source-marked commit, or removes both when the final tree is
-empty relative to the previous target tip. The first implementation keeps the
-ByteQuay validation hook as a successful no-op; a project-aware command needs
-an explicit user-selected validation profile because ByteQuay cannot infer how
-an arbitrary repository builds.
+When a cherry-pick conflicts, ByteQuay commits Git's conflict snapshot as the
+source-marked target commit `C`, then the agent resolves it in one directly
+adjacent `fixup!` commit `F`. Both commits remain in the generated branch: the
+item records `C` as its target while the execution tip advances to `F`. This is
+also true when `tree(F)` equals the previous target tree, because the pair is
+the durable attribution for how the conflict was settled. The tradeoff is
+deliberate: `C` may contain conflict markers or an incomplete selected side and
+therefore may not build when checked out alone; only the `C` plus `F` boundary
+is the validated result. The first implementation keeps the ByteQuay validation
+hook as a successful no-op; a project-aware command needs an explicit
+user-selected validation profile because ByteQuay cannot infer how an arbitrary
+repository builds.
 
 ## Design principles
 

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { CherryPickExecution, GitCommitDto } from '../types';
+import type { CherryPickExecution, GitCommitDto, WorkspaceDeliveryStatus } from '../types';
 import {
   filterTasks,
   foldNav,
@@ -20,12 +20,44 @@ import {
   limitDayGroups,
   matchesCommitQuery,
   orderTasks,
+  pullRequestPanelRef,
   remoteBranchCorrection,
   selectedSpan,
   spanFromShas,
   squashMessage,
   taskState,
 } from './model';
+
+describe('pullRequestPanelRef', () => {
+  it('uses the repository recorded with a newly delivered direct pull request', () => {
+    const delivery: WorkspaceDeliveryStatus = {
+      pushWritable: true,
+      baseRepository: { owner: 'owner', repo: 'project' },
+      baseBranch: 'main',
+      head: 'generated-branch',
+      pullRequest: {
+        providerId: 900,
+        number: 12,
+        url: 'https://github.com/owner/project/pull/12',
+        baseRepository: { owner: 'owner', repo: 'project' },
+        baseBranch: 'main',
+        head: 'generated-branch',
+      },
+    };
+
+    expect(pullRequestPanelRef(delivery, null, null)).toEqual({
+      slug: 'owner/project',
+      number: 12,
+    });
+  });
+
+  it('falls back to the selected commit association before delivery', () => {
+    expect(pullRequestPanelRef(null, 'upstream/project', 44)).toEqual({
+      slug: 'upstream/project',
+      number: 44,
+    });
+  });
+});
 
 function commit(
   sha: string,

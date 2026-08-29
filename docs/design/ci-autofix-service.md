@@ -14,6 +14,10 @@ read-only service and is not covered here.
 CI Autofix is available only for an open, same-repository pull request authored
 by the authenticated GitHub user. Nothing starts until that user explicitly
 enables CI Autofix for the PR and allows ByteQuay to update its head branch.
+Creating a direct cherry-pick delivery PR is one enable path: its confirmation
+discloses failed-job reruns, history rewrites, and exact-lease pushes. The run
+may start while checks are pending or before any failure exists; it consumes no
+fix attempt until an actionable failure appears.
 
 The agent owns the local fix:
 
@@ -469,7 +473,7 @@ or claimed targets.
 
 ```mermaid
 flowchart TD
-    ENABLE["User enables CI Autofix for authored PR"]
+    ENABLE["User enables CI Autofix, directly or while creating the PR"]
     WATCH["Program reads head, base, and CI"]
     TURN["Program stores logs and starts fix turn"]
     REBASE["Program synchronizes target and owns rebase"]
@@ -541,7 +545,7 @@ if a completed turn has not been inspected:
     if committed and clean: journal and push the local head
     if unchanged: rerun eligible failed jobs, up to three times for this head
     otherwise: pause with Git diagnostics
-if the pushed head is green:
+if the watched head is green, including before any fix attempt:
     run checkFixupPositions once
     if valid: record GREEN and complete the agent task
     otherwise: pause INVALID_FIXUP_POSITION

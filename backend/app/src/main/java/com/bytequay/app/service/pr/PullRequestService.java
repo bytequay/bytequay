@@ -77,6 +77,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -198,6 +199,18 @@ public class PullRequestService
         return value;
     }
 
+    /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */
+    public void observeWorkspacePullRequest(RepoRef repository, int number)
+    {
+        requireNonNull(repository, "repository is null");
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), number);
+        FetchedPullRequest pullRequest = gitHub.getPullRequest(credential.token(), ref)
+                .withViewerOrigin(credential.profile().login());
+        store.saveRepositorySyncPage(
+                repository.fullName(), ImmutableList.of(pullRequest), UUID.randomUUID().toString());
+    }
+
     /**
      * Refreshes the local workspace projection for one monitored repository.
      *
@@ -213,7 +226,7 @@ public class PullRequestService
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String currentLogin = credential.profile().login();
-        String syncMarker = java.util.UUID.randomUUID().toString();
+        String syncMarker = UUID.randomUUID().toString();
         String qualifier = " repo:" + repository.fullName();
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
         syncRepositoryQuery(

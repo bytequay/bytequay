@@ -6,6 +6,64 @@ are defined in [ByteQuay Architecture](architecture.md).
 The exact service and method sequence is defined in
 [Create-to-close lifecycle](#7-create-to-close-lifecycle).
 
+## Current implementation and follow-up (2026-08-30)
+
+This status note records the boundary discovered while testing cherry-pick
+conflict resolution. It supersedes older wording that described the entire
+agent subsystem as future work.
+
+### Current situation
+
+- The Codex lane already uses the official App Server transport.
+  `CodexCliDriver` starts one long-lived
+  `codex app-server --listen stdio://` process, persists Codex thread and turn
+  references, and maps App Server JSON-RPC notifications into
+  `ProviderAgentEvent`.
+- The Claude lane is a separate `stream-json` adapter. Both adapters feed the
+  ByteQuay-owned task, turn, approval, metrics, retention, and event services.
+- ByteQuay persists normalized user-visible events in the task JSONL log and
+  exposes replay through `GET /agent/tasks/{taskId}/events` and SSE through
+  `GET /agent/tasks/{taskId}/stream`. Raw provider payloads and hidden
+  chain-of-thought are outside that contract.
+- One cherry-pick range owns one agent task. Its durable execution stores
+  `agentTaskId` and the active `currentTurnId`, and every conflict-resolution
+  attempt emits events correlated to those IDs.
+- Those logs currently stop at the backend boundary: the cherry-pick execution
+  response omits both IDs, the Electron bridge has no task-event operation,
+  and `ProgressView` renders a static resolving placeholder. Completed items
+  retain an agent-turn count but not their turn IDs, so the renderer also lacks
+  a durable item-to-turn mapping for replay after completion.
+
+The target/fixup retention, direct pull-request projection, and automatic CI
+watch changes are independent of this gap. The conflict-resolution log display
+remains open; this change deliberately does not add an interim bridge or a
+second logging path.
+
+### Follow-up decision
+
+Further agent-framework work will be done as one unified framework based on
+the official OpenAI Codex App Server contract. The existing Codex transport is
+useful implementation input, but the follow-up should define one coherent
+thread/turn/item/event/approval model instead of extending parallel transport
+and UI abstractions piecemeal.
+
+Before replacing the current boundary, that work must decide and document:
+
+1. which App Server types are the canonical internal contract and which remain
+   provider-specific;
+2. whether and how non-Codex providers adapt to that contract;
+3. how application workflows durably correlate their own items with agent
+   threads, turns, and streamed items, including completed conflict attempts;
+4. how existing task rows, provider references, and retained JSONL logs remain
+   readable during migration; and
+5. how restart recovery, cancellation, approvals, sandbox policy, redaction,
+   and bounded retention are verified end to end.
+
+Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
+pushes, and user-confirmation gates remain application-owned invariants. The
+agent framework supplies execution and observable activity; agent messages do
+not decide those workflow outcomes.
+
 ## 1. Decision summary
 
 ByteQuay will add a new local agent subsystem rather than restore the deleted

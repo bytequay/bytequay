@@ -13,11 +13,16 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WorkspaceBranchPusher.Push;
+import com.bytequay.app.workspace.WorkspacePullRequestService.CiAutofixStatus;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
@@ -26,6 +31,9 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
@@ -50,6 +58,9 @@ public final class DefaultWorkspacePullRequestService
     private final GitHubPullRequestWriteClient pullRequests;
     private final CredentialService credentials;
     private final WorkspaceBranchPusher git;
+    private final PullRequestService pullRequestCatalog;
+    private final CiAutofixService ciAutofix;
+    private final CiAutofixStore ciAutofixStore;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(64);
 
@@ -61,6 +72,9 @@ public final class DefaultWorkspacePullRequestService
             GitHubPullRequestWriteClient pullRequests,
             CredentialService credentials,
             WorkspaceBranchPusher git,
+            PullRequestService pullRequestCatalog,
+            CiAutofixService ciAutofix,
+            CiAutofixStore ciAutofixStore,
             Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -70,6 +84,9 @@ public final class DefaultWorkspacePullRequestService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.git = requireNonNull(git, "git is null");
+        this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
+        this.ciAutofix = requireNonNull(ciAutofix, "ciAutofix is null");
+        this.ciAutofixStore = requireNonNull(ciAutofixStore, "ciAutofixStore is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -150,6 +167,7 @@ public final class DefaultWorkspacePullRequestService
             Delivery delivery = execution.delivery().orElseThrow(() ->
                     WorkspaceException.deliveryUnavailable("Push the generated branch before creating a pull request."));
             if (delivery.pullRequestId().isPresent()) {
+                activatePullRequest(workspace, execution, delivery);
                 return pullRequestResult(workspace, execution, delivery);
             }
             requireCurrentSelected(workspace);
@@ -164,7 +182,9 @@ public final class DefaultWorkspacePullRequestService
                     draft.body());
             CherryPickExecution saved = executions.save(execution.recordPullRequest(
                     created.id(), created.number(), created.url(), clock.instant()));
-            return pullRequestResult(workspace, saved, saved.delivery().orElseThrow());
+            Delivery savedDelivery = saved.delivery().orElseThrow();
+            activatePullRequest(workspace, saved, savedDelivery);
+            return pullRequestResult(workspace, saved, savedDelivery);
         }
         finally {
             lock.unlock();
@@ -265,7 +285,7 @@ public final class DefaultWorkspacePullRequestService
         return Optional.empty();
     }
 
-    private static DeliveryStatus status(
+    private DeliveryStatus status(
             Workspace workspace,
             CherryPickExecution execution,
             boolean writable,
@@ -282,7 +302,45 @@ public final class DefaultWorkspacePullRequestService
                 execution.workspace().targetBranch(),
                 head(workspace, execution),
                 push,
-                pullRequest);
+                pullRequest,
+                ciAutofixStatus(workspace, execution));
+    }
+
+    private void activatePullRequest(Workspace workspace, CherryPickExecution execution, Delivery delivery)
+    {
+        int number = delivery.pullRequestNumber().orElseThrow();
+        pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), number);
+        if (workspace.upstreamRepositoryId().isPresent()) {
+            return;
+        }
+        RepoRef repository = workspace.monitoredRepository();
+        ciAutofix.start(new StartCiAutofixCommand(
+                PullRequestRef.of(repository.owner(), repository.repo(), number),
+                execution.workspace().worktree(),
+                new AgentLaneId(execution.workspace().laneId()),
+                CiAutofixRun.MAX_FIX_ATTEMPTS,
+                true,
+                true,
+                true,
+                ciAutofixKey(execution)));
+    }
+
+    private Optional<CiAutofixStatus> ciAutofixStatus(Workspace workspace, CherryPickExecution execution)
+    {
+        if (workspace.upstreamRepositoryId().isPresent() || execution.delivery().isEmpty()) {
+            return Optional.empty();
+        }
+        return ciAutofixStore.findByIdempotencyKey(ciAutofixKey(execution))
+                .map(run -> new CiAutofixStatus(
+                        run.id().toString(),
+                        run.status().name(),
+                        run.attemptsUsed(),
+                        run.summary()));
+    }
+
+    private static String ciAutofixKey(CherryPickExecution execution)
+    {
+        return "cherry-pick-delivery-ci:" + execution.id();
     }
 
     private static PushResult pushResult(Delivery delivery)

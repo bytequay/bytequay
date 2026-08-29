@@ -110,7 +110,8 @@ public interface WorkspacePullRequestService
             String baseBranch,
             String head,
             Optional<PushResult> push,
-            Optional<PullRequestResult> pullRequest)
+            Optional<PullRequestResult> pullRequest,
+            Optional<CiAutofixStatus> ciAutofix)
     {
         public DeliveryStatus
         {
@@ -120,10 +121,24 @@ public interface WorkspacePullRequestService
             requireText(head, "head");
             requireNonNull(push, "push is null");
             requireNonNull(pullRequest, "pullRequest is null");
+            requireNonNull(ciAutofix, "ciAutofix is null");
             checkArgument(pushWritable || disabledReason.isPresent(),
                     "non-writable delivery has no reason");
             checkArgument(pullRequest.isEmpty() || push.isPresent(),
                     "pull request has no recorded push");
+            checkArgument(ciAutofix.isEmpty() || pullRequest.isPresent(),
+                    "CI Autofix has no recorded pull request");
+        }
+    }
+
+    record CiAutofixStatus(String runId, String status, int attemptsUsed, Optional<String> summary)
+    {
+        public CiAutofixStatus
+        {
+            requireText(runId, "runId");
+            requireText(status, "status");
+            checkArgument(attemptsUsed >= 0, "attemptsUsed is negative");
+            requireNonNull(summary, "summary is null");
         }
     }
 }

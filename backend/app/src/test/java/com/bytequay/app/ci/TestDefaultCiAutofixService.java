@@ -489,7 +489,7 @@ class TestDefaultCiAutofixService
     }
 
     @Test
-    void rejectsClosedForkUnauthoredAndPassingPullRequests()
+    void rejectsClosedForkAndUnauthoredPullRequests()
     {
         when(gitHub.inspect(any())).thenReturn(snapshot(false, "author", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("closed"))).hasMessageContaining("not open");
@@ -499,10 +499,59 @@ class TestDefaultCiAutofixService
 
         when(gitHub.inspect(any())).thenReturn(snapshot(true, "another-user", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("not-author"))).hasMessageContaining("author");
-
-        when(gitHub.inspect(any())).thenReturn(snapshot(true, "author", true, HEAD, false));
-        assertThatThrownBy(() -> service.start(startCommand("passing"))).hasMessageContaining("no actionable");
         verify(taskService, never()).create(any());
+    }
+
+    @Test
+    void watchesPendingCiWithoutRebasingAndStartsFixingAfterAFailure()
+    {
+        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+
+        CiAutofixRun run = service.start(startCommand("pending-to-failed"));
+
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.agentTaskId()).contains(taskId.toString());
+        assertThat(run.attempts()).isEmpty();
+        assertThat(run.currentTurnId()).isEmpty();
+        assertThat(run.currentRebaseId()).isEmpty();
+        verify(gitService, never()).synchronizeBase(any());
+        verify(rebaseService, never()).start(any());
+        verify(turnService, never()).start(any());
+
+        when(gitHub.inspect(any())).thenReturn(failedSnapshot(HEAD, BASE, 1));
+        run = service.advance(run.id());
+
+        assertThat(run.attempts()).singleElement();
+        assertThat(run.currentTurnId()).isEmpty();
+        verify(rebaseService).start(any());
+
+        run = service.advance(run.id());
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        verify(turnService).start(any());
+    }
+
+    @Test
+    void finishesAPendingWatchWhenCiBecomesGreenWithoutStartingAFix()
+    {
+        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        CiAutofixRun run = service.start(startCommand("pending-to-green"));
+
+        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.finalFixupCheck()).isPresent();
+        assertThat(run.attempts()).isEmpty();
+
+        doReturn(completion(HEAD)).when(completionService).complete(any());
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.FINISHED);
+        assertThat(run.finishReason()).contains(FinishReason.GREEN);
+        assertThat(run.attempts()).isEmpty();
+        verify(rebaseService, never()).start(any());
+        verify(turnService, never()).start(any());
     }
 
     @Test
@@ -1301,6 +1350,20 @@ class TestDefaultCiAutofixService
                         head,
                         "completed",
                         Optional.of("success"))));
+    }
+
+    private CiHeadSnapshot pendingSnapshot(String head, String base)
+    {
+        return snapshot(
+                head,
+                base,
+                ImmutableList.of(workflow(
+                        100,
+                        1,
+                        "Build",
+                        head,
+                        "in_progress",
+                        Optional.empty())));
     }
 
     private CiHeadSnapshot snapshot(String head, String base, List<CiWorkflowRun> workflows)

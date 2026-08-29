@@ -132,7 +132,10 @@ final class CiAutofixHttpModels
         if (run.rerunJournal().isPresent()) {
             return "RERUNNING_CI";
         }
-        if (run.attempts().isEmpty() || run.attempts().getLast().agentTurnId().isEmpty()) {
+        if (run.attempts().isEmpty()) {
+            return run.agentTaskId().isPresent() ? "WATCHING_CI" : "PREPARING_AGENT";
+        }
+        if (run.attempts().getLast().agentTurnId().isEmpty()) {
             return "PREPARING_AGENT";
         }
         CiAutofixAttempt attempt = run.attempts().getLast();

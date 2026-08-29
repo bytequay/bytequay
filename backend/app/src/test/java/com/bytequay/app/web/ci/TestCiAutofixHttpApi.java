@@ -242,6 +242,17 @@ class TestCiAutofixHttpApi
         assertThat(response.currentTurnId()).isEmpty();
     }
 
+    @Test
+    void exposesAnAssignedZeroAttemptRunAsWatchingCi()
+    {
+        CiAutofixRun watching = run().assignAgentTask("task-1", NOW.plusSeconds(1));
+
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(watching, Optional.empty());
+
+        assertThat(response.activity()).isEqualTo("WATCHING_CI");
+        assertThat(response.attempts()).isEmpty();
+    }
+
     private static CiAutofixRun run()
     {
         return CiAutofixRun.create(

@@ -78,6 +78,20 @@ class TestCherryPickExecution
     }
 
     @Test
+    void recordsAConflictTargetSeparatelyFromItsFixupTip()
+    {
+        CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK));
+
+        CherryPickExecution applied = execution.recordAppliedWithFixup(
+                sha(1), created(1), created(2), NOW.plusSeconds(1));
+
+        assertThat(applied.items().getFirst().result()).isEqualTo(Result.APPLIED);
+        assertThat(applied.items().getFirst().targetSha()).contains(created(1));
+        assertThat(applied.currentTargetSha()).isEqualTo(created(2));
+        assertThat(applied.cursor()).isEmpty();
+    }
+
+    @Test
     void rejectsAppliedCommitsThatAreNotInThePlan()
     {
         CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK));

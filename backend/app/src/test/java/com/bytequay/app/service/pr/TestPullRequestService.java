@@ -265,6 +265,22 @@ class TestPullRequestService
     }
 
     @Test
+    void exactFetchesCreatedPullRequestIntoWorkspaceProjection()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        FetchedPullRequest fetched = pullRequest();
+        when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(fetched);
+
+        service.observeWorkspacePullRequest(repository, 7);
+
+        verify(store).saveRepositorySyncPage(
+                eq("owner/repo"),
+                eq(ImmutableList.of(fetched.withViewerOrigin("me"))),
+                anyString());
+        verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), anyString(), anyString());
+    }
+
+    @Test
     void dashboardListSyncLeavesDetailAndDiffForTheNextFullRefresh()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);

@@ -298,6 +298,10 @@ public class CherryPickExecutionService
         if (execution.journal().map(ActionJournal::type).filter(ActionType.AGENT_REPAIR::equals).isPresent()) {
             return inspectRepair(execution, Optional.empty());
         }
+        if (execution.journal().map(ActionJournal::type).filter(ActionType.FINALIZE_CONFLICT_PAIR::equals)
+                .isPresent()) {
+            return finalizeConflictPair(execution);
+        }
         if (execution.journal().map(ActionJournal::type).filter(ActionType.NORMALIZE_CONFLICT_PAIR::equals)
                 .isPresent()) {
             return normalizeConflictPair(execution);
@@ -793,12 +797,37 @@ public class CherryPickExecutionService
         }
         validate(worktree, fixupCommit);
         return store.save(execution.withJournal(journal(
-                ActionType.NORMALIZE_CONFLICT_PAIR,
+                ActionType.FINALIZE_CONFLICT_PAIR,
                 journal.sourceSha(),
                 fixupCommit), clock.instant()));
     }
 
-    /** Squashes C/F immediately, or drops both when their final tree is H0. */
+    /** Records the verified C/F pair without rewriting either commit. */
+    private CherryPickExecution finalizeConflictPair(CherryPickExecution execution)
+    {
+        ActionJournal journal = execution.journal().orElseThrow();
+        Path worktree = execution.workspace().worktree();
+        String fixupCommit = journal.expectedHead();
+        String conflictCommit = parentOf(worktree, fixupCommit);
+        String originalHead = parentOf(worktree, conflictCommit);
+        if (!originalHead.equals(execution.currentTargetSha())) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "Conflict pair no longer follows the recorded target tip");
+        }
+        SequenceState state = sequencer.observe(worktree);
+        if (state.kind() != SequenceState.Kind.COMPLETED || !state.head().equals(fixupCommit)) {
+            return pause(execution, PauseReason.UNSAFE_GIT_STATE,
+                    "Conflict pair moved before it could be recorded");
+        }
+        CherryPickExecution updated = store.save(execution
+                .recordAppliedWithFixup(
+                        journal.sourceSha().orElseThrow(), conflictCommit, fixupCommit, clock.instant())
+                .withStep(Step.APPLYING, clock.instant())
+                .withoutJournal(clock.instant()));
+        return updated.pendingItems().isEmpty() ? complete(updated) : updated;
+    }
+
+    /** Finishes executions journaled by the former squashing implementation. */
     private CherryPickExecution normalizeConflictPair(CherryPickExecution execution)
     {
         ActionJournal journal = execution.journal().orElseThrow();
@@ -937,14 +966,17 @@ public class CherryPickExecutionService
                 .collect(toImmutableList());
         List<CreatedCommit> created = createdCommits(
                 worktree, execution.range().initialTargetSha(), state.head());
-        if (created.size() != applied.size()) {
+        if (!state.head().equals(execution.currentTargetSha())) {
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                    "The work branch holds " + created.size() + " commits but " + applied.size()
-                            + " are recorded as applied");
+                    "The work branch no longer ends at the recorded target tip");
         }
-        for (int index = 0; index < created.size(); index++) {
-            CreatedCommit commit = created.get(index);
-            CherryPickItem item = applied.get(index);
+        int createdIndex = 0;
+        for (CherryPickItem item : applied) {
+            if (createdIndex >= created.size()) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "The work branch is missing the target for source " + item.sourceSha());
+            }
+            CreatedCommit commit = created.get(createdIndex++);
             if (!commit.sourceSha().filter(sha -> sha.equals(item.sourceSha())).isPresent()) {
                 return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
                         "Commit " + commit.targetSha() + " does not record source " + item.sourceSha());
@@ -954,6 +986,20 @@ public class CherryPickExecutionService
                         "Recorded target " + item.targetSha().orElse("none")
                                 + " is not the commit on the branch");
             }
+            if (!item.conflictPaths().isEmpty() && createdIndex < created.size()) {
+                CreatedCommit candidate = created.get(createdIndex);
+                if (candidate.sourceSha().isEmpty()
+                        && parentOf(worktree, candidate.targetSha()).equals(commit.targetSha())
+                        && subjectOf(worktree, candidate.targetSha())
+                                .equals("fixup! " + subjectOf(worktree, commit.targetSha()))) {
+                    createdIndex++;
+                }
+            }
+        }
+        if (createdIndex != created.size()) {
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                    "The work branch holds " + (created.size() - createdIndex)
+                            + " unrecorded commit(s)");
         }
         if (!sequencer.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,

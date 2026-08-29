@@ -529,6 +529,13 @@ export type WorkspacePullRequestResult = {
   head: string;
 };
 
+export type WorkspaceCiAutofixStatus = {
+  runId: string;
+  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  attemptsUsed: number;
+  summary?: string | null;
+};
+
 export type WorkspaceDeliveryStatus = {
   pushWritable: boolean;
   disabledReason?: string | null;
@@ -537,6 +544,7 @@ export type WorkspaceDeliveryStatus = {
   head: string;
   push?: WorkspacePushResult | null;
   pullRequest?: WorkspacePullRequestResult | null;
+  ciAutofix?: WorkspaceCiAutofixStatus | null;
 };
 
 export type CherryPickExecutionRequest = {

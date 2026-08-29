@@ -11,7 +11,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CherryPickExecution, CherryPickExecutionItem, GitCommitDto } from '../types';
+import type {
+  CherryPickExecution,
+  CherryPickExecutionItem,
+  GitCommitDto,
+  WorkspaceDeliveryStatus,
+} from '../types';
+
+export function pullRequestPanelRef(
+  delivery: WorkspaceDeliveryStatus | null,
+  fallbackSlug: string | null,
+  fallbackNumber: number | null,
+): { slug: string | null; number: number | null } {
+  if (!delivery?.pullRequest) return { slug: fallbackSlug, number: fallbackNumber };
+  return {
+    slug: `${delivery.pullRequest.baseRepository.owner}/${delivery.pullRequest.baseRepository.repo}`,
+    number: delivery.pullRequest.number,
+  };
+}
 
 /**
  * Selection is always one contiguous span: the checked SHAs only anchor it,

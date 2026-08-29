@@ -228,6 +228,17 @@ async function backendVoid(input: string | URL, init?: RequestInit): Promise<voi
   }
 }
 
+function refreshDashboardInBackground(): void {
+  void backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(15 * 60_000),
+  }).then(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('pull-requests:synced');
+    }
+  }).catch(() => {});
+}
+
 function prUrl(pathname: string, repo: string, number: number): URL {
   const url = new URL(`${BACKEND_BASE}${pathname}`);
   url.searchParams.set('repo', repo);
@@ -431,7 +442,7 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: pat.trim() }),
     });
-    void fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });
+    refreshDashboardInBackground();
     return true;
   });
   ipcMain.handle('pat:has', async () => {
@@ -1037,7 +1048,7 @@ app.on('ready', async () => {
   spawnBackend();
   if (app.isPackaged && !await waitForBackendReady()) reportBackendFailure();
   await ensureWindow();
-  void fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });
+  refreshDashboardInBackground();
 });
 
 app.on('window-all-closed', () => {

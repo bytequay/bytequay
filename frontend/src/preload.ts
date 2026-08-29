@@ -19,6 +19,11 @@ const bridge: Bridge = {
   hasPat: () => ipcRenderer.invoke('pat:has'),
   fetchPrs: (workspaceId, page, pageSize, search) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize, search),
   syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
+  onPullRequestsSynced: callback => {
+    const listener = () => callback();
+    ipcRenderer.on('pull-requests:synced', listener);
+    return () => ipcRenderer.removeListener('pull-requests:synced', listener);
+  },
   fetchPullRequestDetail: prId => ipcRenderer.invoke('prs:detail', prId),
   fetchPullRequestDetailByRef: (repo, number) => ipcRenderer.invoke('prs:detail:by-ref', repo, number),
   fetchRepoUsers: (repo, workspaceId) => ipcRenderer.invoke('prs:users', repo, workspaceId),

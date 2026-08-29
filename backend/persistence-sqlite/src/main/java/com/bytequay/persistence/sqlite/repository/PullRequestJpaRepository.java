@@ -104,6 +104,11 @@ public interface PullRequestJpaRepository
             @Param("retentionCutoff") Instant retentionCutoff);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE PullRequestEntity e SET e.origin = 'OTHER' WHERE e.origin = 'AUTHORED' "
+            + "AND (e.author IS NULL OR LOWER(e.author) <> LOWER(:login))")
+    int demoteAuthoredByOthers(@Param("login") String login);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE PullRequestEntity e SET e.workspaceVisible = false "
             + "WHERE LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true "
             + "AND LOWER(e.state) IN ('closed', 'merged') AND e.updatedAt < :retentionCutoff "

@@ -314,7 +314,7 @@ public class PullRequestService
         syncDashboardQuery(
                 pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER, refreshDetails);
         syncNotificationPullRequests(pat, currentLogin, syncMarker, seen, refreshDetails);
-        deleteDetails(store.completeDashboardSync(syncMarker));
+        deleteDetails(store.completeDashboardSync(syncMarker, currentLogin));
     }
 
     private void syncDetails(String pat, String currentLogin, List<PullRequest> pullRequests)
@@ -412,7 +412,7 @@ public class PullRequestService
         ListenableFuture<StoredPrDetail> pending = detailFetcher.fetch(pat, ref);
 
         PullRequest pullRequest = store.saveObserved(
-                workspaceOrigin(fetched.pullRequest().orElseThrow(), currentLogin));
+                fetched.pullRequest().orElseThrow().withViewerOrigin(currentLogin));
         boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
 
         StoredPrDetail detail = snapshots.saveDetail(pullRequest.id(), PullRequestDetailFetcher.await(pending), viewerCanWrite);
@@ -882,7 +882,7 @@ public class PullRequestService
             List<FetchedPullRequest> fresh = result.items().stream()
                     .map(pullRequest -> reviewRequested
                             ? withOrigin(pullRequest, REVIEW_REQUESTED)
-                            : workspaceOrigin(pullRequest, currentLogin))
+                            : pullRequest.withViewerOrigin(currentLogin))
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
                 store.saveRepositorySyncPage(repository.fullName(), fresh, syncMarker);
@@ -900,7 +900,7 @@ public class PullRequestService
         for (PullRequest stored : store.findRepositoryRowsMissingSync(repository.fullName(), syncMarker)) {
             PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), stored.number());
             try {
-                FetchedPullRequest exact = workspaceOrigin(gitHub.getPullRequest(pat, ref), currentLogin);
+                FetchedPullRequest exact = gitHub.getPullRequest(pat, ref).withViewerOrigin(currentLogin);
                 if (stored.origin() == REVIEW_REQUESTED) {
                     exact = withOrigin(exact, REVIEW_REQUESTED);
                 }
@@ -939,7 +939,7 @@ public class PullRequestService
                             syncMarker,
                             ImmutableList.of(attention.reviewRequested()
                                     ? withOrigin(pullRequest, REVIEW_REQUESTED)
-                                    : workspaceOrigin(pullRequest, currentLogin)),
+                                    : pullRequest.withViewerOrigin(currentLogin)),
                             refreshDetails);
                 }
             }
@@ -1341,21 +1341,6 @@ public class PullRequestService
     private static FetchedPullRequest withOrigin(FetchedPullRequest pr, PullRequest.Origin origin)
     {
         return pr.withOrigin(origin);
-    }
-
-    static FetchedPullRequest workspaceOrigin(FetchedPullRequest pullRequest, String currentLogin)
-    {
-        PullRequest.Origin origin;
-        if (currentLogin != null && currentLogin.equalsIgnoreCase(pullRequest.author())) {
-            origin = AUTHORED;
-        }
-        else if (currentLogin != null && pullRequest.requestedReviewers().stream().anyMatch(currentLogin::equalsIgnoreCase)) {
-            origin = REVIEW_REQUESTED;
-        }
-        else {
-            origin = OTHER;
-        }
-        return withOrigin(pullRequest, origin);
     }
 
     record DetailRefresh(boolean full, PullRequestDetail detail)

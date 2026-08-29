@@ -4,7 +4,7 @@ The pull-request screen has a filterable list on the left and the selected PR
 on the right.
 
 - **Open** shows active account-relevant PRs and PRs from currently monitored repositories.
-- **Mine** shows every pull request you authored, including merged and closed work.
+- **My PRs** shows every pull request you authored, including merged and closed work.
 - **Review** shows pull requests awaiting your review.
 - **Viewed** shows review work you completed.
 - **Closed** shows merged and closed pull requests.

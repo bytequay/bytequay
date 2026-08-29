@@ -797,6 +797,7 @@ export type Bridge = {
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number, search?: string) => Promise<PullRequestPageDto>;
   syncPrs: (workspaceId?: string) => Promise<void>;
+  onPullRequestsSynced: (callback: () => void) => () => void;
   fetchPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
   fetchPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;

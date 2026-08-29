@@ -148,8 +148,8 @@ describe('filter tabs hold their position', () => {
 });
 
 describe('narrow toolbars', () => {
-  it('keeps counts only at 420px and wider', () => {
-    expect([320, 420, 560, 760].map(compactToolbar)).toEqual([true, false, false, false]);
+  it('keeps counts only at 440px and wider', () => {
+    expect([320, 420, 440, 560, 760].map(compactToolbar)).toEqual([true, true, false, false, false]);
   });
 
   it('drops every count at once, never one tab alone', () => {

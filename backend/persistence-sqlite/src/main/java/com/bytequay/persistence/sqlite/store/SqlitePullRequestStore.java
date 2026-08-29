@@ -152,9 +152,11 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public Set<Long> completeDashboardSync(String syncMarker)
+    public Set<Long> completeDashboardSync(String syncMarker, String currentLogin)
     {
         requireNonNull(syncMarker, "syncMarker is null");
+        requireNonNull(currentLogin, "currentLogin is null");
+        jpaRepository.demoteAuthoredByOthers(currentLogin);
         jpaRepository.hideStaleDashboardRows(
                 syncMarker, Instant.now().minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS));
         return deleteInvisibleRows();

@@ -29,7 +29,7 @@ import {
 import ContributionCard from './ContributionCard';
 import { getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
-import { pullRequestNeedsReview } from '../pulls/model';
+import { pullRequestIsMine, pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 import {
   workspaceIsUpdating,
@@ -242,12 +242,12 @@ function HomePage({
     let flagged = 0;
     for (const pr of prs) {
       if (pr.state !== 'open') continue;
-      if (pr.origin === 'AUTHORED') mine++;
+      if (pullRequestIsMine(pr, login)) mine++;
       else if (pullRequestNeedsReview(pr)) awaiting++;
       if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
     }
     return { mine, awaiting, flagged };
-  }, [prs]);
+  }, [login, prs]);
 
 
   function applyHandled(next: Handled) {

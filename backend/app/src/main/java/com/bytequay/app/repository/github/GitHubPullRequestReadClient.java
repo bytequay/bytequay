@@ -67,6 +67,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
+import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -1323,7 +1324,7 @@ public class GitHubPullRequestReadClient
                 item.htmlUrl(),
                 item.createdAt(),
                 item.updatedAt(),
-                AUTHORED,
+                OTHER,
                 labels,
                 labelColors,
                 item.draft(),

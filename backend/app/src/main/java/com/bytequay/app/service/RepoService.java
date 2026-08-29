@@ -16,6 +16,7 @@ package com.bytequay.app.service;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
@@ -100,12 +101,13 @@ public class RepoService
 
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
     {
-        String pat = credentialService.resolveGitHubToken();
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
         PullRequestRef ref = PullRequestRef.of(owner, repo, number);
         // Storing it first is what turns a fetched pull request into one this
         // application can work with: only a stored row carries an id, and view
         // state hangs off that id.
-        PullRequest stored = pullRequestStore.saveObserved(pullRequests.getPullRequest(pat, ref));
+        PullRequest stored = pullRequestStore.saveObserved(
+                pullRequests.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login()));
         return stored.withViewState(viewStateStore.findByPrIds(ImmutableSet.of(stored.id())).get(stored.id()));
     }
 

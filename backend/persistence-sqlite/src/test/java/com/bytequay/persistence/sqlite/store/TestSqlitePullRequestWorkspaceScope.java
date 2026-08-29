@@ -82,7 +82,7 @@ class TestSqlitePullRequestWorkspaceScope
         workspaceStore.createOrGet(workspace);
 
         store.saveDashboardSyncPage(ImmutableList.of(global, shared), "global-1");
-        store.completeDashboardSync("global-1");
+        store.completeDashboardSync("global-1", "alice");
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(shared, workspaceOnly), "workspace-1");
         store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
         store.saveRepositorySyncPage("other/project", ImmutableList.of(otherWorkspace), "workspace-2");
@@ -104,7 +104,7 @@ class TestSqlitePullRequestWorkspaceScope
                 .doesNotContain(4L);
 
         store.saveDashboardSyncPage(ImmutableList.of(global), "global-2");
-        store.completeDashboardSync("global-2");
+        store.completeDashboardSync("global-2", "alice");
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
@@ -170,6 +170,22 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void repairsAuthoredOriginsForTheCurrentGitHubUser()
+    {
+        long mine = store.saveObserved(pullRequest(92, "external/project", 12)).id();
+        long someoneElses = store.saveObserved(pullRequest(93, "external/project", 13)).id();
+        jdbc.update("UPDATE pull_requests SET author = 'bob' WHERE id = ?", someoneElses);
+
+        store.completeDashboardSync("dashboard", "ALICE");
+
+        assertThat(store.findPage(0, 50).pullRequests())
+                .extracting(PullRequest::id, PullRequest::origin)
+                .containsExactlyInAnyOrder(
+                        tuple(mine, PullRequest.Origin.AUTHORED),
+                        tuple(someoneElses, PullRequest.Origin.OTHER));
+    }
+
+    @Test
     void updatesByRepositoryAndNumberWhenGitHubApisReturnDifferentIds()
     {
         // search/issues and the pulls endpoint report different ids for one
@@ -194,7 +210,7 @@ class TestSqlitePullRequestWorkspaceScope
         viewStateStore.markReviewed(id, HandledAction.APPROVED, "headsha");
         jdbc.update("UPDATE pull_requests SET dashboard_visible = 0, workspace_visible = 0 WHERE id = ?", id);
 
-        assertThat(store.completeDashboardSync("sweep")).doesNotContain(id);
+        assertThat(store.completeDashboardSync("sweep", "alice")).doesNotContain(id);
         assertThat(store.findRefById(id)).isPresent();
     }
 

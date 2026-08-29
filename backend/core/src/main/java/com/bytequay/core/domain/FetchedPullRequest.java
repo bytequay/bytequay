@@ -77,4 +77,21 @@ public record FetchedPullRequest(
                 labels, labelColors, draft, state, closedAt, mergedAt, requestedReviewers,
                 mergeable, mergeableState, headRef);
     }
+
+    /** This pull request with its relationship to the current GitHub user derived from GitHub facts. */
+    public FetchedPullRequest withViewerOrigin(String viewerLogin)
+    {
+        requireNonNull(viewerLogin, "viewerLogin is null");
+        PullRequest.Origin viewerOrigin;
+        if (author.equalsIgnoreCase(viewerLogin)) {
+            viewerOrigin = PullRequest.Origin.AUTHORED;
+        }
+        else if (requestedReviewers.stream().anyMatch(viewerLogin::equalsIgnoreCase)) {
+            viewerOrigin = PullRequest.Origin.REVIEW_REQUESTED;
+        }
+        else {
+            viewerOrigin = PullRequest.Origin.OTHER;
+        }
+        return withOrigin(viewerOrigin);
+    }
 }

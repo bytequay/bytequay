@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -124,6 +125,7 @@ class TestGitHubPullRequestOverviewClient
         var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.empty());
 
         assertThat(fetched.pullRequest()).isPresent();
+        assertThat(fetched.pullRequest().orElseThrow().origin()).isEqualTo(OTHER);
         assertThat(fetched.pullRequest().orElseThrow().mergeable()).isFalse();
         assertThat(fetched.pullRequest().orElseThrow().mergeableState()).isEqualTo("dirty");
         assertThat(fetched.etag()).contains("\"etag-2\"");

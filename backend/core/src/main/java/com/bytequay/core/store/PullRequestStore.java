@@ -43,7 +43,7 @@ public interface PullRequestStore
     /** Stores a page of fetched pull requests and returns them as stored rows. */
     List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
 
-    Set<Long> completeDashboardSync(String syncMarker);
+    Set<Long> completeDashboardSync(String syncMarker, String currentLogin);
 
     List<PullRequest> saveRepositorySyncPage(
             String repository, List<FetchedPullRequest> pullRequests, String syncMarker);

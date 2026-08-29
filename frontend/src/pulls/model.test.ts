@@ -85,16 +85,34 @@ describe('rowsForTab', () => {
     expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
   });
 
-  it('keeps all authored work in Mine regardless of state', () => {
+  it('keeps all authored work in My PRs regardless of state', () => {
     const open = pr({ id: 1, origin: 'AUTHORED', state: 'open' });
     const merged = pr({ id: 2, origin: 'AUTHORED', state: 'merged' });
     const closed = pr({ id: 3, origin: 'AUTHORED', state: 'closed' });
-    const someoneElse = pr({ id: 4, origin: 'OTHER', state: 'open' });
+    const someoneElse = pr({ id: 4, author: 'someone-else', origin: 'OTHER', state: 'open' });
 
-    expect(rowsForTab([open, merged, closed, someoneElse], 'active').map(row => row.id)).toEqual([1, 2, 3]);
+    expect(rowsForTab([open, merged, closed, someoneElse], 'active', 'jack').map(row => row.id)).toEqual([1, 2, 3]);
   });
 
-  it('calls the compact reviewed tab Viewed', () => {
+  it('uses the viewer login instead of a stale authored origin', () => {
+    const mine = pr({ id: 1, author: 'Jack', origin: 'OTHER' });
+    const stale = pr({ id: 2, author: 'someone-else', origin: 'AUTHORED' });
+    const reviewed = pr({
+      id: 3,
+      author: 'review-author',
+      origin: 'AUTHORED',
+      handledAction: 'APPROVED',
+      reviewedAt: '2026-08-22T09:00:00Z',
+    });
+
+    expect(rowsForTab([mine, stale, reviewed], 'active', 'jack').map(row => row.id)).toEqual([1]);
+    expect(rowsForTab([reviewed], 'reviewed', 'jack').map(row => row.id)).toEqual([3]);
+    expect(tabForInitialPullRequest(stale, 'active', 'jack')).toBe('all');
+    expect(rowsForTab([stale], 'active', null).map(row => row.id)).toEqual([2]);
+  });
+
+  it('uses clear compact tab labels', () => {
+    expect(PULL_TABS.find(tab => tab.key === 'active')?.short).toBe('My PRs');
     expect(PULL_TABS.find(tab => tab.key === 'reviewed')?.short).toBe('Viewed');
   });
 

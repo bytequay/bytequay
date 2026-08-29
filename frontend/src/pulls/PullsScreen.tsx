@@ -69,7 +69,7 @@ export function pullRequestSyncNotice(failure: unknown): string | null {
 }
 
 /** Toolbar width under which counts drop and the search placeholder shortens. */
-const TOOLBAR_COMPACT_WIDTH = 420;
+const TOOLBAR_COMPACT_WIDTH = 440;
 
 /**
  * Counts hide for every tab at once. Hiding one tab's count would resize that
@@ -156,6 +156,7 @@ export default function PullsScreen({
   onSelectPullRequest: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
+  const [viewerLogin, setViewerLogin] = useState<string | null>();
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
@@ -197,6 +198,14 @@ export default function PullsScreen({
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
   listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.bridge.getUserProfile()
+      .then(profile => { if (!cancelled) setViewerLogin(profile.login); })
+      .catch(() => { if (!cancelled) setViewerLogin(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
     const snapshot = JSON.stringify(value);
@@ -241,6 +250,14 @@ export default function PullsScreen({
       ? current
       : null);
   }, []);
+
+  useEffect(() => window.bridge.onPullRequestsSynced(() => {
+    const current = listContext.current;
+    const request = ++listRequest.current;
+    void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query)
+      .then(result => { if (request === listRequest.current) applyPage(result); })
+      .catch(() => {});
+  }), [applyPage]);
 
   const refreshList = useCallback(async () => {
     const workspaceId = repositoryScope?.workspaceId;
@@ -381,7 +398,7 @@ export default function PullsScreen({
       routingInitialPr.current = null;
       return;
     }
-    if (loading) return;
+    if (loading || viewerLogin === undefined) return;
     const initialPrKey = `${initialPr.repo.toLowerCase()}#${initialPr.number}`;
     if (openedInitialPr.current === initialPrKey) return;
     openedInitialPr.current = initialPrKey;
@@ -389,34 +406,31 @@ export default function PullsScreen({
     const match = prs.find(pr => pr.repo.toLowerCase() === initialPr.repo.toLowerCase()
       && pr.number === initialPr.number);
     if (match) {
-      setTab(current => tabForInitialPullRequest(match, current));
+      setTab(current => tabForInitialPullRequest(match, current, viewerLogin));
       setSelected(match.id);
       return;
     }
     let cancelled = false;
-    Promise.all([
-      window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number),
-      window.bridge.getUserProfile().catch((): null => null),
-    ]).then(([value, profile]) => {
+    window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number).then(value => {
       if (cancelled) return;
-      const remote = remotePullRequest(value, profile?.login);
+      const remote = remotePullRequest(value, viewerLogin ?? undefined);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       applyDetail(remote.id, value, false);
-      setTab(current => tabForInitialPullRequest(remote, current));
+      setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
       setSelected(remote.id);
     }).catch(e => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
     });
     return () => { cancelled = true; };
-  }, [applyDetail, initialPr, loading, prs]);
+  }, [applyDetail, initialPr, loading, prs, viewerLogin]);
 
-  const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab), [prs, query, tab]);
+  const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab, viewerLogin), [prs, query, tab, viewerLogin]);
   const compact = compactToolbar(toolbarWidth);
   // ponytail: one pass per tab over the loaded page; revisit only if the list
   // ever holds thousands of rows. Unloaded pages make each count a floor.
   const tabCounts = useMemo(
-    () => PULL_TABS.map(item => `${rowsForTab(prs, item.key).length}${hasMore ? '+' : ''}`),
-    [hasMore, prs],
+    () => PULL_TABS.map(item => `${rowsForTab(prs, item.key, viewerLogin).length}${hasMore ? '+' : ''}`),
+    [hasMore, prs, viewerLogin],
   );
   const visibleSelected = visibleSelectedId(rows, selected);
   const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;

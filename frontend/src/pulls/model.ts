@@ -23,7 +23,7 @@ export type PullTab = 'all' | 'active' | 'req' | 'reviewed' | 'done';
  */
 export const PULL_TABS: { key: PullTab; label: string; short: string; empty: string }[] = [
   { key: 'all', label: 'Open', short: 'Open', empty: 'open pull requests' },
-  { key: 'active', label: 'My PRs', short: 'Mine', empty: 'pull requests you authored' },
+  { key: 'active', label: 'My PRs', short: 'My PRs', empty: 'pull requests you authored' },
   { key: 'req', label: 'Needs review', short: 'Review', empty: 'pull requests needing your review' },
   { key: 'reviewed', label: 'Reviewed', short: 'Viewed', empty: 'pull requests you reviewed' },
   { key: 'done', label: 'Closed', short: 'Closed', empty: 'closed pull requests' },
@@ -70,12 +70,19 @@ function toRow(pr: PullRequestDto, reviewedTime = false): PullRow {
   };
 }
 
-export function rowsForTab(prs: PullRequestDto[], tab: PullTab): PullRow[] {
+export function pullRequestIsMine(pr: PullRequestDto, viewerLogin?: string | null) {
+  return viewerLogin == null
+    ? pr.origin === 'AUTHORED'
+    : pr.author?.toLowerCase() === viewerLogin.toLowerCase();
+}
+
+export function rowsForTab(prs: PullRequestDto[], tab: PullTab, viewerLogin?: string | null): PullRow[] {
   return prs
     .filter(pr => {
       const done = pullRequestKind(pr.state) !== 'open';
-      const reviewed = pr.origin !== 'AUTHORED' && pr.handledAction !== null;
-      if (tab === 'active') return pr.origin === 'AUTHORED';
+      const authored = pullRequestIsMine(pr, viewerLogin);
+      const reviewed = !authored && pr.handledAction !== null;
+      if (tab === 'active') return authored;
       if (tab === 'done') return done;
       if (done) return false;
       if (tab === 'req') return pullRequestNeedsReview(pr);
@@ -94,8 +101,8 @@ export function visibleSelectedId(rows: PullRow[], selected: number | null) {
   return selected ?? rows[0]?.id ?? null;
 }
 
-export function tabForInitialPullRequest(pr: PullRequestDto, preferred: PullTab): PullTab {
-  if (rowsForTab([pr], preferred).length > 0) return preferred;
+export function tabForInitialPullRequest(pr: PullRequestDto, preferred: PullTab, viewerLogin?: string | null): PullTab {
+  if (rowsForTab([pr], preferred, viewerLogin).length > 0) return preferred;
   return pullRequestKind(pr.state) === 'open' ? 'all' : 'done';
 }
 

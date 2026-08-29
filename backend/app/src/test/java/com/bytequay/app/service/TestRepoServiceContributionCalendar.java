@@ -16,16 +16,19 @@ package com.bytequay.app.service;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.ContributionCalendar;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -34,7 +37,9 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestRepoServiceContributionCalendar
@@ -60,30 +65,34 @@ class TestRepoServiceContributionCalendar
     }
 
     @Test
-    void openingAPullRequestStoresItSoItHasARowIdAndViewState()
+    void openingAPullRequestClassifiesAndStoresItSoItHasARowIdAndViewState()
     {
         GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
         PullRequestStore store = mock(PullRequestStore.class);
         PrViewStateStore viewStates = mock(PrViewStateStore.class);
         CredentialService credentialService = mock(CredentialService.class);
-        when(credentialService.resolveGitHubToken()).thenReturn("pat");
+        when(credentialService.resolveGitHubCredential()).thenReturn(new GitHubCredential(
+                "pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
         FetchedPullRequest fetched = fetchedPullRequest();
         when(pullRequests.getPullRequest("pat", PullRequestRef.of("trinodb", "trino", 30835)))
                 .thenReturn(fetched);
-        when(store.saveObserved(fetched)).thenReturn(storedPullRequest());
+        when(store.saveObserved(any())).thenReturn(storedPullRequest());
         when(viewStates.findByPrIds(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of());
 
         RepoService service = new RepoService(
                 pullRequests, store, mock(GitHubAccountClient.class), viewStates, credentialService);
 
         assertThat(service.getRepoPullRequest("trinodb", "trino", 30835).id()).isEqualTo(7L);
+        ArgumentCaptor<FetchedPullRequest> observed = ArgumentCaptor.forClass(FetchedPullRequest.class);
+        verify(store).saveObserved(observed.capture());
+        assertThat(observed.getValue().origin()).isEqualTo(PullRequest.Origin.OTHER);
     }
 
     private static FetchedPullRequest fetchedPullRequest()
     {
         return new FetchedPullRequest(
                 1L, "trinodb/trino", 30835, "title", "alice", "url", NOW, NOW,
-                PullRequest.Origin.OTHER, ImmutableList.of(), null, false, "open", null, null,
+                PullRequest.Origin.AUTHORED, ImmutableList.of(), null, false, "open", null, null,
                 ImmutableList.of(), null, null, "feature");
     }
 

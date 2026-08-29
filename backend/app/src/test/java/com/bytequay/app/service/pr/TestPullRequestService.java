@@ -277,7 +277,7 @@ class TestPullRequestService
                 .thenReturn(ImmutableMap.of(12L, currentUpdatedAt));
         when(store.saveDashboardSyncPage(anyList(), anyString()))
                 .thenReturn(ImmutableList.of(storedPullRequest()));
-        when(store.completeDashboardSync(anyString())).thenReturn(ImmutableSet.of());
+        when(store.completeDashboardSync(anyString(), anyString())).thenReturn(ImmutableSet.of());
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(detailStore.findSyncedAt("owner/repo", 7))
                 .thenReturn(Optional.of(Instant.parse("2026-08-21T00:00:00Z")));
@@ -302,6 +302,7 @@ class TestPullRequestService
         service.syncFromGitHub(false);
 
         verify(store).saveDashboardSyncPage(anyList(), anyString());
+        verify(store).completeDashboardSync(anyString(), eq("me"));
         verify(store, never()).findUpdatedAtByIds(any());
         verify(store, never()).updateEnrichment(
                 eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), any());
@@ -952,7 +953,7 @@ class TestPullRequestService
     @Test
     void doesNotTreatEveryRepositoryPullRequestAsAReviewRequest()
     {
-        assertThat(PullRequestService.workspaceOrigin(pullRequest(), "me").origin())
+        assertThat(pullRequest().withViewerOrigin("me").origin())
                 .isEqualTo(PullRequest.Origin.OTHER);
     }
 

@@ -36,7 +36,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitCommandRunner
 {
-    public static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
+    public static final int MAXIMUM_OUTPUT_BYTES = 5 * 1024 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
 

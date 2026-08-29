@@ -34,7 +34,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,6 +41,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -245,7 +245,7 @@ class TestCherryPickPreviewService
     }
 
     @Test
-    void doesNotEnumerateAnUnrelatedTargetHistory()
+    void boundsAnUnrelatedTargetHistory()
             throws IOException
     {
         Path target = init("unrelated-target");
@@ -257,7 +257,7 @@ class TestCherryPickPreviewService
         write(upstream, "source.txt", "source\n");
         commit(upstream, "Source change");
 
-        GitCommandRunner boundedGit = gitWithoutRevList();
+        GitCommandRunner boundedGit = gitWithBoundedTargetHistory();
         service = new CherryPickPreviewService(
                 boundedGit,
                 new CherryPickConflictScout(boundedGit),
@@ -450,20 +450,21 @@ class TestCherryPickPreviewService
         return root.toRealPath();
     }
 
-    private GitCommandRunner gitWithoutRevList()
-            throws IOException
+    private static GitCommandRunner gitWithBoundedTargetHistory()
     {
-        Path executable = temporaryDirectory.resolve("git-without-rev-list.sh");
-        Files.writeString(executable, """
-                #!/bin/sh
-                if [ "$3" = "rev-list" ]; then
-                    echo "rev-list must not run"
-                    exit 97
-                fi
-                exec git "$@"
-                """, StandardCharsets.UTF_8);
-        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
-        return new GitCommandRunner(executable.toString());
+        return new GitCommandRunner()
+        {
+            @Override
+            public Result run(Path worktree, String... arguments)
+            {
+                assertThat(arguments[0]).isNotEqualTo("rev-list");
+                if (arguments[0].equals("log") && Stream.of(arguments).anyMatch(argument -> argument.contains("%B"))) {
+                    assertThat(arguments).contains("--max-count=5000");
+                    assertThat(arguments).noneMatch(argument -> argument.startsWith("--grep="));
+                }
+                return super.run(worktree, arguments);
+            }
+        };
     }
 
     private static void write(Path repository, String name, String content)

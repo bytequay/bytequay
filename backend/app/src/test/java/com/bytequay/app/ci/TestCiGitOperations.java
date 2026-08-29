@@ -387,7 +387,7 @@ class TestCiGitOperations
             throws IOException
     {
         Path executable = temporaryDirectory.resolve("noisy-git");
-        write(executable, "#!/bin/sh\nyes x | head -c 1100000\n");
+        write(executable, "#!/bin/sh\nyes x | head -c " + (GitCommandRunner.MAXIMUM_OUTPUT_BYTES + 1) + "\n");
         assertThat(executable.toFile().setExecutable(true)).isTrue();
         GitCommandRunner.Result result = new GitCommandRunner(executable.toString())
                 .run(temporaryDirectory, "status");

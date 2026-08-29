@@ -64,12 +64,12 @@ public class CherryPickPreviewService
     static final Duration PREVIEW_LIFETIME = Duration.ofMinutes(30);
     static final int MAX_CACHED_PREVIEWS = 8;
     private static final Duration FETCH_TIMEOUT = Duration.ofMinutes(10);
-    private static final int MAX_RANGE_COMMITS = 2000;
+    private static final int MAX_RANGE_COMMITS = 3000;
+    private static final int MAX_ORIGIN_SCAN_COMMITS = 5000;
     /** ASCII unit separator: cannot appear in a ref, path, or commit subject. */
     private static final String FIELD = "\u001f";
     /** ASCII record separator, for the same reason. */
     private static final String RECORD = "\u001e";
-    private static final String ORIGIN_PREFIX = "(cherry picked from commit ";
     private static final Pattern ORIGIN_LINE =
             Pattern.compile("^\\(cherry picked from commit ([0-9a-f]{40}|[0-9a-f]{64})\\)$");
 
@@ -463,14 +463,13 @@ public class CherryPickPreviewService
         return ImmutableSet.of();
     }
 
-    /** Maps each cherry-picked source SHA to the target commit that records it. */
+    /** Maps origin lines found in the newest bounded portion of target history. */
     private Map<String, String> readOriginLines(Path repository, String targetSha, String baseSha)
     {
         String output = requiredRaw(
                 repository,
                 "log",
-                "--fixed-strings",
-                "--grep=" + ORIGIN_PREFIX,
+                "--max-count=" + MAX_ORIGIN_SCAN_COMMITS,
                 "--format=" + RECORD + "%H" + FIELD + "%B",
                 targetSha,
                 "^" + baseSha);

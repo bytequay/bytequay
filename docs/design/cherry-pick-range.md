@@ -36,6 +36,7 @@ separate service and a separate user decision.
 
 - One execution has one repository, source range, target branch, generated
   work branch, and generated worktree.
+- One source range contains at most 3,000 commits.
 - Source commits stay in oldest-first topological order.
 - Merge commits are rejected because no mainline parent was chosen.
 - The local target branch is synchronized but never checked out and never
@@ -75,14 +76,16 @@ The backend:
 A source commit is automatically `ALREADY_ON_TARGET` only when either:
 
 - it is an ancestor of the target; or
-- target history contains an exact standard line:
+- one of the newest 5,000 target commits contains an exact standard line:
 
   ```text
   (cherry picked from commit <full source SHA>)
   ```
 
 This remains reliable when a historical conflict resolution changed the patch.
-`git cherry` or patch ID may be shown as a warning, but it cannot skip a commit.
+An origin line older than that bounded history window is not automatic presence
+evidence. `git cherry` or patch ID may be shown as a warning, but it cannot skip
+a commit.
 
 ## 4. Pull-request grouping and conflict preview
 

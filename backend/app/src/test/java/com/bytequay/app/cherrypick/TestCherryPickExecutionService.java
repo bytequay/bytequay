@@ -30,6 +30,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
+import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
@@ -185,6 +186,35 @@ class TestCherryPickExecutionService
     }
 
     @Test
+    void pausesAnExecutionWithoutAnAgentTaskWithoutTouchingGit()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        CherryPickExecution incomplete = CherryPickExecution.create(
+                CherryPickExecutionId.random(),
+                "missing-agent-task",
+                started.workspace(),
+                started.pullRequestDraft(),
+                started.range(),
+                started.items(),
+                CLOCK.instant());
+        store.createOrGet(incomplete);
+        String expectedHead = head(started.workspace().worktree());
+        int saveCount = store.saves().size();
+
+        CherryPickExecution paused = service.advance(incomplete.id());
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.RECONCILIATION_MISMATCH);
+        assertThat(paused.summary()).contains("Execution has no agent task");
+        assertThat(head(started.workspace().worktree())).isEqualTo(expectedHead);
+        assertThat(store.saves()).hasSize(saveCount + 1);
+    }
+
+    @Test
     void honoursConfirmedSkipsWithoutRunningGitForThem()
     {
         String base = head(upstream);
@@ -230,6 +260,23 @@ class TestCherryPickExecutionService
         assertThat(item(finished, redundant).result()).isEqualTo(Result.EMPTY_SKIPPED);
         assertThat(finished.items().stream().filter(item -> item.result() == Result.APPLIED))
                 .hasSize(1);
+    }
+
+    @Test
+    void publishesTheExecutionOnlyAfterItsAgentTaskExists()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+        agent.beforeTaskCreate(() -> new CherryPickExecutionMonitorJob(store, service, 20).monitor());
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+
+        assertThat(started.agentTaskId()).isPresent();
+        assertThat(started.version()).isZero();
+        assertThat(store.find(started.id())).contains(started);
+        assertThat(store.saves()).isEmpty();
+        assertThat(head(started.workspace().worktree())).isEqualTo(started.range().initialTargetSha());
     }
 
     @Test

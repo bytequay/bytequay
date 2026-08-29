@@ -160,9 +160,10 @@ public class CherryPickExecutionService
                 preview.sourceBaseSha(),
                 preview.sourceTipSha(),
                 preview.targetSha());
+        CherryPickExecution proposed;
         try {
             requireOnItsBranch(created);
-            CherryPickExecution created0 = store.createOrGet(CherryPickExecution.create(
+            proposed = CherryPickExecution.create(
                     CherryPickExecutionId.random(),
                     command.idempotencyKey(),
                     new Workspace(
@@ -178,24 +179,40 @@ public class CherryPickExecutionService
                     Optional.of(command.pullRequestDraft()),
                     new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
                     items,
-                    clock.instant()));
-            requireWorkspace(created0.workspace().workspaceId(), workspaceId);
-            // Created while the worktree is still clean, even though a clean
-            // range never uses a turn.
-            CherryPickExecution execution = created0.agentTaskId().isPresent()
-                    ? created0
-                    : store.save(created0.withAgentTask(agentTask(created0).toString(), clock.instant()));
-            if (!execution.workspace().workBranch().equals(created.branch())) {
-                // A repeated idempotency key returns the original execution, so
-                // the workspace this call created is surplus.
-                workspaces.remove(repository, created);
-            }
-            return execution;
+                    clock.instant());
         }
         catch (RuntimeException failure) {
             workspaces.remove(repository, created);
             throw failure;
         }
+
+        TaskId taskId;
+        try {
+            // The monitor may advance a RUNNING execution immediately, so the
+            // first durable projection must already own its ready agent task.
+            taskId = agentTask(proposed);
+        }
+        catch (RuntimeException failure) {
+            workspaces.remove(repository, created);
+            throw failure;
+        }
+
+        CherryPickExecution execution;
+        try {
+            execution = store.createOrGet(proposed.withAgentTask(taskId.toString(), clock.instant()));
+            requireWorkspace(execution.workspace().workspaceId(), workspaceId);
+        }
+        catch (RuntimeException failure) {
+            discardUnpublishedTask(repository, created, taskId, failure);
+            throw failure;
+        }
+        if (!execution.id().equals(proposed.id())) {
+            // A concurrent request won the idempotency key. Its execution owns
+            // its own task and workspace; this request's pair is surplus.
+            completeAgentTask(taskId, "Superseded by an idempotent cherry-pick start");
+            workspaces.remove(repository, created);
+        }
+        return execution;
     }
 
     public CherryPickExecution get(CherryPickExecutionId executionId)
@@ -269,6 +286,10 @@ public class CherryPickExecutionService
             CherryPickExecution execution = get(executionId);
             if (execution.status() != Status.RUNNING) {
                 return execution;
+            }
+            if (execution.agentTaskId().isEmpty()) {
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
+                        "Execution has no agent task");
             }
             if (execution.pendingItems().isEmpty()) {
                 return complete(execution);
@@ -1045,8 +1066,7 @@ public class CherryPickExecutionService
     {
         execution.agentTaskId().ifPresent(taskId -> {
             try {
-                completions.complete(new CompleteAgentTaskCommand(
-                        TaskId.valueOf(taskId), Optional.of(summary(execution))));
+                completeAgentTask(TaskId.valueOf(taskId), summary(execution));
             }
             catch (RuntimeException failure) {
                 // The range is finished either way; a task that cannot be closed
@@ -1054,6 +1074,27 @@ public class CherryPickExecutionService
                 log.warn("Cannot complete agent task {} for execution {}", taskId, execution.id(), failure);
             }
         });
+    }
+
+    private void discardUnpublishedTask(
+            Path repository,
+            CherryPickWorkspace.Created created,
+            TaskId taskId,
+            RuntimeException failure)
+    {
+        try {
+            completeAgentTask(taskId, "Cherry-pick start failed before execution publication");
+            workspaces.remove(repository, created);
+        }
+        catch (RuntimeException cleanupFailure) {
+            // Keep the worktree while the task may still hold its lease.
+            failure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    private void completeAgentTask(TaskId taskId, String taskSummary)
+    {
+        completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of(taskSummary)));
     }
 
     /**

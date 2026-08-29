@@ -52,6 +52,7 @@ final class ScriptedCherryPickAgent
     private final Deque<Turn> script = new ArrayDeque<>();
     private final List<String> prompts = new ArrayList<>();
     private final List<AgentTurn> started = new ArrayList<>();
+    private Runnable beforeTaskCreate = () -> {};
     private AgentTask task;
     private boolean completed;
 
@@ -77,9 +78,16 @@ final class ScriptedCherryPickAgent
         return started.size();
     }
 
+    ScriptedCherryPickAgent beforeTaskCreate(Runnable action)
+    {
+        beforeTaskCreate = action;
+        return this;
+    }
+
     @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
+        beforeTaskCreate.run();
         task = new AgentTask(
                 TaskId.random(),
                 command.title(),

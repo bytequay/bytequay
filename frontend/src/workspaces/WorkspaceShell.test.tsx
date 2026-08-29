@@ -119,7 +119,7 @@ describe('watched repository workspace UI', () => {
     expect(issues).toContain('upstream/project');
   });
 
-  it('shows workspace fields and remote sources without a linked-upstream selector', () => {
+  it('shows workspace fields and lets a watched repository fill a remote URL', () => {
     const html = renderToStaticMarkup(<WorkspaceSettings
       workspace={workspace('FORK')}
       onWorkspaceChanged={() => {}}
@@ -129,7 +129,13 @@ describe('watched repository workspace UI', () => {
     expect(html).toContain('Workspace settings');
     expect(html).toContain('overrides your global settings');
     expect(html).toContain('Remote sources');
+    expect(html).toContain('aria-label="Select workspace repository"');
+    expect(html).toContain('Select repo…');
+    expect(html).toContain('value="https://github.com/contributor/project.git"');
     expect(html).toContain('Remove workspace');
+    expect(html).not.toContain('extra remotes for browsing history');
+    expect(html).not.toContain('Every source appears');
+    expect(html).not.toContain('Stops watching this repository');
     expect(html).not.toContain('Linked upstream');
   });
 });

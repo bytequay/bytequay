@@ -29,7 +29,7 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
 }) {
   const [settings, setSettings] = useState<WorkspaceSettingsDto | null>(null);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
-  const [globalLogin, setGlobalLogin] = useState<string | null>(null);
+  const [workspaceChoices, setWorkspaceChoices] = useState<WorkspaceDto[]>([workspace]);
   const [error, setError] = useState<string | null>(null);
 
   const report = (failure: unknown) =>
@@ -47,10 +47,10 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     void window.bridge.getModelSettings().then(setModels).catch(() => {});
-    void window.bridge.getUserProfile()
-      .then(profile => setGlobalLogin(profile.login))
-      .catch(() => {});
   }, []);
+  useEffect(() => {
+    void window.bridge.listWorkspaces().then(setWorkspaceChoices).catch(() => {});
+  }, [workspace.id]);
 
   const remove = async () => {
     if (!window.confirm(`Remove ${workspace.name} from ByteQuay?`)) return;
@@ -81,6 +81,7 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
         <RemoteSourcesCard
           workspace={workspace}
           remotes={settings?.remotes ?? null}
+          workspaceChoices={workspaceChoices}
           onChanged={load}
           onUnlinkUpstream={async () => {
             const changed = await window.bridge.setWorkspaceUpstream(workspace.id, null);
@@ -99,7 +100,6 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
         <GitHubTokenCard
           workspaceId={workspace.id}
           settings={settings}
-          globalLogin={globalLogin}
           onChanged={load}
           onError={report}
         />
@@ -107,9 +107,6 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
           <div className="sets-row">
             <div className="sets-row-main">
               <div className="sets-name">Remove workspace</div>
-              <div className="sets-row-sub">
-                Stops watching this repository and removes its workspace record.
-              </div>
             </div>
             <button type="button" className="sets-btn is-danger" onClick={() => { void remove(); }}>
               Remove…
@@ -167,9 +164,10 @@ function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
   );
 }
 
-function RemoteSourcesCard({ workspace, remotes, onChanged, onUnlinkUpstream, onError }: {
+function RemoteSourcesCard({ workspace, remotes, workspaceChoices, onChanged, onUnlinkUpstream, onError }: {
   workspace: WorkspaceDto;
   remotes: WorkspaceRemoteDto[] | null;
+  workspaceChoices: WorkspaceDto[];
   onChanged: () => void;
   onUnlinkUpstream: () => Promise<void>;
   onError: (failure: unknown) => void;
@@ -217,10 +215,6 @@ function RemoteSourcesCard({ workspace, remotes, onChanged, onUnlinkUpstream, on
     <section className="sets-card">
       <div className="sets-card-head">
         <span className="sets-card-title">Remote sources</span>
-        <span className="sets-card-hint">
-          extra remotes for browsing history and cherry-picking — like{' '}
-          <span className="sets-mono">git remote add name url</span>
-        </span>
       </div>
       {(remotes ?? []).map(remote => (
         <div className="sets-row" key={remote.name}>
@@ -268,6 +262,23 @@ function RemoteSourcesCard({ workspace, remotes, onChanged, onUnlinkUpstream, on
             onChange={event => setUrl(event.target.value)}
           />
         </label>
+        <select
+          value=""
+          className="sets-btn wss-remote-picker"
+          aria-label="Select workspace repository"
+          disabled={busy}
+          onChange={event => setUrl(event.target.value)}
+        >
+          <option value="" disabled>Select repo…</option>
+          {workspaceChoices.map(choice => (
+            <option
+              key={choice.id}
+              value={`https://github.com/${choice.selectedOwner}/${choice.selectedRepo}.git`}
+            >
+              {choice.selectedOwner}/{choice.selectedRepo}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           className="sets-btn"
@@ -276,11 +287,6 @@ function RemoteSourcesCard({ workspace, remotes, onChanged, onUnlinkUpstream, on
         >
           Add remote
         </button>
-      </div>
-      <div className="sets-card-note">
-        Every source appears in the Commits tab&apos;s source switcher and can supply
-        cherry-pick commits. <span className="sets-mono">origin</span> can&apos;t be removed —
-        it&apos;s where pushes go.
       </div>
     </section>
   );
@@ -382,11 +388,6 @@ function AgentModelCard({ workspaceId, settings, models, onChanged, onError }: {
               ? <span className="sets-badge wss-override">WORKSPACE OVERRIDE</span>
               : <span className="sets-badge is-neutral">GLOBAL DEFAULT</span>}
           </div>
-          <div className="sets-row-sub">
-            {override
-              ? `Overrides the global main model (${main.label} · ${main.modelLabel}${main.effort ? ` · ${main.effort}` : ''}) in this workspace only`
-              : 'The global main model from Settings applies here'}
-          </div>
         </div>
         {override && overrideConfig && (
           <ModelChip
@@ -423,10 +424,9 @@ function AgentModelCard({ workspaceId, settings, models, onChanged, onError }: {
   );
 }
 
-function GitHubTokenCard({ workspaceId, settings, globalLogin, onChanged, onError }: {
+function GitHubTokenCard({ workspaceId, settings, onChanged, onError }: {
   workspaceId: string;
   settings: WorkspaceSettingsDto | null;
-  globalLogin: string | null;
   onChanged: () => void;
   onError: (failure: unknown) => void;
 }) {
@@ -491,11 +491,6 @@ function GitHubTokenCard({ workspaceId, settings, globalLogin, onChanged, onErro
               ? <span className="sets-badge wss-override">WORKSPACE OVERRIDE</span>
               : <span className="sets-badge is-neutral">GLOBAL DEFAULT</span>}
           </div>
-          <div className="sets-row-sub">
-            {token
-              ? <>This workspace authenticates as <strong>{token.login}</strong> instead of the global token</>
-              : <>Requests from this workspace authenticate as <strong>{globalLogin ?? 'the global account'}</strong></>}
-          </div>
         </div>
         {!token && !editing && (
           <button type="button" className="sets-btn" onClick={() => setEditing(true)}>
@@ -536,11 +531,6 @@ function GitHubTokenCard({ workspaceId, settings, globalLogin, onChanged, onErro
           <button type="button" className="sets-btn" onClick={() => setEditing(false)}>Cancel</button>
         </div>
       )}
-      <div className="sets-card-note">
-        {token
-          ? 'Deleting the workspace token falls back to the global token. Same rule as global: the full value is never shown.'
-          : 'A workspace token shadows the global token for this workspace only.'}
-      </div>
     </section>
   );
 }

@@ -17,6 +17,7 @@ import {
   filterTasks,
   foldNav,
   groupByDay,
+  limitDayGroups,
   matchesCommitQuery,
   orderTasks,
   remoteBranchCorrection,
@@ -95,6 +96,23 @@ describe('groupByDay', () => {
     expect(groups[0].label).toMatch(/^Commits on /);
     expect(groups[0].commits.map(entry => entry.commit.sha)).toEqual(['a1', 'a2']);
     expect(groups[1].commits.map(entry => entry.index)).toEqual([2]);
+  });
+
+  it('limits rows across day groups without changing each day total', () => {
+    const groups = groupByDay([
+      commit('a1', '2026-08-24T10:00:00Z'),
+      commit('a2', '2026-08-24T08:00:00Z'),
+      commit('b1', '2026-08-23T10:00:00Z'),
+      commit('b2', '2026-08-23T08:00:00Z'),
+    ]);
+
+    expect(limitDayGroups(groups, 3).map(group => ({
+      shas: group.commits.map(entry => entry.commit.sha),
+      totalCommits: group.totalCommits,
+    }))).toEqual([
+      { shas: ['a1', 'a2'], totalCommits: 2 },
+      { shas: ['b1'], totalCommits: 2 },
+    ]);
   });
 });
 

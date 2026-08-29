@@ -58,6 +58,8 @@ export function spanFromShas(
 
 export type DayGroup = { label: string; commits: Array<{ commit: GitCommitDto; index: number }> };
 
+export type LimitedDayGroup = DayGroup & { totalCommits: number };
+
 const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: 'short',
@@ -77,6 +79,18 @@ export function groupByDay(commits: GitCommitDto[]): DayGroup[] {
     groups[groups.length - 1].commits.push({ commit, index });
   });
   return groups;
+}
+
+export function limitDayGroups(groups: DayGroup[], limit: number): LimitedDayGroup[] {
+  let remaining = limit;
+  const visible: LimitedDayGroup[] = [];
+  for (const group of groups) {
+    if (remaining <= 0) break;
+    const commits = group.commits.slice(0, remaining);
+    visible.push({ ...group, commits, totalCommits: group.commits.length });
+    remaining -= commits.length;
+  }
+  return visible;
 }
 
 /**

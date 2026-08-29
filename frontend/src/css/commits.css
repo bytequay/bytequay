@@ -253,7 +253,7 @@
 
 .cmt-history-left {
   display: flex;
-  flex: 0 0 460px;
+  flex: 0 0 400px;
   flex-direction: column;
   background: #f6f8fa;
   min-width: 0;
@@ -386,6 +386,13 @@
 .cmt-range-bar .cmt-hint { margin-top: 0; }
 
 .cmt-commit-list { flex: 1; overflow: auto; padding: 12px; }
+
+.cmt-commit-more {
+  padding: 14px 8px 2px;
+  color: #8c959f;
+  font-size: 11.5px;
+  text-align: center;
+}
 
 .cmt-day-card {
   border: 1px solid #d0d7de;

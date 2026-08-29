@@ -15,7 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
-import HistoryView from './HistoryView';
+import type { GitCommitDto } from '../types';
+import HistoryView, { nextCommitRenderLimit } from './HistoryView';
 
 describe('workspace commit history', () => {
   it('shows the empty state without range controls or hints', () => {
@@ -67,6 +68,52 @@ describe('workspace commit history', () => {
 
     expect(html).toContain('No commits match “kafka”.');
     expect(html).not.toContain('cmt-commit-row');
+  });
+
+  it('renders commit history in scroll-loaded batches', () => {
+    const commits = Array.from({ length: 51 }, (_, index): GitCommitDto => ({
+      sha: `commit-${index}`,
+      title: `Commit ${index}`,
+      body: '',
+      author: 'example-author',
+      authorAvatarUrl: null,
+      committer: 'example-author',
+      committerAvatarUrl: null,
+      authoredAt: '2026-08-22T00:00:00Z',
+      committedAt: '2026-08-22T00:00:00Z',
+    }));
+    const render = (checked: ReadonlySet<string>, filter?: string) => renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={commits}
+      loading={false}
+      checked={checked}
+      filter={filter}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+    const html = render(new Set());
+
+    expect(html).toContain('width:400px');
+    expect(html).toContain('flex-basis:400px');
+    expect(html).toContain('51 commits');
+    expect(html).toContain('Showing 50 of 51 commits · scroll to load more');
+    expect(html).toContain('Commit 49');
+    expect(html).not.toContain('Commit 50');
+    expect(render(new Set(['commit-50']))).toContain('Commit 50');
+    expect(render(new Set(['commit-50']), 'Commit')).toContain('Commit 50');
+  });
+
+  it('loads one more commit batch near the bottom', () => {
+    expect(nextCommitRenderLimit(50, 50, 120, 239)).toBe(100);
+    expect(nextCommitRenderLimit(50, 50, 120, 240)).toBe(50);
+    expect(nextCommitRenderLimit(100, 100, 120, 0)).toBe(120);
+    expect(nextCommitRenderLimit(120, 120, 120, 0)).toBe(120);
+    expect(nextCommitRenderLimit(100, 50, 120, 0)).toBe(100);
   });
 
   it('uses the pull-request diff viewer without review controls', () => {

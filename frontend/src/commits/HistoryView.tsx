@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type UIEvent as ReactUIEvent } from 'react';
 import { relativeTime } from '../relativeTime';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import Avatar from '../Avatar';
@@ -19,11 +19,27 @@ import { DiffViewer } from '../pulls/PullChanges';
 import { useResizablePane } from '../useResizablePane';
 import {
   groupByDay,
+  limitDayGroups,
   matchesCommitQuery,
   selectedSpan,
   shortSha,
   squashMessage,
 } from './model';
+
+const COMMIT_RENDER_BATCH = 50;
+const COMMIT_LOAD_THRESHOLD = 240;
+
+export function nextCommitRenderLimit(
+  currentLimit: number,
+  visibleCount: number,
+  totalCount: number,
+  remainingScroll: number,
+): number {
+  if (visibleCount >= totalCount || remainingScroll >= COMMIT_LOAD_THRESHOLD || currentLimit > visibleCount) {
+    return currentLimit;
+  }
+  return Math.min(totalCount, Math.max(currentLimit, visibleCount) + COMMIT_RENDER_BATCH);
+}
 
 function CommitByline({ commit }: { commit: GitCommitDto }) {
   const sameActor = commit.author === commit.committer;
@@ -93,7 +109,9 @@ export default function HistoryView({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const commitPane = useResizablePane(460, 340, 800);
+  const commitPane = useResizablePane(400, 340, 800);
+  const [visibleCommitLimit, setVisibleCommitLimit] = useState(COMMIT_RENDER_BATCH);
+  const commitList = useRef<HTMLDivElement>(null);
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
   const spanCommits = useMemo(
@@ -102,9 +120,11 @@ export default function HistoryView({
   );
   const single = !isUpstream && spanCommits.length === 1 ? spanCommits[0] : null;
   const multi = !isUpstream && spanCommits.length > 1;
+  const viewedIndex = Math.max(0, commits.findIndex(commit => commit.sha === viewedSha));
+  const viewed = commits[viewedIndex] ?? null;
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
   const query = filter.trim();
-  const visibleGroups = useMemo(() => {
+  const matchingGroups = useMemo(() => {
     if (query === '') return dayGroups;
     return dayGroups
       .map(group => ({
@@ -113,6 +133,30 @@ export default function HistoryView({
       }))
       .filter(group => group.commits.length > 0);
   }, [dayGroups, query]);
+  const matchingCommitCount = useMemo(
+    () => matchingGroups.reduce((total, group) => total + group.commits.length, 0),
+    [matchingGroups],
+  );
+  const requiredIndex = Math.max(
+    viewed !== null && matchesCommitQuery(viewed, query) ? viewedIndex : -1,
+    span === null ? -1 : span.hi,
+  );
+  const requiredMatchingCommitCount = useMemo(
+    () => matchingGroups.reduce(
+      (total, group) => total + group.commits.filter(entry => entry.index <= requiredIndex).length,
+      0,
+    ),
+    [matchingGroups, requiredIndex],
+  );
+  const requiredCommitLimit = Math.max(visibleCommitLimit, requiredMatchingCommitCount);
+  const visibleGroups = useMemo(
+    () => limitDayGroups(matchingGroups, requiredCommitLimit),
+    [matchingGroups, requiredCommitLimit],
+  );
+  const visibleCommitCount = useMemo(
+    () => visibleGroups.reduce((total, group) => total + group.commits.length, 0),
+    [visibleGroups],
+  );
   const viewerFiles = useMemo<DiffFileDto[]>(() => diffFiles.map(file => ({
     filename: file.path,
     status: file.status,
@@ -121,7 +165,21 @@ export default function HistoryView({
     patch: file.patch ?? null,
   })), [diffFiles]);
 
-  const viewed = commits.find(commit => commit.sha === viewedSha) ?? commits[0] ?? null;
+  useEffect(() => {
+    setVisibleCommitLimit(COMMIT_RENDER_BATCH);
+    if (commitList.current) commitList.current.scrollTop = 0;
+  }, [filter, isUpstream, logRef, workspaceId]);
+
+  const scrollCommits = (event: ReactUIEvent<HTMLDivElement>) => {
+    const list = event.currentTarget;
+    const remainingScroll = list.scrollHeight - list.scrollTop - list.clientHeight;
+    setVisibleCommitLimit(current => nextCommitRenderLimit(
+      current,
+      visibleCommitCount,
+      matchingCommitCount,
+      remainingScroll,
+    ));
+  };
 
   // The right pane always shows something concrete: the squash preview for a
   // multi-selection, otherwise the viewed commit.
@@ -247,10 +305,10 @@ export default function HistoryView({
             )}
           </div>
         )}
-        <div className="cmt-commit-list">
+        <div ref={commitList} className="cmt-commit-list" onScroll={scrollCommits}>
           {loading && <div className="cmt-loading">Loading commits…</div>}
           {!loading && commits.length === 0 && <div className="cmt-loading">No commits on this ref.</div>}
-          {!loading && commits.length > 0 && visibleGroups.length === 0 && (
+          {!loading && commits.length > 0 && matchingGroups.length === 0 && (
             <div className="cmt-loading">No commits match “{query}”.</div>
           )}
           {visibleGroups.map(group => (
@@ -259,7 +317,7 @@ export default function HistoryView({
                 <span className="cmt-day-icon">⑂</span>
                 <span>{group.label}</span>
                 <span className="cmt-day-count">
-                  {group.commits.length} {group.commits.length === 1 ? 'commit' : 'commits'}
+                  {group.totalCommits} {group.totalCommits === 1 ? 'commit' : 'commits'}
                 </span>
               </div>
               {group.commits.map(({ commit, index }) => {
@@ -380,6 +438,11 @@ export default function HistoryView({
               })}
             </div>
           ))}
+          {visibleCommitCount < matchingCommitCount && (
+            <div className="cmt-commit-more">
+              Showing {visibleCommitCount} of {matchingCommitCount} commits · scroll to load more
+            </div>
+          )}
         </div>
       </div>
 

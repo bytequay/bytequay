@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.RemoteSource;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,6 +76,34 @@ class TestSqliteSettingsStores
         remoteSources.deleteByWorkspace("ws-1");
         assertThat(remoteSources.findByWorkspace("ws-1")).isEmpty();
         assertThat(remoteSources.findByWorkspace("ws-2")).hasSize(1);
+    }
+
+    @Test
+    void remoteSourceProviderIdentityRoundTripsUpdatesAndClears()
+    {
+        RemoteSource identified = new RemoteSource(
+                "ws-identity",
+                "oss",
+                "https://github.com/trinodb/trino.git",
+                java.util.Optional.of(166_515_022L),
+                java.util.Optional.of(RepoRef.of("trinodb", "trino")));
+
+        remoteSources.save(identified);
+        assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(identified);
+
+        RemoteSource updated = new RemoteSource(
+                "ws-identity",
+                "oss",
+                "https://github.com/apache/iceberg.git",
+                java.util.Optional.of(172_455_077L),
+                java.util.Optional.of(RepoRef.of("apache", "iceberg")));
+        remoteSources.save(updated);
+        assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(updated);
+
+        RemoteSource cleared = new RemoteSource(
+                "ws-identity", "oss", "https://git.example.com/team/project.git");
+        remoteSources.save(cleared);
+        assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(cleared);
     }
 
     @Test

@@ -41,6 +41,10 @@ of commit enrichment and PR synchronization.
   author/committer logins, avatar cache keys, commit-to-PR association,
   enrichment timestamps, last attempt, last success, and the last failure
   message.
+- Application code reads and writes commit-enrichment rows only through
+  `RepositoryEnrichmentService`. `CommitHistoryStore` remains the persistence
+  port; outside the enrichment service, application code uses it directly only
+  for refresh-outcome metadata.
 - Existing pull-request tables and `PullRequestService` remain the only full PR
   projection. Do not create a second PR service or copy PR details into a new
   table.
@@ -61,8 +65,8 @@ of commit enrichment and PR synchronization.
 | Data | Source of truth | Display read |
 | --- | --- | --- |
 | SHA, title, body, author/committer names, authored/committed times, order | managed local Git checkout | local `git log` |
-| GitHub author/committer logins | SQLite commit enrichment | local store lookup, with Git names as fallback |
-| Commit-to-PR number/title/URL | SQLite commit enrichment | local store lookup |
+| GitHub author/committer logins | SQLite commit enrichment | local `RepositoryEnrichmentService` lookup, with Git names as fallback |
+| Commit-to-PR number/title/URL | SQLite commit enrichment | local `RepositoryEnrichmentService` lookup |
 | Full PR list and detail | existing SQLite `PullRequestStore` and `PrDetailStore` | existing local PR service |
 | Author/committer avatars | application-data file cache, referenced by SQLite keys | localhost avatar endpoint |
 | Completed refresh timestamps and error | SQLite | commit history response |
@@ -116,7 +120,33 @@ Recent negative associations may be retried once per day for seven days;
 failed requests remain due for the next refresh. This prevents every five
 minute sweep from repeating hundreds of negative GitHub requests.
 
-### 4.2 Refresh metadata
+### 4.2 Enrichment ownership and custom remote identity
+
+`RepositoryEnrichmentService` is the single application boundary for commit
+enrichment. History display, commit refresh, and cherry-pick preview use its
+batched read and upsert methods instead of reaching into `CommitHistoryStore`
+directly. The service does not own completed-refresh status; that remains
+workspace-scoped metadata in `CommitHistoryStore`.
+
+The service also owns the optional provider identity attached to a configured
+custom `RemoteSource`. When workspace routing is loaded, it compares an
+identityless GitHub HTTPS remote URL with the selected and upstream repository
+snapshots already present in local workspace rows. A match attaches and
+persists the provider's stable repository ID plus its current `owner/repo`
+coordinates. The stable ID then selects the same enrichment rows used by a
+workspace or upstream view, including cached avatars and PR associations.
+Once persisted, that ID remains authoritative even if the repository is later
+unwatched; a workspace with the same ID may refresh its canonical coordinates,
+but URL matching never replaces an existing ID.
+
+This recognition is deliberately local-only. It does not call GitHub merely
+because History was opened. A non-GitHub or currently unknown remote remains a
+valid Git source, but it has no provider repository ID: History renders Git
+names and initial avatars, and provider enrichment is skipped. If that
+repository later becomes known through a watched selected or upstream
+snapshot, the next routing read can attach and persist its identity.
+
+### 4.3 Refresh metadata
 
 SQLite stores only the latest completed outcome:
 
@@ -135,7 +165,7 @@ the manual HTTP request is pending. The error is a safe user-facing summary
 with a correlation reference; detailed provider errors remain in backend logs.
 Existing enrichment is never deleted when a refresh fails.
 
-### 4.3 Avatar files
+### 4.4 Avatar files
 
 Do not store image blobs in SQLite. During synchronization, cache successful
 avatar responses under ByteQuay's application-data directory using a digest of
@@ -204,7 +234,30 @@ through `WorkspaceRepositoryService.requireReadyRepository(...)`, rejects an
 upstream selector when no upstream repository is selected, validates the
 branch as a Git revision, and derives the provider repository ID internally.
 
-The persistence port belongs in `core`; SQLite implements it:
+The application-level enrichment boundary is concrete and intentionally small:
+
+```java
+package com.bytequay.app.repository;
+
+public class RepositoryEnrichmentService
+{
+    CommitEnrichmentSnapshot findCommits(
+            long repositoryId,
+            Collection<String> shas);
+
+    void upsertCommits(Collection<CommitEnrichment> enrichment);
+
+    List<RemoteSource> enrichRemoteSources(String workspaceId);
+}
+```
+
+The first two methods are the only application read/write path for durable
+commit enrichment. `enrichRemoteSources(...)` performs the local identity
+reuse described above and saves newly identified remote-source rows. It does
+not add another cache, table, worker, or provider client.
+
+The persistence port belongs in `core`; SQLite implements it. Application
+services do not bypass `RepositoryEnrichmentService` for the first two methods:
 
 ```java
 package com.bytequay.core.store;
@@ -259,7 +312,8 @@ executor, polling contract, or second public service. The refresher uses:
   author/committer identity and avatar result;
 - `CherryPickPullRequestLookup.lookUpResult(...)` only for associations that
   are due;
-- `CommitHistoryStore` for durable enrichment and completed metadata; and
+- `RepositoryEnrichmentService` for durable enrichment reads and writes;
+- `CommitHistoryStore` for completed refresh metadata only; and
 - a concrete `AvatarCache` for local image files.
 
 Commit refresh never synchronizes the full pull-request projection. Commit-to-PR
@@ -282,13 +336,15 @@ For one accepted workspace request, the synchronous refresh call:
    fetches configured remotes without resetting, rebasing, cleaning, or
    changing local files.
 3. Reads up to 300 commits per requested ref from local Git.
-4. Loads all existing enrichment for those SHAs in one SQLite query.
+4. Loads all existing enrichment for those SHAs in one SQLite query through
+   `RepositoryEnrichmentService`.
 5. Fetches the branch author/committer identity map once, caches new image
    bytes, and records provider logins and local avatar keys. A provider failure
    leaves old identities and keys unchanged.
 6. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
-7. Upserts enrichment and saves a new `lastSucceededAt` before returning.
+7. Upserts enrichment through `RepositoryEnrichmentService` and saves a new
+   `lastSucceededAt` before returning.
 8. On failure, saves the error and attempt time, keeps the last successful
    timestamp and all prior rows, logs a correlation reference, and returns a
    failed result.
@@ -400,7 +456,10 @@ The Electron bridge replaces `gitFetch(workspaceId, remotes)` in the Commits
 toolbar with `refreshCommitHistory(workspaceId, refs)`. The renderer never
 passes filesystem paths, repository IDs, or arbitrary remote names; a `REMOTE`
 ref may name one of the workspace's configured remote sources, which the
-backend validates against its persisted remote-source rows.
+backend validates against its persisted remote-source rows. An identified
+custom remote reuses enrichment under its stable repository ID and can be
+enriched by an explicit refresh. An unidentified remote remains Git-only; the
+normal display request does not perform a provider lookup to identify it.
 
 ## 9. Call flows
 
@@ -413,6 +472,7 @@ sequenceDiagram
     participant Service as CommitHistoryService.listHistory
     participant Refresher as CommitHistoryRefresher
     participant Git as GitBrowseService.log
+    participant Enrichment as RepositoryEnrichmentService
     participant Store as CommitHistoryStore
 
     UI->>API: GET commits(source, branch, limit)
@@ -422,8 +482,10 @@ sequenceDiagram
     Refresher-->>Service: completed metadata token
     Service->>Git: log(managedCheckout, validatedRef, limit)
     Git-->>Service: core commit facts
-    Service->>Store: findEnrichment(repositoryId, shas)
-    Store-->>Service: provider identities + avatar keys + PR associations
+    Service->>Enrichment: findCommits(repositoryId, shas)
+    Enrichment->>Store: findEnrichment(repositoryId, shas)
+    Store-->>Enrichment: provider identities + avatar keys + PR associations
+    Enrichment-->>Service: local enrichment snapshot
     Service-->>API: CommitHistorySnapshot
     API-->>UI: commits + current refresh status
     Note over UI,Store: No GitHub call and no refresh
@@ -439,6 +501,7 @@ sequenceDiagram
     participant Refresher as CommitHistoryRefresher
     participant Git as WorkspaceProvisioningService
     participant GitHub as GitHub clients
+    participant Enrichment as RepositoryEnrichmentService
     participant Store as CommitHistoryStore
 
     UI->>API: POST commits/refresh(current refs)
@@ -447,9 +510,12 @@ sequenceDiagram
     Refresher->>Git: synchronizeCode(workspaceId)
     Git-->>Refresher: fetched local checkout
     Refresher->>Refresher: GitBrowseService.log(refs)
-    Refresher->>Store: findEnrichment(repositoryId, shas)
+    Refresher->>Enrichment: findCommits(repositoryId, shas)
+    Enrichment->>Store: findEnrichment(repositoryId, shas)
     Refresher->>GitHub: fetch identities, avatars, and due PR associations
-    Refresher->>Store: upsertEnrichment + save completed metadata
+    Refresher->>Enrichment: upsertCommits(enrichment)
+    Enrichment->>Store: upsertEnrichment(enrichment)
+    Refresher->>Store: save completed metadata
     Refresher-->>Service: completed status
     Service-->>UI: 200 + IDLE or FAILED
     UI->>API: GET commits(...)
@@ -531,19 +597,21 @@ upstream ref.
 
 1. Add `CommitHistoryStore`, SQLite mappings, completed refresh metadata, and
    store tests.
-2. Add the local avatar cache and localhost read endpoint with traversal and
+2. Add `RepositoryEnrichmentService` as the sole application read/write path
+   for commit enrichment and reuse known stable identities for custom remotes.
+3. Add the local avatar cache and localhost read endpoint with traversal and
    missing-file tests.
-3. Introduce `CommitHistoryService.listHistory(...)`; move all remote work out
+4. Introduce `CommitHistoryService.listHistory(...)`; move all remote work out
    of `GitBrowseController.commits(...)` and verify the controller with GitHub
    clients that fail if called.
-4. Add the synchronous refresher, scheduler, manual endpoint, and focused
+5. Add the synchronous refresher, scheduler, manual endpoint, and focused
    success/failure tests.
-5. Change the Electron bridge and `CommitsTab` to consume
+6. Change the Electron bridge and `CommitsTab` to consume
    `CommitHistorySnapshot`, remove renderer `localStorage` sync timestamps, and
    keep old rows during refresh.
-6. Remove the separate commit-card `fetchPrs` request and make
+7. Remove the separate commit-card `fetchPrs` request and make
    `CherryPickPreviewService` read the same durable associations.
-7. Run backend verification and frontend lint, type-check, tests, and package.
+8. Run backend verification and frontend lint, type-check, tests, and package.
 
 ## 13. Acceptance criteria
 
@@ -557,6 +625,10 @@ upstream ref.
   or failing.
 - Two workspaces that see the same repository SHA reuse one enrichment row and
   one avatar file.
+- A custom GitHub remote that matches any locally known selected or upstream
+  repository persists that stable identity and reuses its enrichment rows. An
+  unknown or non-GitHub remote remains usable with Git names and initial
+  avatars, without a display-time provider request.
 - A GitHub failure shows stale local data and a retryable error; it does not
   clear PR chips or avatars that were previously stored.
 - A linked upstream is refreshed and displayed only through its persisted

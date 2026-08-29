@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
@@ -191,6 +192,7 @@ class TestDefaultWorkspaceRepositoryService
                 store,
                 mock(CherryPickExecutionStore.class),
                 new InMemoryRemoteSourceStore(),
+                enrichment(),
                 new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
                 gitHub,
                 credentials,
@@ -231,6 +233,7 @@ class TestDefaultWorkspaceRepositoryService
                 store,
                 mock(CherryPickExecutionStore.class),
                 new InMemoryRemoteSourceStore(),
+                enrichment(),
                 new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
                 gitHub,
                 credentials,
@@ -281,6 +284,7 @@ class TestDefaultWorkspaceRepositoryService
                 store,
                 executions,
                 new InMemoryRemoteSourceStore(),
+                enrichment(),
                 new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
                 gitHub,
                 credentials,
@@ -317,6 +321,7 @@ class TestDefaultWorkspaceRepositoryService
                 store,
                 executions,
                 new InMemoryRemoteSourceStore(),
+                enrichment(),
                 new com.bytequay.app.service.InMemoryWorkspaceCredentialStore(),
                 gitHub,
                 credentials,
@@ -326,6 +331,13 @@ class TestDefaultWorkspaceRepositoryService
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
                 Runnable::run);
+    }
+
+    private static RepositoryEnrichmentService enrichment()
+    {
+        RepositoryEnrichmentService enrichment = mock(RepositoryEnrichmentService.class);
+        when(enrichment.enrichRemoteSources(anyString())).thenReturn(ImmutableList.of());
+        return enrichment;
     }
 
     @Test

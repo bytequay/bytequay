@@ -19,6 +19,7 @@ import com.bytequay.app.cherrypick.PullRequestLookupResult;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -69,6 +70,7 @@ class CommitHistoryRefresher
     private final WorkspaceProvisioningService provisioning;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
+    private final RepositoryEnrichmentService enrichment;
     private final CredentialService credentials;
     private final GitHubRepoClient gitHub;
     private final CherryPickPullRequestLookup pullRequests;
@@ -81,6 +83,7 @@ class CommitHistoryRefresher
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
             CommitHistoryStore store,
+            RepositoryEnrichmentService enrichment,
             CredentialService credentials,
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
@@ -91,6 +94,7 @@ class CommitHistoryRefresher
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
+        this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -171,7 +175,7 @@ class CommitHistoryRefresher
         validateRemoteSources(requestedRefs, synchronization);
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         List<ResolvedCommitHistoryRef> refs = resolveRefs(context, requestedRefs);
-        store.upsertEnrichment(enrichRefs(context, refs));
+        enrichment.upsertCommits(enrichRefs(context, refs));
     }
 
     private WorkspaceCodeSyncResult refreshCode(String workspaceId)
@@ -215,7 +219,7 @@ class CommitHistoryRefresher
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         for (ResolvedCommitHistoryRef ref : refs) {
             if (ref.repository().isEmpty()) {
-                // Extra remote sources have no provider identity, but reading
+                // A source without provider identity stays Git-only, but reading
                 // the requested ref proves the synchronized branch exists.
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
@@ -235,7 +239,7 @@ class CommitHistoryRefresher
         long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
-        Map<String, CommitEnrichment> existing = store.findEnrichment(
+        Map<String, CommitEnrichment> existing = enrichment.findCommits(
                         repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));

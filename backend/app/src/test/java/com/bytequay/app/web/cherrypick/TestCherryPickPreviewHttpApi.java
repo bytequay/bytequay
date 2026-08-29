@@ -23,6 +23,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -187,7 +188,11 @@ class TestCherryPickPreviewHttpApi
             throws Exception
     {
         when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
-                "direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin", "oss"));
+                "direct-id",
+                Path.of("/managed/direct-id/repository"),
+                Topology.DIRECT,
+                "origin",
+                new RemoteSource("direct-id", "oss", "https://example.com/oss.git")));
         doThrow(new CherryPickInvalidRequestException("stop after capture"))
                 .when(previewService).preview(any());
 
@@ -221,12 +226,38 @@ class TestCherryPickPreviewHttpApi
         });
     }
 
+    @Test
+    void passesAnIdentifiedCustomRemoteRepositoryToThePreview()
+            throws Exception
+    {
+        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
+                "direct-id",
+                Path.of("/managed/direct-id/repository"),
+                Topology.DIRECT,
+                "origin",
+                new RemoteSource("direct-id", "oss", "https://github.com/trinodb/trino.git")
+                        .withRepositoryIdentity(303, RepoRef.of("trinodb", "trino"))));
+        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+                .when(previewService).preview(any());
+
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(EXTRA_SOURCE_BODY))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
+                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        verify(previewService).preview(commands.capture());
+        assertThat(commands.getValue().sourceRepositoryId()).hasValue(303);
+    }
+
     private static WorkspaceRepositoryContext context(
             String workspaceId,
             Path repository,
             Topology topology,
             String sourceRemote,
-            String... extraRemotes)
+            RemoteSource... extraRemotes)
     {
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;

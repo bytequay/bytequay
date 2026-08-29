@@ -53,7 +53,7 @@ public class SqliteRemoteSourceStore
         repository.findById(RemoteSourceEntity.idOf(remoteSource.workspaceId(), remoteSource.name()))
                 .ifPresentOrElse(
                         existing -> {
-                            existing.setUrl(remoteSource.url());
+                            existing.update(remoteSource);
                             repository.save(existing);
                         },
                         () -> repository.save(RemoteSourceEntity.fromDomain(remoteSource)));

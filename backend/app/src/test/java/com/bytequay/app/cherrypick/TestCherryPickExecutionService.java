@@ -16,6 +16,7 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -32,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
-import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,7 +109,7 @@ class TestCherryPickExecutionService
         previews = new CherryPickPreviewService(
                 GIT,
                 new CherryPickConflictScout(GIT),
-                mock(CommitHistoryStore.class),
+                mock(RepositoryEnrichmentService.class),
                 credentials,
                 remoteSources,
                 CLOCK);

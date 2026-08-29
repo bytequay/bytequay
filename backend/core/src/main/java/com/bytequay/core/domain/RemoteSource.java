@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -21,7 +23,12 @@ import static java.util.Objects.requireNonNull;
  * {@code git remote add name url}. The managed {@code origin} and linked
  * {@code upstream} remotes are workspace routing, not remote sources.
  */
-public record RemoteSource(String workspaceId, String name, String url)
+public record RemoteSource(
+        String workspaceId,
+        String name,
+        String url,
+        Optional<Long> repositoryId,
+        Optional<RepoRef> repository)
 {
     public RemoteSource
     {
@@ -31,5 +38,25 @@ public record RemoteSource(String workspaceId, String name, String url)
         checkArgument(!name.isBlank(), "name is blank");
         requireNonNull(url, "url is null");
         checkArgument(!url.isBlank(), "url is blank");
+        requireNonNull(repositoryId, "repositoryId is null");
+        requireNonNull(repository, "repository is null");
+        checkArgument(repositoryId.isPresent() == repository.isPresent(),
+                "repository ID and coordinates must both be present or absent");
+        repositoryId.ifPresent(value -> checkArgument(value > 0, "repositoryId must be positive"));
+    }
+
+    public RemoteSource(String workspaceId, String name, String url)
+    {
+        this(workspaceId, name, url, Optional.empty(), Optional.empty());
+    }
+
+    public RemoteSource withRepositoryIdentity(long nextRepositoryId, RepoRef nextRepository)
+    {
+        return new RemoteSource(
+                workspaceId,
+                name,
+                url,
+                Optional.of(nextRepositoryId),
+                Optional.of(requireNonNull(nextRepository, "nextRepository is null")));
     }
 }

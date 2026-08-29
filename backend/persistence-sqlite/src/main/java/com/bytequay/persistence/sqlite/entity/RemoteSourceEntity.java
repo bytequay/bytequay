@@ -14,11 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.RemoteSource;
+import com.bytequay.core.domain.RepoRef;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.Setter;
+
+import java.util.Optional;
 
 @Entity
 @Table(name = "workspace_remote_sources")
@@ -34,8 +36,16 @@ public class RemoteSourceEntity
     private String name;
 
     @Column(nullable = false)
-    @Setter
     private String url;
+
+    @Column(name = "provider_repository_id")
+    private Long repositoryId;
+
+    @Column(name = "provider_owner")
+    private String repositoryOwner;
+
+    @Column(name = "provider_repo")
+    private String repositoryName;
 
     public RemoteSourceEntity() {}
 
@@ -50,12 +60,29 @@ public class RemoteSourceEntity
         entity.id = idOf(source.workspaceId(), source.name());
         entity.workspaceId = source.workspaceId();
         entity.name = source.name();
-        entity.url = source.url();
+        entity.update(source);
         return entity;
+    }
+
+    public void update(RemoteSource source)
+    {
+        url = source.url();
+        repositoryId = source.repositoryId().orElse(null);
+        repositoryOwner = source.repository().map(value -> value.owner()).orElse(null);
+        repositoryName = source.repository().map(value -> value.repo()).orElse(null);
     }
 
     public RemoteSource toDomain()
     {
-        return new RemoteSource(workspaceId, name, url);
+        Optional<Long> domainRepositoryId = Optional.ofNullable(repositoryId);
+        Optional<RepoRef> domainRepository =
+                repositoryOwner == null || repositoryName == null
+                        ? Optional.empty()
+                        : Optional.of(RepoRef.of(repositoryOwner, repositoryName));
+        if (domainRepositoryId.isEmpty() || domainRepository.isEmpty()) {
+            domainRepositoryId = Optional.empty();
+            domainRepository = Optional.empty();
+        }
+        return new RemoteSource(workspaceId, name, url, domainRepositoryId, domainRepository);
     }
 }

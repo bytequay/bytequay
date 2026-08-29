@@ -29,7 +29,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param repository local clone to read
  * @param workspaceId durable workspace that owns the managed clone, when applicable
- * @param sourceRepositoryId stable provider ID resolved from the selected upstream repository
+ * @param sourceRepositoryId stable provider ID resolved for the source remote, when known
  * @param sourceRemote remote holding the source range
  * @param sourceBaseRef exclusive start of the range
  * @param sourceTipRef inclusive end of the range

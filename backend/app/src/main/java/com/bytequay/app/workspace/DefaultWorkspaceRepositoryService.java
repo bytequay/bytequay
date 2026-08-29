@@ -13,12 +13,12 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
-import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
@@ -66,6 +66,7 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceStore store;
     private final CherryPickExecutionStore executions;
     private final RemoteSourceStore remoteSources;
+    private final RepositoryEnrichmentService enrichment;
     private final WorkspaceCredentialStore workspaceCredentials;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
@@ -82,6 +83,7 @@ public class DefaultWorkspaceRepositoryService
             WorkspaceStore store,
             CherryPickExecutionStore executions,
             RemoteSourceStore remoteSources,
+            RepositoryEnrichmentService enrichment,
             WorkspaceCredentialStore workspaceCredentials,
             GitHubAccountClient gitHub,
             CredentialService credentials,
@@ -95,6 +97,7 @@ public class DefaultWorkspaceRepositoryService
         this.store = requireNonNull(store, "store is null");
         this.executions = requireNonNull(executions, "executions is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
+        this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
@@ -223,9 +226,7 @@ public class DefaultWorkspaceRepositoryService
                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                 "origin",
                 workspace.defaultBranch(),
-                remoteSources.findByWorkspace(workspace.id()).stream()
-                        .map(RemoteSource::name)
-                        .collect(toImmutableList()));
+                enrichment.enrichRemoteSources(workspace.id()));
     }
 
     @Override

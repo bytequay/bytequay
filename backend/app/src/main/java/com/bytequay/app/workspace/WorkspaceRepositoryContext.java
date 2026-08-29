@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /** Backend-resolved repository path and routing used by trusted Git operations. */
@@ -30,12 +33,35 @@ public record WorkspaceRepositoryContext(
         String sourceRemote,
         String targetRemote,
         String defaultBranch,
-        List<String> extraRemotes)
+        List<RemoteSource> extraRemotes)
 {
+    public WorkspaceRepositoryContext
+    {
+        extraRemotes = ImmutableList.copyOf(extraRemotes);
+    }
+
     public boolean knownRemote(String remote)
     {
         return sourceRemote.equals(remote)
                 || targetRemote.equals(remote)
-                || extraRemotes.contains(remote);
+                || extraRemote(remote).isPresent();
+    }
+
+    public Optional<RemoteSource> extraRemote(String remote)
+    {
+        return extraRemotes.stream()
+                .filter(source -> source.name().equals(remote))
+                .findFirst();
+    }
+
+    public OptionalLong sourceRepositoryId(String remote)
+    {
+        if (sourceRemote.equals(remote)) {
+            return upstreamRepositoryId;
+        }
+        return extraRemote(remote)
+                .flatMap(RemoteSource::repositoryId)
+                .map(OptionalLong::of)
+                .orElseGet(OptionalLong::empty);
     }
 }

@@ -14,6 +14,7 @@
 package com.bytequay.app.git;
 
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 
 import java.util.Optional;
@@ -52,13 +53,12 @@ final class CommitHistoryRouting
             }
             case REMOTE -> {
                 String remote = ref.remote().orElseThrow();
-                checkArgument(context.extraRemotes().contains(remote),
+                RemoteSource source = context.extraRemote(remote).orElse(null);
+                checkArgument(source != null,
                         "remote is not configured for this workspace");
-                // Extra remotes have no persisted provider identity, so their
-                // commits render without avatar or pull-request enrichment.
                 return new ResolvedCommitHistoryRef(
-                        OptionalLong.empty(),
-                        Optional.empty(),
+                        source.repositoryId().map(OptionalLong::of).orElseGet(OptionalLong::empty),
+                        source.repository(),
                         remote + "/" + ref.branch(),
                         ref.branch());
             }

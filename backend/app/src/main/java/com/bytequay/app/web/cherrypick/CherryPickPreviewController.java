@@ -29,7 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
-import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -77,7 +76,7 @@ public class CherryPickPreviewController
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),
                 Optional.of(workspaceId),
-                sourceRepositoryId(context, sourceRemote),
+                context.sourceRepositoryId(sourceRemote),
                 sourceRemote,
                 request.sourceBaseRef(),
                 request.sourceTipRef(),
@@ -86,19 +85,6 @@ public class CherryPickPreviewController
                 context.sourceRemote(),
                 request.targetBranch()));
         return CherryPickPreviewResponse.of(preview);
-    }
-
-    /**
-     * Provider identity of the source range, used for pull-request grouping.
-     * Only the linked upstream has a persisted identity; other remote sources
-     * preview without grouping.
-     */
-    private static OptionalLong sourceRepositoryId(WorkspaceRepositoryContext context, String sourceRemote)
-    {
-        if (sourceRemote.equals(context.sourceRemote())) {
-            return context.upstreamRepositoryId();
-        }
-        return OptionalLong.empty();
     }
 
     @GetMapping("/api/cherry-pick-ranges/previews/{previewId}")

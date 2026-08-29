@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -22,9 +23,9 @@ import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.CommitRefreshStatus;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class TestCommitHistoryService
 
     private WorkspaceRepositoryService workspaces;
     private GitBrowseService git;
-    private CommitHistoryStore store;
+    private RepositoryEnrichmentService enrichment;
     private CommitHistoryRefresher refresher;
     private CommitHistoryService service;
 
@@ -62,12 +63,12 @@ class TestCommitHistoryService
     {
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
-        store = mock(CommitHistoryStore.class);
+        enrichment = mock(RepositoryEnrichmentService.class);
         refresher = mock(CommitHistoryRefresher.class);
         service = new CommitHistoryService(
                 workspaces,
                 git,
-                store,
+                enrichment,
                 refresher,
                 53123);
         when(refresher.status(WORKSPACE_ID)).thenReturn(CommitRefreshStatus.idle(WORKSPACE_ID));
@@ -79,7 +80,7 @@ class TestCommitHistoryService
         ready(linkedSummary());
         Commit commit = commit("abc123", Optional.empty());
         when(git.log(REPOSITORY, "origin/feature", 300)).thenReturn(ImmutableList.of(commit));
-        when(store.findEnrichment(101, ImmutableList.of("abc123"))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
+        when(enrichment.findCommits(101, ImmutableList.of("abc123"))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
                 enrichment("abc123"))));
 
         CommitHistorySnapshot snapshot = service.listHistory(
@@ -98,10 +99,10 @@ class TestCommitHistoryService
                 Optional.of(42),
                 Optional.of("Example pull request")));
         assertThat(snapshot.refresh()).isEqualTo(CommitRefreshStatus.idle(WORKSPACE_ID));
-        InOrder readOrder = inOrder(refresher, git, store);
+        InOrder readOrder = inOrder(refresher, git, enrichment);
         readOrder.verify(refresher).status(WORKSPACE_ID);
         readOrder.verify(git).log(REPOSITORY, "origin/feature", 300);
-        readOrder.verify(store).findEnrichment(101, ImmutableList.of("abc123"));
+        readOrder.verify(enrichment).findCommits(101, ImmutableList.of("abc123"));
     }
 
     @Test
@@ -110,7 +111,7 @@ class TestCommitHistoryService
         ready(linkedSummary());
         Commit commit = commit("def456", Optional.of(17));
         when(git.log(REPOSITORY, "upstream/main", 25)).thenReturn(ImmutableList.of(commit));
-        when(store.findEnrichment(202, ImmutableList.of("def456")))
+        when(enrichment.findCommits(202, ImmutableList.of("def456")))
                 .thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of()));
 
         CommitHistorySnapshot snapshot = service.listHistory(
@@ -125,7 +126,36 @@ class TestCommitHistoryService
             assertThat(item.pullRequestNumber()).contains(17);
             assertThat(item.pullRequestTitle()).isEmpty();
         });
-        verify(store).findEnrichment(202, ImmutableList.of("def456"));
+        verify(enrichment).findCommits(202, ImmutableList.of("def456"));
+    }
+
+    @Test
+    void identifiedCustomRemoteReusesRepositoryEnrichment()
+    {
+        ready(
+                linkedSummary(),
+                new RemoteSource(
+                        WORKSPACE_ID,
+                        "oss",
+                        "https://github.com/example-upstream/example-repo.git",
+                        Optional.of(202L),
+                        Optional.of(UPSTREAM)));
+        Commit commit = commit("remote123", Optional.empty());
+        when(git.log(REPOSITORY, "oss/main", 25)).thenReturn(ImmutableList.of(commit));
+        when(enrichment.findCommits(202, ImmutableList.of("remote123")))
+                .thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(enrichment(202, "remote123"))));
+
+        CommitHistorySnapshot snapshot = service.listHistory(
+                WORKSPACE_ID,
+                new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss")),
+                25);
+
+        assertThat(snapshot.commits()).singleElement().satisfies(item -> {
+            assertThat(item.author()).isEqualTo("percy-r");
+            assertThat(item.authorAvatarUrl()).contains("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64));
+            assertThat(item.pullRequestNumber()).contains(42);
+        });
+        verify(enrichment).findCommits(202, ImmutableList.of("remote123"));
     }
 
     @Test
@@ -191,11 +221,11 @@ class TestCommitHistoryService
                 .collect(java.util.stream.Collectors.toSet());
 
         assertThat(dependencies)
-                .contains(WorkspaceRepositoryService.class, GitBrowseService.class, CommitHistoryStore.class)
+                .contains(WorkspaceRepositoryService.class, GitBrowseService.class, RepositoryEnrichmentService.class)
                 .noneMatch(type -> type.getSimpleName().contains("GitHub") || type.getSimpleName().contains("Http"));
     }
 
-    private void ready(WorkspaceSummary summary)
+    private void ready(WorkspaceSummary summary, RemoteSource... extraRemotes)
     {
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
@@ -209,7 +239,7 @@ class TestCommitHistoryService
                 summary.upstreamRepositoryId() == null ? "origin" : "upstream",
                 "origin",
                 "main",
-                ImmutableList.of()));
+                ImmutableList.copyOf(extraRemotes)));
     }
 
     private static WorkspaceSummary linkedSummary()
@@ -263,9 +293,14 @@ class TestCommitHistoryService
 
     private static CommitEnrichment enrichment(String sha)
     {
+        return enrichment(101, sha);
+    }
+
+    private static CommitEnrichment enrichment(long repositoryId, String sha)
+    {
         Instant checkedAt = Instant.parse("2026-08-22T02:00:00Z");
         return new CommitEnrichment(
-                101,
+                repositoryId,
                 sha,
                 Optional.of("percy-r"),
                 Optional.of("a".repeat(64)),

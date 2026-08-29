@@ -16,6 +16,7 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -23,7 +24,6 @@ import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -75,7 +75,7 @@ public class CherryPickPreviewService
 
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
-    private final CommitHistoryStore commitHistory;
+    private final RepositoryEnrichmentService enrichment;
     private final CredentialService credentials;
     private final WorkspaceRemoteSourceService remoteSources;
     private final Clock clock;
@@ -84,14 +84,14 @@ public class CherryPickPreviewService
     public CherryPickPreviewService(
             GitCommandRunner git,
             CherryPickConflictScout conflictScout,
-            CommitHistoryStore commitHistory,
+            RepositoryEnrichmentService enrichment,
             CredentialService credentials,
             WorkspaceRemoteSourceService remoteSources,
             Clock clock)
     {
         this.git = requireNonNull(git, "git is null");
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
-        this.commitHistory = requireNonNull(commitHistory, "commitHistory is null");
+        this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -212,7 +212,7 @@ public class CherryPickPreviewService
             return ImmutableMap.of();
         }
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
-        commitHistory.findEnrichment(
+        enrichment.findCommits(
                         repositoryId.orElseThrow(),
                         range.stream().map(RangeCommit::sha).collect(toImmutableList()))
                 .commits().stream()

@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,14 @@ class TestCommitHistoryRouting
             "upstream",
             "origin",
             "master",
-            ImmutableList.of("oss", "myoss"));
+            ImmutableList.of(
+                    new RemoteSource(
+                            "workspace-a",
+                            "oss",
+                            "https://github.com/trinodb/trino.git",
+                            Optional.of(202L),
+                            Optional.of(RepoRef.of("trinodb", "trino"))),
+                    new RemoteSource("workspace-a", "myoss", "https://example.invalid/trino.git")));
 
     @Test
     void workspaceReadsTheFetchedOriginBranchWithProviderIdentity()
@@ -58,11 +66,21 @@ class TestCommitHistoryRouting
     }
 
     @Test
-    void configuredExtraRemoteResolvesWithoutProviderIdentity()
+    void identifiedExtraRemoteResolvesWithReusableProviderIdentity()
     {
         var resolved = CommitHistoryRouting.resolve(
                 CONTEXT, new CommitHistoryRef(Source.REMOTE, "master", Optional.of("oss")));
         assertThat(resolved.gitRef()).isEqualTo("oss/master");
+        assertThat(resolved.repositoryId()).hasValue(202);
+        assertThat(resolved.repository()).contains(RepoRef.of("trinodb", "trino"));
+    }
+
+    @Test
+    void unidentifiedExtraRemoteResolvesWithoutProviderIdentity()
+    {
+        var resolved = CommitHistoryRouting.resolve(
+                CONTEXT, new CommitHistoryRef(Source.REMOTE, "master", Optional.of("myoss")));
+        assertThat(resolved.gitRef()).isEqualTo("myoss/master");
         assertThat(resolved.repositoryId()).isEmpty();
         assertThat(resolved.repository()).isEmpty();
     }

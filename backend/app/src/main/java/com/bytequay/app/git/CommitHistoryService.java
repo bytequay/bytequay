@@ -15,11 +15,11 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshStatus;
-import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,20 +43,20 @@ public class CommitHistoryService
 
     private final WorkspaceRepositoryService workspaces;
     private final GitBrowseService git;
-    private final CommitHistoryStore store;
+    private final RepositoryEnrichmentService enrichment;
     private final CommitHistoryRefresher refresher;
     private final String avatarBaseUrl;
 
     public CommitHistoryService(
             WorkspaceRepositoryService workspaces,
             GitBrowseService git,
-            CommitHistoryStore store,
+            RepositoryEnrichmentService enrichment,
             CommitHistoryRefresher refresher,
             @Value("${server.port:53123}") int serverPort)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
-        this.store = requireNonNull(store, "store is null");
+        this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.refresher = requireNonNull(refresher, "refresher is null");
         checkArgument(serverPort >= 0 && serverPort <= 65_535, "serverPort is invalid");
         this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
@@ -76,16 +76,16 @@ public class CommitHistoryService
         // first guarantees a concurrent completion causes one later reload.
         CommitRefreshStatus refresh = refresher.status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichment = resolved.repositoryId().isEmpty()
+        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty()
                 ? ImmutableMap.of()
-                : store.findEnrichment(
+                : enrichment.findCommits(
                         resolved.repositoryId().orElseThrow(),
                         commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         ImmutableList.Builder<CommitHistoryItem> items = ImmutableList.builderWithExpectedSize(commits.size());
         for (Commit commit : commits) {
-            items.add(item(commit, Optional.ofNullable(enrichment.get(commit.sha()))));
+            items.add(item(commit, Optional.ofNullable(enrichmentBySha.get(commit.sha()))));
         }
         return new CommitHistorySnapshot(items.build(), refresh);
     }

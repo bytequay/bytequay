@@ -94,6 +94,9 @@ These are persistence invariants, not UI conventions:
   the same upstream repository without requiring a separate watched workspace.
 - GitHub's fork/parent relationship is descriptive metadata and a useful watch hint. It never
   creates, changes, or removes the user-selected upstream.
+- A user-configured extra remote may carry the same stable identity when its GitHub URL matches a
+  selected or upstream repository already known in local workspace routing. It remains an extra
+  remote and never becomes the workspace upstream implicitly.
 
 For example, watched workspaces A, B, and C may all use repository X as upstream even when X is
 not watched. A cannot simultaneously use X and Y. The repositories do not need a GitHub fork
@@ -176,6 +179,15 @@ credential when the user saves the selection and during synchronization. Its coo
 branch, and clone URL are stored in the workspace routing snapshot so local reads remain available
 between refreshes.
 
+Extra remotes are stored independently by workspace name and URL. Their provider repository ID and
+canonical coordinates are nullable. `RepositoryEnrichmentService` resolves an identityless GitHub
+HTTPS URL only against selected and upstream identities already stored in local workspace rows,
+then persists a match. This lets the same repository reuse commit avatars and PR associations
+without a second enrichment cache or an identification request to GitHub. Unmatched and non-GitHub
+remotes remain valid Git-only sources and show Git names with initial avatars. Recognition never
+links an upstream or changes push routing. Once remembered, the stable ID remains authoritative;
+URL matching applies only to identityless rows.
+
 ## Durable model
 
 The exact persistence representation may use the project's existing JPA and store conventions.
@@ -200,6 +212,13 @@ Workspace
   lastCodeSyncAt             nullable until the first successful clone/fetch
   lastMetadataSyncAt         nullable until the first successful metadata refresh
   createdAt / updatedAt
+
+RemoteSource
+  workspaceId
+  name                       configured Git remote name
+  url
+  repositoryId               nullable stable provider repository ID
+  repositoryOwner/name       nullable canonical coordinates; present with repositoryId
 ```
 
 Permission details can be refreshed because GitHub access may change. Persist enough routing
@@ -223,6 +242,8 @@ upstream_repository_id is present => upstream_repository_id != selected_reposito
 Repository-scoped cached data is keyed by the stable monitored repository ID, not by workspace.
 This means several workspaces that link to the same upstream share one local metadata cache
 instead of fetching and storing the same contributors, picker users, labels, and topics repeatedly.
+Commit enrichment uses the same stable-ID rule. A custom remote with a recognized identity reads
+and writes the same enrichment projection as any workspace or upstream view of that repository.
 
 ## Filesystem ownership
 
@@ -246,6 +267,12 @@ later explicit import flow; they are not part of the watched-repository first sl
 The service interfaces below are application boundaries. Implementations may use existing stores,
 GitHub clients, `GitBrowseService`, and cherry-pick services directly. Additional one-method
 layers are not required.
+
+Commit-enrichment persistence is the exception with an explicit shared boundary:
+`RepositoryEnrichmentService` owns batched enrichment reads and writes plus local custom-remote
+identity reuse. History display, refresh, and cherry-pick preview call that service; they do not
+read or upsert enrichment through `CommitHistoryStore` directly. Refresh-outcome metadata remains
+owned by the commit-history refresh flow. See [Commit History and Refresh Design](commits.md).
 
 ### WorkspaceRepositoryService
 
@@ -716,6 +743,9 @@ Settings. Existing commit cards retain their pull-request association and avatar
   otherwise watched by ByteQuay.
 - Never list raw Git remotes or infer the selection from GitHub topology. User-managed
   extra remote sources are a separate Workspace Settings card and never become the upstream.
+- Extra remotes may display a locally recognized GitHub repository identity. If no selected or
+  upstream workspace snapshot matches, keep the remote Git-only; opening History must not trigger
+  an identity lookup.
 - Show safe validation errors for the selected repository, inaccessible repositories, unsafe
   routing, and active work.
 

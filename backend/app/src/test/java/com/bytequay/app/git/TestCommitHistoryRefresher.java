@@ -19,6 +19,7 @@ import com.bytequay.app.cherrypick.PullRequestLookupResult;
 import com.bytequay.app.cherrypick.PullRequestLookupResult.Association;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -31,8 +32,11 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.CommitHistoryStore;
+import com.bytequay.core.store.RemoteSourceStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +86,7 @@ class TestCommitHistoryRefresher
     private WorkspaceProvisioningService provisioning;
     private GitBrowseService git;
     private RecordingStore store;
+    private RepositoryEnrichmentService enrichment;
     private CredentialService credentials;
     private GitHubRepoClient gitHub;
     private CherryPickPullRequestLookup pullRequests;
@@ -96,13 +101,17 @@ class TestCommitHistoryRefresher
         provisioning = mock(WorkspaceProvisioningService.class);
         git = mock(GitBrowseService.class);
         store = new RecordingStore();
+        enrichment = new RepositoryEnrichmentService(
+                store,
+                mock(RemoteSourceStore.class),
+                mock(WorkspaceStore.class));
         credentials = mock(CredentialService.class);
         gitHub = mock(GitHubRepoClient.class);
         pullRequests = mock(CherryPickPullRequestLookup.class);
         avatars = mock(AvatarCache.class);
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
         CommitHistoryRefresher refresher = newRefresher();
-        service = new CommitHistoryService(workspaces, git, store, refresher, 53123);
+        service = new CommitHistoryService(workspaces, git, enrichment, refresher, 53123);
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))
@@ -258,7 +267,7 @@ class TestCommitHistoryRefresher
     @Test
     void selectedCustomRemoteFetchFailureMarksRefreshFailed()
     {
-        readyWorkspace("oss");
+        readyWorkspace(unidentifiedRemote("oss"));
         when(provisioning.synchronizeCode(WORKSPACE_ID)).thenReturn(new WorkspaceCodeSyncResult(
                 WORKSPACE_ID,
                 true,
@@ -276,7 +285,7 @@ class TestCommitHistoryRefresher
     @Test
     void customRemoteRefreshReadsTheFetchedBranchWithoutProviderEnrichment()
     {
-        readyWorkspace("oss");
+        readyWorkspace(unidentifiedRemote("oss"));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of());
 
         service.refresh(
@@ -286,6 +295,47 @@ class TestCommitHistoryRefresher
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
         verify(git).log(REPOSITORY, "oss/main", 300);
         verifyNoInteractions(gitHub, pullRequests);
+    }
+
+    @Test
+    void identifiedCustomRemoteRefreshesAndReusesProviderEnrichment()
+    {
+        RepoRef repository = RepoRef.of("trinodb", "trino");
+        readyWorkspace(new RemoteSource(
+                WORKSPACE_ID,
+                "oss",
+                "https://github.com/trinodb/trino.git",
+                Optional.of(202L),
+                Optional.of(repository)));
+        Commit commit = commit("remote123", NOW.minusSeconds(60));
+        store.upsertEnrichment(ImmutableList.of(positive(202, commit.sha())));
+        when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", repository, "main", 300))
+                .thenReturn(new CommitAvatarSnapshot(
+                        ImmutableList.of(new CommitAvatar(
+                                commit.sha(),
+                                Optional.of("percy-r"),
+                                Optional.of("https://avatars.example.invalid/percy-r.png"),
+                                Optional.empty(),
+                                Optional.empty())),
+                        true));
+        when(avatars.cache("https://avatars.example.invalid/percy-r.png")).thenReturn(Optional.of(AVATAR_KEY));
+        when(pullRequests.lookUpResult(eq(repository), eq(ImmutableList.of()), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
+
+        CommitRefreshStatus status = service.refresh(
+                WORKSPACE_ID,
+                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
+
+        assertThat(status.state()).isEqualTo(IDLE);
+        assertThat(store.values()).singleElement().satisfies(value -> {
+            assertThat(value.repositoryId()).isEqualTo(202);
+            assertThat(value.authorLogin()).contains("percy-r");
+            assertThat(value.avatarKey()).contains(AVATAR_KEY);
+            assertThat(value.pullRequestNumber()).contains(42);
+        });
+        verify(gitHub).fetchCommitAvatarSnapshot("test-token", repository, "main", 300);
+        verify(pullRequests).lookUpResult(eq(repository), eq(ImmutableList.of()), eq("main"), anyList());
     }
 
     @Test
@@ -330,6 +380,7 @@ class TestCommitHistoryRefresher
                 provisioning,
                 git,
                 store,
+                enrichment,
                 credentials,
                 gitHub,
                 pullRequests,
@@ -337,7 +388,7 @@ class TestCommitHistoryRefresher
                 clock);
     }
 
-    private void readyWorkspace(String... extraRemotes)
+    private void readyWorkspace(RemoteSource... extraRemotes)
     {
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
@@ -350,6 +401,11 @@ class TestCommitHistoryRefresher
                 "origin",
                 "main",
                 ImmutableList.copyOf(extraRemotes)));
+    }
+
+    private static RemoteSource unidentifiedRemote(String name)
+    {
+        return new RemoteSource(WORKSPACE_ID, name, "https://example.invalid/" + name + ".git");
     }
 
     private static Commit commit(String sha, Instant committedAt)
@@ -367,8 +423,13 @@ class TestCommitHistoryRefresher
 
     private static CommitEnrichment positive(String sha)
     {
+        return positive(101, sha);
+    }
+
+    private static CommitEnrichment positive(long repositoryId, String sha)
+    {
         return new CommitEnrichment(
-                101,
+                repositoryId,
                 sha,
                 Optional.empty(),
                 Optional.empty(),

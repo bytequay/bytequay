@@ -28,10 +28,4 @@ public class RepositoryContributorListConverter
     {
         super(new TypeReference<>() {}, "repository contributor list", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<RepositoryContributor> value)
-    {
-        return value.isEmpty();
-    }
 }

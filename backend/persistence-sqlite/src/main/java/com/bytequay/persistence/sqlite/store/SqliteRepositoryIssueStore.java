@@ -137,7 +137,6 @@ public class SqliteRepositoryIssueStore
                 requireNonNull(assignees, "assignees is null"),
                 requireNonNull(labels, "labels is null"),
                 requireNonNull(updatedAt, "updatedAt is null"));
-        issueRows.save(issue);
     }
 
     @Override

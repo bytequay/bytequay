@@ -28,10 +28,4 @@ public class RepositoryLabelListConverter
     {
         super(new TypeReference<>() {}, "repository label list", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<RepositoryLabel> value)
-    {
-        return value.isEmpty();
-    }
 }

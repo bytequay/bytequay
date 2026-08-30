@@ -28,10 +28,4 @@ public class DiffCommitListConverter
     {
         super(new TypeReference<>() {}, "pull request diff commits", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<DiffCommit> value)
-    {
-        return value.isEmpty();
-    }
 }

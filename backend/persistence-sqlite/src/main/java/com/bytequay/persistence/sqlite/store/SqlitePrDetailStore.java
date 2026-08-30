@@ -39,7 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -161,29 +160,10 @@ public class SqlitePrDetailStore
 
     @Override
     @Transactional
-    public void saveIncremental(long prId, StoredPrDetail detail)
-    {
-        saveHeader(prId, detail);
-        saveReviews(prId, detail.reviews(), detail.reviewsComplete());
-        saveCheckRuns(prId, detail.checkRuns(), detail.checkRunsComplete());
-
-        Set<Long> existingIds = new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
-        timelineRepo.saveAll(detail.timeline().stream()
-                .filter(event -> event.localEventKey().isEmpty())
-                .filter(event -> event.githubId() == null || existingIds.add(event.githubId()))
-                .map(event -> new PrTimelineEntity().updateFrom(prId, event))
-                .collect(toImmutableList()));
-    }
-
-    @Override
-    @Transactional
     public void updateEtag(long prId, Optional<String> etag)
     {
         requireNonNull(etag, "etag is null");
-        detailRepo.findById(prId).ifPresent(detail -> {
-            detail.setEtag(etag.orElse(null));
-            detailRepo.save(detail);
-        });
+        detailRepo.findById(prId).ifPresent(detail -> detail.setEtag(etag.orElse(null)));
     }
 
     @Override
@@ -195,7 +175,6 @@ public class SqlitePrDetailStore
         detailRepo.findById(prId).ifPresent(detail -> {
             detail.setCheckRunsEtag(checkRunsEtag.orElse(null));
             detail.setCommitStatusesEtag(commitStatusesEtag.orElse(null));
-            detailRepo.save(detail);
         });
     }
 

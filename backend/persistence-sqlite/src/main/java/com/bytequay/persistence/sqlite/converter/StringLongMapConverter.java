@@ -32,10 +32,4 @@ public class StringLongMapConverter
     {
         super(new TypeReference<>() {}, "string-long map", "{}", ImmutableMap.of());
     }
-
-    @Override
-    protected boolean isEmpty(Map<String, Long> value)
-    {
-        return value.isEmpty();
-    }
 }

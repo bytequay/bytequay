@@ -19,5 +19,4 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AppSettingJpaRepository
         extends JpaRepository<AppSettingEntity, String>
 {
-    void deleteByKeyStartingWith(String prefix);
 }

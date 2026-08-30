@@ -19,7 +19,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
-import lombok.Setter;
 
 @Entity
 @Table(name = "workspace_credentials")
@@ -31,12 +30,10 @@ class WorkspaceCredentialEntity
 
     @Column(nullable = false)
     @Getter(AccessLevel.PACKAGE)
-    @Setter(AccessLevel.PACKAGE)
     private String ciphertext;
 
     @Column(nullable = false)
     @Getter(AccessLevel.PACKAGE)
-    @Setter(AccessLevel.PACKAGE)
     private String login;
 
     protected WorkspaceCredentialEntity() {}

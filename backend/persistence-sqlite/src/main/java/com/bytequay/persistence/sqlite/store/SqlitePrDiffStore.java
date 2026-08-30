@@ -108,7 +108,6 @@ public class SqlitePrDiffStore
         contents.put(path, content);
         entity.setFileContents(ImmutableMap.copyOf(contents));
         entity.setSyncedAt(Instant.now());
-        repository.save(entity);
     }
 
     @Override

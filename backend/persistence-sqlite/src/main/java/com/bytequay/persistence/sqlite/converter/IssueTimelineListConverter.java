@@ -28,10 +28,4 @@ public class IssueTimelineListConverter
     {
         super(new TypeReference<>() {}, "issue timeline", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<PrTimelineEvent> value)
-    {
-        return value.isEmpty();
-    }
 }

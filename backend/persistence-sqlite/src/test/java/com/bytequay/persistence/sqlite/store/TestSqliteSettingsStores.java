@@ -107,20 +107,13 @@ class TestSqliteSettingsStores
     }
 
     @Test
-    void appSettingsRoundTripWithPrefixDelete()
+    void appSettingsRoundTrip()
     {
         settings.put("github.quietHours", "{\"enabled\":true}");
-        settings.put("workspace.agentModel.ws-1", "{}");
-        settings.put("workspace.agentModel.ws-2", "{}");
 
         assertThat(settings.get("github.quietHours")).contains("{\"enabled\":true}");
         settings.put("github.quietHours", "{\"enabled\":false}");
         assertThat(settings.get("github.quietHours")).contains("{\"enabled\":false}");
-
-        settings.deleteByPrefix("workspace.agentModel.");
-        assertThat(settings.get("workspace.agentModel.ws-1")).isEmpty();
-        assertThat(settings.get("workspace.agentModel.ws-2")).isEmpty();
-        assertThat(settings.get("github.quietHours")).isPresent();
 
         settings.delete("github.quietHours");
         assertThat(settings.get("github.quietHours")).isEmpty();

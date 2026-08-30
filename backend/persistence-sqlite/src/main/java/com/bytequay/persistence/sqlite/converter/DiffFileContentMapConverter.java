@@ -28,10 +28,4 @@ public class DiffFileContentMapConverter
     {
         super(new TypeReference<>() {}, "pull request file contents", "{}", ImmutableMap.of());
     }
-
-    @Override
-    protected boolean isEmpty(Map<String, DiffFileContent> value)
-    {
-        return value.isEmpty();
-    }
 }

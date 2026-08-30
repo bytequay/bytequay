@@ -27,6 +27,4 @@ public interface AppSettingsStore
     void put(String key, String value);
 
     void delete(String key);
-
-    void deleteByPrefix(String prefix);
 }

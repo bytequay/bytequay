@@ -59,11 +59,7 @@ public class SqliteWorkspaceCredentialStore
         checkArgument(!trimmed.isEmpty(), "credential value must not be blank");
         requireNonNull(login, "login is null");
 
-        WorkspaceCredentialEntity entity = jpaRepository.findById(workspaceId)
-                .orElseGet(() -> new WorkspaceCredentialEntity(workspaceId, cipher.encrypt(trimmed), login));
-        entity.setCiphertext(cipher.encrypt(trimmed));
-        entity.setLogin(login);
-        jpaRepository.save(entity);
+        jpaRepository.save(new WorkspaceCredentialEntity(workspaceId, cipher.encrypt(trimmed), login));
     }
 
     @Override

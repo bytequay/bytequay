@@ -37,8 +37,6 @@ public interface PrDetailStore
 
     void saveStatus(long prId, StoredPrDetail detail);
 
-    void saveIncremental(long prId, StoredPrDetail detail);
-
     void updateEtag(long prId, Optional<String> etag);
 
     void updateStatusEtags(long prId, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag);

@@ -41,10 +41,4 @@ public final class InMemoryAppSettingsStore
     {
         rows.remove(key);
     }
-
-    @Override
-    public void deleteByPrefix(String prefix)
-    {
-        rows.keySet().removeIf(key -> key.startsWith(prefix));
-    }
 }

@@ -114,19 +114,6 @@ public class SqlitePullRequestStore
     }
 
     @Override
-    public Set<Long> findIdsMissingEnrichment(Set<Long> ids)
-    {
-        requireNonNull(ids, "ids is null");
-        return jpaRepository.findAllById(ids).stream()
-                .filter(e -> {
-                    Map<String, String> verdicts = e.getReviewerVerdicts();
-                    return verdicts == null || verdicts.isEmpty() || e.getHeadRef() == null;
-                })
-                .map(PullRequestEntity::getId)
-                .collect(toImmutableSet());
-    }
-
-    @Override
     @Transactional
     public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker)
     {
@@ -318,7 +305,6 @@ public class SqlitePullRequestStore
                 entity.setUpdatedAt(updatedAt);
             }
             entity.setMergedAt(mergedAt);
-            jpaRepository.save(entity);
         });
     }
 
@@ -354,17 +340,6 @@ public class SqlitePullRequestStore
             if (headRef != null) {
                 entity.setHeadRef(headRef);
             }
-            jpaRepository.save(entity);
-        });
-    }
-
-    @Override
-    @Transactional
-    public void updateCiStatus(long prId, PullRequestDetail.CiStatus ciStatus)
-    {
-        jpaRepository.findById(prId).ifPresent(entity -> {
-            entity.setCiStatus(ciStatus);
-            jpaRepository.save(entity);
         });
     }
 

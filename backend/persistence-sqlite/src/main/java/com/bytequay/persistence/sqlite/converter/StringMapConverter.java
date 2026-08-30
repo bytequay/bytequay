@@ -32,10 +32,4 @@ public class StringMapConverter
     {
         super(new TypeReference<>() {}, "string map", null, ImmutableMap.of());
     }
-
-    @Override
-    protected boolean isEmpty(Map<String, String> value)
-    {
-        return value.isEmpty();
-    }
 }

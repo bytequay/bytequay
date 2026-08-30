@@ -32,10 +32,4 @@ public class StringListConverter
     {
         super(new TypeReference<>() {}, "string list", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<String> value)
-    {
-        return value.isEmpty();
-    }
 }

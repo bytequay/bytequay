@@ -102,7 +102,7 @@ class TestSqlitePrDetailStore
     }
 
     @Test
-    void recordsOneLocalEventAndPreservesItAcrossFullAndIncrementalRefreshes()
+    void recordsOneLocalEventAndPreservesItAcrossFullRefreshes()
     {
         store.save(prId, detail(remote(1, NOW.plusSeconds(2))));
         PrTimelineEvent local = new PrTimelineEvent(
@@ -118,13 +118,11 @@ class TestSqlitePrDetailStore
         assertThat(timeline.count()).isEqualTo(2);
 
         store.save(prId, detail(remote(2, NOW.plusSeconds(3))));
-        store.saveIncremental(prId, detail(remote(3, NOW.plusSeconds(4))));
 
         assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::localEventKey)
                 .containsExactly(
                         Optional.of("ci-autofix:run:attempt:sha"),
-                        Optional.empty(),
                         Optional.empty());
     }
 
@@ -147,7 +145,7 @@ class TestSqlitePrDetailStore
         store.save(prId, withTimeline(cached, second));
         StoredPrDetail patched = store.find(prId).orElseThrow();
         PrTimelineEvent third = remote(3, NOW.plusSeconds(3));
-        store.saveIncremental(prId, withTimeline(patched, third));
+        store.save(prId, withTimeline(patched, third));
 
         assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::githubId)

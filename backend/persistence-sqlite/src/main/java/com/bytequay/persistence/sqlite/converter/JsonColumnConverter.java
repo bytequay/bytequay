@@ -45,13 +45,10 @@ public abstract class JsonColumnConverter<T>
         this.emptyValue = emptyValue;
     }
 
-    /** True when {@code value} carries nothing worth persisting. */
-    protected abstract boolean isEmpty(T value);
-
     @Override
     public String convertToDatabaseColumn(T value)
     {
-        if (value == null || isEmpty(value)) {
+        if (value == null || emptyValue.equals(value)) {
             return emptyColumn;
         }
         try {

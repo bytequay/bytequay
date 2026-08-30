@@ -28,10 +28,4 @@ public class DiffFileListConverter
     {
         super(new TypeReference<>() {}, "pull request diff files", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<DiffFile> value)
-    {
-        return value.isEmpty();
-    }
 }

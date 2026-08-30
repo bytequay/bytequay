@@ -28,10 +28,4 @@ public class RepositoryPickerUserListConverter
     {
         super(new TypeReference<>() {}, "repository picker user list", "[]", ImmutableList.of());
     }
-
-    @Override
-    protected boolean isEmpty(List<RepositoryPickerUser> value)
-    {
-        return value.isEmpty();
-    }
 }

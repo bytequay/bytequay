@@ -57,13 +57,6 @@ public class SqliteAppSettingsStore
         repository.deleteById(requireKey(key));
     }
 
-    @Override
-    @Transactional
-    public void deleteByPrefix(String prefix)
-    {
-        repository.deleteByKeyStartingWith(requireKey(prefix));
-    }
-
     private static String requireKey(String key)
     {
         requireNonNull(key, "key is null");

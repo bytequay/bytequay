@@ -47,24 +47,4 @@ public interface PrTimelineJpaRepository
     @Modifying
     @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
-
-    /**
-     * Returns the GitHub event ids already stored for this PR. Used by
-     * the incremental save path to filter the freshly-fetched timeline
-     * down to genuinely-new events before insert.
-     */
-    @Query("SELECT e.githubId FROM PrTimelineEntity e WHERE e.prId = :prId AND e.githubId IS NOT NULL")
-    List<Long> findGithubIdsByPrId(@Param("prId") Long prId);
-
-    /**
-     * Returns the {@code pr_id}s whose timeline contains a {@code commented}
-     * event with the given GitHub id. Used to route an edit / reaction
-     * mutation to the correct cached detail when the caller has the
-     * comment id but not the PR id. List shape rather than Optional in
-     * case the same comment surfaces in multiple cached PRs (shouldn't
-     * happen, but defensive against the unique constraint being scoped to
-     * (pr_id, github_id)).
-     */
-    @Query("SELECT e.prId FROM PrTimelineEntity e WHERE e.githubId = :githubId AND e.event = 'commented'")
-    List<Long> findPrIdsByCommentedEventGithubId(@Param("githubId") long githubId);
 }

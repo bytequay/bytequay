@@ -38,8 +38,6 @@ public interface PullRequestStore
 
     Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids);
 
-    Set<Long> findIdsMissingEnrichment(Set<Long> ids);
-
     /** Stores a page of fetched pull requests and returns them as stored rows. */
     List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
 
@@ -74,6 +72,4 @@ public interface PullRequestStore
             Instant headPushedAt,
             Map<String, String> reviewerVerdicts,
             String headRef);
-
-    void updateCiStatus(long prId, PullRequestDetail.CiStatus ciStatus);
 }

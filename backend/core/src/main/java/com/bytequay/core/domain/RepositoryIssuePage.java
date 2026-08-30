@@ -43,17 +43,4 @@ public record RepositoryIssuePage(
         checkArgument(totalIssues >= 0, "totalIssues is negative");
         requireNonNull(syncedAt, "syncedAt is null");
     }
-
-    public static RepositoryIssuePage empty(long repositoryId, RepoRef repository, int page, int pageSize)
-    {
-        return new RepositoryIssuePage(
-                repositoryId,
-                repository,
-                ImmutableList.of(),
-                page,
-                pageSize,
-                0,
-                false,
-                Optional.empty());
-    }
 }

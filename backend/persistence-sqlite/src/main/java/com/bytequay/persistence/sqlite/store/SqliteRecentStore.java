@@ -60,7 +60,6 @@ public class SqliteRecentStore
             return;
         }
         existing.apply(existing.toDomain().mergedWith(touch));
-        touches.save(existing);
     }
 
     @Override

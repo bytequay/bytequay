@@ -244,6 +244,14 @@ cross-task isolation, a safe live rerun with a dedicated API key, and production
 adoption of the isolated launch profile remain open. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
+**Progress (2026-08-31):** the offline gate now checks the command-approval
+method, its required top-level request/response fields, all six command decision
+variant names, and the `thread/resume` request constraints. The safe live path
+now uses clean disposable Git repositories and is ready to prove one real
+parent-command approval plus one bounded mutation per repository without adding
+another model turn. This host has no dedicated compatibility API key, so those
+live claims remain unchecked until that gate actually passes.
+
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
 `environment/info`, background-terminal APIs, steering, and streamed events.

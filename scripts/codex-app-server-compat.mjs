@@ -46,6 +46,8 @@ const stableMethods = [
   "thread/resume",
 ];
 
+const commandApprovalMethod = "item/commandExecution/requestApproval";
+
 const disabledFeatures = [
   "apps",
   "browser_use",
@@ -73,7 +75,10 @@ const passiveTurnItemTypes = new Set([
   "userMessage",
 ]);
 
+const proofFileName = "bytequay-cp1-proof.txt";
+const proofFileContents = "bytequay-cp1-proof\n";
 const environmentEvidenceCommand =
+  `printf 'bytequay-cp1-proof\\n' > ${proofFileName}; ` +
   'if [ -z "${CODEX_API_KEY+x}" ]; then key_state=absent; ' +
   "else key_state=present; fi; " +
   "printf 'CODEX_API_KEY_VISIBLE=%s\\nAPP_SERVER_SENTINEL=%s\\n" +
@@ -130,9 +135,11 @@ function requestMethods(schema) {
   );
 }
 
-function stringDecisionVariants(schema, definition) {
+function decisionVariants(schema, definition) {
   return new Set(
-    schema.definitions[definition].oneOf.flatMap((variant) => variant.enum ?? []),
+    schema.definitions[definition].oneOf.flatMap(
+      (variant) => variant.enum ?? Object.keys(variant.properties ?? {}),
+    ),
   );
 }
 
@@ -150,9 +157,14 @@ function requireFields(schema, names) {
 
 function checkSchema(directory, experimental) {
   const requests = requestMethods(readJson(join(directory, "ClientRequest.json")));
+  const serverRequests = requestMethods(readJson(join(directory, "ServerRequest.json")));
   for (const method of stableMethods) {
     assert.ok(requests.has(method), `generated schema lacks ${method}`);
   }
+  assert.ok(
+    serverRequests.has(commandApprovalMethod),
+    `generated schema lacks ${commandApprovalMethod}`,
+  );
   for (const method of experimentalMethods) {
     assert.equal(
       requests.has(method),
@@ -187,7 +199,69 @@ function checkSchema(directory, experimental) {
   requireProperties(threadRead, ["threadId", "includeTurns"]);
   requireFields(threadRead, ["threadId"]);
 
+  const threadResume = readJson(join(directory, "v2", "ThreadResumeParams.json"));
+  requireProperties(threadResume, ["threadId", "cwd", "approvalPolicy", "sandbox"]);
+  requireFields(threadResume, ["threadId"]);
+  assert.equal(
+    threadResume.properties.environments,
+    undefined,
+    "thread/resume unexpectedly gained an environments field",
+  );
+
   if (!experimental) return;
+
+  const commandApprovalParams = readJson(
+    join(directory, "CommandExecutionRequestApprovalParams.json"),
+  );
+  requireProperties(commandApprovalParams, [
+    "approvalId",
+    "availableDecisions",
+    "command",
+    "cwd",
+    "environmentId",
+    "itemId",
+    "kind",
+    "reason",
+    "startedAtMs",
+    "threadId",
+    "turnId",
+  ]);
+  requireFields(commandApprovalParams, ["itemId", "startedAtMs", "threadId", "turnId"]);
+  assert.deepEqual(
+    commandApprovalParams.definitions.CommandExecutionApprovalKind.enum,
+    ["command", "writeStdin"],
+  );
+
+  const commandApprovalResponse = readJson(
+    join(directory, "CommandExecutionRequestApprovalResponse.json"),
+  );
+  requireProperties(commandApprovalResponse, ["decision"]);
+  requireFields(commandApprovalResponse, ["decision"]);
+  const commandDecisions = decisionVariants(
+    commandApprovalResponse,
+    "CommandExecutionApprovalDecision",
+  );
+  for (const decision of [
+    "accept",
+    "acceptForSession",
+    "acceptWithExecpolicyAmendment",
+    "applyNetworkPolicyAmendment",
+    "decline",
+    "cancel",
+  ]) {
+    assert.ok(commandDecisions.has(decision), `command approval lacks ${decision}`);
+  }
+
+  const fileApprovalResponse = readJson(
+    join(directory, "FileChangeRequestApprovalResponse.json"),
+  );
+  const fileDecisions = decisionVariants(fileApprovalResponse, "FileChangeApprovalDecision");
+  for (const decision of ["accept", "acceptForSession", "decline", "cancel"]) {
+    assert.ok(fileDecisions.has(decision), `file approval lacks ${decision}`);
+  }
+  requireFields(readJson(join(directory, "PermissionsRequestApprovalResponse.json")), [
+    "permissions",
+  ]);
 
   const environmentAdd = readJson(join(directory, "v2", "EnvironmentAddParams.json"));
   requireProperties(environmentAdd, ["environmentId", "execServerUrl", "connectTimeoutMs"]);
@@ -217,19 +291,6 @@ function checkSchema(directory, experimental) {
 
   const threadResponse = readJson(join(directory, "v2", "ThreadReadResponse.json"));
   requireProperties(threadResponse.definitions.Thread, ["parentThreadId", "turns"]);
-
-  for (const [file, definition] of [
-    ["CommandExecutionRequestApprovalResponse.json", "CommandExecutionApprovalDecision"],
-    ["FileChangeRequestApprovalResponse.json", "FileChangeApprovalDecision"],
-  ]) {
-    const values = stringDecisionVariants(readJson(join(directory, file)), definition);
-    for (const decision of ["accept", "acceptForSession", "decline", "cancel"]) {
-      assert.ok(values.has(decision), `${file} lacks ${decision}`);
-    }
-  }
-  requireFields(readJson(join(directory, "PermissionsRequestApprovalResponse.json")), [
-    "permissions",
-  ]);
 }
 
 function staticCompatibilityCheck() {
@@ -301,6 +362,8 @@ class JsonRpcProcess {
     this.nextId = 1;
     this.pending = new Map();
     this.notifications = [];
+    this.serverRequestHandler = null;
+    this.serverRequests = [];
     this.waiters = [];
     this.stderr = "";
     this.failure = null;
@@ -355,6 +418,15 @@ class JsonRpcProcess {
 
   notify(method, params = {}) {
     this.#send({ method, params });
+  }
+
+  handleServerRequests(method, respond) {
+    assert.equal(this.serverRequestHandler, null, "server request handler already installed");
+    this.serverRequestHandler = { method, respond };
+  }
+
+  stopHandlingServerRequests() {
+    this.serverRequestHandler = null;
   }
 
   waitFor(method, predicate = () => true, timeoutMs = 180_000) {
@@ -420,10 +492,17 @@ class JsonRpcProcess {
   }
 
   #handleServerRequest(message) {
-    this.#send({
-      id: message.id,
-      error: { code: -32601, message: `unsupported CP1 smoke request: ${message.method}` },
-    });
+    const handler = this.serverRequestHandler;
+    if (!handler || handler.method !== message.method) {
+      this.#send({
+        id: message.id,
+        error: { code: -32601, message: `unexpected CP1 request: ${message.method}` },
+      });
+      throw new Error(`unexpected App Server request: ${message.method}`);
+    }
+    const result = handler.respond(message.params);
+    this.serverRequests.push(message);
+    this.#send({ id: message.id, result });
   }
 
   #disconnect(error) {
@@ -636,6 +715,34 @@ function executorProcessEnvironment(root, name, cwd) {
   };
 }
 
+function initializeDisposableGitWorktree(cwd, environment) {
+  run("git", ["init", "--quiet"], { cwd, env: environment });
+  assert.equal(
+    run("git", ["status", "--short", "--untracked-files=all"], {
+      cwd,
+      env: environment,
+    }),
+    "",
+    `new disposable Git worktree is not clean: ${cwd}`,
+  );
+}
+
+function assertProofFile(cwd, environment) {
+  assert.equal(
+    readFileSync(join(cwd, proofFileName), "utf8"),
+    proofFileContents,
+    `unexpected proof file content in ${cwd}`,
+  );
+  assert.equal(
+    run("git", ["status", "--short", "--untracked-files=all"], {
+      cwd,
+      env: environment,
+    }),
+    `?? ${proofFileName}`,
+    `bounded proof file was not the only Git worktree mutation in ${cwd}`,
+  );
+}
+
 function appServerArguments() {
   const args = [
     "app-server",
@@ -817,6 +924,8 @@ async function liveCompatibilityCheck() {
     const appServerEnvironment = appServerProcessEnvironment(root, codexHome, apiKey);
     const executorA = executorProcessEnvironment(root, "exec-a", cwdA);
     const executorB = executorProcessEnvironment(root, "exec-b", cwdB);
+    initializeDisposableGitWorktree(cwdA, executorA.environment);
+    initializeDisposableGitWorktree(cwdB, executorB.environment);
     assert.equal(existsSync(join(codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorA.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorB.codexHome, "auth.json")), false);
@@ -890,7 +999,7 @@ async function liveCompatibilityCheck() {
     const started = await interruptible(rpc.request("thread/start", {
       cwd: cwdA,
       model: model.model,
-      approvalPolicy: "never",
+      approvalPolicy: "untrusted",
       approvalsReviewer: "user",
       sandbox: "workspace-write",
       ephemeral: false,
@@ -905,6 +1014,43 @@ async function liveCompatibilityCheck() {
       verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
     );
 
+    let approvalItemId;
+    let approvalTurnId;
+    const parentCommandApprovals = [];
+    rpc.handleServerRequests("item/commandExecution/requestApproval", (params) => {
+      assert.equal(params.threadId, threadId);
+      assert.ok(params.turnId, "command approval omitted turnId");
+      assert.ok(params.itemId, "command approval omitted itemId");
+      assert.equal(realpathSync(params.cwd), realpathSync(cwdA));
+      assert.equal(params.environmentId, environmentA.environmentId);
+      assert.equal(params.kind ?? "command", "command");
+      approvalItemId ??= params.itemId;
+      approvalTurnId ??= params.turnId;
+      assert.equal(params.itemId, approvalItemId, "approval crossed command items");
+      assert.equal(params.turnId, approvalTurnId, "approval crossed turns");
+      if (params.availableDecisions) {
+        assert.ok(
+          params.availableDecisions.includes("accept"),
+          "command approval did not offer accept",
+        );
+      }
+      if (params.approvalId == null) {
+        assert.ok(
+          params.command?.includes(proofFileName) &&
+            params.command.includes("CODEX_API_KEY_VISIBLE") &&
+            params.command.includes("APP_SERVER_SENTINEL") &&
+            params.command.includes("COMMAND_CODEX_HOME"),
+          "parent approval did not contain the expected evidence command",
+        );
+        assert.equal(
+          existsSync(join(cwdA, proofFileName)),
+          false,
+          "proof file existed before parent command approval",
+        );
+        parentCommandApprovals.push(params);
+      }
+      return { decision: "accept" };
+    });
     const firstTurnNotificationStart = rpc.notifications.length;
     const firstCompletedTurn = await interruptible(completeTurn(rpc, {
       threadId,
@@ -917,7 +1063,7 @@ async function liveCompatibilityCheck() {
       ],
       model: model.model,
       effort: model.defaultReasoningEffort,
-      approvalPolicy: "never",
+      approvalPolicy: "untrusted",
       approvalsReviewer: "user",
       cwd: cwdA,
       sandboxPolicy: {
@@ -929,6 +1075,7 @@ async function liveCompatibilityCheck() {
       },
       environments: [environmentA],
     }));
+    rpc.stopHandlingServerRequests();
 
     const firstTurnNotifications = rpc.notifications.slice(firstTurnNotificationStart);
     const firstStartedItems = firstTurnNotifications
@@ -952,6 +1099,20 @@ async function liveCompatibilityCheck() {
       "first turn completion",
     );
     assert.equal(firstCompletedCommand.id, firstStartedCommand.id);
+    assert.ok(rpc.serverRequests.length >= 1, "first turn did not request approval");
+    assert.equal(
+      parentCommandApprovals.length,
+      1,
+      "first turn did not request exactly one parent command approval",
+    );
+    assert.equal(parentCommandApprovals[0].itemId, firstStartedCommand.id);
+    assert.equal(parentCommandApprovals[0].turnId, firstCompletedTurn.id);
+    assertProofFile(cwdA, executorA.environment);
+    assert.equal(
+      existsSync(join(cwdB, proofFileName)),
+      false,
+      "environment A wrote its proof file into environment B",
+    );
     assert.ok(
       firstTurnNotifications.some(
         (notification) =>
@@ -1034,6 +1195,8 @@ async function liveCompatibilityCheck() {
       "second turn completion",
     );
     assert.equal(secondCompletedCommand.id, secondStartedCommand.id);
+    assertProofFile(cwdB, executorB.environment);
+    assertProofFile(cwdA, executorA.environment);
     assert.ok(
       secondTurnNotifications.some(
         (notification) =>

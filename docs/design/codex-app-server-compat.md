@@ -33,7 +33,8 @@ BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
 ```
 
 The live gate starts one App Server and two version-matched loopback
-`exec-server` processes. It passes the dedicated key only to the App Server as
+`exec-server` processes, each rooted in a clean disposable Git repository. It
+passes the dedicated key only to the App Server as
 `CODEX_API_KEY`; no credential is copied to disk. Each executor receives a
 different, empty `CODEX_HOME` and a minimal allowlisted process environment.
 The App Server's shell policy passes only core command variables and omits
@@ -45,26 +46,34 @@ hooks, project config, or user config outside the temporary App Server home.
 
 It initializes with `experimentalApi`, reads the model catalog, registers and
 handshakes two temporary working directories, and starts one durable fixture
-thread in the isolated App Server home. Turn one selects executor A; the
-still-running App Server then receives `thread/resume`, and turn two selects
-executor B. For both turns, the fixture verifies that the recorded shell action
-expands the environment variables. Streamed command events and replayed history
-must report the executor-specific `HOME`, canonical working directory, unset
-command-level `CODEX_HOME`, absent API key, and unset App Server sentinel. This
-distinguishes both executors from the App Server's ambient process and verifies
-the tested shell environment policy. A short command is not required to emit a
-separate output-delta notification.
+thread in the isolated App Server home. Turn one selects executor A with the
+`untrusted` approval policy, accepts approval callbacks confined to that
+command item, and requires exactly one parent approval for the intended command
+before writing one bounded untracked proof file. The still-running App Server
+then receives `thread/resume`, and turn two selects executor B with no approval.
+For both turns, the fixture verifies that the recorded shell action expands the
+environment variables and that the proof file is the only Git mutation in the
+selected repository. Before turn two, executor B's repository must not contain
+executor A's proof file; after turn two, each repository contains only its own
+file. This proves that the writes were not misrouted, not that either same-user
+process cannot read the other repository through an absolute path. Streamed
+command events and replayed history must report the executor-specific `HOME`,
+canonical working directory, unset command-level `CODEX_HOME`, absent API key,
+and unset App Server sentinel. This distinguishes both executors from the App
+Server's ambient process and verifies the tested shell environment policy.
+Every unexpected App Server request fails the fixture. A short command is not
+required to emit a separate output-delta notification.
 
-Both turns use `approvalPolicy: "never"` and a workspace-write shell sandbox
-restricted to the selected temporary environment root with shell network
-disabled. App Server still uses provider network traffic for the two model
-turns. An unexpected App Server request fails closed. The durable thread
-exists only inside the temporary `CODEX_HOME`; after the App Server and both
-executor process groups have stopped, that home and the two environments are
-removed. Signal handling terminates every registered process group before
-cleanup. If group termination cannot be confirmed, the fixture reports the
-cleanup failure and retains its temporary tree for diagnosis. The fixture does
-not archive or delete user task history.
+Turn one uses `approvalPolicy: "untrusted"`; turn two uses
+`approvalPolicy: "never"`. Both use a workspace-write shell sandbox restricted
+to the selected temporary environment root with shell network disabled. App
+Server still uses provider network traffic for the two model turns. The
+durable thread exists only inside the temporary `CODEX_HOME`; after the App
+Server and both executor process groups have stopped, that home and the two
+environments are removed. Signal handling terminates every registered process
+group before cleanup. If group termination cannot be confirmed, the fixture
+reports the cleanup failure and retains its temporary tree for diagnosis. The
+fixture does not archive or delete user task history.
 
 ## Evidence and remaining credential gate
 
@@ -97,10 +106,12 @@ non-empty yielded background terminal and targeted termination, every approval
 shape/decision, recursive child discovery, cross-task
 event/approval/filesystem isolation, and production adoption of the isolated
 launch profile remain separate CP1
-evidence. The safe live path is configured to keep its API key out of executor
-process environments and records an exact command that checks the key,
+evidence. The safe live path is now also configured to exercise one typed
+parent-command approval and one bounded Git-worktree mutation per repository
+without adding a model turn. It keeps its API key out of executor process
+environments and records an exact command that checks that the key,
 `CODEX_HOME`, and App Server sentinel are absent. The dedicated-key rerun must
-prove that behavior. The fixture does not claim same-user filesystem read
+prove these added behaviors. The fixture does not claim same-user filesystem read
 confinement outside the executor sandbox or restart-based thread recovery.
 Product decisions about relying on an experimental unsupported-for-production
 command and the same-host executor trust boundary also remain unresolved.

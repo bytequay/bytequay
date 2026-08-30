@@ -137,7 +137,7 @@ public class ModelSettingsService
                 models = drivers.require(status.laneId()).models();
             }
             catch (RuntimeException unavailable) {
-                log.warn("Model catalog probe failed for {}: {}", id, unavailable.getMessage());
+                log.warn("Model catalog probe failed for {} {}: {}", id, status.version().orElse("unknown"), unavailable.getMessage());
                 continue;
             }
             if (models == null || models.isEmpty()) {

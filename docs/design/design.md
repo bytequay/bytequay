@@ -5,9 +5,10 @@ is a local-first macOS application with an Electron and React frontend, one
 localhost Spring Boot backend, GitHub integration, and SQLite persistence.
 
 The current product implements pull-request workflows and a local agent
-subsystem. The design distinguishes shipped behavior, known integration gaps,
-and follow-up work so a proposed replacement is not mistaken for current
-behavior.
+subsystem. A rich user-facing agent task surface is proposed for review and is
+not shipped behavior. The design distinguishes current implementation, the
+existing backend invariants it must retain, and planned UI work so a proposed
+surface is not mistaken for an existing one.
 
 ## Design documents
 
@@ -15,8 +16,15 @@ behavior.
   boundaries, dependency direction, the dedicated SQLite persistence module,
   runtime composition, and extraction sequence.
 - [Agent Service](agent-service.md) records the current worktree-scoped Codex
-  App Server and Claude task implementation, its event/UI gaps, and the planned
-  follow-up toward one App Server-based framework.
+  App Server and Claude implementation and specifies the task, turn, event,
+  approval, queue, attachment, and subagent contracts required by the planned
+  rich task surface.
+- [Codex App Server compatibility fixture](codex-app-server-compat.md) records
+  the executable v0.151.0 schema and live-runtime evidence, together with the
+  CP1 isolation and approval evidence that remains open.
+- [Agent Task UI](agent-task-ui.md) specifies the proposed composer,
+  transcript, approvals, folded activity, plans, images, subagent inspection,
+  steering, queue, Electron transport, and incremental delivery sequence.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
@@ -59,8 +67,33 @@ repository builds.
 - Use SQLite for durable application facts and task-owned files for disposable
   execution history.
 - Add modules only for real dependency, replacement, or testing boundaries.
+- Use Codex App Server as the Codex harness and rich-client protocol; keep
+  ByteQuay responsible for product state, cross-provider events, and UI.
+- Start with the App Server's native harness, tools, approvals, and event
+  stream. ByteQuay-defined model tools and workflow actions require a separate
+  later design.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
+
+## Agent-task review decisions
+
+The proposed task surface is ready for product/design review, not
+implementation approval. The decisions to accept or change are:
+
+1. **Runtime shape:** one shared Codex App Server, one official
+   task-owned exec-server/environment per active Codex task, and a separate
+   Claude CLI lane.
+2. **UI contract:** ByteQuay persists and renders normalized messages, plans,
+   approvals, activity/logs, images, metrics, queue/steer state, and root/child
+   agents; it never renders raw provider JSON or hidden reasoning.
+3. **Tool boundary:** the first release uses only the App Server's native
+   harness tools and their typed events. It registers no ByteQuay-defined
+   model tool or product workflow; commit integration is deferred with the
+   rest of that tool contract.
+4. **Release tradeoffs:** App Server/environment APIs are experimental and the
+   stock task executor has a same-host authentication gap.
+5. **Delivery order:** protocol/replay foundations first, then a usable Codex
+   task, rich transcript, subagents, steer/queue, and finally Claude parity.
 
 ## Release blockers
 
@@ -73,3 +106,23 @@ authentication are different checks.
 The required backend gate, workspace-settings behavior, UI states, recovery,
 and acceptance criteria are defined in
 [Agent Service: Workspace settings and provider readiness](agent-service.md#12-workspace-settings-and-provider-readiness).
+
+The rich task surface also must not ship until the event/approval contract,
+authenticated Electron SSE bridge, reconnect replay, image boundary, and
+root/child/item quiescence and restart-safe worktree ownership satisfy the
+acceptance criteria in
+[Agent Task UI](agent-task-ui.md#8-acceptance-criteria).
+
+Codex App Server is also a conscious release-risk decision: its official
+documentation currently marks the command experimental and unsupported for
+production workloads. A release must explicitly accept that dependency and
+maintain a fixed reference fixture for the experimental per-task environment
+and background-terminal methods used by isolation and the quiescence gate;
+transport success alone is not sufficient. Production keeps Codex's startup
+self-update enabled and runs the user's installed CLI without treating any
+reported version text, including an unparseable string, as a readiness gate. An
+incompatible operation fails with that detected version in its diagnostic so it
+can be reported and fixed. The stock
+exec-server's unauthenticated loopback listener is also an explicit same-host
+trust decision: an ephemeral port is not treated as authentication. The first
+release does not add the separate, process-wide `--code-mode-host` dependency.

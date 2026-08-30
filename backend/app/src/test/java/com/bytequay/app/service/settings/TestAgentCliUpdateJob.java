@@ -27,7 +27,6 @@ import java.util.Optional;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,32 +41,40 @@ class TestAgentCliUpdateJob
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
                 status(CLAUDE, Health.AVAILABLE),
-                status(CODEX, Health.UNAVAILABLE)));
+                status(CODEX, Health.AVAILABLE)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenReturn(Optional.of("Updated to 2.2.0"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
+        AgentDriver codex = mock(AgentDriver.class);
+        when(codex.update()).thenReturn(Optional.of("Updated to 0.152.0"));
+        when(drivers.require(CODEX)).thenReturn(codex);
         ModelSettingsService models = mock(ModelSettingsService.class);
 
         new AgentCliUpdateJob(drivers, models).runUpdates();
 
-        var order = inOrder(claude, models);
+        var order = inOrder(claude, codex, models);
         order.verify(claude).update();
+        order.verify(codex).update();
         order.verify(models).refreshCatalogs();
-        verify(drivers, never()).require(CODEX);
     }
 
     @Test
     void updateFailureStillRefreshesCatalogs()
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        when(drivers.statuses()).thenReturn(ImmutableList.of(status(CLAUDE, Health.AVAILABLE)));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                status(CLAUDE, Health.AVAILABLE),
+                status(CODEX, Health.AVAILABLE)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenThrow(new AgentUnavailableException("update failed"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
+        AgentDriver codex = mock(AgentDriver.class);
+        when(drivers.require(CODEX)).thenReturn(codex);
         ModelSettingsService models = mock(ModelSettingsService.class);
 
         new AgentCliUpdateJob(drivers, models).runUpdates();
 
+        verify(codex).update();
         verify(models).refreshCatalogs();
     }
 

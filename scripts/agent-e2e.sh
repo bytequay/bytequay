@@ -22,16 +22,22 @@ while [[ $# -gt 0 ]]; do
             provider="$1"
             ;;
         --help)
-            echo "Usage: $0 [--interactive] [--provider codex|claude] [--minimal-worktree]"
+            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]"
             exit 0
             ;;
         *)
-            echo "Usage: $0 [--interactive] [--provider codex|claude] [--minimal-worktree]" >&2
+            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
             exit 2
             ;;
     esac
     shift
 done
+
+if [[ "$interactive" != true ]]; then
+    echo "The deterministic shell mode was removed; pass --interactive with a real provider." >&2
+    echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
+    exit 2
+fi
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 backend_root="$repository_root/backend"
@@ -214,19 +220,13 @@ interactive_session()
     done
 }
 
-for command in curl git java jq mvn; do
+for command in curl git java jq mvn "$provider"; do
     command -v "$command" >/dev/null || {
         echo "Missing required command: $command" >&2
         exit 1
     }
 done
-if [[ "$interactive" == true ]]; then
-    command -v "$provider" >/dev/null || {
-        echo "Missing required command: $provider" >&2
-        exit 1
-    }
-fi
-if [[ "$interactive" == true && "$minimal_worktree" == false ]]; then
+if [[ "$minimal_worktree" == false ]]; then
     command -v rsync >/dev/null || {
         echo "Missing required command: rsync" >&2
         exit 1
@@ -236,17 +236,17 @@ codex_executable=codex
 claude_executable=claude
 codex_enabled=false
 claude_enabled=false
-if [[ "$interactive" == true && "$provider" == codex ]]; then
+if [[ "$provider" == codex ]]; then
     codex_executable="$(command -v codex)"
     codex_enabled=true
 fi
-if [[ "$interactive" == true && "$provider" == claude ]]; then
+if [[ "$provider" == claude ]]; then
     claude_executable="$(command -v claude)"
     claude_enabled=true
 fi
 
 worktree="$temporary_directory/worktree"
-if [[ "$interactive" == true && "$minimal_worktree" == false ]]; then
+if [[ "$minimal_worktree" == false ]]; then
     mkdir "$worktree"
     git -C "$repository_root" ls-files -co --exclude-standard \
         | rsync -a --files-from=- "$repository_root/" "$worktree/"
@@ -279,7 +279,6 @@ java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-
     --bytequay.agent.codex-executable="$codex_executable" \
     --bytequay.agent.claude-enabled="$claude_enabled" \
     --bytequay.agent.claude-executable="$claude_executable" \
-    --bytequay.agent.deterministic-enabled=true \
     > "$temporary_directory/process.log" 2>&1 &
 backend_pid=$!
 
@@ -304,12 +303,8 @@ curl -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
     exit 1
 }
 
-lane_id=deterministic
-if [[ "$interactive" == true ]]; then
-    lane_id="$provider"
-fi
 task_request="$(jq -n \
-    --arg laneId "$lane_id" \
+    --arg laneId "$provider" \
     --arg worktree "$worktree" \
     --arg repository bytequay/agent-e2e \
     --arg title "Agent shell E2E" \
@@ -320,42 +315,4 @@ task_id="$(curl -fsS --connect-timeout 2 --max-time 30 \
     -d "$task_request" \
     "$base_url/agent/tasks" | jq -er '.id')"
 
-if [[ "$interactive" == true ]]; then
-    interactive_session
-    exit 0
-fi
-
-turn_request="$(jq -n --arg message hello '{message: $message}')"
-turn_id="$(curl -fsS --connect-timeout 2 --max-time 30 \
-    -H "X-ByteQuay-Session: $session_token" \
-    -H 'Content-Type: application/json' \
-    -H 'Idempotency-Key: shell-e2e-turn-1' \
-    -d "$turn_request" \
-    "$base_url/agent/tasks/$task_id/turns" | jq -er '.id')"
-
-for _ in {1..40}; do
-    turn_state="$(curl -fsS --connect-timeout 2 --max-time 30 \
-        -H "X-ByteQuay-Session: $session_token" \
-        "$base_url/agent/turns/$turn_id" | jq -er '.state')"
-    [[ "$turn_state" == "COMPLETED" ]] && break
-    sleep 0.25
-done
-[[ "$turn_state" == "COMPLETED" ]]
-
-curl -fsS --connect-timeout 2 --max-time 30 \
-    -H "X-ByteQuay-Session: $session_token" \
-    "$base_url/agent/tasks/$task_id/events?after=0&limit=10" \
-    | jq -e 'any(.[]; .payload.text == "deterministic: hello")' >/dev/null
-
-set +e
-curl -s -N --max-time 2 \
-    -H "X-ByteQuay-Session: $session_token" \
-    "$base_url/agent/tasks/$task_id/stream?after=0" \
-    > "$temporary_directory/events.sse"
-sse_exit=$?
-set -e
-[[ "$sse_exit" -eq 0 || "$sse_exit" -eq 28 ]]
-grep -F 'event:message' "$temporary_directory/events.sse" >/dev/null
-grep -F 'deterministic: hello' "$temporary_directory/events.sse" >/dev/null
-
-echo "Agent shell E2E passed"
+interactive_session

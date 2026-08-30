@@ -55,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -64,10 +65,6 @@ public final class CodexCliDriver
 {
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
-    // Minimum, not an exact pin: the app self-updates the CLI at startup, so
-    // newer releases must stay acceptable. Raise this when the app-server
-    // protocol we use is re-validated against a newer baseline.
-    private static final Version MINIMUM_VERSION = new Version(0, 145, 0);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
@@ -118,6 +115,8 @@ public final class CodexCliDriver
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final CodexAppServerClient client;
+    private final AtomicReference<String> appServerVersion = new AtomicReference<>();
+    private volatile String detectedVersion = "unknown";
 
     public CodexCliDriver(String executable, ObjectMapper objectMapper)
     {
@@ -198,64 +197,62 @@ public final class CodexCliDriver
                     .filter(line -> line.startsWith("codex-cli "))
                     .map(line -> line.substring("codex-cli ".length()).trim())
                     .findFirst()
-                    .orElse("");
+                    .orElseGet(() -> versionResult.output().lines()
+                            .map(String::trim)
+                            .filter(line -> !line.isBlank())
+                            .findFirst()
+                            .orElse(""));
             if (version.isBlank()) {
                 return status(
                         AgentProviderStatus.Health.UNAVAILABLE,
                         Optional.empty(),
                         "Unable to read Codex CLI version");
             }
-            Optional<Version> parsed = Version.parse(version);
-            if (parsed.isEmpty() || parsed.orElseThrow().compareTo(MINIMUM_VERSION) < 0) {
-                return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
-                        Optional.of(version),
-                        "Unsupported Codex CLI version; expected " + MINIMUM_VERSION + " or newer");
-            }
+            detectedVersion = version;
             CommandResult login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
                 return status(
                         AgentProviderStatus.Health.UNAVAILABLE,
                         Optional.of(version),
-                        login.output());
+                        "Codex CLI " + version + " is not ready: " + login.output());
             }
             return status(AgentProviderStatus.Health.AVAILABLE, Optional.of(version), login.output());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return status(
-                    AgentProviderStatus.Health.UNAVAILABLE,
-                    Optional.empty(),
-                    "Codex CLI probe was interrupted");
+            return unavailableWithDetectedVersion("probe was interrupted");
         }
         catch (RuntimeException e) {
-            return status(
-                    AgentProviderStatus.Health.UNAVAILABLE,
-                    Optional.empty(),
-                    "Codex CLI is not available: " + e.getMessage());
+            return unavailableWithDetectedVersion("is not available: " + e.getMessage());
         }
     }
 
     @Override
     public List<ProviderModel> models()
     {
-        CodexProtocol.ModelListResponse response = client.request(
-                "model/list",
-                new CodexProtocol.ModelListParams(),
-                CodexProtocol.ModelListResponse.class,
-                REQUEST_TIMEOUT);
-        return response.data().stream()
-                .filter(entry -> !entry.hidden())
-                .map(entry -> new ProviderModel(
-                        entry.id(),
-                        entry.displayName(),
-                        entry.description(),
-                        entry.supportedReasoningEfforts().stream()
-                                .map(CodexProtocol.ReasoningEffortOption::reasoningEffort)
-                                .collect(toImmutableList()),
-                        entry.defaultReasoningEffort(),
-                        entry.isDefault()))
-                .collect(toImmutableList());
+        rememberAppServerVersion();
+        try {
+            CodexProtocol.ModelListResponse response = client.request(
+                    "model/list",
+                    new CodexProtocol.ModelListParams(),
+                    CodexProtocol.ModelListResponse.class,
+                    REQUEST_TIMEOUT);
+            return response.data().stream()
+                    .filter(entry -> !entry.hidden())
+                    .map(entry -> new ProviderModel(
+                            entry.id(),
+                            entry.displayName(),
+                            entry.description(),
+                            entry.supportedReasoningEfforts().stream()
+                                    .map(CodexProtocol.ReasoningEffortOption::reasoningEffort)
+                                    .collect(toImmutableList()),
+                            entry.defaultReasoningEffort(),
+                            entry.isDefault()))
+                    .collect(toImmutableList());
+        }
+        catch (RuntimeException failure) {
+            throw appServerFailure("model catalog", failure);
+        }
     }
 
     @Override
@@ -287,11 +284,18 @@ public final class CodexCliDriver
                     "ByteQuay");
         }
 
-        CodexProtocol.ThreadResponse response = client.request(
-                method,
-                params,
-                CodexProtocol.ThreadResponse.class,
-                REQUEST_TIMEOUT);
+        rememberAppServerVersion();
+        CodexProtocol.ThreadResponse response;
+        try {
+            response = client.request(
+                    method,
+                    params,
+                    CodexProtocol.ThreadResponse.class,
+                    REQUEST_TIMEOUT);
+        }
+        catch (RuntimeException failure) {
+            throw appServerFailure(method, failure);
+        }
         String threadId = response.thread().id();
         CodexSession session = new CodexSession(
                 new AgentSessionRef(LANE_ID, CONTRACT_VERSION, threadId),
@@ -314,6 +318,39 @@ public final class CodexCliDriver
     {
         String message = diagnostic == null || diagnostic.isBlank() ? health.name().toLowerCase() : diagnostic;
         return new AgentProviderStatus(LANE_ID, health, version, message, capabilities());
+    }
+
+    private AgentProviderStatus unavailableWithDetectedVersion(String diagnostic)
+    {
+        Optional<String> version = detectedVersion.equals("unknown") ? Optional.empty() : Optional.of(detectedVersion);
+        String label = version.map(value -> "Codex CLI " + value).orElse("Codex CLI");
+        return status(AgentProviderStatus.Health.UNAVAILABLE, version, label + " " + diagnostic);
+    }
+
+    private AgentUnavailableException appServerFailure(String operation, RuntimeException failure)
+    {
+        String detail = failure.getMessage();
+        return new AgentUnavailableException(
+                "Codex CLI " + rememberAppServerVersion() + " failed during " + operation + ": "
+                        + redactor.redact(detail == null || detail.isBlank() ? failure.getClass().getSimpleName() : detail),
+                failure);
+    }
+
+    private String rememberAppServerVersion()
+    {
+        String version = appServerVersion.get();
+        if (version != null) {
+            return version;
+        }
+        version = detectedVersion;
+        if (version.equals("unknown")) {
+            version = probe().version().orElse("unknown");
+        }
+        if (version.equals("unknown")) {
+            return version;
+        }
+        appServerVersion.compareAndSet(null, version);
+        return appServerVersion.get();
     }
 
     private CommandResult run(String... command)
@@ -384,48 +421,6 @@ public final class CodexCliDriver
 
     private record CommandResult(int exitCode, String output) {}
 
-    private record Version(int major, int minor, int patch)
-            implements Comparable<Version>
-    {
-        // Codex ships pre-release builds like "0.150.0-alpha.8"; the
-        // pre-release suffix is ignored when comparing against the minimum.
-        private static Optional<Version> parse(String text)
-        {
-            String release = text.strip().split("\\s+", 2)[0].split("-", 2)[0];
-            String[] parts = release.split("\\.");
-            if (parts.length != 3) {
-                return Optional.empty();
-            }
-            try {
-                return Optional.of(new Version(
-                        Integer.parseInt(parts[0]),
-                        Integer.parseInt(parts[1]),
-                        Integer.parseInt(parts[2])));
-            }
-            catch (NumberFormatException ignored) {
-                return Optional.empty();
-            }
-        }
-
-        @Override
-        public int compareTo(Version other)
-        {
-            requireNonNull(other, "other is null");
-            int majorComparison = Integer.compare(major, other.major);
-            if (majorComparison != 0) {
-                return majorComparison;
-            }
-            int minorComparison = Integer.compare(minor, other.minor);
-            return minorComparison != 0 ? minorComparison : Integer.compare(patch, other.patch);
-        }
-
-        @Override
-        public String toString()
-        {
-            return major + "." + minor + "." + patch;
-        }
-    }
-
     private final class CodexSession
             implements AgentSession, CodexAppServerClient.Listener
     {
@@ -470,11 +465,18 @@ public final class CodexCliDriver
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     ImmutableList.of(new CodexProtocol.TextInput("text", command.message())));
-            CodexProtocol.TurnStartResponse response = client.request(
-                    "turn/start",
-                    params,
-                    CodexProtocol.TurnStartResponse.class,
-                    REQUEST_TIMEOUT);
+            rememberAppServerVersion();
+            CodexProtocol.TurnStartResponse response;
+            try {
+                response = client.request(
+                        "turn/start",
+                        params,
+                        CodexProtocol.TurnStartResponse.class,
+                        REQUEST_TIMEOUT);
+            }
+            catch (RuntimeException failure) {
+                throw appServerFailure("turn/start", failure);
+            }
             String turnId = response.turn().id();
             running = new CodexRunningTurn(reference.providerValue(), turnId, command.maximumRuntime());
             return running;
@@ -662,13 +664,16 @@ public final class CodexCliDriver
                         : AgentTurnResult.State.INTERRUPTED;
                 case FAILED, IN_PROGRESS, UNKNOWN -> AgentTurnResult.State.FAILED;
             };
-            Optional<String> reason = state == AgentTurnResult.State.COMPLETED
-                    ? Optional.empty()
-                    : Optional.of(turn.error()
-                            .map(CodexProtocol.TurnError::message)
-                            .filter(value -> !value.isBlank())
-                            .map(redactor::redact)
-                            .orElse("Codex turn " + turn.status().name().toLowerCase()));
+            String detail = turn.error()
+                    .map(CodexProtocol.TurnError::message)
+                    .filter(value -> !value.isBlank())
+                    .map(redactor::redact)
+                    .orElse("Codex turn " + turn.status().name().toLowerCase());
+            Optional<String> reason = switch (state) {
+                case COMPLETED -> Optional.empty();
+                case CANCELLED -> Optional.of(detail);
+                case FAILED, INTERRUPTED -> Optional.of("Codex CLI " + rememberAppServerVersion() + ": " + detail);
+            };
             completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn)));
         }
 
@@ -678,9 +683,10 @@ public final class CodexCliDriver
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.INTERRUPTED,
                     finalResponse,
-                    Optional.of(message == null || message.isBlank()
-                            ? "Codex disconnected"
-                            : redactor.redact(message)),
+                    Optional.of("Codex CLI " + rememberAppServerVersion() + ": "
+                            + (message == null || message.isBlank()
+                                    ? "Codex disconnected"
+                                    : redactor.redact(message))),
                     Duration.between(startedAt, Instant.now())));
         }
 

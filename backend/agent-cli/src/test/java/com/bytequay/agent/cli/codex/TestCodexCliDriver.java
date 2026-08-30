@@ -26,6 +26,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -51,6 +52,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexCliDriver
 {
@@ -110,11 +112,12 @@ class TestCodexCliDriver
     }
 
     @Test
-    void reportsCancellationAndAppServerDisconnect()
+    void reportsCancellationFailureAndAppServerDisconnect()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
 
         RunningTurn cancelled = session.start(command("cancel"));
@@ -124,13 +127,54 @@ class TestCodexCliDriver
                 .get(5, TimeUnit.SECONDS);
         assertThat(cancelledResult.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
 
+        RunningTurn failed = session.start(command("fail"));
+        supervisor.server().failTurn();
+        AgentTurnResult failedResult = failed.completion()
+                .toCompletableFuture()
+                .get(5, TimeUnit.SECONDS);
+        assertThat(failedResult.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(failedResult.terminalReason()).hasValueSatisfying(reason ->
+                assertThat(reason).contains("Codex CLI 0.151.0").contains("provider failed"));
+
+        supervisor.versionOutput("future-build");
+        assertThat(driver.probe().version()).contains("future-build");
+
         RunningTurn disconnected = session.start(command("disconnect"));
         supervisor.server().disconnect();
         AgentTurnResult disconnectedResult = disconnected.completion()
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
         assertThat(disconnectedResult.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("exited with code 1"));
+        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason ->
+                assertThat(reason).contains("Codex CLI 0.151.0").contains("exited with code 1"));
+
+        driver.close();
+    }
+
+    @Test
+    void acceptsAndReportsTheInstalledCodexVersion()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "future-build");
+        CodexCliDriver driver = driver(supervisor);
+
+        AgentProviderStatus status = driver.probe();
+
+        assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(status.version()).contains("future-build");
+        driver.close();
+    }
+
+    @Test
+    void reportsTheInstalledVersionWhenAppServerIsIncompatible()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "future-build", true);
+        CodexCliDriver driver = driver(supervisor);
+
+        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("Codex CLI future-build")
+                .hasMessageContaining("thread/start")
+                .hasMessageContaining("unsupported protocol");
 
         driver.close();
     }
@@ -172,11 +216,25 @@ class TestCodexCliDriver
             implements ProcessSupervisor
     {
         private final ObjectMapper objectMapper;
+        private final boolean failThreadStart;
+        private volatile String versionOutput;
         private AppServerProcess server;
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
         {
+            this(objectMapper, "codex-cli 0.151.0", false);
+        }
+
+        private ScriptedProcessSupervisor(ObjectMapper objectMapper, String versionOutput)
+        {
+            this(objectMapper, versionOutput, false);
+        }
+
+        private ScriptedProcessSupervisor(ObjectMapper objectMapper, String versionOutput, boolean failThreadStart)
+        {
             this.objectMapper = objectMapper;
+            this.versionOutput = versionOutput;
+            this.failThreadStart = failThreadStart;
         }
 
         @Override
@@ -185,20 +243,25 @@ class TestCodexCliDriver
             if (spec.argv().contains("--version")) {
                 output.onOutput(
                         ProcessStream.STDOUT,
-                        StandardCharsets.UTF_8.encode("codex-cli 0.145.0\n"));
+                        StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("login")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("Logged in using ChatGPT\n"));
                 return ImmediateProcess.success();
             }
-            server = new AppServerProcess(objectMapper, output);
+            server = new AppServerProcess(objectMapper, output, failThreadStart);
             return server;
         }
 
         private AppServerProcess server()
         {
             return server;
+        }
+
+        private void versionOutput(String versionOutput)
+        {
+            this.versionOutput = versionOutput;
         }
     }
 
@@ -207,6 +270,7 @@ class TestCodexCliDriver
     {
         private final ObjectMapper objectMapper;
         private final ProcessOutputSink output;
+        private final boolean failThreadStart;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
@@ -214,10 +278,11 @@ class TestCodexCliDriver
         private volatile String activeTurn;
         private volatile String approvalDecision = "";
 
-        private AppServerProcess(ObjectMapper objectMapper, ProcessOutputSink output)
+        private AppServerProcess(ObjectMapper objectMapper, ProcessOutputSink output, boolean failThreadStart)
         {
             this.objectMapper = objectMapper;
             this.output = output;
+            this.failThreadStart = failThreadStart;
         }
 
         @Override
@@ -248,7 +313,12 @@ class TestCodexCliDriver
                 case "initialized" -> {}
                 case "thread/start" -> {
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
-                    respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                    if (failThreadStart) {
+                        emit("{\"id\":" + id + ",\"error\":{\"code\":-32602,\"message\":\"unsupported protocol\"}}");
+                    }
+                    else {
+                        respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                    }
                 }
                 case "thread/resume" -> {
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
@@ -295,6 +365,13 @@ class TestCodexCliDriver
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
                     + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2}}}");
+        }
+
+        private void failTurn()
+        {
+            emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
+                    + "\"turn\":{\"id\":\"" + activeTurn
+                    + "\",\"status\":\"failed\",\"error\":{\"message\":\"provider failed\"},\"durationMs\":2}}}");
         }
 
         private void disconnect()

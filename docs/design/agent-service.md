@@ -1,8 +1,9 @@
 # Agent Service Design
 
 This document specifies local, worktree-scoped development tasks driven by
-Codex CLI or Claude Code. The whole-system shape and Maven module boundaries
-are defined in [ByteQuay Architecture](architecture.md).
+Codex App Server launched through the Codex CLI or by Claude Code CLI. The
+whole-system shape and Maven module boundaries are defined in
+[ByteQuay Architecture](architecture.md).
 The exact service and method sequence is defined in
 [Create-to-close lifecycle](#7-create-to-close-lifecycle).
 
@@ -19,6 +20,17 @@ agent subsystem as future work.
   `codex app-server --listen stdio://` process, persists Codex thread and turn
   references, and maps App Server JSON-RPC notifications into
   `ProviderAgentEvent`.
+- The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
+  reference fixture. It does not constrain production. ByteQuay keeps Codex's
+  startup self-update enabled and uses the user-managed installed CLI without
+  treating any reported version text, including unparseable output, as a readiness
+  gate. The detected version text is retained for status and
+  incompatibility diagnostics. This is not yet approval to ship the
+  experimental dependency.
+- The official documentation currently marks the `app-server` command itself,
+  not only WebSocket transport, as experimental and unsupported for production
+  workloads. The existing stdio integration therefore remains an explicit
+  release risk despite protocol compatibility tests.
 - The Claude lane is a separate `stream-json` adapter. Both adapters feed the
   ByteQuay-owned task, turn, approval, metrics, retention, and event services.
 - ByteQuay persists normalized user-visible events in the task JSONL log and
@@ -39,25 +51,48 @@ watch changes are independent of this gap. The conflict-resolution log display
 remains open; this change deliberately does not add an interim bridge or a
 second logging path.
 
-### Follow-up decision
+### Proposed follow-up boundary
 
-Further agent-framework work will be done as one unified framework based on
-the official OpenAI Codex App Server contract. The existing Codex transport is
-useful implementation input, but the follow-up should define one coherent
-thread/turn/item/event/approval model instead of extending parallel transport
-and UI abstractions piecemeal.
+The rich task surface is a new design for review; this document does not claim
+that the UI or the added contracts are already shipped. It extends the current
+service instead of introducing a second agent framework.
 
-Before replacing the current boundary, that work must decide and document:
+The Codex driver's generated App Server DTOs remain private to `agent-cli`.
+They are the canonical Codex wire contract, but they are not ByteQuay's shared
+domain model. `agent-core` owns the smaller cross-provider task, turn,
+approval, queue, attachment, thread-correlation, and event contracts required
+by the product. Claude continues to adapt its native stream to those contracts;
+it does not pass through Codex App Server.
 
-1. which App Server types are the canonical internal contract and which remain
-   provider-specific;
-2. whether and how non-Codex providers adapt to that contract;
-3. how application workflows durably correlate their own items with agent
-   threads, turns, and streamed items, including completed conflict attempts;
-4. how existing task rows, provider references, and retained JSONL logs remain
-   readable during migration; and
-5. how restart recovery, cancellation, approvals, sandbox policy, redaction,
-   and bounded retention are verified end to end.
+The follow-up therefore has these fixed boundaries:
+
+1. one long-lived App Server is shared by all live Codex tasks and routed by
+   persisted root and child thread IDs;
+2. every interactive task is durably scoped to a ByteQuay workspace, and every
+   accepted input, resolved approval, and child relationship is
+   replayable from the task event sequence;
+3. the task owns defaults while each turn snapshots the model, reasoning
+   effort, permission policy, and attachments actually submitted;
+4. ByteQuay owns the durable next-turn queue, while native Codex
+   `turn/steer` is used only for immediate input to the matching active turn;
+5. Electron main owns authenticated HTTP/SSE and the renderer receives only
+   typed ByteQuay DTOs; and
+6. existing rows and retained JSONL logs stay readable during an additive,
+   versioned migration. New required fields are backfilled or represented as
+   absent for legacy records rather than reinterpreting old payloads.
+
+A legacy task without a known workspace remains readable through its existing
+workflow/task ID but is not silently inserted into an interactive workspace
+list. A legacy event without source-thread/item metadata renders in a
+root-level legacy stream; ByteQuay does not invent child relationships.
+
+The current implementation does not yet satisfy that target: task rows lack a
+workspace ID and per-turn model/effort settings; accepted prompts and approval
+resolutions are not replay events; child/item source IDs are reduced away;
+pending approvals are process-local; state/event writes have no crash-safe
+outbox; Codex image inputs, steering, and durable queueing are absent; and
+Electron has no agent REST/SSE bridge. These are implementation prerequisites,
+not optional renderer polish.
 
 Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
 pushes, and user-confirmation gates remain application-owned invariants. The
@@ -66,14 +101,35 @@ not decide those workflow outcomes.
 
 ## 1. Decision summary
 
-ByteQuay will add a new local agent subsystem rather than restore the deleted
-task-agent implementation. Every task is bound to one validated Git worktree
-and one immutable provider lane. The frontend sends multiple turns to the same
-ByteQuay task; the selected driver resumes the provider session.
+ByteQuay has a new local agent subsystem rather than the deleted task-agent
+implementation. Every task is bound to one ByteQuay workspace, one validated
+Git worktree, and one immutable provider lane. The proposed frontend sends
+multiple turns to the same task; the selected driver resumes the provider
+session.
 
-The backend exposes only provider-supported messages, plans, tool activity,
-commands, file changes, approvals, usage, errors, and lifecycle events. Hidden
-chain-of-thought is not part of the contract.
+The backend exposes user inputs plus provider-supported messages, readable
+reasoning summaries, plans, tool activity, commands, file changes, approvals,
+subagent activity, usage, errors, and lifecycle events. Hidden
+chain-of-thought and raw provider JSON are not part of the contract.
+
+For Codex development tasks, App Server owns reasoning and tool selection.
+ByteQuay launches the matching official `codex exec-server` process from the
+installed Codex distribution for each active task, registers it through
+experimental `environment/add`, and selects only
+that task environment on the thread and its turns. This gives every task a
+separate execution process/worktree boundary without reimplementing Codex's
+process/filesystem protocol. It is distinct from the experimental process-wide
+`--code-mode-host`, which is not a task router and remains unset. Ambient MCP
+servers, apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle
+hooks are disabled for the first release and verified absent before the first
+turn.
+
+Phase one observes App Server's native command, file, web, and other built-in
+tool execution through the selected task environment. The Codex lane registers
+no ByteQuay business MCP or dynamic tools and does not use
+`--code-mode-host`; product tools and workflows, including commit integration,
+require a separate later design. Claude's task-scoped permission callback is
+only an approval transport adapter, not a product tool.
 
 SQLite stores durable lifecycle facts, provider session references, per-turn
 metrics, task totals, cleanup state, and the final summary. Detailed active-task
@@ -81,9 +137,10 @@ history is an append-only JSONL file with optional blobs. Terminal task logs
 remain available for seven days; cleanup deletes them only after the retention
 deadline.
 
-The first release is single-user, localhost-only, and permits one active turn
-per task. It accepts only clean worktrees. Cost remains unavailable when the
-provider does not report a monetary amount.
+The first rich-task release is single-user, localhost-only, and permits one
+active turn per task. A small ByteQuay-owned FIFO may hold later inputs, but it
+never creates concurrent turns. Tasks accept only initially clean worktrees.
+Cost remains unavailable when the provider does not report a monetary amount.
 
 ## 2. Domain model and invariants
 
@@ -93,14 +150,26 @@ provider does not report a monetary amount.
 | --- | --- |
 | `TaskId` | ByteQuay-owned stable task identifier |
 | `TurnId` | One user request and its provider execution |
+| `EventId` | Globally unique ByteQuay-owned idempotency key for one canonical event |
+| `workspaceId` | Existing ByteQuay workspace identifier that scopes task navigation and authorization |
 | `ApprovalId` | One pending permission decision |
+| `QueuedInputId` | One durable user request waiting to become a turn |
+| `InputDeliveryId` | Durable attempt to deliver a start or steer input to a provider |
+| `AttachmentRef` | Opaque reference to a bounded, task-owned input blob |
 | `AgentLaneId` | Stable driver ID such as `codex-cli` or `claude-cli` |
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
-| `AgentTurnCompletion` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
-| `AgentTask` | Durable task state, lane, worktree, timestamps, totals, and summary |
-| `AgentTurn` | Durable per-turn state, provider turn reference, timing, and metrics |
+| `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
+| `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
+| `AgentTurnSettings` | Effective model, effort, permission, sandbox, and runtime snapshot |
+| `AgentInputDelivery` | Durable start/steer send attempt and known or uncertain outcome |
+| `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
+| `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and available decisions |
+| `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
+| `AgentTurnResult` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
+| `AgentTask` | Durable workspace, task state, lane, worktree, defaults, timestamps, totals, and summary |
+| `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
-| `WorkspaceLease` | Exclusive in-process ownership of a canonical worktree |
+| `WorkspaceLease` | Durable exclusive ownership of a canonical worktree, mirrored in process for fast checks |
 
 ### 2.2 State
 
@@ -109,36 +178,108 @@ Task:
   CREATED -> READY
   READY <-> ACTIVE
   READY -> COMPLETING -> COMPLETED
-  READY | ACTIVE | COMPLETING -> FAILED
+  READY | ACTIVE | COMPLETING -> RECOVERING -> READY | FAILED
+  READY | ACTIVE | COMPLETING | RECOVERING -> FAILED
 
 Turn: ACCEPTED -> RUNNING -> COMPLETED
-                    |-----> FAILED
-                    |-----> CANCELLED
-                    +-----> INTERRUPTED
+      |             |-----> FAILED
+      |             |-----> CANCELLED
+      |             +-----> INTERRUPTED
+      +-------------------> FAILED | CANCELLED | INTERRUPTED
 
 Cleanup: RETAINED -> DELETE_DUE -> DELETED
                          |
                          +--------> RETRY_PENDING -> DELETED
+
+Queued input: QUEUED -> STARTING -> STARTED
+              PAUSED -> STARTING
+              QUEUED | PAUSED -> REMOVED
+              STARTING -> PAUSED | UNCERTAIN
+              UNCERTAIN -> ABANDONED
+
+Worktree mutation claim:
+  NONE -> TURN -> NONE
+  NONE -> COMPLETION -> RELEASED
+
+Input delivery: ACCEPTED -> SENDING -> DELIVERED
+                |              |-> FAILED
+                |              +-> UNKNOWN
+                +----------------> FAILED
+
 ```
 
 The implementation must enforce these invariants:
 
-- One task has exactly one lane and one canonical worktree.
-- At most one turn is `RUNNING` for a task.
-- A worktree has at most one live task lease.
+- One task has exactly one workspace, one lane, and one canonical worktree.
+- At most one nonterminal turn is `ACCEPTED` or `RUNNING` for a task.
+- Each accepted turn snapshots its effective model, reasoning effort,
+  permission policy, and attachment references; later default changes do not
+  rewrite it.
+- The user-message event, including attachment references, is durable before
+  the provider turn starts. A steer input follows the same persist-before-send
+  rule and remains part of the active turn.
+- Every provider event retains its root or child thread reference, optional
+  direct parent, provider turn reference, and provider item reference when the
+  source supplies them.
+- An approval request and its resolution are both appended before the provider
+  is resumed, so replay cannot resurrect a resolved card.
+- The durable queue is FIFO. Only one process may claim its head, only a
+  successful turn may auto-start the next item, and failure, cancellation,
+  interruption, authentication loss, or backend recovery pauses the queue.
+- `STARTED`, `REMOVED`, and `ABANDONED` queue rows are historical and do not
+  block task completion. Completion rejects only live `QUEUED`, `PAUSED`, or
+  `STARTING` rows; it records any `UNCERTAIN` row as `ABANDONED` because the
+  explicit Complete action declines to resend it.
+- Provider delivery is never assumed from a timeout or lost connection.
+  `UNKNOWN` steer/turn delivery and `UNCERTAIN` queue claims are not retried
+  automatically because App Server supplies no input idempotency key.
+- A canonical worktree has at most one durable live task lease. SQLite is the
+  source of truth; the in-process registry is rebuilt from it before the agent
+  service reports ready after restart.
+- Within that lease, one durable worktree-mutation claim serializes turn
+  acceptance/queue claims and completion.
+- A turn's claim covers its root run and every known descendant. Root
+  `turn/completed` does not release it or start queued work until all known
+  descendants are terminal, every observed command/tool/file-change/hook/
+  terminal/background execution has a terminal lifecycle, every root/child
+  background-terminal page is empty, and the provider quiescence barrier
+  passes.
+- Provider execution uses the selected App Server sandbox and approval policy
+  inside the leased worktree. Provider control-plane traffic is a separate
+  trust boundary: ByteQuay selects the provider configuration, but the first
+  release does not claim an OS-enforced endpoint allowlist for the App Server
+  or Claude control process.
+- The first Codex release exposes no inherited MCP server, connected app,
+  plugin, dynamic tool, exec-policy allow rule, or lifecycle hook. A capability
+  that cannot be disabled makes the lane unavailable before a turn is accepted.
+- Definite terminal operations release their matching claim in the same unit
+  of work as their terminal state. An unknown provider delivery, orphaned
+  process, or active descendant retains the claim and puts the task in
+  `RECOVERING`; Send, queue start, and Complete remain blocked. A failed
+  completion returns the task to `READY` when retry is safe or records
+  `FAILED`; it never leaves an ownerless claim.
 - Event sequence numbers are monotonic within a task.
 - An event is appended before it is published to SSE.
+- Every SQLite state transition with a matching event commits that event's
+  outbox row in the same transaction. Draining the outbox appends JSONL
+  idempotently by `EventId` before publication or provider callback, closing
+  the SQLite/file crash gap.
 - A provider session reference is stored before the first resumable turn is
   reported as accepted.
 - A worktree must be clean when its task lease is acquired.
 - Runtime logs are retained until seven days after the task becomes terminal.
 - Cleanup failure changes cleanup state, never the terminal task state.
 - Missing cost is `unavailable`, never zero.
+- UI-only summaries, icons, expanded state, step counters, and live timer ticks
+  are derived by the renderer and are never persisted as execution facts.
 
 A terminal turn does not by itself make its task terminal. After a
 `COMPLETED`, `FAILED`, `CANCELLED`, or `INTERRUPTED` turn, the task returns to
-`READY` when its worktree lease, runtime files, and provider session reference
-remain usable. This permits an explicit later retry on the same task. Task
+`READY` only when its worktree lease, runtime files, and provider session
+reference remain usable and the root/descendant execution tree is proven
+quiescent. Otherwise it stays `RECOVERING` with its turn claim held. This
+permits an explicit later retry on the same task without allowing an older
+process to keep mutating beneath it. Task
 `FAILED` is reserved for an unrecoverable task-level problem such as lost task
 resources, an invalid lease, or an unusable persisted session contract; it is
 never inferred from assistant message text.
@@ -174,14 +315,16 @@ public interface AgentTaskService
     /**
      * Creates a durable task for one clean, validated worktree and provider lane.
      *
-     * <p>The implementation validates the command, acquires a worktree lease,
-     * rejects a dirty worktree, allocates task resources, verifies that the
-     * lane is available, persists the task, and then returns it. No provider
-     * turn is started. If creation fails after acquiring the lease, the
+     * <p>The implementation validates the command and verifies that the lane
+     * is ready before acquiring a worktree lease, rejecting a dirty worktree,
+     * allocating task resources, persisting the task, and returning it. No
+     * provider turn is started. If creation fails after acquiring the lease, the
      * implementation deletes newly allocated resources and releases the lease
      * before propagating the failure.
      *
-     * @param command requested lane, worktree, repository identity, and title
+     * @param command workspace, requested lane, app-resolved canonical
+     * worktree/repository identity, title, and default
+     * model/effort/permission settings
      * @return the newly created task in {@code READY} state
      * @throws InvalidAgentRequestException when the worktree or command is invalid
      * @throws AgentConflictException when the worktree already has a live task
@@ -199,16 +342,47 @@ public interface AgentTaskService
     AgentTask get(TaskId taskId);
 
     /**
+     * Changes defaults used by later composer sends without mutating active or
+     * queued input snapshots.
+     *
+     * <p>The command carries the expected task version and catalogued
+     * model/effort/permission values. Provider lane and worktree remain
+     * immutable.
+     *
+     * @param command task ID, expected version, and new defaults
+     * @return updated task
+     */
+    AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command);
+
+    /**
+     * Closes a recovery-blocked task as failed without modifying the worktree.
+     *
+     * <p>This direct user action is available only after every provider-visible
+     * execution is terminal, App Server reports no background terminal, and
+     * every ByteQuay-owned provider process is proven quiescent. It records
+     * the recovery incident, closes the provider session, marks the task
+     * {@code FAILED}, retains its transcript, and releases its mutation claim
+     * and workspace lease in the terminal transaction. It never cleans the
+     * worktree.
+     *
+     * @param command task ID, expected version, and user-visible recovery reason
+     * @return terminal failed task
+     * @throws AgentConflictException when any owned execution is live or unverifiable
+     */
+    AgentTask failRecovering(FailRecoveringAgentTaskCommand command);
+
+    /**
      * Lists tasks for the task window in reverse update order.
      *
      * <p>The result contains durable task facts only. Detailed event history is
      * obtained from {@link AgentEventService}.
      *
+     * @param workspaceId owning workspace
      * @param limit maximum number of tasks to return
      * @return at most {@code limit} tasks
      * @throws InvalidAgentRequestException when {@code limit} is not positive
      */
-    List<AgentTask> list(int limit);
+    List<AgentTask> list(String workspaceId, int limit);
 }
 ```
 
@@ -220,27 +394,37 @@ the only core service allowed to start or cancel provider execution.
 ```java
 package com.bytequay.agent.core;
 
+import java.util.List;
+
 public interface AgentTurnService
 {
     /**
      * Accepts one user message and starts a provider turn.
      *
-     * <p>The implementation rejects terminal tasks and concurrent turns,
-     * persists an {@code ACCEPTED} turn, opens or resumes the task's provider
-     * session, captures a usage baseline, starts the run, and returns without
-     * waiting for provider completion.
+     * <p>The implementation rejects terminal tasks and concurrent turns. A
+     * short unit of work reserves the idempotency key and worktree claim with
+     * an {@code ACCEPTED} turn plus the input-delivery row and user-message
+     * event. Only after its outbox drains may the service open or resume the
+     * provider session, capture a usage baseline, start the run, and return
+     * without waiting for completion.
      *
-     * <p>An exception means no turn was accepted. If provider open/start fails
-     * after the accepted row exists, the implementation records that turn as
-     * {@code FAILED}, returns the task to {@code READY}, and returns the
-     * terminal turn. This keeps idempotency lookup and recovery unambiguous.
+     * <p>An exception before persistence means no turn was accepted. A
+     * definite local/session-open failure after acceptance records the delivery
+     * and turn {@code FAILED} without sending; a definite provider refusal
+     * after send does the same. A
+     * timeout or lost connection after send is reconciled from known provider
+     * history when possible; otherwise delivery becomes {@code UNKNOWN} and
+     * the turn {@code INTERRUPTED}. Neither case automatically resends input.
+     * The task returns to {@code READY} only after the provider execution and
+     * every known child are proven quiescent; until then it remains
+     * {@code RECOVERING} with the turn's worktree claim held.
      *
      * <p>Repeating the same idempotency key returns the previously accepted
      * turn. A different request while a turn is active fails with a conflict.
      *
-     * @param command task ID, message content, attachments, and idempotency key
-     * @return the accepted/running turn, or the durable failed turn when setup
-     * failed after acceptance
+     * @param command task ID/version, message content, attachments, and idempotency key
+     * @return the accepted/running turn, or durable failed/interrupted turn
+     * when setup ended after acceptance
      * @throws AgentTaskNotFoundException when the task does not exist
      * @throws AgentConflictException when another turn is active
      * @throws AgentUnavailableException when availability fails before a turn
@@ -249,11 +433,83 @@ public interface AgentTurnService
     AgentTurn start(StartAgentTurnCommand command);
 
     /**
-     * Requests cancellation of a running turn.
+     * Sends additional user input to the expected active provider turn.
+     *
+     * <p>The command contains a ByteQuay idempotency key and the expected
+     * provider turn reference. The service persists an input-delivery row and
+     * user-message event before one send attempt. This operation does not
+     * create another ByteQuay turn and is rejected when the driver does not
+     * advertise steering or the active reference no longer matches.
+     * Repeating a key returns its durable delivery state. Because App Server
+     * has no steer idempotency key, an {@code UNKNOWN} delivery is never
+     * retried automatically.
+     *
+     * @param command active turn, text/attachments, expected provider reference,
+     * and idempotency key
+     * @return accepted, sending, delivered, failed, or unknown delivery state
+     */
+    AgentInputDelivery steer(SteerAgentTurnCommand command);
+
+    /**
+     * Adds one later turn to the task-owned FIFO queue.
+     *
+     * <p>The record snapshots text, attachment references, model, effort, and
+     * permission settings. One unit of work conditionally bumps the expected
+     * task version, inserts the queue row, and inserts its event so enqueue
+     * cannot race completion. It may be removed until atomically claimed for
+     * start. Enqueue is idempotent and does not call the provider.
+     *
+     * @param command task/version, queued input, effective settings, and idempotency key
+     * @return the durable queued input
+     */
+    QueuedAgentInput enqueue(QueueAgentInputCommand command);
+
+    /**
+     * Lists waiting inputs in FIFO order.
+     *
+     * @param taskId owning task
+     * @return immutable queued inputs ordered by insertion sequence
+     */
+    List<QueuedAgentInput> queued(TaskId taskId);
+
+    /**
+     * Removes a waiting input or abandons an uncertain delivery.
+     *
+     * <p>{@code QUEUED} and {@code PAUSED} become {@code REMOVED};
+     * {@code UNCERTAIN} becomes {@code ABANDONED}. A started/consumed input
+     * cannot be removed. Abandoning does not assert that the provider never
+     * received the input; it records the user's decision not to resend it.
+     *
+     * @param queuedInputId input to remove
+     * @return the removed or abandoned durable record
+     */
+    QueuedAgentInput removeQueued(QueuedInputId queuedInputId);
+
+    /**
+     * Explicitly starts the paused FIFO head after a non-success terminal turn
+     * or backend recovery.
+     *
+     * <p>Successful completion invokes the same atomic claim/start path
+     * internally. Each claim creates exactly one durable turn. A definite
+     * pre-send failure may return the input to {@code PAUSED}; its interrupted
+     * turn remains visible and a later explicit resume creates a new turn. An
+     * {@code UNCERTAIN} item is rejected and must never be resent by this
+     * method.
+     *
+     * @param taskId idle task whose queue should resume
+     * @return the new turn created from the queue head
+     */
+    AgentTurn resumeQueued(TaskId taskId);
+
+    /**
+     * Requests cancellation of a running or recovery-pending execution tree.
      *
      * <p>Cancellation is idempotent. The method signals the provider run and
-     * process supervisor, but terminal state is recorded only when the run
-     * actually exits or the cancellation grace period expires.
+     * every known active descendant, then cleans the matching App Server
+     * background terminals. Stopping the supervised shared provider process is
+     * a last resort because it interrupts unrelated Codex tasks. An already
+     * {@code INTERRUPTED} turn may retain its claim until item/history and
+     * background-terminal reconciliation succeeds.
      *
      * @param turnId turn to cancel
      * @return the latest turn state after the cancellation request is recorded
@@ -275,12 +531,15 @@ public interface AgentTurnService
 ### 3.3 AgentWorkspaceService
 
 `AgentWorkspaceService` validates worktree identity and prevents two live
-tasks from mutating the same worktree.
+tasks from owning the same worktree across requests and backend restarts. A
+durable SQLite lease is the source of truth; an in-memory index is only a
+mirror.
 
 ```java
 package com.bytequay.agent.core;
 
 import java.nio.file.Path;
+import java.util.List;
 
 public interface AgentWorkspaceService
 {
@@ -289,16 +548,34 @@ public interface AgentWorkspaceService
      *
      * <p>The path is canonicalized, checked for symlink escape, verified with
      * Git, matched to the requested repository identity, and required to have
-     * no tracked or untracked changes before the lease is granted.
+     * no tracked or untracked changes before the lease is granted. The durable
+     * lease row has a unique canonical-worktree key and commits before this
+     * method returns.
      *
      * @param taskId owner of the lease
-     * @param requestedPath user-selected worktree path
+     * @param requestedPath app-resolved workspace worktree or trusted internal
+     * workflow path; never a raw renderer value
      * @param repository expected repository identity
      * @return the canonical worktree and an idempotent release handle
      * @throws InvalidAgentRequestException when the path is unsafe or not the expected worktree
      * @throws AgentConflictException when another task owns the worktree
      */
     WorkspaceLease acquire(TaskId taskId, Path requestedPath, RepositoryIdentity repository);
+
+    /**
+     * Reconciles durable leases and rebuilds the process-local index at startup.
+     *
+     * <p>The operation runs before task creation or resume endpoints become
+     * ready. It removes only proven orphan rows with no task/provider process,
+     * cleans their task-owned allocation, restores missing rows for nonterminal
+     * tasks when uniqueness permits, and fails closed on duplicate or
+     * unverifiable ownership. Restoring an existing task does not repeat the
+     * initial clean-worktree requirement because retained agent edits are
+     * expected.
+     *
+     * @return reconciled durable leases
+     */
+    List<WorkspaceLease> recoverLeases();
 
     /**
      * Returns current Git facts without changing the worktree.
@@ -312,7 +589,10 @@ public interface AgentWorkspaceService
     /**
      * Releases a task's worktree lease.
      *
-     * <p>The operation is idempotent and does not delete the worktree.
+     * <p>The operation deletes the durable row and its in-memory mirror. It is
+     * idempotent, does not delete the worktree, and is legal only after the task
+     * is terminal, every provider-visible descendant/item/background terminal
+     * is quiescent, and every directly ByteQuay-owned process is stopped.
      *
      * @param taskId task whose lease should be released
      */
@@ -357,6 +637,29 @@ public interface AgentResourceService
     TaskResources require(TaskId taskId);
 
     /**
+     * Verifies and stores one user-selected attachment as a task-owned blob.
+     *
+     * <p>The command contains bytes supplied by the trusted Electron main
+     * process, a display name, and a claimed media type. The implementation
+     * enforces independent byte and pixel limits, verifies the actual media
+     * type, strips unsafe metadata when required, and returns an opaque
+     * reference. It never accepts a renderer-provided filesystem path.
+     *
+     * @param command owning task and bounded attachment content
+     * @return immutable attachment metadata and opaque reference
+     */
+    StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command);
+
+    /**
+     * Reads a previously validated attachment owned by the same task.
+     *
+     * @param taskId owning task
+     * @param attachmentRef opaque attachment reference
+     * @return bounded content and verified metadata
+     */
+    StoredAgentAttachment readAttachment(TaskId taskId, AttachmentRef attachmentRef);
+
+    /**
      * Deletes all ByteQuay-owned runtime resources for a task.
      *
      * <p>Deletion is idempotent and must reject paths outside the configured
@@ -376,6 +679,32 @@ public interface AgentResourceService
 
 `AgentEventService` is the sole sequencer and publisher of normalized events.
 
+`AgentEventPayload` is the canonical sealed union in `agent-core`. It contains
+both provider-derived payloads (assistant message, reasoning summary, plan,
+command/file/tool/web/image/hook activity, usage, subagent, lifecycle, error)
+and ByteQuay-originated payloads (user input/delivery, approval resolution, and
+queue lifecycle). `UnsequencedAgentEvent` combines that
+payload with a stable `EventId` and task/turn/source metadata;
+`AgentEventEnvelope` adds schema version, sequence, and receipt time. This
+envelope is the only JSONL/SSE wire shape.
+
+`ProviderAgentEvent` is an SPI input, not the persisted union. A small core
+normalizer maps it into `AgentEventPayload`; core services create the
+ByteQuay-originated variants directly. Stateful provider observations such as
+usage, approvals, and terminal lifecycle are handed to their owning core
+service for an atomic projection/outbox write; item/message activity without a
+SQLite projection is appended directly. Neither path serializes Java class
+names or provider DTOs, so the versioned JSON schema stays explicit.
+
+Every event coupled to a SQLite mutation participates in the outbox, whether
+the cause is a ByteQuay action or a provider observation. The state mutation
+and unsequenced event commit together, then `AgentEventService` assigns a task
+sequence and appends JSONL idempotently by `EventId`. It marks the outbox row
+delivered only after the log flush and then publishes SSE or completes a
+provider callback. Display-only provider events with no SQLite projection may
+use `append(...)` directly. Startup drains pending rows first. The outbox is
+transport state, not a second retained transcript.
+
 ```java
 package com.bytequay.agent.core;
 
@@ -385,17 +714,30 @@ import java.util.concurrent.Flow;
 public interface AgentEventService
 {
     /**
-     * Persists and publishes one normalized event.
+     * Persists and publishes one display-only normalized event.
      *
-     * <p>The backend assigns the next task sequence number, appends the event
-     * envelope to JSONL, updates any durable projection, and only then publishes
-     * it to subscribers.
+     * <p>The backend deduplicates by event ID, assigns the next task sequence
+     * number once, appends the envelope to JSONL, and only then publishes it
+     * to subscribers. An event coupled to SQLite state must use the outbox and
+     * {@link #drain(EventId)} instead.
      *
      * @param event normalized event without a backend sequence number
      * @return the persisted envelope containing the assigned sequence
      * @throws AgentStorageException when the event cannot be persisted
      */
     AgentEventEnvelope append(UnsequencedAgentEvent event);
+
+    /**
+     * Drains one committed state-coupled event to JSONL and live subscribers.
+     *
+     * <p>The method is idempotent by {@code EventId}. Core services call it
+     * only after their SQLite unit of work commits; startup also drains every
+     * pending entry before accepting new mutations.
+     *
+     * @param eventId committed outbox event to drain
+     * @return the existing or newly appended envelope
+     */
+    AgentEventEnvelope drain(EventId eventId);
 
     /**
      * Reads a bounded page of persisted events after a sequence number.
@@ -429,6 +771,28 @@ public interface AgentEventService
 `AgentApprovalService` bridges provider permission requests and explicit
 frontend decisions.
 
+`ApprovalRequest` is a tagged union for command execution, file change, and
+scoped-permission requests. Each variant carries its provider request ID,
+source thread/turn/item, human-readable details, and the decisions the driver
+can legally map for that request. If a Codex command request omits its optional
+`availableDecisions`, the driver fills its known legal command
+defaults; file requests use their protocol-defined fixed decisions, and
+permission requests expose only their grantable subset. `ApprovalResponse` is
+a matching tagged union: command/file responses can distinguish one-time,
+session-scoped, deny, and cancel choices when legal; permission responses carry
+only the approved subset. The Codex driver converts these values with its
+generated protocol adapter, whose decoder tolerates additive runtime fields.
+
+Grantable always means supported by the selected App Server sandbox and
+approval policy. The renderer can choose only among the decisions preserved by
+the driver from the running protocol; it cannot invent a broader permission.
+
+Tool user-input and MCP elicitation requests are not misrepresented as binary
+approvals. Until ByteQuay defines a separate typed interaction card, the
+driver answers them with the protocol's cancel/decline response and emits an
+observable unsupported-interaction event. Any unknown or unrouteable server
+request fails closed.
+
 ```java
 package com.bytequay.agent.core;
 
@@ -445,23 +809,29 @@ public interface AgentApprovalService
      *
      * @param request provider-neutral permission request
      * @param timeout maximum time to wait for the user
-     * @return a stage completed with the explicit decision or timeout denial
+     * @return a stage completed with the typed response or fail-closed timeout
      * @throws AgentConflictException when the approval ID is already pending
      */
-    CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout);
+    CompletionStage<ApprovalResponse> request(ApprovalRequest request, Duration timeout);
 
     /**
      * Resolves one pending approval from a direct user action.
      *
-     * <p>Repeating the same decision is idempotent. A contradictory second
-     * decision fails with a conflict.
+     * <p>Repeating the same decision is idempotent. The requested response is
+     * first intersected with the immutable application safety ceiling; an
+     * unsafe or overly broad grant is rejected rather than forwarded. A
+     * contradictory second decision fails with a conflict. The service stores
+     * the terminal decision and appends a matching {@code RESOLVED} or
+     * {@code EXPIRED} event before
+     * completing the provider callback.
      *
-     * @param command approval ID, decision, and optional scoped permission
-     * @return the recorded decision
+     * @param command approval ID, expected state, and response variant matching
+     * the stored request kind and offered decisions
+     * @return the recorded typed resolution
      * @throws ApprovalNotFoundException when no such approval is pending
      * @throws AgentConflictException when a different decision was already recorded
      */
-    ApprovalDecision resolve(ResolveApprovalCommand command);
+    ApprovalResolution resolve(ResolveApprovalCommand command);
 
     /**
      * Denies all unresolved approvals owned by a terminal or cancelled turn.
@@ -550,17 +920,27 @@ public interface AgentCompletionService
     /**
      * Completes and closes a task while retaining its runtime log for seven days.
      *
-     * <p>The implementation rejects active turns, closes the provider session,
-     * collects the Git snapshot, durable turn/test facts, task metrics, and an
-     * optional display-only final agent message, commits the summary,
+     * <p>The implementation rejects active turns and live {@code QUEUED},
+     * {@code PAUSED}, or {@code STARTING} inputs. The
+     * explicit Complete action records any {@code UNCERTAIN} inputs as
+     * {@code ABANDONED}; consumed {@code STARTED} and terminal queue rows do not
+     * block closure. The live-queue check, uncertain-row
+     * abandonment, and {@code COMPLETION} claim commit in one unit of work
+     * against enqueue's task-version guard. It then closes the provider session,
+     * collects the Git snapshot, durable turn/test facts, compact child index,
+     * task metrics, and an optional display-only final agent message, commits the summary,
      * {@code COMPLETED} state, and deletion deadline in one transaction, and
      * releases the worktree lease. Agent message text is never interpreted and
      * its absence or format cannot prevent completion. The method does not
      * delete retained runtime data.
      *
-     * @param command task ID plus optional user-supplied completion notes
+     * <p>A failure after the completion claim is acquired releases that claim in
+     * the same transaction as a retryable {@code READY} or terminal
+     * {@code FAILED} result.
+     *
+     * @param command task ID/version plus optional user-supplied completion notes
      * @return the durable completion summary and retention deadline
-     * @throws AgentConflictException when a turn is active or the task cannot complete
+     * @throws AgentConflictException when worktree-mutating work is active or the task cannot complete
      */
     TaskCompletion complete(CompleteAgentTaskCommand command);
 
@@ -621,6 +1001,8 @@ public interface AgentDriverRegistry
 ```java
 package com.bytequay.agent.spi;
 
+import java.util.List;
+
 public interface AgentDriver
 {
     /**
@@ -645,14 +1027,28 @@ public interface AgentDriver
     AgentProviderStatus probe();
 
     /**
+     * Returns selectable provider models and their supported efforts and input
+     * modalities when the provider exposes a catalog.
+     *
+     * <p>App Server drivers map {@code model/list}; providers without a native
+     * catalog return an empty list and the existing settings service may use
+     * its seeded catalog. Results are cached off the turn hot path.
+     *
+     * @return immutable current provider model catalog
+     */
+    List<ProviderModel> models();
+
+    /**
      * Opens a new provider session or resumes an existing reference.
      *
-     * <p>The worktree and permission policy are fixed for the returned session.
-     * A resumed reference must belong to the same lane and supported contract
-     * version.
+     * <p>The worktree, lane, and maximum application safety boundary are fixed
+     * for the returned session. A resumed reference must belong to the same
+     * lane and supported contract version. Each turn may choose only a model,
+     * effort, and permission setting allowed by that task boundary.
      *
      * @param context task identity, canonical worktree, validated task runtime,
-     * provider scratch directory, policy, and optional session reference
+     * provider scratch directory, allowed policy boundary, task defaults, and
+     * optional session reference
      * @param events sink for normalized provider events
      * @return an open provider session
      * @throws AgentUnavailableException when the provider cannot open or resume
@@ -683,7 +1079,8 @@ public interface AgentSession
      * Provider output is emitted through the sink passed to
      * {@link AgentDriver#open}.
      *
-     * @param command provider-neutral prompt, attachments, and turn policy
+     * @param command provider-neutral prompt, task-owned attachments, selected
+     * model, reasoning effort, and turn policy
      * @return a handle for completion and cancellation
      * @throws AgentUnavailableException when the provider refuses or cannot start
      */
@@ -693,6 +1090,10 @@ public interface AgentSession
      * Releases local transports owned by this session.
      *
      * <p>Closing does not delete provider-owned history and must be idempotent.
+     * Normal task completion calls it only after the execution tree is
+     * quiescent; the driver unsubscribes the root and every known subscribed
+     * child thread. Recovery may instead terminate the shared owned provider
+     * process tree and observe exit, which interrupts every task using it.
      */
     @Override
     void close();
@@ -716,11 +1117,33 @@ public interface RunningTurn
     ProviderTurnRef reference();
 
     /**
-     * Returns a stage completed exactly once with the terminal execution fact.
+     * Returns a stage completed exactly once with a quiescent terminal fact.
+     *
+     * <p>A root terminal message is necessary but not sufficient: the driver
+     * completes this stage only after recursive history closure discovers the
+     * full reachable descendant set, every discovered descendant is terminal,
+     * every observed command, tool, file-change, hook, terminal, and background
+     * item is terminal, and every root/child background-terminal listing is
+     * empty. This is the strongest per-turn quiescence fact in the running App
+     * Server contract; it is not represented as OS-level ownership of each
+     * internal App Server command.
+     * After transport loss, interruption is not reported as quiescent until
+     * the shared provider process is stopped or the replacement server can
+     * reconcile the same thread to the contract above.
      *
      * @return lifecycle completion for success, failure, cancellation, or interruption
      */
-    CompletionStage<AgentTurnCompletion> completion();
+    CompletionStage<AgentTurnResult> completion();
+
+    /**
+     * Sends additional input to this exact running turn when supported.
+     *
+     * <p>The input cannot change model, effort, sandbox, or approval policy.
+     * Drivers without native steering reject the operation as unsupported.
+     *
+     * @param input text and validated task-owned attachments
+     */
+    void steer(AgentTurnInput input);
 
     /**
      * Requests cancellation of the provider turn.
@@ -732,13 +1155,19 @@ public interface RunningTurn
 }
 ```
 
-`AgentTurnCompletion` is consumed inside `AgentTurnService`; application
+`AgentTurnResult` is consumed inside `AgentTurnService`; application
 services do not receive it. It contains lifecycle and operational diagnostics,
 not assistant response text. The service maps only provider-protocol and
 process facts to the durable turn lifecycle: an official terminal success or
 failure, an explicit cancellation, or a lost/uncertain execution. Assistant
 messages are separate events and are never inspected to decide whether a turn
 completed or failed.
+
+`AgentTurnCommand` contains the accepted input and one immutable
+`AgentTurnSettings` snapshot: model, optional reasoning effort, permission
+policy, and maximum runtime. `AgentTurnInput` contains only steerable text and
+attachment references. `AgentCapabilities` adds native steering support, while
+each `ProviderModel` reports its own input modalities and effort choices.
 
 ### 4.5 AgentEventSink
 
@@ -760,10 +1189,30 @@ public interface AgentEventSink
 }
 ```
 
-## 5. CLI runtime interfaces
+Every `ProviderAgentEvent` carries an `AgentEventSource` containing the opaque
+provider thread ID, optional direct parent thread ID, optional provider turn
+ID, and optional provider item ID. A driver creates a stable synthetic source
+ID when its native stream omits one. This source metadata is part of the
+normalized SPI value; it is not inferred later from display text or generic
+tool summaries.
 
-These interfaces are internal to `agent-cli`. They are shared by the Codex
-and Claude drivers but are not exposed to future HTTP API drivers.
+The sink is a dispatcher, not a shortcut around state services. Display-only
+events go to `AgentEventService.append(...)`; usage, approval, and terminal
+observations go to the owning core service so its SQLite projection and event
+outbox entry commit together.
+
+The provider event family is expanded only for observable provider facts:
+user-visible reasoning summaries, web/image activity, rich tool
+arguments/results, approval requests, and subagent lifecycle. Approval
+resolution, user delivery, and queue payloads originate in core.
+Generated App Server DTOs and raw Claude blocks remain private to their
+drivers.
+
+## 5. Owned-process runtime interfaces
+
+These interfaces live in `agent-cli` and are shared by the Codex and Claude
+drivers. They are not part of the provider SPI and are not exposed to future
+HTTP API drivers.
 
 The existing `GitCommandRunner` in `app` also handles short-lived `gh`
 commands. It merges stdout and stderr and has no streaming stdin, so it
@@ -774,22 +1223,134 @@ must not be stretched into the long-lived agent runtime.
 ```java
 package com.bytequay.agent.cli.process;
 
+import java.util.List;
+
 public interface ProcessSupervisor
 {
     /**
-     * Starts an argv-based process in a validated working directory.
+     * Creates and fsyncs a launch marker without starting a process.
+     *
+     * <p>The caller persists the returned launch ID and {@code PREPARED} launch
+     * intent in its own unit of work before invoking
+     * {@link PreparedProcess#start}. This closes the database/process gap.
+     *
+     * @param spec owner kind/ID, executable, arguments, environment allowlist,
+     * execution profile, worktree, and limits
+     * @return durable prepared launch; no payload process exists yet
+     */
+    PreparedProcess prepare(ProcessSpec spec);
+
+    /**
+     * Terminates provider processes owned by an earlier backend instance.
+     *
+     * <p>The supervisor reads owner-only launch markers and signals a PID only
+     * when its executable and OS process-start token still match. It waits for
+     * the complete process tree to exit and returns an unverifiable result
+     * rather than risking an unrelated process.
+     *
+     * @return one terminal or unverifiable result per launch marker
+     */
+    List<OwnedProcessRecovery> recoverOwnedProcesses();
+
+    /**
+     * Deletes a terminal launch marker/result only after its owning state
+     * transition has committed durably.
+     *
+     * @param launchId agent-cli-local opaque launch identifier
+     */
+    void acknowledge(String launchId);
+}
+
+public interface PreparedProcess
+{
+    String launchId();
+
+    /**
+     * Starts the already prepared argv-based process.
      *
      * <p>No shell is used. Stdout and stderr are drained independently, output
      * limits are enforced, and the sink is called in observed stream order.
-     *
-     * @param spec executable, arguments, environment allowlist, worktree, and limits
-     * @param output sink for bounded stdout and stderr chunks
-     * @return a managed process handle
-     * @throws AgentUnavailableException when the process cannot be started
      */
-    ManagedProcess start(ProcessSpec spec, ProcessOutputSink output);
+    ManagedProcess start(ProcessOutputSink output);
+
+    /** Removes a known-unsent prepared marker after owner rollback. */
+    void abandon();
 }
 ```
+
+`ProcessSpec` carries an agent-cli-local opaque owner string; it never imports a
+`TaskId` or `TurnId` type from `agent-core`. The owning driver maps that value
+back to durable domain state. It also carries one closed `ExecutionProfile`
+value rather than arbitrary sandbox text:
+
+- `PROVIDER_CONTROL` owns the long-lived App Server or one Claude control
+  process and does not claim an endpoint-level network allowlist;
+- `TASK_EXEC_SERVER` owns one loopback Codex executor and its built-in sandbox
+  helpers.
+
+Adding another profile requires a design change and compatibility fixture. A
+caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
+provider approval into a different execution profile.
+
+`prepare(...)` and `PreparedProcess.start(...)` use a gated-launch protocol
+instead of a spawn-then-record race:
+
+1. `prepare` fsyncs a `PREPARED` marker containing launch/backend IDs, opaque owner,
+   executable identity, argv digest, and intended process-group/session;
+2. the owning service commits that launch ID and `PREPARED` intent, then uses a
+   guarded unit of work to move `PREPARED -> ATTEMPTING` immediately before it
+   invokes `start`;
+3. `start` spawns a tiny owned launcher that reports PID, OS start token, and
+   process group, waits on a parent-held gate, and exits without executing the
+   payload if that gate closes; `start` fsyncs those identities as `GATED`;
+4. before opening the gate, `start` fsyncs `RELEASE_PENDING`; it then releases
+   the gate and fsyncs `RUNNING`. `RELEASE_PENDING` is conservatively treated as
+   possibly executed even if the final write was not observed; and
+5. only after `start` returns a `RUNNING` marker does the owning service commit
+   `ATTEMPTING -> RUNNING`.
+
+A pre-spawn `PREPARED` marker is removable only after recovery proves no gated
+launcher exists. A crash after spawn but before identity fsync closes the gate,
+so the launcher exits without executing the payload. Once released, the marker
+also records the owner process group/job identity and observed member
+PID/start-token pairs; this permits recovery after the root exits while a child
+remains. This proves only recorded membership. A descendant that can escape
+before observation makes the result `UNVERIFIABLE`; ByteQuay does not infer
+containment from one readiness fixture or from root exit. Recovery blocks the
+affected claim unless the validated launch path provides a stronger platform
+primitive or all relevant execution is reconciled through the provider
+contract instead.
+
+The owning row persists `NOT_ATTEMPTED`, `PREPARED`, `ATTEMPTING`, and
+`RUNNING` launch phases, while the marker supplies the finer launch fact.
+Recovery uses both:
+
+- `NOT_ATTEMPTED` has no launch and is known unlaunched;
+- `PREPARED` plus an intact `PREPARED` marker is known unlaunched;
+- `ATTEMPTING` plus `PREPARED` means the crash preceded `start` and is known
+  unlaunched;
+- `ATTEMPTING` plus `GATED` closes the gate and, after the launcher is verified
+  stopped, proves the payload was unlaunched;
+- `ATTEMPTING` plus `RELEASE_PENDING`/`RUNNING`, or database `RUNNING`, is
+  treated as possibly executed and follows full process/result recovery; and
+- an impossible phase ordering, or a missing/corrupt marker for any committed
+  launch ID, is `UNVERIFIABLE`.
+
+Orphan prepared markers without an owning committed intent are removable only
+when their format proves no launcher was released.
+
+Tree stop changes the marker to `TERMINAL` and fsyncs the `ProcessExit`/result
+receipt; it does not delete it. The owning core transaction first commits the
+turn terminal fact and tree proof, then calls
+`acknowledge(launchId)`. A crash on either side replays the terminal receipt or
+deletes an already-acknowledged marker idempotently. The shared App Server
+marker names the one driver process; its task/thread routing lives in durable
+driver state. A Claude marker names its one turn; a task exec-server marker
+names its opaque environment owner.
+Markers contain no credentials, prompt
+text, or core-domain objects. A missing/incomplete marker for a
+launch intent that had reached `ATTEMPTING` is unverifiable: recovery keeps the
+durable claim and lease instead of assuming the launch never happened.
 
 ### 5.2 ManagedProcess
 
@@ -802,6 +1363,13 @@ import java.util.concurrent.CompletionStage;
 public interface ManagedProcess
         extends AutoCloseable
 {
+    /**
+     * Returns the opaque launch identifier used for durable acknowledgement.
+     *
+     * @return agent-cli-local launch identifier
+     */
+    String launchId();
+
     /**
      * Returns the operating-system process ID.
      *
@@ -823,9 +1391,14 @@ public interface ManagedProcess
     void closeInput();
 
     /**
-     * Returns a stage completed when the process exits.
+     * Returns a stage completed after root exit and process-tree verification.
      *
-     * @return exit code, terminal reason, timing, and truncation flags
+     * <p>The supervisor tracks the owned process group/descendants. The result
+     * distinguishes {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE}; root
+     * PID exit alone is never sufficient to release a worktree claim.
+     *
+     * @return root exit code, full-tree termination proof, terminal reason,
+     * timing, and truncation flags
      */
     CompletionStage<ProcessExit> exit();
 
@@ -833,6 +1406,8 @@ public interface ManagedProcess
      * Requests graceful termination followed by forced process-tree termination.
      *
      * <p>The method is idempotent and does not block for the grace period.
+     * Callers await {@link #exit()} and treat only a verified full-tree stop as
+     * quiescent.
      */
     void cancel();
 
@@ -844,13 +1419,170 @@ public interface ManagedProcess
 }
 ```
 
+`ProcessExit.treeTermination()` is `VERIFIED_STOPPED` only after every owned
+process-group/job member and recorded descendant is observed gone. Detached/background-child uncertainty returns
+`UNVERIFIABLE`; recovery keeps the task and durable lease blocked. The same
+rule applies to normal cancellation, backend-startup recovery, and forced
+close. The shared App Server, each task-owned Codex exec-server, and each Claude
+process use this exact rule.
+Per-command lifecycle is additionally reconciled through the provider contract
+in section 5.3.
+
+### 5.3 TaskExecServerManager
+
+The first rich Codex task uses the experimental remote-environment path, which
+is separate from App Server's model-facing loop. `agent-cli` launches the
+official task-owned process bundled with the installed Codex CLI. Its reference
+process/filesystem behavior is documented by the v0.151.0
+[exec-server README](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/exec-server/README.md):
+
+```text
+codex exec-server --listen ws://127.0.0.1:0
+```
+
+The driver captures the actual loopback URL emitted by the task-owned process;
+that URL never enters the renderer. The v0.151.0 reference listener is
+unauthenticated and accepts multiple local WebSocket clients. Binding an
+ephemeral loopback port prevents off-host exposure but is not authentication
+against another same-host process. ByteQuay records that as an explicit
+first-release trust boundary;
+stronger same-host protection requires an upstream authentication contract or
+a separately designed authenticated proxy, not an invented token field. `app` supplies
+an opaque environment-to-task resolver while all App Server and exec-server
+wire handling remains in `agent-cli`; neither protocol adapter imports
+`TaskId`.
+
+After App Server's own `initialize`/`initialized` handshake, the driver calls
+experimental `environment/add` with the unique `environmentId`, the loopback
+`execServerUrl`, and a bounded connection timeout. That request only upserts
+the registry. The driver then calls `environment/info` to force the separate
+exec-server `initialize` -> response -> `initialized` handshake and validates
+the returned shell and canonical working directory before the task becomes
+ready. `environment/status` is observational and is never treated as a
+connection or recovery trigger.
+
+New `thread/start` and every `turn/start` select exactly one
+`TurnEnvironmentParams {environmentId, cwd, runtimeWorkspaceRoots}` for the
+task. `thread/start` also sends empty `selectedCapabilityRoots`; that field is
+not sent by `turn/start` or `thread/resume`. A resumed thread restores its
+sticky environment selection, so the replacement exec-server is re-launched,
+re-added, and verified with `environment/info` before `thread/resume`; resume
+does not send a nonexistent `environments` field. Subagents inherit the parent
+thread/turn environment.
+
+The stock exec-server owns the version-matched process/filesystem protocol and
+sandbox helpers; ByteQuay does not reimplement those RPCs. `ProcessSupervisor`
+owns the task exec-server process and its observed descendants, applies output
+and runtime bounds to the helper process, and keeps its durable launch marker
+until task recovery acknowledges it. App Server events remain the authoritative
+per-item UI stream. Closing the exec-server connection terminates its remaining
+managed processes according to the running contract; cancellation also uses App
+Server background-terminal cleanup before the task executor is stopped.
+
+The v0.151 reference API has no environment remove/unregister request. The
+design therefore does not depend on one: closing a task stops its verified
+executor but leaves that unique environment ID as a disconnected App Server
+registry entry until the shared App Server exits. IDs are never reassigned to
+another task; resuming the same task reuses `environment/add`'s upsert behavior
+with its replacement URL. A newer runtime may add cleanup without becoming a
+required production version.
+
+The `--code-mode-host` launch option is not a per-thread environment API. It
+selects one process-scoped Code Mode host connection shared by every thread in
+that App Server. The option and host wire protocol are experimental and have
+changed transport shape across current documentation and source revisions.
+ByteQuay therefore does not set it in the first release. A future custom host
+requires its own design, a version-matched host implementation, and proof of
+what it does and does not intercept; it must not be described as a general
+ByteQuay tool router without that proof.
+
+For normal completion the driver reconciles typed item lifecycles and pages
+the experimental `thread/backgroundTerminals/list` API for the root and every
+known child. Cancellation first sends `turn/interrupt`, then uses
+`thread/backgroundTerminals/clean`; a targeted user stop may use
+`thread/backgroundTerminals/terminate` with a listed App Server `processId`.
+The turn remains `RECOVERING` while an observed item is nonterminal, a
+background-terminal page is non-empty, or history/list reconciliation fails.
+
+Release compatibility tests run reference-version sandbox and lifecycle
+fixtures: ordinary built-in tool execution must stay inside the selected
+workspace roots, yielded commands must appear in background-terminal listing,
+and clean or terminate must stop them. A command that escapes both exec-server
+process ownership and App Server's registries makes the result `UNVERIFIABLE`
+and the Codex lane ineligible for release; one successful fixture is not
+generalized into a proof about arbitrary detached descendants. Failure of the
+experimental environment API, exec-server handshake, sandbox path, or
+background-terminal API in the running CLI disables the affected Codex
+development task and reports the detected Codex version. ByteQuay never falls back
+to App Server's default environment for an already task-bound thread.
+
 ## 6. Persistence ports
 
 These interfaces live in `agent-core`; SQLite/JPA implementations live in
 `persistence-sqlite`. See
 [ByteQuay Architecture](architecture.md) for the dependency direction.
 
-### 6.1 AgentTaskStore
+### 6.0 AgentUnitOfWork
+
+```java
+package com.bytequay.agent.core.store;
+
+public interface AgentUnitOfWork
+{
+    <T> T execute(Work<T> work);
+
+    @FunctionalInterface
+    interface Work<T>
+    {
+        T run();
+    }
+}
+```
+
+The SQLite adapter executes the callback in one transaction. Every store call
+inside it joins that transaction; no provider, Git, JSONL, or SSE operation is
+allowed inside the callback. A core state transition therefore writes its
+task/turn/approval/delivery/queue facts and corresponding
+`AgentEventOutboxEntry` together, commits, and only then calls
+`AgentEventService.drain(eventId)`. Startup drains pending entries before new
+work is accepted.
+
+User message bytes and other large event bodies are written to a task-owned
+blob before the transaction. The outbox contains only bounded event metadata
+and a typed blob reference, so raw prompts and tool output are not copied into
+SQLite. If the transaction rolls back, the unreferenced blob remains confined
+to that task and is removed by normal task cleanup.
+
+### 6.1 WorkspaceLeaseStore
+
+```java
+package com.bytequay.agent.core.store;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface WorkspaceLeaseStore
+{
+    WorkspaceLease insert(WorkspaceLease lease);
+
+    Optional<WorkspaceLease> findByTask(TaskId taskId);
+
+    Optional<WorkspaceLease> findByCanonicalWorktree(String canonicalWorktree);
+
+    List<WorkspaceLease> listActive();
+
+    void delete(TaskId taskId);
+}
+```
+
+`canonicalWorktree` is unique. Acquisition inserts the durable row before a
+lease is returned; creation failure removes it. Startup cross-checks these rows
+against every nonterminal `agent_task` before accepting agent traffic. A lease
+with neither a task nor a verified owned provider process is an orphan and may
+be removed; duplicate, missing, or unverifiable ownership blocks the affected
+worktree rather than guessing.
+
+### 6.2 AgentTaskStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -886,16 +1618,60 @@ public interface AgentTaskStore
     AgentTask update(AgentTask task);
 
     /**
+     * Claims the task worktree for exactly one mutating operation.
+     *
+     * <p>The conditional update succeeds only when the task version matches,
+     * the task is in an allowed state, and no claim is held. It runs inside
+     * {@link AgentUnitOfWork} with the owning turn or completion
+     * mutation and its outbox event.
+     *
+     * @param taskId task whose leased worktree is claimed
+     * @param expectedVersion optimistic task version
+     * @param claim turn or completion owner
+     * @return updated task containing the claim
+     */
+    AgentTask claimWorktree(
+            TaskId taskId,
+            long expectedVersion,
+            WorktreeMutationClaim claim);
+
+    /**
+     * Releases a claim only for its matching owner.
+     *
+     * @param taskId owning task
+     * @param claim matching current claim
+     * @return updated task with no task-local worktree claim
+     */
+    AgentTask releaseWorktree(TaskId taskId, WorktreeMutationClaim claim);
+
+    /**
+     * Serializes queue insertion against task completion.
+     *
+     * <p>The conditional update bumps the task version only while the task is
+     * {@code READY} or {@code ACTIVE} and its claim is absent or owned by the
+     * active turn. It fails for completion or recovery claims. The queue row
+     * and event outbox entry are inserted in the same unit of work, so either
+     * enqueue wins before Complete observes the queue or Complete wins and
+     * enqueue receives a conflict.
+     *
+     * @param taskId owning task
+     * @param expectedVersion renderer-observed task version
+     * @return task with its next optimistic version
+     */
+    AgentTask guardQueueInsert(TaskId taskId, long expectedVersion);
+
+    /**
      * Lists recently updated tasks.
      *
+     * @param workspaceId owning workspace
      * @param limit maximum rows to return
      * @return tasks ordered by descending update time
      */
-    List<AgentTask> listRecent(int limit);
+    List<AgentTask> listRecent(String workspaceId, int limit);
 }
 ```
 
-### 6.2 AgentTurnStore
+### 6.3 AgentTurnStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -957,13 +1733,176 @@ public interface AgentTurnStore
 }
 ```
 
-### 6.3 TaskLogStore
+### 6.4 ApprovalStore
+
+Approval state is durable independently of an SSE connection. Resolution is
+an optimistic, idempotent state transition; the store preserves the tagged
+request, available decisions, typed response, source IDs, and timestamps.
+
+```java
+package com.bytequay.agent.core.store;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface ApprovalStore
+{
+    void insert(PendingApproval approval);
+
+    Optional<PendingApproval> find(ApprovalId approvalId);
+
+    ApprovalResolution resolve(ApprovalId approvalId, ApprovalResponse response);
+
+    List<PendingApproval> listPending(TurnId turnId);
+
+    List<ApprovalResolution> denyPending(TurnId turnId, ApprovalResolutionReason reason);
+}
+```
+
+The service stores the request before publishing its card and stores the
+resolution before completing the driver callback. Unsupported, expired,
+unmatched, terminal-turn, and provider-disconnect requests resolve fail closed
+and append the same terminal event as a user denial.
+
+### 6.5 InputDeliveryStore
+
+App Server does not accept a client idempotency key for `turn/steer`, so
+ByteQuay tracks its own single send attempt without claiming exactly-once
+provider delivery.
+
+```java
+package com.bytequay.agent.core.store;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface InputDeliveryStore
+{
+    void insert(AgentInputDelivery delivery);
+
+    Optional<AgentInputDelivery> findByIdempotencyKey(
+            TaskId taskId,
+            InputDeliveryKind kind,
+            String idempotencyKey);
+
+    AgentInputDelivery update(AgentInputDelivery delivery);
+
+    List<AgentInputDelivery> listUnsettled();
+}
+```
+
+The `(taskId, kind, idempotencyKey)` key is unique. `ACCEPTED` means no provider
+send was attempted and can be recovered safely. A definite local validation,
+session-open, or pre-send setup failure changes `ACCEPTED` to `FAILED`; it is
+never retried implicitly. Once the send begins, a definite provider refusal
+changes `SENDING` to `FAILED`, while connection/process loss changes it to
+`UNKNOWN`. The UI may offer “send again as new input” only after provider
+quiescence is proven; that creates a new key and warns that an `UNKNOWN` steer
+might already have arrived.
+
+### 6.6 QueuedInputStore
+
+The queue needs one small durable store; it is not reconstructed from provider
+history. The store preserves FIFO insertion order and state transitions. The
+service claims the head and inserts its `AgentTurn` in one SQLite transaction,
+so there is no remove-before-insert crash window.
+
+```java
+package com.bytequay.agent.core.store;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface QueuedInputStore
+{
+    void insert(QueuedAgentInput input);
+
+    Optional<QueuedAgentInput> findByIdempotencyKey(TaskId taskId, String idempotencyKey);
+
+    List<QueuedAgentInput> list(TaskId taskId);
+
+    List<QueuedAgentInput> listOutstanding(TaskId taskId);
+
+    Optional<QueuedAgentInput> head(TaskId taskId);
+
+    QueueClaim claimHeadAndInsertTurn(
+            TaskId taskId,
+            AgentTurn acceptedTurn,
+            AgentInputDelivery acceptedDelivery);
+
+    QueuedAgentInput pause(QueuedInputId inputId, String reason);
+
+    QueuedAgentInput markStarted(QueuedInputId inputId);
+
+    QueuedAgentInput markUncertain(QueuedInputId inputId, String reason);
+
+    QueuedAgentInput remove(QueuedInputId inputId);
+
+    QueuedAgentInput abandon(QueuedInputId inputId, String reason);
+}
+```
+
+`claimHeadAndInsertTurn(...)` locks the FIFO head and commits its `STARTING`
+state, the `ACCEPTED` turn, and the input-delivery row in one SQLite
+transaction. Queue idempotency is unique per task. The user-message event is
+keyed by queued-input ID and drains before delivery becomes `SENDING`, so replay
+deduplication can safely identify a pre-send `ACCEPTED` claim. On startup, such
+a delivery becomes `FAILED`, its turn becomes `INTERRUPTED`, and the queue row
+becomes `PAUSED`; a `SENDING` claim becomes `UNCERTAIN` and its turn becomes
+`INTERRUPTED`. Only the latter is ineligible for resend. A committed
+`STARTED` claim is already consumed even if the provider later fails and does
+not block task completion. Removing an untouched input records `REMOVED`;
+discarding an `UNCERTAIN` claim records `ABANDONED` without claiming that the
+provider did not receive it.
+
+The first claim creates the queue item's stable user-message event. A later
+explicit resume after a known pre-send failure creates a new turn and delivery
+but references that existing message event and emits only a delivery-attempt
+event, so replay shows one user request with its attempts rather than duplicate
+message text.
+
+Enqueue runs inside `AgentUnitOfWork` with
+`AgentTaskStore.guardQueueInsert(...)` and its outbox entry. Complete reads
+`listOutstanding(...)` and conditionally acquires the `COMPLETION` claim in one
+unit of work. SQLite serialization plus the task-version write guarantees that
+a concurrent enqueue either becomes visible before that check or fails after
+completion wins; it cannot create live work on a terminal task.
+
+### 6.7 AgentEventOutboxStore
+
+```java
+package com.bytequay.agent.core.store;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface AgentEventOutboxStore
+{
+    void insert(AgentEventOutboxEntry entry);
+
+    Optional<AgentEventOutboxEntry> find(EventId eventId);
+
+    List<AgentEventOutboxEntry> listPending(int limit);
+
+    void markAppended(EventId eventId, long sequence);
+}
+```
+
+The SQLite implementation participates in the same transaction as the owning
+task, turn, approval, delivery, queue, or metric mutation.
+`markAppended` is
+idempotent. If JSONL was flushed but the mark was not, retry finds the same
+`EventId` in `TaskLogStore` and records its existing sequence rather than
+appending a duplicate.
+
+### 6.8 TaskLogStore
 
 ```java
 package com.bytequay.agent.core.store;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 
 public interface TaskLogStore
 {
@@ -977,6 +1916,18 @@ public interface TaskLogStore
      * @throws AgentStorageException when the append or flush fails
      */
     void append(AgentEventEnvelope envelope);
+
+    /**
+     * Finds an already appended envelope by ByteQuay event identity.
+     *
+     * <p>This makes outbox retry idempotent when JSONL was flushed before its
+     * SQLite outbox row was marked delivered.
+     *
+     * @param taskId owning task
+     * @param eventId stable ByteQuay event identity
+     * @return the existing task sequence when present
+     */
+    Optional<Long> findSequence(TaskId taskId, EventId eventId);
 
     /**
      * Reads a bounded page after a sequence number.
@@ -1010,34 +1961,43 @@ coordinates the narrower interfaces shown in the last column.
 
 | Step | Frontend action | Public service method | Required internal calls and result |
 | --- | --- | --- | --- |
-| 1. Create | `POST /agent/tasks` | `AgentTaskService.create(CreateAgentTaskCommand)` | `AgentWorkspaceService.acquire(...)`, `AgentResourceService.allocate(...)`, `AgentDriverRegistry.require(...)`, `AgentDriver.probe()`, then `AgentTaskStore.insert(...)`; returns `READY` |
-| 2. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted events and then publishes live events without a gap |
-| 3. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Inserts `ACCEPTED`, opens or resumes the provider session, persists `AgentSession.reference()`, begins metrics, calls `AgentSession.start(...)`, then records `RUNNING` |
-| 4. Run | Keep SSE open; resolve approvals when requested | `AgentApprovalService.resolve(ResolveApprovalCommand)` | Provider calls `AgentEventSink.emit(...)`; normalized events pass through `AgentEventService.append(...)` and `TaskLogStore.append(...)`; usage passes through `AgentMetricsService.record(...)` |
-| 5. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | `RunningTurn.completion()` triggers `AgentApprovalService.denyPending(...)`, `AgentMetricsService.finishTurn(...)`, `AgentTurnStore.update(...)`, and returns the task to `READY` when task resources remain usable |
-| 6. Continue | Send another message to the same task | `AgentTurnService.start(StartAgentTurnCommand)` | Reuses the task's stored `AgentSessionRef`; steps 3–5 repeat with a new `TurnId` |
-| 7. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, closes the session, collects Git/turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
-| 8. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
+| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace-managed checkout/repository, then core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `AgentWorkspaceService.acquire(...)`, `AgentResourceService.allocate(...)`, and `AgentTaskStore.insert(...)`; a failed readiness probe creates no lease or runtime resource; success returns `READY` |
+| 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
+| 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and turn claim as `ACCEPTED` with the input delivery and user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, starts the run, and records `RUNNING` plus delivered/unknown outcome. Failed readiness creates no turn or delivery |
+| 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
+| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the turn claim, and insert terminal events. Only a quiescent success may atomically claim the worktree and FIFO head for the next turn |
+| 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef` and creates one new `TurnId`; non-success leaves queued work paused |
+| 8. Fail recovery | `POST /agent/tasks/{taskId}/fail-recovery` after inspecting the incident | `AgentTaskService.failRecovering(FailRecoveringAgentTaskCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED`, releases the claim and lease, and leaves the worktree untouched |
+| 9. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn or live `QUEUED`/`PAUSED`/`STARTING` input; the direct Complete action abandons uncertain inputs, claims the worktree for completion, closes the session, collects turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
+| 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
 
-The method calls and ownership are shown end to end below. Calls below
-`AgentTaskService`, `AgentTurnService`, and `AgentCompletionService` are
-internal orchestration, not additional frontend requests.
+The base send path is shown end to end below. Calls below `AgentTaskService`,
+`AgentTurnService`, and `AgentCompletionService` are internal orchestration,
+not additional frontend requests. `Web` is reached only by Electron main over
+authenticated localhost HTTP/SSE; React uses typed preload IPC and never owns
+the backend session token.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
+    participant Desktop as React + Electron main
     participant Web as HTTP/SSE controller
     participant Tasks as AgentTaskService
     participant Workspace as AgentWorkspaceService
     participant Resources as AgentResourceService
     participant Drivers as AgentDriverRegistry
     participant Driver as AgentDriver
+    participant UoW as AgentUnitOfWork
     participant TaskStore as AgentTaskStore
+    participant Outbox as AgentEventOutboxStore
     participant Events as AgentEventService
     participant Sink as AgentEventSink
     participant Turns as AgentTurnService
     participant TurnStore as AgentTurnStore
+    participant Deliveries as InputDeliveryStore
+    participant ApprovalStore
     participant Session as AgentSession
     participant Run as RunningTurn
     participant Metrics as AgentMetricsService
@@ -1045,40 +2005,63 @@ sequenceDiagram
     participant Logs as TaskLogStore
     participant Completion as AgentCompletionService
 
-    User->>Web: POST /agent/tasks
+    User->>Desktop: Create agent task
+    Desktop->>Web: POST /agent/tasks
     Web->>Tasks: create(CreateAgentTaskCommand)
-    Tasks->>Workspace: acquire(taskId, worktree, repository)
-    Workspace-->>Tasks: WorkspaceLease
-    Tasks->>Resources: allocate(taskId)
-    Resources-->>Tasks: TaskResources
     Tasks->>Drivers: require(laneId)
     Drivers-->>Tasks: AgentDriver
     Tasks->>Driver: probe()
     Driver-->>Tasks: AgentProviderStatus
-    Tasks->>TaskStore: insert(readyTask)
+    Tasks->>Workspace: acquire(taskId, worktree, repository)
+    Workspace-->>Tasks: WorkspaceLease
+    Tasks->>Resources: allocate(taskId)
+    Resources-->>Tasks: TaskResources
+    Tasks->>UoW: execute(create task + event)
+    UoW->>TaskStore: insert(readyTask)
+    UoW->>Outbox: insert(taskCreatedEvent)
+    Tasks->>Events: drain(taskCreatedEventId)
     Tasks-->>Web: AgentTask(READY)
-    Web-->>User: 201 Created
+    Web-->>Desktop: 201 Created
+    Desktop-->>User: Task ready
 
-    User->>Web: GET /agent/tasks/{taskId}/stream?after=0
+    User->>Desktop: Open task
+    Desktop->>Web: GET /agent/tasks/{taskId}/stream?after=0
     Web->>Events: subscribe(taskId, 0)
     Events-->>Web: replay followed by live events
 
     loop Each user turn in the same task
-        User->>Web: POST /agent/tasks/{taskId}/turns
+        User->>Desktop: Send message
+        Desktop->>Web: POST /agent/tasks/{taskId}/turns
         Web->>Turns: start(StartAgentTurnCommand)
         Turns->>TurnStore: findByIdempotencyKey(taskId, key)
         Turns->>TurnStore: findActive(taskId)
-        Turns->>TurnStore: insert(acceptedTurn)
         Turns->>Drivers: require(task.laneId())
         Drivers-->>Turns: AgentDriver
+        Turns->>Driver: probe()
+        Driver-->>Turns: AgentProviderStatus
+        Turns->>Resources: writeBlob(boundedUserMessage)
+        Turns->>UoW: execute(reserve accepted turn + claim)
+        UoW->>TaskStore: claimWorktree(TURN)
+        UoW->>TurnStore: insert(acceptedTurn)
+        UoW->>Deliveries: insert(acceptedDelivery)
+        UoW->>Outbox: insert(userMessageBlobRefEvent)
+        UoW-->>Turns: committed
+        Turns->>Events: drain(userMessageEventId)
+        Events->>Outbox: find(eventId)
+        Events->>Logs: findSequence or append(envelope)
+        Logs-->>Events: flushed
+        Events->>Outbox: markAppended(eventId, sequence)
+        Events-->>Turns: persisted envelope
         Turns->>Driver: open(sessionContext, eventSink)
         Driver-->>Turns: AgentSession
         Turns->>Session: reference()
         Session-->>Turns: AgentSessionRef
         Turns->>TaskStore: update(taskWithSessionRef)
         Turns->>Metrics: beginTurn(taskId, turnId)
+        Turns->>Deliveries: update(SENDING)
         Turns->>Session: start(AgentTurnCommand)
         Session-->>Turns: RunningTurn
+        Turns->>Deliveries: update(DELIVERED)
         Turns->>Run: reference()
         Run-->>Turns: ProviderTurnRef
         Turns->>TurnStore: update(runningTurn)
@@ -1086,43 +2069,78 @@ sequenceDiagram
 
         loop Provider output
             Session->>Sink: emit(providerEvent)
-            Sink->>Events: append(unsequencedEvent)
-            Events->>Logs: append(envelope)
-            Logs-->>Events: flushed
-            Events-->>Web: publish persisted envelope
-            opt Usage event
-                Events->>Metrics: record(taskId, turnId, usageSample)
+            alt Display-only message/item event
+                Sink->>Events: append(unsequencedEvent)
+                Events->>Logs: append(envelope)
+                Logs-->>Events: flushed
+                Events-->>Web: publish persisted envelope
+                Web-->>Desktop: typed SSE envelope
+            else Usage event with durable projection
+                Sink->>UoW: execute(metrics + usage event)
+                UoW->>Metrics: record(taskId, turnId, usageSample)
+                UoW->>Outbox: insert(usageEvent)
+                Sink->>Events: drain(usageEventId)
+                Events-->>Web: persisted usage event
             end
             opt Approval event
                 Session->>Approvals: request(request, timeout)
-                Approvals-->>Web: approval event
-                User->>Web: POST /agent/approvals/{approvalId}
+                Approvals->>UoW: insert approval + requested event
+                UoW->>ApprovalStore: insert(pendingApproval)
+                UoW->>Outbox: insert(approvalRequested)
+                Approvals->>Events: drain(approvalRequestedEventId)
+                Events-->>Web: persisted approval event
+                Web-->>Desktop: approval card event
+                User->>Desktop: Allow or deny
+                Desktop->>Web: POST /agent/approvals/{approvalId}
                 Web->>Approvals: resolve(ResolveApprovalCommand)
-                Approvals-->>Session: ApprovalDecision
+                Approvals->>UoW: update approval + resolved event
+                UoW->>ApprovalStore: resolve(approval, response)
+                UoW->>Outbox: insert(approvalResolved)
+                Approvals->>Events: drain(approvalResolvedEventId)
+                Approvals-->>Session: persisted ApprovalResponse
+                Approvals-->>Web: ApprovalResolution
             end
         end
 
         Turns->>Run: completion()
-        Run-->>Turns: AgentTurnCompletion
+        Run-->>Turns: AgentTurnResult (provider barrier quiescent)
         Turns->>Approvals: denyPending(turnId)
-        Turns->>Metrics: finishTurn(turnId, terminalState)
-        Turns->>TurnStore: update(terminalTurn)
-        Turns->>TaskStore: update(readyTaskWhenResumable)
+        Turns->>UoW: execute(verify version + terminal state/event)
+        UoW->>Metrics: finishTurn(turnId, terminalState)
+        UoW->>TurnStore: update(terminalTurn)
+        UoW->>TaskStore: releaseWorktree(TURN)
+        UoW->>Outbox: insert(turnTerminalEvent)
+        Turns->>Events: drain(turnTerminalEventId)
         Turns-->>Web: terminal turn state and metrics
     end
 
-    User->>Web: POST /agent/tasks/{taskId}/complete
+    User->>Desktop: Complete task
+    Desktop->>Web: POST /agent/tasks/{taskId}/complete
     Web->>Completion: complete(CompleteAgentTaskCommand)
     Completion->>TurnStore: findActive(taskId)
+    Completion->>UoW: execute(claim COMPLETION + event)
+    UoW->>TaskStore: claimWorktree(COMPLETION)
+    UoW->>Outbox: insert(taskCompletingEvent)
+    Completion->>Events: drain(taskCompletingEventId)
     Completion->>Session: close()
     Completion->>Workspace: inspect(worktree)
     Completion->>TurnStore: list(taskId)
     Completion->>Metrics: taskTotals(taskId)
-    Completion->>TaskStore: update(completedTaskWithSummaryAndDeleteAfter)
+    Completion->>UoW: execute(complete task + event)
+    UoW->>TaskStore: update(completedTaskWithSummaryAndDeleteAfter)
+    UoW->>Outbox: insert(taskCompletedEvent)
+    Completion->>Events: drain(taskCompletedEventId)
     Completion->>Workspace: release(taskId)
     Completion-->>Web: TaskCompletion
-    Web-->>User: task closed; logs retained for seven days
+    Web-->>Desktop: task closed; logs retained for seven days
+    Desktop-->>User: Completed
 ```
+
+Every `UoW` group above is one SQLite transaction and every `drain` occurs
+after that transaction commits. The diagram expands representative writes;
+delivery-state, queue, cancellation, and timeout transitions use the same
+mutation-plus-outbox rule. Provider calls, JSONL flushes,
+and SSE publication never run inside the SQLite transaction.
 
 After the seven-day deadline, the retention job calls
 `AgentCompletionService.cleanup(TaskId)`. Cleanup calls
@@ -1150,7 +2168,7 @@ provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 ### 8.1 CodexCliDriver
 
 The Codex lane uses the documented
-[Codex App Server protocol](https://developers.openai.com/codex/app-server),
+[Codex App Server protocol](https://learn.chatgpt.com/docs/app-server),
 not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
 long-lived process and multiplexes tasks by Codex thread ID:
 
@@ -1164,55 +2182,205 @@ and is not used by the localhost sidecar.
 
 The connection and task sequence is:
 
-1. Send `initialize` once with ByteQuay `clientInfo`, wait for its response,
-   then send the `initialized` notification. No other request is legal before
-   this handshake finishes.
-2. For a new ByteQuay task, call `thread/start` with the canonical `cwd`, the
-   selected model when explicitly configured, an `on-request` `approvalPolicy`,
-   and a `workspaceWrite` sandbox limited to the leased worktree. Persist the returned
-   `thread.id` as the provider value in `AgentSessionRef`.
-3. For a later backend process or unloaded task, call `thread/resume` with the
-   stored `threadId`. Do not infer a session ID from provider files.
-4. Start each user turn with `turn/start`; store the returned `turn.id` as the
-   `ProviderTurnRef`.
-5. Keep reading notifications until `turn/completed`. Treat
-   `item/completed` as authoritative when a streamed delta differs from the
-   final item.
-6. Cancel with `turn/interrupt`. Closing a ByteQuay task sends
-   `thread/unsubscribe`; it does not call `thread/archive` or `thread/delete`
-   because provider-owned history is retained.
+1. Send `initialize` once with ByteQuay `clientInfo` and
+   `capabilities.experimentalApi: true`, wait for its response, then send the
+   `initialized` notification. Experimental opt-in is required for the
+   background-terminal and child-history APIs; no other request is
+   legal before this handshake finishes.
+2. Populate the existing ByteQuay model settings catalog from `model/list`,
+   including supported reasoning efforts, input modalities, and
+   `multiAgentVersion`. Production accepts the running catalog without a
+   version allowlist. A required incompatible shape fails the affected operation
+   and includes the detected Codex version in its diagnostic.
+3. Build a per-thread config override that sets `features.plugins = false`,
+   disables apps, every effective standalone MCP server, every ambient
+   exec-policy allow rule, and every lifecycle hook, supplies no dynamic tools
+   or capability roots, and cannot be widened by project/user config. If a
+   managed requirement cannot be narrowed, task creation fails closed.
+4. Prepare and launch the matching official `codex exec-server` through
+   `TaskExecServerManager`, capture its emitted `ws://127.0.0.1:<port>` URL,
+   call experimental `environment/add` with that URL and the task's unique
+   environment ID, then call `environment/info`. `environment/add` only
+   registers; the task is not ready until `environment/info` has forced and
+   verified the executor handshake and returned the expected shell/canonical
+   working directory.
+5. Call `thread/start` with canonical `cwd`, the selected default model,
+   the compatibility-tested wire value for on-request approval
+   (`approvalPolicy: "on-request"` in the v0.151 reference schema),
+   `approvalsReviewer: "user"`, the generated per-thread config override, and
+   legacy `sandbox: "workspace-write"`. Select exactly
+   `environments: [{environmentId, cwd, runtimeWorkspaceRoots: [cwd]}]` and an
+   empty `selectedCapabilityRoots`. After start, page
+   `mcpServerStatus/list(threadId)`, app/plugin status, and `hooks/list`; every
+   external tool/hook must be absent or disabled before the task becomes
+   `READY`. Persist the returned `thread.id` as the root provider value in
+   `AgentSessionRef`.
+6. For a later backend process or unloaded task, first launch a replacement
+   task exec-server, reissue `environment/add`, and verify it with
+   `environment/info`; only then call `thread/resume` with the stored
+   `threadId`, the same config and sandbox ceiling, and
+   `approvalsReviewer: "user"`. Resume restores the thread's sticky
+   environment selection and has no `environments` field. Repeat the
+   effective-capability checks and never infer a session ID from provider
+   files.
+7. Start each user turn with `turn/start`. Its `input` is built only from the
+   already-persisted user event: text plus model-gated
+   `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
+   input is URL-based and is outside the first local-upload release. Apply the
+   turn's snapshotted model, reasoning effort, `approvalPolicy`,
+   `approvalsReviewer: "user"`, canonical `cwd`, and structured
+   `sandboxPolicy` with `type: "workspaceWrite"` and
+   `writableRoots: [canonicalWorktree]`, with tool network disabled. Select the
+   same one-element `environments` array; the thread's persisted
+   `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
+   `ProviderTurnRef`. Never add
+   `.git`, a worktree pointer target, or the resolved Git directory as an extra
+   writable root.
+8. Send immediate follow-up input with `turn/steer` only when the request names
+   the current `threadId` and expected active `turnId`. Steering adds input to
+   that run; it cannot change model, effort, approval, or sandbox settings and
+   does not create a ByteQuay turn.
+9. Keep reading notifications for the root and every known child.
+   `turn/completed` is the root terminal fact, but the driver does not complete
+   `RunningTurn.completion()` until recursive `thread/read(includeTurns: true)`
+   closure has discovered the full reachable child set, every discovered
+   descendant is terminal, every observed execution-capable item is terminal,
+   and paginated
+   `thread/backgroundTerminals/list` is empty for the root and every child.
+   Treat `item/completed` as authoritative when a streamed delta differs from
+   the final item.
+10. Cancel with `turn/interrupt`, call
+   `thread/backgroundTerminals/clean` for the root and every known child, and
+   repeat list/history reconciliation until the same empty/terminal barrier
+   passes. A targeted stop may call `thread/backgroundTerminals/terminate`
+   only with a `processId` returned by the matching thread's list response.
+   Closing a ByteQuay task sends
+   `thread/unsubscribe` for its root and every known subscribed child only
+   after the execution tree is terminal; it does not call `thread/archive` or
+   `thread/delete` because provider-owned history is retained.
+
+No documented stable App Server API provides ByteQuay's durable next-turn
+queue. Queue records stay in SQLite and become ordinary `turn/start` calls only
+after `AgentTurnService` claims them.
 
 The driver normalizes these App Server events:
 
 | App Server event | ByteQuay event |
 | --- | --- |
 | `item/agentMessage/delta` and completed `agentMessage` | Partial and final assistant message |
-| `turn/plan/updated`, `item/plan/delta`, and completed `plan` | Structured plan/progress |
+| completed reasoning items and supported summary deltas | Readable reasoning summary only |
+| `turn/plan/updated` | Structured checklist steps and status |
+| `item/plan/delta` and completed `plan` | Separate free-form Plan-mode text; completed item is authoritative |
 | `item/started` and `item/completed` for `commandExecution` | Command start and terminal result |
 | `item/commandExecution/outputDelta` | Incremental stdout/stderr output |
 | `fileChange` items and `turn/diff/updated` | File change and aggregated diff |
-| `mcpToolCall`, `dynamicToolCall`, and `collabToolCall` items | Tool lifecycle |
-| `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` | Frontend approval request |
-| `thread/tokenUsage/updated` | Cumulative usage snapshot |
+| `mcpToolCall` and experimental `dynamicToolCall` items | Normalized only for a future audited capability; both are disabled for first-release Codex tasks |
+| `webSearch` and `imageView` items | Search/view activity and terminal result |
+| synchronous `hook/started` and `hook/completed` notifications | Hook name, lifecycle, and bounded result; asynchronous hooks emit no lifecycle notification |
+| V1 `collabAgentToolCall` with `tool: "spawnAgent"`, `senderThreadId`, `receiverThreadIds[]`, and `agentsStates` | Child discovery and direct parent relation; other collaboration tools update activity but never manufacture a parent/child edge; child content comes from child history |
+| Multi-Agent V2 `subAgentActivity` with `agentThreadId`/`agentPath` | V2 child discovery, canonical absolute logical agent path (not a filesystem path), lifecycle, and routing when the selected model advertises V2 |
+| command, file-change, and permission approval server requests | Typed approval request; the later ByteQuay resolution is a separate event |
+| `serverRequest/resolved` | Terminal resolution/cancellation of the matching durable request |
+| `thread/tokenUsage/updated` | Usage update normalized according to the adapter's known schema; cumulative semantics are not assumed generically |
+| `contextCompaction` item lifecycle | Visible compaction activity without hidden context content; deprecated `thread/compacted` is not used |
 | `error` and failed `turn/completed` | Error and terminal failure |
+
+ByteQuay appends the user message before calling `turn/start` or `turn/steer`.
+If App Server later echoes an equivalent user item, the driver correlates it
+without appending duplicate transcript text.
+
+Every accepted task-relevant event is resolved to a source through its
+thread/turn/item fields and the driver's registry; process-global account,
+configuration, and warning notifications remain process-scoped. A V1
+`collabAgentToolCall` registers an edge only for `tool: "spawnAgent"`, using
+each receiver thread as a direct child of the sender; a V2 `subAgentActivity`
+uses its canonical absolute logical `agentPath`. The driver begins routing/observing a
+newly known child before its discovery card is published. A selected model whose advertised
+`multiAgentVersion` is not implemented is unavailable rather than silently
+dropping child activity. `thread/read(includeTurns: true)` can backfill a known child after
+reconnect; backfilled items pass through the same normalizer and source-key
+deduplication before append. They are appended in provider history order
+inside explicit backfill-started/completed lifecycle markers; the task sequence
+still records ByteQuay receipt order. Experimental
+parent/ancestor list filters and paginated item-history methods may improve
+discovery, but correctness never relies on them.
+
+There is no assumed App Server `quiesce` method. The Codex driver closes the
+normal barrier by reading the root with `thread/read(includeTurns: true)`,
+recursively reading every V1/V2 child found in live events or terminal history,
+and repeating until a final pass discovers no new thread IDs and all discovered
+threads are terminal. In parallel, an item registry keyed by thread/turn/item
+reconciles every execution-capable item to terminal history and the driver
+pages `thread/backgroundTerminals/list` for every root/child until all pages
+are empty. This combined fixed point closes missed-live-notification,
+nested-grandchild, root-answer-before-command-exit, and visible
+yielded-terminal gaps. It does not claim to detect an OS process that escaped
+App Server's own registries. All Codex lifecycle hooks are disabled for first-release
+tasks; if documented configuration or managed requirements cannot exclude one,
+task start fails. A read/list error, active descendant/item/process/background
+terminal, or unstable closure keeps the task
+`RECOVERING`. If transport is lost before that proof, it retains the turn claim
+and stops the shared App Server process only as a last-resort recovery action,
+because doing so interrupts every Codex task routed through that process.
+
+The task uses the running App Server's selected sandbox and approval policy.
+Readiness verifies that ordinary built-in tool execution works through the
+task-selected exec-server and stays inside the selected workspace roots. The
+App Server control process still needs provider traffic; ByteQuay supplies the
+selected provider configuration but does not claim that the command sandbox or
+first-release process profile enforces a destination allowlist for that control
+traffic. The driver sets `approvalsReviewer: "user"` at start, resume, and turn
+start so approval requests remain visible to ByteQuay. ByteQuay adds no custom
+tool router, semantic Git-command policy, or post-turn Git workflow in this
+phase.
+
+The shared connection router maintains root-thread-to-task, active-turn-to-
+task, and known-child-to-root maps. A task event that arrives for an unknown
+child is held in a small bounded buffer until collaboration or thread session
+metadata binds it; expiry becomes a provider diagnostic rather than a guessed
+task event. A server request is answered only after the same registry resolves
+its owning task and source. Unmatched, late, or unsupported requests receive a
+fail-closed cancel/deny response and never appear as another task's approval.
 
 Readable reasoning summaries may be exposed as progress when the provider emits
 them. Raw reasoning text is not persisted or shown, even if a model or protocol
 version emits `item/reasoning/textDelta`; hidden chain-of-thought remains outside
 the ByteQuay contract.
 
-Protocol bindings are generated with the supported Codex binary and committed
-or vendored with the driver:
+Reference protocol bindings are generated with the selected compatibility
+binary and committed or vendored with the driver:
 
 ```text
-codex app-server generate-json-schema --out <schema-directory>
+codex app-server generate-json-schema --experimental --out <schema-directory>
 ```
 
-The driver probe runs `codex --version`, checks it against the supported
-protocol range, and rejects an incompatible binary instead of silently dropping
-unknown required events. Token updates are cumulative snapshots, so the driver
-deduplicates by provider event identity and derives turn usage from the baseline
-captured by `AgentMetricsService.beginTurn(...)`.
+The current [v0.151.0 compatibility fixture](codex-app-server-compat.md)
+regenerates stable and experimental schemas, verifies their bundle hashes and
+required surface. A recorded live slice proves two turns routed through two
+distinct executors without ambient fallback. The repeatable live fixture never
+copies rotating ChatGPT credentials. It gives every Codex subprocess a minimal
+allowlisted environment and a temporary `CODEX_HOME`. The live path is
+configured to pass its dedicated API key only to App Server and to omit the key
+and `CODEX_HOME` from model-requested commands; the dedicated-key rerun must
+prove that behavior. Exhaustive approvals, yielded-terminal termination,
+recursive children, restart recovery, fail-closed cross-task routing, and
+production adoption of that isolated launch profile remain CP1 gates.
+
+That exact fixture is reference-only and never forms a production version
+allowlist. The driver probe runs `codex --version` for display and diagnostics,
+not acceptance: no reported version text, whether older, newer, prerelease, or
+unparseable, disables the lane. Startup self-update remains enabled. If a real
+request, response, or required event is incompatible, ByteQuay fails that
+operation without silently dropping data and includes the detected version text
+in the actionable issue-report diagnostic. When the reference schema supplies
+a stable notification key, the driver may use it to deduplicate usage updates;
+App Server notifications do not otherwise guarantee a JSON-RPC event ID. In
+every case, ByteQuay's own persisted `EventId` and task sequence make replay
+idempotent, and the driver follows only the counter semantics proven by the
+fixtures. It subtracts the baseline captured by
+`AgentMetricsService.beginTurn(...)` only when that schema explicitly defines
+the counters as cumulative; otherwise it normalizes snapshots or deltas
+defensively without double counting.
 
 If App Server disconnects, all live turns become `INTERRUPTED`. ByteQuay may
 restart and initialize the shared process, but it resumes a thread and starts a
@@ -1233,6 +2401,11 @@ claude
   --include-partial-messages
   --include-hook-events
   --forward-subagent-text
+  --model <effective-model>
+  --effort <effective-effort>
+  --strict-mcp-config
+  --setting-sources=
+  --settings <task-provider-directory>/claude-sandbox-settings.json
   --permission-mode auto
   --mcp-config <task-provider-directory>/bytequay-mcp.json
   --permission-prompt-tool mcp__bytequay__permission_prompt
@@ -1261,6 +2434,10 @@ ID in its initialization and result messages. For every later turn, replace
 --resume <claude-session-id>
 ```
 
+The resumed invocation still carries the effective `--model` and `--effort`
+snapshot selected for that ByteQuay turn; resume changes conversation identity,
+not the per-turn settings guarantee.
+
 Use the exact stored ID rather than `--continue`, because multiple ByteQuay
 tasks can share a worktree over time. Do not pass `--fork-session` because a
 ByteQuay task continues the same provider conversation. Capture `session_id`
@@ -1276,12 +2453,20 @@ The output flags have distinct purposes:
 | `--include-partial-messages` | Adds raw streaming events for partial assistant text and tool-input deltas |
 | `--include-hook-events` | Adds hook start, progress, output, and response events when hooks run |
 | `--forward-subagent-text` | Adds subagent text with `parent_tool_use_id` so the frontend can reconstruct nested activity |
+| `--strict-mcp-config` | Loads only the task-scoped MCP servers named by ByteQuay |
+| `--setting-sources=` | Disables inherited user/project setting sources for the agent process |
+| `--settings <file>` | Applies the generated task sandbox and deny-write boundary |
 
 `--include-partial-messages` produces both deltas and later completed assistant
 messages. The driver accumulates deltas for live display, uses the completed
 message as authoritative, and does not append duplicate final text. It keeps
 reading stdout through EOF even after a `result` object because trailing system
 events can follow the result.
+
+For Claude, the `result` object is the root terminal fact; the driver completes
+`RunningTurn.completion()` only after forwarded child/background-task terminal
+events and supervised process-tree exit. Forced cancellation also waits for
+that exit, so a background child cannot outlive the task's worktree claim.
 
 The driver normalizes at least these message classes:
 
@@ -1317,10 +2502,13 @@ permission-prompt tool. `AUTO` sends that escalation to the user. `CI_AUTOFIX`
 and `CHERRY_PICK` are unattended, so the broker answers instead, allowing an
 edit only when its path resolves inside the worktree.
 
-Containment does not depend on that answer. The sandbox denies writes to the
-whole task runtime directory, so the CI logs the agent reads through `--add-dir`,
-the task event log, and the generated settings file stay read-only even though
-Claude approves its own in-sandbox work.
+Containment does not depend on that answer. The generated settings apply the
+selected task sandbox and workspace roots, and keep the task event log and
+settings file outside the writable worktree. Claude's own provider traffic
+remains a separate control-plane trust boundary and is not described as
+destination-allowlisted by this sandbox. The permission-prompt MCP adapter is
+only the provider's approval callback; it is not a model-callable ByteQuay
+business tool and cannot perform product actions.
 
 The driver never enables `--dangerously-skip-permissions`. It also does not use
 `--bare`: bare mode does not read Claude subscription OAuth or keychain
@@ -1348,80 +2536,213 @@ grace period, and records the observed terminal result or process exit.
 
 | Capability | Codex App Server | Claude Code CLI |
 | --- | --- | --- |
+| Model catalog | `model/list`, mapped through existing settings models | Provider catalog when available, otherwise seeded settings models |
 | Session resume | `thread/resume` with stored thread ID | New process with `--resume <session-id>` |
 | Partial assistant text | Native `item/agentMessage/delta` | `stream_event` text deltas with `--include-partial-messages` |
-| Structured plans | Native `turn/plan/updated` and plan items | No guaranteed dedicated plan event; render provider messages/tool activity only |
+| Structured checklist | Native `turn/plan/updated` steps/status | No guaranteed dedicated checklist; render provider messages/tool activity only |
+| Free-form Plan-mode text | `item/plan/delta` plus authoritative completed `plan` | Provider messages when available, not synthesized as a checklist |
 | Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
 | Incremental command output | Native `item/commandExecution/outputDelta` | Not guaranteed for Bash; terminal tool results are authoritative |
-| Hook lifecycle | `hook/started` and `hook/completed` | Available with `--include-hook-events` |
-| Nested agent activity | `collabToolCall` items | Parent-linked subagent messages with `--forward-subagent-text` |
+| Hook lifecycle | Synchronous `hook/started` and `hook/completed`; none for asynchronous hooks | Available with `--include-hook-events` |
+| Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | Parent-linked subagent messages with `--forward-subagent-text` |
 | Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
-| Text attachments | Not supported initially | Exact read-only paths inside the task runtime directory |
-| Token usage | Cumulative `thread/tokenUsage/updated` snapshots | Per-step assistant usage and terminal invocation totals |
+| Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
+| Text attachments | Provider input item when supported | Exact read-only paths inside the task runtime directory |
+| Steering | Stable `turn/steer` against the expected active turn | Unsupported until a native safe equivalent exists |
+| Token usage | `thread/tokenUsage/updated`, semantics normalized from the adapter's known schema | Per-step assistant usage and terminal invocation totals |
 | Monetary cost | `UNAVAILABLE` unless a future protocol field supplies it | `CLI_ESTIMATE` from terminal `total_cost_usd` when present |
 | Cancellation | `turn/interrupt` | Graceful then forced process-tree termination |
 
-Capabilities also describe supported attachment types and version-gated event
+Capabilities also describe supported attachment types and capability-gated event
 classes. The UI must render missing capabilities honestly rather than
 synthesize data.
 
 ## 9. Event and frontend contract
 
-Every JSONL/SSE envelope has:
+One versioned ByteQuay event contract is canonical for JSONL, replay, SSE,
+Electron IPC, and React. Generated App Server DTOs and Claude JSON never become
+that contract.
+
+Every envelope has:
 
 | Field | Rule |
 | --- | --- |
-| `schemaVersion` | Reject unsupported major versions |
-| `sequence` | Assigned only by `AgentEventService`; monotonic per task |
+| `schemaVersion` | Reject unsupported major versions; additive fields are optional for legacy events |
+| `eventId` | Globally unique stable ByteQuay identity assigned before outbox append and used for idempotent recovery |
+| `sequence` | Assigned only by `AgentEventService`; monotonic across the whole task |
 | `taskId` | Required |
-| `turnId` | Required for turn events |
-| `type` | `message`, `plan`, `tool`, `command`, `file`, `approval`, `usage`, `lifecycle`, or `error` |
-| `occurredAt` | Backend receipt time |
+| `turnId` | ByteQuay turn ID when the event belongs to a turn |
+| `providerThreadId` | Opaque root or child source when provider-thread scoped |
+| `parentProviderThreadId` | Direct parent when this event establishes or describes a child |
+| `providerTurnId` | Opaque provider turn when supplied |
+| `providerItemId` | Opaque item key for deltas and authoritative completion |
+| `type` | Typed payload family listed below |
+| `occurredAt` | Backend receipt time; used for ByteQuay timing |
+| `providerOccurredAt` | Optional source timestamp; never required for ordering |
 | `providerEventId` | Optional deduplication key |
-| `payload` | Type-specific normalized data or a relative blob reference |
+| `payload` | Type-specific normalized data or a typed relative blob reference |
+
+Required payload families are:
+
+- user and assistant messages, including delivery kind/outcome and attachment
+  refs (a failed steer receives an observable failed-delivery update);
+- user-visible reasoning summaries, structured checklist updates, and separate
+  free-form Plan-mode text;
+- commands, file changes, built-in tool activity, web searches, and image views
+  with typed lifecycle, bounded arguments/results, working directory, and
+  duration when supplied;
+- approval requested, resolved, and expired events with kind, requested scope,
+  decision, source child, and resolution time;
+- subagent discovered, running, completed, and failed events with direct
+  parent and stable child thread identity;
+- usage, queue, turn/task lifecycle, and error events.
+
+The renderer keys streamed activity by `(providerThreadId, providerItemId)`.
+Deltas update the live item and `item/completed` replaces it authoritatively.
+An absent source item ID is replaced by one driver-generated stable ID before
+the event crosses the SPI. Child state is reconstructed from relationship and
+lifecycle events in task JSONL; no child-agent table is added initially.
+
+Folded activity labels, icons, “Step 1 / 3,” expanded/collapsed state, and live
+elapsed ticks are deterministic React projections. They are not written back
+as a second event or summary model.
+
+ByteQuay measures turn elapsed time from its accepted/running/terminal
+timestamps. Item duration is shown only when the provider supplies enough
+typed timestamps or duration data; the UI never invents a provider duration.
 
 Stable localhost endpoints:
 
 ```text
 POST /agent/tasks
 GET  /agent/tasks/{taskId}
-GET  /agent/tasks?limit=...
+GET  /agent/tasks?workspaceId=...&limit=...
+PATCH /agent/tasks/{taskId}/defaults
 POST /agent/tasks/{taskId}/turns
 GET  /agent/turns/{turnId}
+POST /agent/turns/{turnId}/steer
 POST /agent/turns/{turnId}/cancel
 POST /agent/approvals/{approvalId}
+POST /agent/tasks/{taskId}/attachments
+GET  /agent/tasks/{taskId}/attachments/{attachmentId}
+POST /agent/tasks/{taskId}/queue
+GET  /agent/tasks/{taskId}/queue
+DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
+POST /agent/tasks/{taskId}/queue/resume
+POST /agent/tasks/{taskId}/fail-recovery
 POST /agent/tasks/{taskId}/complete
 POST /agent/tasks/{taskId}/cleanup
 GET  /agent/tasks/{taskId}/events?after=...&limit=...
 GET  /agent/tasks/{taskId}/stream?after=...
 GET  /agent/providers/status
+GET  /api/settings/models
 ```
+
+`GET /api/settings/models` is the existing cached, cross-provider model
+catalog; the agent surface reuses it rather than creating another registry.
+Its model option is extended with input modalities from `ProviderModel`, so
+image selection is gated per model. Task creation and turn/queue requests name
+only catalogued model/effort values, carry the renderer-observed task version,
+and snapshot the effective selection.
+
+Deleting a queue row removes an untouched `QUEUED`/`PAUSED` input or records
+an `UNCERTAIN` input as `ABANDONED`; it never erases a consumed `STARTED` row.
+
+`POST /agent/tasks/{taskId}/fail-recovery` carries the observed task version
+and a bounded user-visible reason. It maps only to
+`AgentTaskService.failRecovering(...)`, is enabled only for `RECOVERING`, and
+returns a conflict until provider-visible execution is terminal, background
+terminal lists are empty, and directly owned provider processes are stopped.
+Success records `FAILED`, releases the claim and lease, and leaves the worktree
+unchanged.
+
+The public task-creation DTO contains `workspaceId`, title, lane, and defaults,
+not a filesystem path. `app` resolves the workspace-managed checkout and
+repository, verifies the task belongs to that workspace, and only then builds
+the core command. This is distinct from trusted internal workflow callers,
+which already hold a validated worktree context.
 
 Spring MVC controllers translate HTTP DTOs and errors only. SSE adapts the
 core `Flow.Publisher`; controllers do not parse provider events or manage
-processes.
+processes. One task stream includes its root and every known child thread.
+
+Electron main attaches the private desktop session header, uploads bytes from
+the native file chooser, reads reconnecting SSE with the last sequence, and
+forwards narrowed DTOs over typed preload IPC. The renderer never receives the
+session token, raw provider JSON, or a local attachment path and never connects
+directly to App Server or localhost.
 
 ## 10. Durable and disposable storage
 
 ### 10.1 SQLite
 
+`agent_workspace_lease` stores task ID, canonical worktree, repository
+identity, acquisition time, and recovery status. Canonical worktree is unique.
+The row survives backend restart and is deleted only after terminal task
+closure and provider quiescence; the in-memory lease map is rebuilt from these
+rows.
+
 `agent_task` stores:
 
-- task ID, title, lane ID, repository identity, and canonical worktree;
-- task state, optimistic version, timestamps, and terminal reason;
+- task ID, owning workspace ID, title, lane ID, repository identity, and
+  canonical worktree;
+- default model, reasoning effort, and permission policy;
+- task state, optimistic version, timestamps, terminal reason, and optional
+  worktree-mutation claim kind/owner/acquired time;
 - provider session reference and its contract version;
 - token totals, cost amount when available, cost provenance, elapsed time, and
   provenance;
-- final summary, Git/test facts, cleanup state, and runtime deletion deadline.
+- final summary, Git/test facts, a compact terminal child index (thread and
+  parent IDs, label, final state, elapsed time, and result summary only),
+  cleanup state, and runtime deletion deadline.
 
 `agent_turn` stores:
 
 - turn ID, task ID, idempotency key, and state;
-- provider turn reference and model when reported;
+- provider turn reference plus the effective model, reasoning effort,
+  permission/sandbox policy, and attachment references submitted for that
+  turn;
 - start/end timestamps and elapsed time;
 - token usage, cost, provenance, and terminal reason.
 
-Detailed prompts, tool payloads, and stdout are not copied into SQLite.
+`agent_queued_input` stores the queue ID, task ID, FIFO insertion sequence,
+state, idempotency key, effective settings, attachment references, payload blob
+reference, stable user-message event ID after first claim, current/previous
+claimed turn IDs, timestamps, and pause reason. The text payload
+lives in an owner-only task blob so detailed prompts are not copied into
+SQLite. A claimed queue row, task-local turn claim, new `agent_turn`, delivery,
+and user-message outbox row commit atomically.
+
+`agent_input_delivery` stores the delivery ID, task/turn, start-or-steer kind,
+unique ByteQuay idempotency key, state, timestamps, and redacted failure. It
+does not claim provider exactly-once delivery.
+
+`agent_approval` stores the tagged request, source IDs, available decisions,
+state, typed response, and request/resolution timestamps.
+
+`agent_process_launch` begins when `prepare(...)` returns and stores the launch
+ID, closed owner kind and opaque owner ID,
+`PREPARED`/`ATTEMPTING`/`RUNNING`/`TERMINAL` phase, executable/argv digests,
+verified tree outcome, and timestamps for the shared App Server, task
+exec-servers, and Claude turns. Before that row exists, a turn owner remains
+`NOT_ATTEMPTED`. The launch row stores no prompt, credential, or raw argv. The
+owner reference and launch row commit in one unit of work; the fsynced
+agent-cli marker supplies the OS identity/receipt used to reconcile that
+durable intent.
+
+`agent_event_outbox` stores each state-coupled unsequenced event in the same
+SQLite transaction as its owning state mutation, keyed by `eventId`, with its
+delivery state and assigned task sequence. It is a short-lived delivery ledger,
+not a second transcript: after `TaskLogStore` has durably appended the event,
+the row is marked delivered and may be pruned according to bounded outbox
+retention.
+
+Accepted user-message/steer bytes, tool payloads, and stdout are not copied
+into SQLite. They are represented by bounded JSONL events and typed task blob
+references. Until an event drains, `agent_event_outbox` may temporarily hold
+its bounded metadata and blob reference, never the raw message or output
+bytes. Approval request and resolution state remains durably queryable in
+SQLite as well as replayable in the event sequence.
 
 ### 10.2 Runtime directory
 
@@ -1429,20 +2750,33 @@ The directory is outside every worktree:
 
 ```text
 ~/Library/Application Support/ByteQuay/agent-runtime/
+├── _processes/
+│   └── <launch-id>.json
 └── <task-id>/
     ├── events.jsonl
     ├── blobs/
-    │   └── <content-id>
+    │   ├── attachments/<content-id>
+    │   ├── queue/<content-id>
+    │   └── events/<content-id>
     └── provider/
         └── scratch/
 ```
 
-The task ID is generated by ByteQuay, not supplied as a path. Every resolved
-child is checked to remain under the configured runtime root.
+The task ID and content IDs are generated by ByteQuay, not supplied as paths.
+Process markers are owner-only, identify the shared App Server, a task-owned
+exec-server or a Claude turn, contain
+identity/recovery metadata only, and are validated against the OS process-start
+token before any signal is sent.
+Every resolved child is checked to remain under the configured runtime root.
+Attachment and event blobs share this root but use typed references,
+independent media/size validation, and separate subdirectories. Only a
+validated attachment owned by the task can be converted into a provider input
+path.
 
-On successful completion:
+On successful completion, after the execution tree is quiescent and live queued
+work is empty:
 
-1. Stop and close the provider session owned by the task.
+1. Close the provider session and unsubscribe its terminal root/child threads.
 2. Collect Git facts, tests, metrics, and an optional uninterpreted final
    response for display.
 3. Commit summary, totals, `COMPLETED`, and
@@ -1475,10 +2809,55 @@ requires a separate explicit user action and design decision.
 
 ## 11. Recovery, security, and concurrency
 
-- On backend startup, accepted/running turns without a live process become
-  `INTERRUPTED`; tasks remain resumable.
+- Before agent endpoints report ready, startup drains the event outbox,
+  reconciles durable workspace leases against every nonterminal task, and
+  rebuilds the in-memory lease index. A missing row is restored only when
+  uniqueness is provable; duplicate/conflicting ownership or an unverifiable
+  old provider process blocks the affected worktree. ByteQuay does not assign
+  it to a new task.
+- Provider launches carry an owner marker with PID, executable, OS process-start
+  token, and driver owner. Startup signals only a process whose identity still
+  matches, then observes the entire directly owned process tree exit. If
+  identity or exit cannot be proven, the affected task claims remain held in
+  `RECOVERING`.
+- Durable launch phase distinguishes a known pre-launch crash from an uncertain
+  process result. `NOT_ATTEMPTED` and an intact `PREPARED` marker before
+  `PreparedProcess.start()` prove no payload ran; a missing/corrupt marker after
+  `PREPARED`, `ATTEMPTING`, or `RUNNING` is `UNVERIFIABLE`, never guessed safe.
+- Accepted/running roots without a usable transport become `INTERRUPTED`, but
+  their turn claim is released only after the root, every known descendant,
+  every observed execution-capable item, and every listed background terminal
+  are terminal/stopped. If that cannot be reconciled, ByteQuay may stop the
+  shared supervised provider process; root completion alone is not the
+  quiescence barrier. Queue auto-start and all worktree-mutating actions remain
+  disabled until it passes.
+- A startup task left in `COMPLETING` has no unrecorded Git write to resume.
+  After provider quiescence, one unit of work records completion interruption,
+  returns it to `READY`, and releases the `COMPLETION` claim. If the final
+  `COMPLETED` transaction already committed, startup only finishes idempotent
+  provider/lease release. Crash fixtures cover both sides of those commits.
+- A pre-send `ACCEPTED` delivery is known unsent: startup records it `FAILED`,
+  marks its turn `INTERRUPTED`, and pauses any queue claim. Explicit resume
+  creates a new turn/delivery rather than leaving the old delivery unsettled.
+  A `SENDING` delivery becomes `UNKNOWN` and a matching queue claim
+  becomes `UNCERTAIN`; those states are not eligible for automatic or ordinary
+  queue-resume delivery. Only after quiescence may the user abandon that row or
+  Complete record it abandoned; neither action retries it.
+- Loss of the shared App Server interrupts every running Codex root/child turn
+  routed through that process. ByteQuay terminates/verifies the old owned
+  process before starting a replacement. Stored thread references and queued
+  inputs stay intact, but no turn or queue head is implicitly restarted.
 - A repeated start request uses an idempotency key. Another concurrent request
   receives HTTP 409.
+- Queue claiming, turn/input-delivery insertion, the task-local worktree claim,
+  and their event outbox row are transactional. A successful terminal turn may
+  claim the FIFO head once; every other terminal state requires a direct user
+  resume action.
+- Turn start, a queue claim, and completion all acquire the same task-local
+  worktree-mutation claim by optimistic compare-and-set; completion rejects a
+  nonterminal claim.
+- Provider readiness verifies the selected sandbox, workspace roots, approval
+  flow, and ordinary built-in tool execution through the task environment.
 - A dropped SSE connection does not affect the provider run. Reconnect uses the
   last received sequence.
 - CLI commands are argv lists passed directly to `ProcessBuilder`; no shell
@@ -1488,8 +2867,13 @@ requires a separate explicit user action and design decision.
   origin/session.
 - Existing CLI authentication is used without extracting credentials into
   frontend storage or event payloads.
+- Image attachments are task-owned, media-verified, bounded by byte and pixel
+  limits, and addressed by opaque references. Renderer-supplied filesystem
+  paths are rejected.
 - Known secrets are redacted before an event or diagnostic blob is persisted.
-- Approval timeout and disconnect default to denial.
+- Approval timeout, turn termination, and provider disconnect resolve pending
+  requests as denied and append a terminal approval event. A renderer/SSE
+  disconnect alone leaves the card pending until that rule resolves it.
 - Output, blob size, runtime, and cancellation grace periods are bounded.
 
 ## 12. Workspace settings and provider readiness
@@ -1508,7 +2892,9 @@ the same results to Workspace settings. A driver probe must distinguish, with
 machine-readable status rather than by parsing diagnostic text:
 
 - CLI missing;
-- unsupported CLI version or protocol;
+- incompatible required provider protocol or capability, including the detected CLI
+  version for diagnosis; no Codex reported version text, including unparseable
+  output, produces this state by itself;
 - authentication required or expired;
 - ready;
 - degraded but usable; and
@@ -1547,7 +2933,7 @@ selected provider can work in this workspace.
 | Ready | Connected, CLI version, last checked time | Check again |
 | Authentication required | Sign in required; tasks cannot start | Sign in / show provider login command |
 | CLI missing | CLI not installed | Show installation instructions |
-| Unsupported | Installed version is unsupported | Show update instructions |
+| Unsupported | Required protocol/capability failed; detected CLI version shown | Report issue / Check again |
 | Degraded | Available with named capability limitations | Check again |
 | Unavailable | Redacted actionable diagnostic | Check again |
 
@@ -1576,3 +2962,71 @@ Before the release blocker can be closed, automated tests must demonstrate:
    retry budget and task resources, and supports an explicit retry after login.
 5. Provider authentication failures are logged once with task/run context and
    a redacted diagnostic, and are never labeled as GitHub failures.
+
+## 13. Rich-task service acceptance
+
+The task UI in [Agent Task UI Design](agent-task-ui.md) is not ready to ship
+until automated contract and integration tests prove:
+
+1. two concurrent Codex tasks and their child threads share one App Server
+   without event, approval, turn, or item cross-talk;
+2. replay fixtures contain the original user input and attachments, streamed
+   and authoritative completed items, readable reasoning summaries, plans,
+   resolved/expired approvals, and direct child relationships without duplicate
+   final text;
+3. a second turn resumes the same root thread and preserves the model, effort,
+   permission, and timing actually used for each turn;
+4. renderer reload and SSE reconnect from the last sequence reconstruct the
+   same root/child transcript while provider execution continues;
+5. model-gated image input accepts only validated task-owned blobs and cannot
+   be redirected to an arbitrary local path;
+6. steering reaches only the expected active turn; untouched queued input
+   survives restart, runs once in FIFO order after success, and pauses after
+   every non-success terminal state; unknown/uncertain delivery is visible and
+   never retried automatically; consumed `STARTED` rows do not block completion,
+   while deleting or completing an uncertain row records `ABANDONED`; a
+   definite pre-send failure settles `ACCEPTED` delivery as `FAILED`; and a
+   concurrent enqueue/Complete race either durably queues before the completion
+   check or rejects enqueue after the completion claim;
+7. crash fixtures at every SQLite-commit/JSONL-flush/outbox-mark boundary
+   produce one canonical `EventId` and one task sequence, and never expose a
+   state mutation without its matching replay event;
+8. a completed child remains inspectable from task JSONL without a child table
+   throughout runtime retention; all its approvals and activity retain their
+   source IDs; after cleanup its durable summary remains and the transcript is
+   explicitly reported as expired;
+9. root completion with an active descendant, a missed live child notification,
+   a child-created grandchild, and a root answer followed by a still-running
+   command/tool/background item all retain the claim until recursive
+   `thread/read` closure reaches a stable terminal fixed point and every
+   observed execution-capable item is terminal;
+10. unknown delivery and transport loss disable queue start, Send, and Complete
+   until thread/item/background-terminal reconciliation succeeds or
+   the shared owned provider process tree is `VERIFIED_STOPPED`; compatibility
+   fixtures must show that yielded and background commands are listed and
+   cleanable, and a detached writer that escapes those registries makes the
+   Codex lane ineligible for release rather than creating a fictional receipt;
+11. restart reconstructs one durable lease per nonterminal canonical worktree,
+   fails closed on duplicate/unverifiable ownership, safely returns a pre-final
+   stale `COMPLETING` claim to `READY`, and finishes post-final workspace-lease
+   release at every crash point; launch crash fixtures cover every database
+   phase/marker combination from `NOT_ATTEMPTED` through `RUNNING`, proving that
+   `ATTEMPTING + PREPARED/GATED` is known unlaunched while
+   `RELEASE_PENDING` is never misclassified as unsent;
+12. concurrent turn, queue, and Complete requests produce exactly one
+   worktree-mutation claim; native App Server command, file, web, and other
+   built-in tool calls run through the selected task environment and produce
+   typed progress and terminal events; no ByteQuay business MCP/dynamic tool,
+   lifecycle hook, or Code Mode host is registered for Codex;
+13. Claude new/resumed invocation fixtures carry each turn's effective model,
+   effort, strict MCP config, empty inherited setting sources, and generated
+   sandbox settings, and its readiness probe verifies the configured task
+   workspace and permission adapter; and
+14. the release explicitly accepts App Server's documented experimental
+   maturity plus the unauthenticated same-host exec-server boundary, maintains
+   the exact v0.151.0 reference fixture and experimental bindings, and passes
+   per-task environment handshake/resume, multi-task routing,
+   approval-ceiling, sandbox, active-item closure, background-terminal, image,
+   steering, and reconnect tests against the latest user-managed Codex CLI.
+   No reported version text, including unparseable output, may fail readiness by
+   itself; a protocol incompatibility must report that detected running version.

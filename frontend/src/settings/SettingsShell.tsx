@@ -160,6 +160,7 @@ function ProviderRow({ provider, checking, checkedAt, onRecheck, onSelect, onSet
                 <button type="button" className="sets-link" onClick={onRecheck}>Check again</button>
               </>
               : <>
+                {provider.version ? `v${provider.version} · ` : ''}
                 {provider.diagnostic}
                 {' · '}
                 <button type="button" className="sets-link" onClick={onRecheck}>Check again</button>

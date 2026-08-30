@@ -37,12 +37,9 @@ message. Available commands are:
 - `/help` — print the shell help.
 - `/quit` — exit; `Ctrl-C`, `quit`, and `exit` also stop the shell.
 
-Running the script without `--interactive` executes its deterministic backend
-smoke test instead of starting a prompt:
-
-```bash
-./scripts/agent-e2e.sh
-```
+The shell intentionally has no deterministic mode. Automated HTTP, replay,
+SSE, idempotency, completion, and cleanup coverage lives in
+`TestAgentHttpApi`; this script exercises a real provider only.
 
 ## Message and shutdown flow
 

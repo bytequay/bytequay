@@ -134,14 +134,36 @@ required V2 thread/path lifecycle identity, and recursive `thread/read`
 parent/session/turn/item history. It accepts omitted optional capability
 fields, additive object fields, and future enum members through `UNKNOWN`.
 This does not subscribe to child threads, build a graph, or publish V2
-activity; those runtime behaviors remain behind the live child-capable proof
-and later integration checkpoints.
+activity. The live child-capable proof now covers the reference behavior;
+production routing remains in later integration checkpoints.
 
-Run the no-child live gate only with a dedicated API key. It makes three turns
+The no-flag command above remains the default, authentication-free, CI-safe
+gate. The checked-in CI workflow does not invoke either live flag. Before a
+developer deliberately runs a live gate, create a separate persistent profile,
+restrict it to the current user, and sign that profile into ChatGPT directly
+with file-backed credential storage:
+
+```text
+mkdir -m 700 /absolute/path/to/bytequay-codex-compat-home
+CODEX_HOME=/absolute/path/to/bytequay-codex-compat-home \
+  codex login \
+    -c 'cli_auth_credentials_store="file"' \
+    -c 'forced_login_method="chatgpt"'
+```
+
+This profile is only for the compatibility fixture. Never use the normal
+or otherwise ambient Codex profile, never place it inside the ByteQuay
+repository, and never seed it by copying `auth.json`; sign in while that exact
+`CODEX_HOME` is selected. Do not add `config.toml`, rules, or user skills to
+this auth-only profile, and do not add `AGENTS.md` or `AGENTS.override.md`.
+Keep the directory after a run so Codex can refresh the same login safely.
+API-key authentication is deferred.
+
+Run the no-child live gate explicitly with that profile. It makes three turns
 across two independent root tasks and may make multiple provider requests:
 
 ```text
-BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
+BYTEQUAY_CODEX_COMPAT_HOME=/absolute/path/to/bytequay-codex-compat-home \
   node scripts/codex-app-server-compat.mjs --live
 ```
 
@@ -149,25 +171,48 @@ Run the recursive-child gate separately. It creates one root, one child, and
 one grandchild turn and may make multiple provider requests:
 
 ```text
-BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
+BYTEQUAY_CODEX_COMPAT_HOME=/absolute/path/to/bytequay-codex-compat-home \
   node scripts/codex-app-server-compat.mjs --live-children
 ```
 
 The two live modes are intentionally mutually exclusive so their provider
-cost and evidence remain attributable.
+usage and evidence remain attributable. A profile-local exclusive lock also
+rejects concurrent live-gate processes; a stale lock requires manual inspection
+before removal. Immutable path and mode checks run first, then the lock is
+acquired before mutable auth, instruction, and runtime-state checks. They are
+local, opt-in smoke tests, not default tests and not normal CI work. An explicit
+live invocation fails before App Server starts when the profile variable is
+absent; the directory is not an absolute 0700 directory outside the repository
+and disposable fixture root; `auth.json` is absent, linked, matches or reuses a
+current ambient credential, or is not locally marked `chatgpt`; persistent
+instruction files exist; or prior fixture runtime/config state remains.
+Historical provenance cannot be inferred after credentials rotate, so never
+copying `auth.json` remains an operator rule. After startup, `account/read` must
+still report `requiresOpenaiAuth: true` and a `chatgpt` account before provider
+work.
 
 The `--live` gate initially starts one App Server and two version-matched loopback
 `exec-server` processes, each rooted in a clean disposable Git repository. It
-passes the dedicated key only to the App Server as
-`CODEX_API_KEY`; no credential is copied to disk. Each executor receives a
-different, empty `CODEX_HOME` and a minimal allowlisted process environment.
-The App Server's shell policy passes only core command variables and omits
-`CODEX_API_KEY` and `CODEX_HOME`. A sentinel present only in the App Server
-process must also be absent from each command. The fixture disables apps,
-plugins, host skill discovery, hooks, web search, multi-agent, and related
-optional tools. Before each turn and again after restart, it repeats the
-effective launch-policy, skill-origin, hook, config-source, and managed-policy
-checks for every task cwd, then verifies that the thread sees no MCP servers.
+passes the selected persistent profile only to the App Server as `CODEX_HOME`
+and confirms through `account/read` that OpenAI authentication is required and
+the active account type is `chatgpt` before provider work. No credential is
+copied. Before launching, the fixture rejects user configuration and stale
+run state; after account validation it repeats config, rule, skill, hook, and
+managed-policy isolation checks before `model/list`, environment registration,
+or thread creation. A temporary `CODEX_SQLITE_HOME` owns the live run's thread
+database and survives the App Server restart used by the recovery proof.
+App Server also writes run-scoped rollout, writer-lock, shell-snapshot, and
+trust records beneath the dedicated profile; the fixture removes those exact
+runtime entries after every owned process group stops. Each
+executor receives a different, empty `CODEX_HOME` and a minimal allowlisted
+process environment. The App Server's shell policy passes only core command
+variables and omits `CODEX_API_KEY`, `OPENAI_API_KEY`, and `CODEX_HOME`. A
+sentinel present only in the App Server process must also be absent from each
+command. The fixture disables apps, plugins, host skill discovery, hooks, web
+search, multi-agent, and related optional tools. Before each turn and again
+after restart, it repeats the effective launch-policy, skill-origin, hook,
+config-source, and managed-policy checks for every task cwd, then verifies that
+the thread sees no MCP servers.
 
 The `--live` path is intentionally a no-child isolation baseline. The keyless
 probe proves that either child-capable launch profile can enable exactly one
@@ -186,13 +231,17 @@ reads every V1 `spawnAgent` or V2
 grandchild in one session with direct-parent identity, one completed turn
 each, and exact final markers. V2 upward `interacted` activity never creates a
 child edge. Only passive transcript items and the selected collaboration item
-type are accepted; unknown or execution-capable items fail closed. The gate
-also requires no approvals, no Git mutation, and an empty paginated
+type are used to discover the graph. The other known V1/V2 collaboration item
+may coexist as supplementary history and is validated against the same known
+thread set, but never creates an edge for the advertised protocol. Unknown or
+execution-capable items fail closed. The gate also requires no approvals, no
+Git mutation, and an empty paginated
 background-terminal list for all three threads. This implements the live
-proof path but does not close the recursive-child gate until a dedicated-key
-run passes. The normal keyless command feeds synthetic V1 and V2 trees,
-including V2 upward `interacted` activity, through the same graph assertions;
-that is regression coverage for the checker, not model-behavior evidence.
+proof path; its passing explicit subscription-backed run closed the
+recursive-child CP1 gate. The normal keyless command feeds synthetic V1 and V2
+trees, including V2 upward `interacted` activity, through the same graph
+assertions; that is regression coverage for the checker, not model-behavior
+evidence.
 The bounded prompt asks each parent to wait to reduce nondeterminism, but V2
 history does not expose a distinct wait item. Acceptance therefore proves the
 topology and eventual terminal fixed point, not wait-call causality.
@@ -207,6 +256,12 @@ resumes task A in the same environment. Its second turn writes the same bounded
 file, emits an environment marker, and yields a tracked `/bin/sleep` process
 while the turn completes.
 
+While that command is yielded, the live item event and
+`thread/backgroundTerminals/list` are authoritative. `thread/read` may omit the
+still-running item; the fixture accepts that omission, but if the item is
+present it must match exactly. After targeted termination, replayed history
+must contain the same command item and its terminal state.
+
 While task A's process remains listed and in progress, task B completes one
 no-approval turn through executor B and writes a differently named and valued
 proof file. Only then does the fixture terminate task A's listed process. The
@@ -215,45 +270,69 @@ turn completion, and task A command completion. Every thread, turn, and item
 identity in that window must belong to the matching persisted task history;
 task B must emit no approval and no background terminal. The fixture correlates
 task A's process, item, command, and working-directory identities, observes its
-command become failed with pre-yield output intact, and verifies that cleanup
-does not change task B's history.
+command become failed, and verifies that cleanup does not change task B's
+history. The yielded command's output delta and terminal `aggregatedOutput` are
+both optional in the observed v0.151 runtime. When either is present, the
+fixture correlates and validates it; when both are absent, ByteQuay still has
+the exact structured action, lifecycle events, and background-terminal record
+but must not synthesize a log body.
 
-For all three turns, the fixture verifies that the recorded shell action
-expands the environment variables and that each proof file is the only Git
-mutation in its repository. Each repository must contain only its task's file.
+For both completed foreground commands, and for the yielded command whenever
+its output is exposed, the fixture verifies that the recorded shell action
+expands the environment variables. It always requires each proof file to be
+the only Git mutation in its repository. Each repository must contain only its
+task's file.
 This proves that the writes were not misrouted, not that either same-user
 process cannot read the other repository through an absolute path. Streamed
 command events and replayed history must report the executor-specific `HOME`,
-canonical working directory, unset command-level `CODEX_HOME`, absent API key,
-and unset App Server sentinel. This distinguishes both executors from the App
-Server's ambient process and verifies the tested shell environment policy.
-Every unexpected App Server request fails the fixture. A short command is not
-required to emit a separate output-delta notification.
+canonical working directory, unset command-level `CODEX_HOME`, absent
+`CODEX_API_KEY`, absent `OPENAI_API_KEY`, and unset App Server sentinel. This
+distinguishes both executors from the App Server's ambient process and verifies
+the tested shell environment policy.
+Every unexpected App Server request fails the fixture. A command is not
+required to emit a separate output-delta notification, and a targeted
+termination may report a null aggregate.
+
+The approval handler compares the structured command action exactly before it
+returns `accept`, and failure diagnostics report only bounded metadata, never
+raw command text or output. This still is not an OS filesystem-read boundary:
+the App Server, exec-server, and tools run as the same macOS user, so an
+absolute path could reach the dedicated profile if a command learned it. CP0's
+same-host trust decision accepted that boundary for the planned first release
+on 2026-08-31; a future OS-user/container boundary may strengthen it.
 
 After both tasks finish and task A's background process is cleaned, the fixture
 stops and verifies the old App Server and executor process groups. It starts a
-fresh App Server with the same isolated App Server home and a fresh executor A,
+fresh App Server with the same selected authentication profile, the same
+temporary `CODEX_SQLITE_HOME`, the same run-scoped rollout state, and a fresh executor A,
 re-registers environment A, resumes task A, and reads both durable root
 histories without resending user input. Task A must retain its two turn and
 command IDs; task B must retain its one disjoint turn and command ID. No provider
-work may start during this recovery check. When the dedicated-key gate passes,
-this will prove the narrow persisted-history recovery shape; production
-ownership and crash recovery remain later checkpoints.
+work may start during this recovery check. The passing subscription-backed gate
+proves this narrow persisted-history recovery shape; production ownership and
+crash recovery remain later checkpoints.
 
 Task A turn one uses `approvalPolicy: "untrusted"`; task A turn two and task B's
 turn use `approvalPolicy: "never"`. All three use a workspace-write shell
 sandbox restricted to the selected temporary environment root with shell
 network disabled. App Server still uses provider network traffic for the three
-model turns. Both durable threads exist only inside the temporary App Server
-`CODEX_HOME`; each executor, including the replacement executor, has a separate
-empty home. After every
-registered App Server and executor process group has stopped, those homes and
-the two environments are removed. Signal handling terminates every registered
-process group before cleanup. If group termination cannot be confirmed, the
-fixture reports the cleanup failure and retains its temporary tree for
-diagnosis. The fixture does not archive or delete user task history.
+model turns. Their database state lives in the temporary `CODEX_SQLITE_HOME`,
+while their rollout and writer-lock files remain run-scoped inside the
+fixture-only profile until final cleanup. Each executor, including the
+replacement executor, has a separate empty home. After every registered App
+Server and executor process group has stopped, the fixture removes its exact
+profile runtime entries, temporary SQLite state, executor homes, and two
+environments, then releases the profile lock. A runtime-entry cleanup failure
+is reported and the stale entry blocks the next preflight even though the lock
+is released. It never deletes `auth.json` or the selected authentication
+profile. Signal handling terminates every registered process group before
+cleanup. If group termination cannot be confirmed, the fixture reports the
+cleanup failure, retains its temporary runtime tree, and does not release the
+profile lock. The fixture does not archive or delete user task history because
+the selected profile is dedicated to this fixture and must be clean before
+each run.
 
-## Evidence and remaining gates
+## Evidence and conditional decision
 
 The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
 
@@ -266,7 +345,28 @@ PASS App Server multi-agent-v1-enabled launch profile and config-source isolatio
 PASS App Server multi-agent-v2-enabled launch profile and config-source isolation
 ```
 
-Separately, a complete two-turn behavior slice passed on 2026-08-30 with
+Both safe subscription-backed live gates then passed on 2026-08-31 with the
+dedicated fixture profile and `gpt-5.6-sol`. The no-child evidence was:
+
+```text
+PASS live initialize and model/list (gpt-5.6-sol)
+PASS ChatGPT subscription auth and credential-free executor environments
+PASS empty MCP/hooks and disabled optional capabilities
+PASS two root tasks route commands, events, and files without cross-talk
+PASS command events, thread/read, resume, and task A's two turns
+PASS yielded background-terminal list, targeted termination, and cleanup
+PASS App Server restart and disk-backed thread recovery without resend
+```
+
+The separate child-capable evidence was:
+
+```text
+PASS live recursive child history (gpt-5.6-sol, v2)
+PASS exactly one root child and one grandchild with completed markers
+PASS child profile isolation, clean worktree, and empty background terminals
+```
+
+An earlier two-turn behavior slice passed on 2026-08-30 with
 ChatGPT authentication and the advertised default model `gpt-5.6-sol`. Its
 live-specific evidence was:
 
@@ -282,35 +382,31 @@ PASS empty background-terminal list and cleanup
 That run exposed a fixture-design risk: copying a rotating ChatGPT login can
 consume a refresh token in the disposable copy and invalidate the user's
 original login. The checked-in fixture therefore never copies `auth.json` and
-requires a dedicated API key. Both checked-in live modes still need a run with
-that credential; the subscription-auth run is protocol evidence, not
-acceptance of the unsafe credential technique. The recursive-child mode has
-not been run on this host and makes no behavioral PASS claim yet.
+never uses the normal `~/.codex`. Instead, a developer signs a separate
+persistent 0700 profile into ChatGPT directly and explicitly selects it with
+`BYTEQUAY_CODEX_COMPAT_HOME`. The current passes use that safe profile; the
+historical subscription-auth run remains protocol evidence, not acceptance of
+its unsafe copied-credential technique. API-key-backed smoke testing may be
+added later, but is not a CP1 requirement.
 
 The pinned binary supplies the environment registration and task/history
-primitives required to begin a client integration, but CP1 remains incomplete
-and this is not final product approval. Dedicated-key execution must prove the
-newly configured yielded-terminal, targeted termination, bounded Git-worktree
-filesystem action, restart-recovery checks, one representative real command
-approval, recursive child discovery, cross-task
-event/approval/command/filesystem isolation, API-key isolation, and the written
-go/no-go result. Exhaustive modern wire and codec coverage remains offline;
-richer product decision matrices begin in CP2 only after ByteQuay defines its
-finite immutable safety ceiling. Both `--live` and `--live-children` must pass
-before CP1 exits. Offline approval codec coverage does not close the
-representative live command-approval gate or either credentialed live gate.
-The keyless profile checks prove only launch-policy selection;
-`--live-children` now supplies the
-bounded behavioral gate, but production adoption of the executable guards and
-its child-capable profile belongs to CP4 only after that gate passes. The safe
-no-child live path is now also
-configured to exercise one typed command approval and one bounded Git-worktree
-mutation per repository. It uses task A's second turn for the yielded-terminal
-proof, completes task B while that terminal is live, and recovers both durable
-root histories after restart. It keeps its API key out of executor process
-environments and records an exact command that checks that the key,
-`CODEX_HOME`, and App Server sentinel are absent. The dedicated-key rerun must
-prove these added behaviors. The fixture does not claim same-user filesystem read
-confinement outside the executor sandbox or production crash recovery.
-Product decisions about relying on an experimental unsupported-for-production
-command and the same-host executor trust boundary also remain unresolved.
+primitives required to begin a client integration. CP1's technical
+recommendation is **GO** to CP2 provider-neutral contract work: CP0 is complete,
+and the current offline, no-child live, and recursive-child gates passed. They
+prove the reviewed
+yielded-terminal and targeted-termination behavior, bounded Git-worktree
+actions, one representative real command approval, recursive child discovery,
+restart recovery, cross-task event/approval/command/filesystem isolation, and
+the credential-stripped executor process-environment boundary.
+
+This is not final product approval. Exhaustive modern wire and codec coverage
+remains offline; richer product decision matrices begin in CP2, and production
+adoption of the executable guards and child-capable profile belongs to CP4.
+CP0 accepted the experimental risk and same-host boundary, selected the
+separate managed-worktree contract, approved the development-only UI gate, and
+captured the sanitized current HTTP/SSE baseline. CP1 is formally complete and
+CP2 has started.
+The fixture does not claim same-user filesystem read confinement outside the
+executor sandbox or production crash recovery. The accepted product risks
+remain explicit release constraints rather than evidence supplied by this
+fixture.

@@ -5,15 +5,17 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -411,6 +413,7 @@ const experimentalMethods = [
 ];
 
 const stableMethods = [
+  "account/read",
   "model/list",
   "config/read",
   "configRequirements/read",
@@ -483,6 +486,18 @@ const shellEnvironmentIncludeOnly = [
   "USER",
 ];
 
+const liveProfileRuntimeEntries = [
+  "archived_sessions",
+  "config.toml",
+  "history.jsonl",
+  "session_index.jsonl",
+  "sessions",
+  "shell_snapshots",
+  "thread-writer-locks",
+  "tmp",
+];
+const liveProfileLockName = ".bytequay-live-gate-lock";
+
 const passiveTurnItemTypes = new Set([
   "agentMessage",
   "contextCompaction",
@@ -508,8 +523,12 @@ const execPolicyRule = `prefix_rule(
 const environmentEvidenceSuffix =
   'if [ -z "${CODEX_API_KEY+x}" ]; then key_state=absent; ' +
   "else key_state=present; fi; " +
-  "printf 'CODEX_API_KEY_VISIBLE=%s\\nAPP_SERVER_SENTINEL=%s\\n" +
+  'if [ -z "${OPENAI_API_KEY+x}" ]; then openai_key_state=absent; ' +
+  "else openai_key_state=present; fi; " +
+  "printf 'CODEX_API_KEY_VISIBLE=%s\\nOPENAI_API_KEY_VISIBLE=%s\\n" +
+  "APP_SERVER_SENTINEL=%s\\n" +
   "CODEX_HOME=%s\\nHOME=%s\\nPWD=%s\\n' \"$key_state\" " +
+  '"$openai_key_state" ' +
   '"${BYTEQUAY_CP1_APP_SERVER_SENTINEL-<unset>}" ' +
   '"${CODEX_HOME-<unset>}" "$HOME" "$PWD"';
 const environmentEvidenceCommand =
@@ -519,16 +538,22 @@ const taskBEnvironmentEvidenceCommand =
   environmentEvidenceSuffix;
 
 const environmentEvidencePrompt =
-  `Use the shell exactly once to run this exact command: ${environmentEvidenceCommand}. ` +
+  "Use the shell exactly once to run the command in this code block verbatim. " +
+  "Do not add punctuation to it:\n\n" +
+  `\`\`\`sh\n${environmentEvidenceCommand}\n\`\`\`\n\n` +
   "Then reply with that exact output. Do not read files or use any other tool.";
 const taskBEnvironmentEvidencePrompt =
-  `Use the shell exactly once to run this exact command: ${taskBEnvironmentEvidenceCommand}. ` +
+  "Use the shell exactly once to run the command in this code block verbatim. " +
+  "Do not add punctuation to it:\n\n" +
+  `\`\`\`sh\n${taskBEnvironmentEvidenceCommand}\n\`\`\`\n\n` +
   "Then reply with that exact output. Do not read files or use any other tool.";
 const backgroundEvidenceCommand =
   `${environmentEvidenceCommand}; ` +
   "printf 'BYTEQUAY_CP1_BACKGROUND_READY=1\\n'; exec /bin/sleep 300";
 const backgroundEvidencePrompt =
-  `Use the shell exactly once to run this exact command: ${backgroundEvidenceCommand}. ` +
+  "Use the shell exactly once to run the command in this code block verbatim. " +
+  "Do not add punctuation to it:\n\n" +
+  `\`\`\`sh\n${backgroundEvidenceCommand}\n\`\`\`\n\n` +
   "Set yield_time_ms to 250. When it yields a running process, immediately reply exactly " +
   "bytequay-background-yielded. Do not call write_stdin or use another tool.";
 const rootChildMarker = "BYTEQUAY_ROOT_OK";
@@ -827,6 +852,20 @@ function checkSchema(directory, experimental) {
       experimental,
       `${method} experimental gating changed`,
     );
+  }
+
+  const getAccountResponse = readJson(join(directory, "v2", "GetAccountResponse.json"));
+  const getAccountParams = readJson(join(directory, "v2", "GetAccountParams.json"));
+  requireProperties(getAccountParams, ["refreshToken"]);
+  requireProperties(getAccountResponse, ["account", "requiresOpenaiAuth"]);
+  requireFields(getAccountResponse, ["requiresOpenaiAuth"]);
+  const accountTypes = new Set(
+    getAccountResponse.definitions.Account.oneOf.flatMap(
+      (account) => account.properties?.type?.enum ?? [],
+    ),
+  );
+  for (const accountType of ["apiKey", "chatgpt"]) {
+    assert.ok(accountTypes.has(accountType), `account/read lacks ${accountType} identity`);
   }
 
   const initialize = readJson(join(directory, "v1", "InitializeParams.json"));
@@ -1627,7 +1666,7 @@ class JsonRpcProcess {
     this.serverRequestHandler = null;
     this.serverRequests = [];
     this.waiters = [];
-    this.stderr = "";
+    this.stderrBytes = 0;
     this.failure = null;
 
     createInterface({ input: child.stdout }).on("line", (line) => {
@@ -1644,7 +1683,7 @@ class JsonRpcProcess {
       this.#disconnect(new Error(`app-server output failed: ${error.message}`));
     });
     child.stderr.on("data", (chunk) => {
-      this.stderr = `${this.stderr}${chunk}`.slice(-16_384);
+      this.stderrBytes += chunk.length;
     });
     child.stderr.on("error", (error) => {
       this.#disconnect(new Error(`app-server diagnostics failed: ${error.message}`));
@@ -1654,7 +1693,7 @@ class JsonRpcProcess {
     });
     child.on("exit", (code, signal) => {
       this.#disconnect(new Error(
-        `app-server exited (${code ?? signal})${this.stderr ? `:\n${this.stderr}` : ""}`,
+        `app-server exited (${code ?? signal}); diagnostic bytes: ${this.stderrBytes}`,
       ));
     });
   }
@@ -1719,7 +1758,9 @@ class JsonRpcProcess {
     try {
       message = JSON.parse(line);
     } catch {
-      throw new Error(`app-server emitted non-JSON stdout: ${line}`);
+      throw new Error(
+        `app-server emitted ${Buffer.byteLength(line)} bytes of non-JSON stdout`,
+      );
     }
 
     if (message.id !== undefined && message.method) {
@@ -1733,7 +1774,7 @@ class JsonRpcProcess {
       this.pending.delete(message.id);
       if (message.error) {
         pending.reject(
-          new Error(`${pending.method} failed: ${JSON.stringify(message.error)}`),
+          new Error(`${pending.method} failed with JSON-RPC code ${message.error.code ?? "unknown"}`),
         );
       } else {
         pending.resolve(message.result);
@@ -1838,7 +1879,7 @@ function startExecServer(cwd, environment, registerChild) {
   registerChild(child);
   const server = { child, failure: null, url: null };
   return new Promise((resolve, reject) => {
-    let stderr = "";
+    let stderrBytes = 0;
     let settled = false;
     let timeout;
     const fail = async (error) => {
@@ -1874,7 +1915,7 @@ function startExecServer(cwd, environment, registerChild) {
       resolve(server);
     });
     child.stderr.on("data", (chunk) => {
-      stderr = `${stderr}${chunk}`.slice(-8_192);
+      stderrBytes += chunk.length;
     });
     child.stdout.on("error", (error) => {
       reportFailure(new Error(`exec-server output failed: ${error.message}`));
@@ -1886,7 +1927,9 @@ function startExecServer(cwd, environment, registerChild) {
       reportFailure(new Error(`unable to start exec-server: ${error.message}`));
     });
     child.once("exit", (code, signal) => {
-      reportFailure(new Error(`exec-server exited (${code ?? signal}): ${stderr}`));
+      reportFailure(new Error(
+        `exec-server exited (${code ?? signal}); diagnostic bytes: ${stderrBytes}`,
+      ));
     });
   });
 }
@@ -2387,7 +2430,11 @@ async function completeTurn(rpc, params, timeoutMs = 180_000) {
       notification.turn.id === started.turn.id,
     timeoutMs,
   );
-  assert.equal(completed.turn.status, "completed", JSON.stringify(completed.turn.error));
+  assert.equal(
+    completed.turn.status,
+    "completed",
+    `turn ${completed.turn.id} ended ${completed.turn.status}`,
+  );
   return completed.turn;
 }
 
@@ -2536,31 +2583,176 @@ async function waitForBackgroundTerminal(rpc, threadId, itemId, timeoutMs = 5_00
   }
 }
 
-function createIsolatedCodexHome(root) {
-  const isolatedHome = join(root, "codex-home");
-  mkdirSync(isolatedHome, { mode: 0o700 });
-  return isolatedHome;
+function pathAtOrWithin(root, candidate) {
+  const candidateRelativeToRoot = relative(root, candidate);
+  return candidateRelativeToRoot === "" ||
+    (candidateRelativeToRoot !== ".." &&
+      !candidateRelativeToRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(candidateRelativeToRoot));
 }
 
-function requiredLiveApiKey() {
-  const apiKey = process.env.BYTEQUAY_CODEX_COMPAT_API_KEY;
+function ambientCodexHomes() {
+  return new Set([
+    join(homedir(), ".codex"),
+    process.env.CODEX_HOME?.trim(),
+  ].filter(Boolean));
+}
+
+function requiredLiveCodexHome(root) {
+  const configuredHome = process.env.BYTEQUAY_CODEX_COMPAT_HOME;
   assert.ok(
-    apiKey?.trim(),
-    "live gate requires BYTEQUAY_CODEX_COMPAT_API_KEY; " +
-      "it never copies rotating ChatGPT credentials",
+    configuredHome?.trim(),
+    "live gate requires BYTEQUAY_CODEX_COMPAT_HOME pointing to a dedicated " +
+      "ChatGPT-signed-in Codex profile; never copy auth.json",
   );
-  return apiKey.trim();
+  assert.ok(
+    isAbsolute(configuredHome.trim()),
+    "BYTEQUAY_CODEX_COMPAT_HOME must be an absolute path",
+  );
+  assert.ok(
+    existsSync(configuredHome.trim()) && statSync(configuredHome.trim()).isDirectory(),
+    "BYTEQUAY_CODEX_COMPAT_HOME must name an existing directory",
+  );
+  const codexHome = realpathSync(configuredHome.trim());
+  for (const ambientCodexHome of ambientCodexHomes()) {
+    if (!existsSync(ambientCodexHome)) continue;
+    assert.notEqual(
+      codexHome,
+      realpathSync(ambientCodexHome),
+      "live gate refuses default and ambient Codex profiles; sign in to a dedicated profile",
+    );
+  }
+  const fixtureRoot = realpathSync(root);
+  assert.equal(
+    pathAtOrWithin(fixtureRoot, codexHome),
+    false,
+    "BYTEQUAY_CODEX_COMPAT_HOME must remain outside the disposable fixture root",
+  );
+  const repositoryRoot = realpathSync(fileURLToPath(new URL("../", import.meta.url)));
+  assert.equal(
+    pathAtOrWithin(repositoryRoot, codexHome),
+    false,
+    "BYTEQUAY_CODEX_COMPAT_HOME must remain outside the ByteQuay repository",
+  );
+  assert.equal(
+    statSync(codexHome).mode & 0o777,
+    0o700,
+    "BYTEQUAY_CODEX_COMPAT_HOME must have mode 0700",
+  );
+  return codexHome;
 }
 
-function appServerProcessEnvironment(root, codexHome, apiKey) {
+function assertLiveProfileReady(codexHome) {
+  const authPath = join(codexHome, "auth.json");
+  assert.ok(existsSync(authPath), "dedicated Codex profile has no auth.json; sign in directly");
+  const authLinkStat = lstatSync(authPath);
+  assert.ok(
+    authLinkStat.isFile() && !authLinkStat.isSymbolicLink(),
+    "dedicated Codex profile auth.json must be a regular file, not a link",
+  );
+  const authStat = statSync(authPath);
+  assert.equal(authStat.nlink, 1, "dedicated Codex profile auth.json must not be hard-linked");
+  const auth = readJson(authPath);
+  assert.equal(
+    auth.auth_mode,
+    "chatgpt",
+    "dedicated Codex profile must use ChatGPT auth before App Server starts",
+  );
+  const refreshToken = auth.tokens?.refresh_token;
+  assert.ok(
+    typeof refreshToken === "string" && refreshToken.trim(),
+    "dedicated ChatGPT profile has no refresh credential; sign in directly",
+  );
+  const authHash = sha256(authPath);
+  for (const ambientCodexHome of ambientCodexHomes()) {
+    const ambientAuthPath = join(ambientCodexHome, "auth.json");
+    if (!existsSync(ambientAuthPath)) continue;
+    const ambientAuthStat = statSync(ambientAuthPath);
+    assert.ok(
+      authStat.dev !== ambientAuthStat.dev || authStat.ino !== ambientAuthStat.ino,
+      "dedicated Codex profile auth.json must not share the ambient credential file",
+    );
+    assert.ok(
+      authHash !== sha256(ambientAuthPath),
+      "dedicated Codex profile auth.json must not copy the ambient credential file",
+    );
+    let ambientAuth;
+    try {
+      ambientAuth = readJson(ambientAuthPath);
+    }
+    catch {
+      ambientAuth = null;
+    }
+    const ambientRefreshToken = ambientAuth?.tokens?.refresh_token;
+    if (typeof ambientRefreshToken === "string" && ambientRefreshToken.trim()) {
+      assert.ok(
+        refreshToken !== ambientRefreshToken,
+        "dedicated Codex profile must not reuse the ambient refresh credential",
+      );
+    }
+  }
+  const instructionEntries = ["AGENTS.override.md", "AGENTS.md"].filter(
+    (entry) => existsSync(join(codexHome, entry)),
+  );
+  assert.deepEqual(
+    instructionEntries,
+    [],
+    "auth-only Codex profile must not contain persistent instruction files",
+  );
+  const existingRuntimeEntries = liveProfileRuntimeEntries.filter(
+    (entry) => existsSync(join(codexHome, entry)),
+  );
+  assert.deepEqual(
+    existingRuntimeEntries,
+    [],
+    "dedicated Codex profile contains runtime/config state from another run; " +
+      "remove only the listed fixture artifacts before retrying",
+  );
+}
+
+function acquireLiveProfileLock(codexHome) {
+  const lockPath = join(codexHome, liveProfileLockName);
+  try {
+    mkdirSync(lockPath, { mode: 0o700 });
+    writeFileSync(join(lockPath, "owner"), `${process.pid}\n`, { mode: 0o600 });
+  }
+  catch (error) {
+    if (error?.code === "EEXIST") {
+      throw new Error(
+        `another live compatibility gate owns ${lockPath}; ` +
+          "do not share one ChatGPT profile concurrently",
+      );
+    }
+    rmSync(lockPath, { recursive: true, force: true });
+    throw error;
+  }
+  return lockPath;
+}
+
+function removeGeneratedLiveConfig(codexHome) {
+  rmSync(join(codexHome, "config.toml"), { force: true });
+}
+
+function cleanLiveProfileRuntime(codexHome) {
+  for (const entry of liveProfileRuntimeEntries) {
+    rmSync(join(codexHome, entry), { recursive: true, force: true });
+  }
+}
+
+function releaseLiveProfileLock(lockPath) {
+  if (lockPath) rmSync(lockPath, { recursive: true, force: true });
+}
+
+function appServerProcessEnvironment(root, codexHome) {
   const temporaryDirectory = join(root, "app-server-tmp");
+  const sqliteHome = join(root, "app-server-state");
   mkdirSync(temporaryDirectory, { mode: 0o700 });
+  mkdirSync(sqliteHome, { mode: 0o700 });
   const environment = {
     ...minimalProcessEnvironment(root, temporaryDirectory),
     BYTEQUAY_CP1_APP_SERVER_SENTINEL: "must-not-reach-tools",
-    CODEX_API_KEY: apiKey,
     CODEX_HOME: codexHome,
-    CODEX_SQLITE_HOME: codexHome,
+    CODEX_SQLITE_HOME: sqliteHome,
   };
   for (const name of [
     "ALL_PROXY",
@@ -2634,6 +2826,10 @@ function appServerArguments(launchProfile) {
     "--enable",
     "skip_host_skill_discovery",
     "-c",
+    'cli_auth_credentials_store="file"',
+    "-c",
+    'forced_login_method="chatgpt"',
+    "-c",
     'web_search="disabled"',
     "-c",
     'shell_environment_policy.inherit="core"',
@@ -2671,6 +2867,24 @@ async function verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile) {
   assertNoManagedRequirements(requirements);
 }
 
+function assertChatgptSubscriptionAccount(response) {
+  assert.equal(
+    response?.requiresOpenaiAuth,
+    true,
+    "account/read did not require OpenAI authentication",
+  );
+  assert.equal(
+    response?.account?.type,
+    "chatgpt",
+    "live gate requires a ChatGPT-signed-in Codex profile; API-key auth is deferred",
+  );
+}
+
+async function verifyChatgptSubscriptionAccount(rpc) {
+  const response = await rpc.request("account/read", { refreshToken: false });
+  assertChatgptSubscriptionAccount(response);
+}
+
 async function verifyCapabilityIsolation(
   rpc,
   threadIdOrIds,
@@ -2693,21 +2907,34 @@ async function verifyCapabilityIsolation(
   }
 }
 
-function commandRanIn(command, cwd, expectedCommand) {
-  const apiKeyVisibility = command.aggregatedOutput
+function recordsExactCommandAction(command, expectedCommand) {
+  return command.commandActions?.length === 1 &&
+    command.commandActions[0].command === expectedCommand;
+}
+
+function commandActionRanIn(command, cwd, expectedCommand) {
+  return recordsExactCommandAction(command, expectedCommand) &&
+    realpathSync(command.cwd) === realpathSync(cwd);
+}
+
+function commandRanIn(
+  command,
+  cwd,
+  expectedCommand,
+  observedOutput = command.aggregatedOutput,
+) {
+  const apiKeyVisibility = observedOutput
     ?.match(/^CODEX_API_KEY_VISIBLE=(.+)$/m)?.[1].trim();
-  const appServerSentinel = command.aggregatedOutput
+  const openaiApiKeyVisibility = observedOutput
+    ?.match(/^OPENAI_API_KEY_VISIBLE=(.+)$/m)?.[1].trim();
+  const appServerSentinel = observedOutput
     ?.match(/^APP_SERVER_SENTINEL=(.+)$/m)?.[1].trim();
-  const codexHome = command.aggregatedOutput?.match(/^CODEX_HOME=(.+)$/m)?.[1].trim();
-  const home = command.aggregatedOutput?.match(/^HOME=(.+)$/m)?.[1].trim();
-  const workingDirectory = command.aggregatedOutput?.match(/^PWD=(.+)$/m)?.[1].trim();
-  const exactCommandRecorded = command.commandActions?.some(
-    (action) => action.command === expectedCommand,
-  );
-  return command.command === expectedCommand &&
-    exactCommandRecorded &&
-    realpathSync(command.cwd) === realpathSync(cwd) &&
+  const codexHome = observedOutput?.match(/^CODEX_HOME=(.+)$/m)?.[1].trim();
+  const home = observedOutput?.match(/^HOME=(.+)$/m)?.[1].trim();
+  const workingDirectory = observedOutput?.match(/^PWD=(.+)$/m)?.[1].trim();
+  return commandActionRanIn(command, cwd, expectedCommand) &&
     apiKeyVisibility === "absent" &&
+    openaiApiKeyVisibility === "absent" &&
     appServerSentinel === "<unset>" &&
     codexHome === "<unset>" &&
     home &&
@@ -2719,10 +2946,14 @@ function commandRanIn(command, cwd, expectedCommand) {
 function commandItemDiagnostics(items) {
   return JSON.stringify(
     items.map((item) => ({
+      actionCount: item.commandActions?.length ?? 0,
       actionTypes: item.commandActions?.map((action) => action.type) ?? [],
       cwd: item.cwd,
       exitCode: item.exitCode,
       id: item.id,
+      outputBytes: typeof item.aggregatedOutput === "string"
+        ? Buffer.byteLength(item.aggregatedOutput)
+        : null,
       status: item.status,
       type: item.type,
     })),
@@ -2735,7 +2966,9 @@ function assertSingleCommand(
   label,
   expectedCommand = environmentEvidenceCommand,
   expectedStatus = "completed",
-  expectedExitCode = 0,
+  expectedExitCode = expectedStatus === "completed" ? 0 : undefined,
+  observedOutput,
+  allowMissingOutput = false,
 ) {
   const activeItems = items.filter((item) => !passiveTurnItemTypes.has(item.type));
   assert.equal(
@@ -2745,8 +2978,14 @@ function assertSingleCommand(
   );
   assert.equal(activeItems[0].type, "commandExecution", `${label} did not use the shell`);
   assert.ok(activeItems[0].id, `${label} command had no item id`);
+  const output = observedOutput === undefined
+    ? activeItems[0].aggregatedOutput
+    : observedOutput;
+  const commandMatches = allowMissingOutput && output == null
+    ? commandActionRanIn(activeItems[0], cwd, expectedCommand)
+    : commandRanIn(activeItems[0], cwd, expectedCommand, output);
   assert.ok(
-    commandRanIn(activeItems[0], cwd, expectedCommand),
+    commandMatches,
     `${label} lacked environment evidence: ${commandItemDiagnostics(activeItems)}`,
   );
   assert.equal(activeItems[0].status, expectedStatus, `${label} had unexpected status`);
@@ -2756,6 +2995,20 @@ function assertSingleCommand(
     assert.equal(activeItems[0].exitCode, expectedExitCode, `${label} had unexpected exit code`);
   }
   return activeItems[0];
+}
+
+function streamedCommandOutput(notifications, threadId, turnId, itemId) {
+  const output = notifications
+    .filter(
+      (notification) =>
+        notification.method === "item/commandExecution/outputDelta" &&
+        notification.params.threadId === threadId &&
+        notification.params.turnId === turnId &&
+        notification.params.itemId === itemId,
+    )
+    .map((notification) => notification.params.delta)
+    .join("");
+  return output || null;
 }
 
 function assertSingleCommandStart(items, label) {
@@ -2915,7 +3168,7 @@ async function waitForRecursiveChildHistory(
     await delay(250);
   }
   throw new Error(
-    `recursive child history did not reach a stable completed tree: ` +
+    `recursive ${multiAgentVersion} child history did not reach a stable completed tree: ` +
       `${latestFailure?.message ?? childHistoryDiagnostics(latest, multiAgentVersion)}`,
   );
 }
@@ -2978,11 +3231,16 @@ function assertChildTree(threads, rootThreadId, multiAgentVersion) {
     [child.id, childMarker],
     [grandchild.id, grandchildMarker],
   ]);
-  const collaborationItemType = multiAgentVersion === "v1"
-    ? "collabAgentToolCall"
-    : "subAgentActivity";
-  const allowedItemTypes = new Set([...passiveTurnItemTypes, collaborationItemType]);
+  const allowedItemTypes = new Set([
+    ...passiveTurnItemTypes,
+    "collabAgentToolCall",
+    "subAgentActivity",
+  ]);
   const knownThreadIds = new Set(threads.keys());
+  const expectedParents = new Map([
+    [child.id, root.id],
+    [grandchild.id, child.id],
+  ]);
   const v2Paths = new Map();
   for (const thread of threads.values()) {
     assert.equal(thread.sessionId, root.sessionId, `${thread.id} left the root session tree`);
@@ -3013,6 +3271,13 @@ function assertChildTree(threads, rootThreadId, multiAgentVersion) {
             knownThreadIds.has(receiverThreadId),
             `${thread.id} contacted unknown V1 thread ${receiverThreadId}`,
           );
+          if (item.tool === "spawnAgent") {
+            assert.equal(
+              expectedParents.get(receiverThreadId),
+              thread.id,
+              `${thread.id} recorded a V1 spawn that contradicts the parent graph`,
+            );
+          }
         }
         for (const agentThreadId of Object.keys(item.agentsStates)) {
           assert.ok(
@@ -3028,6 +3293,13 @@ function assertChildTree(threads, rootThreadId, multiAgentVersion) {
           `${thread.id} contacted unknown V2 thread ${item.agentThreadId}`,
         );
         assert.ok(item.agentPath.startsWith("/"), `${thread.id} has non-absolute V2 activity`);
+        if (item.kind === "started") {
+          assert.equal(
+            expectedParents.get(item.agentThreadId),
+            thread.id,
+            `${thread.id} recorded a V2 start that contradicts the parent graph`,
+          );
+        }
         const previousPath = v2Paths.get(item.agentThreadId);
         assert.ok(
           previousPath === undefined || previousPath === item.agentPath,
@@ -3038,12 +3310,10 @@ function assertChildTree(threads, rootThreadId, multiAgentVersion) {
     }
   }
 
-  if (multiAgentVersion === "v1") {
-    assert.ok(
-      grandchild.turns[0].items.every((item) => item.type !== "collabAgentToolCall"),
-      "V1 grandchild used a collaboration tool",
-    );
-  }
+  assert.ok(
+    grandchild.turns[0].items.every((item) => item.type !== "collabAgentToolCall"),
+    "grandchild used a V1 collaboration tool",
+  );
 
   const childPath = assertChildActivity(root, child.id, multiAgentVersion);
   const grandchildPath = assertChildActivity(child, grandchild.id, multiAgentVersion);
@@ -3126,7 +3396,10 @@ function checkChildHistoryHelpers() {
     "root-v2",
     null,
     rootChildMarker,
-    [v2Activity("child-v2", "/child-v2", "started")],
+    [
+      v2Activity("child-v2", "/child-v2", "started"),
+      v1Spawn("root-v2", "child-v2"),
+    ],
   );
   const v2Child = thread(
     "child-v2",
@@ -3167,10 +3440,127 @@ function checkChildHistoryHelpers() {
     () => assertChildTree(poisonedThreads, poisonedRoot.id, "v2"),
     /disallowed or unknown item type commandExecution/,
   );
+  const contradictoryV1Root = {
+    ...v2Root,
+    turns: [{
+      ...v2Root.turns[0],
+      items: [...v2Root.turns[0].items, v1Spawn("root-v2", "grandchild-v2")],
+    }],
+  };
+  assert.throws(
+    () => assertChildTree(
+      new Map(v2Threads).set(contradictoryV1Root.id, contradictoryV1Root),
+      contradictoryV1Root.id,
+      "v2",
+    ),
+    /V1 spawn that contradicts the parent graph/,
+  );
+  const contradictoryV2Root = {
+    ...v1Root,
+    turns: [{
+      ...v1Root.turns[0],
+      items: [
+        ...v1Root.turns[0].items,
+        v2Activity("grandchild-v1", "/grandchild-v1", "started"),
+      ],
+    }],
+  };
+  assert.throws(
+    () => assertChildTree(
+      new Map([
+        [contradictoryV2Root.id, contradictoryV2Root],
+        [v1Child.id, v1Child],
+        [v1Grandchild.id, v1Grandchild],
+      ]),
+      contradictoryV2Root.id,
+      "v1",
+    ),
+    /V2 start that contradicts the parent graph/,
+  );
+  const v2GrandchildWithWait = {
+    ...v2Grandchild,
+    turns: [{
+      ...v2Grandchild.turns[0],
+      items: [
+        {
+          type: "collabAgentToolCall",
+          tool: "wait",
+          status: "completed",
+          senderThreadId: "grandchild-v2",
+          receiverThreadIds: ["child-v2"],
+          agentsStates: { "child-v2": { status: "completed" } },
+        },
+        ...v2Grandchild.turns[0].items,
+      ],
+    }],
+  };
+  assert.throws(
+    () => assertChildTree(
+      new Map(v2Threads).set(v2GrandchildWithWait.id, v2GrandchildWithWait),
+      v2Root.id,
+      "v2",
+    ),
+    /grandchild used a V1 collaboration tool/,
+  );
 
   assert.equal(childLaunchProfileForVersion("v1").multi_agent, true);
   assert.equal(childLaunchProfileForVersion("v1").agentMaxDepth, 2);
   assert.equal(childLaunchProfileForVersion("v2").multi_agent_v2, true);
+}
+
+function checkSubscriptionAccountHelper() {
+  assertChatgptSubscriptionAccount({
+    account: { type: "chatgpt" },
+    requiresOpenaiAuth: true,
+  });
+  for (const account of [{ type: "apiKey" }, null]) {
+    assert.throws(
+      () => assertChatgptSubscriptionAccount({ account, requiresOpenaiAuth: true }),
+      /ChatGPT-signed-in Codex profile/,
+    );
+  }
+}
+
+function checkLiveProfileLockHelper() {
+  const codexHome = mkdtempSync(join(tmpdir(), "bytequay-codex-lock-"));
+  let lockPath;
+  try {
+    lockPath = acquireLiveProfileLock(codexHome);
+    assert.throws(
+      () => acquireLiveProfileLock(codexHome),
+      /another live compatibility gate owns/,
+    );
+    releaseLiveProfileLock(lockPath);
+    lockPath = acquireLiveProfileLock(codexHome);
+  }
+  finally {
+    releaseLiveProfileLock(lockPath);
+    rmSync(codexHome, { recursive: true, force: true });
+  }
+}
+
+function checkLiveProfileReadinessHelper() {
+  const codexHome = mkdtempSync(join(tmpdir(), "bytequay-codex-profile-"));
+  try {
+    writeFileSync(join(codexHome, "auth.json"), JSON.stringify({
+      auth_mode: "chatgpt",
+      tokens: { refresh_token: "synthetic-bytequay-refresh-token" },
+    }), { mode: 0o600 });
+    writeFileSync(join(codexHome, "AGENTS.md"), "synthetic instructions\n");
+    assert.throws(
+      () => assertLiveProfileReady(codexHome),
+      /must not contain persistent instruction files/,
+    );
+    rmSync(join(codexHome, "AGENTS.md"));
+    writeFileSync(join(codexHome, "config.toml"), "");
+    assert.throws(
+      () => assertLiveProfileReady(codexHome),
+      /contains runtime\/config state/,
+    );
+  }
+  finally {
+    rmSync(codexHome, { recursive: true, force: true });
+  }
 }
 
 async function liveCompatibilityCheck() {
@@ -3179,8 +3569,11 @@ async function liveCompatibilityCheck() {
   const cwdB = join(root, "environment-b");
 
   let appServer;
+  let codexHome;
   let execA;
   let execB;
+  let liveProfileLock;
+  let liveProfileRuntimeOwned = false;
   let rpc;
   let failure;
   let interruptedSignal;
@@ -3224,24 +3617,21 @@ async function liveCompatibilityCheck() {
   process.on("SIGINT", handleSigint);
   process.on("SIGTERM", handleSigterm);
   try {
-    const apiKey = requiredLiveApiKey();
+    codexHome = requiredLiveCodexHome(root);
+    liveProfileLock = acquireLiveProfileLock(codexHome);
+    assertLiveProfileReady(codexHome);
+    liveProfileRuntimeOwned = true;
     mkdirSync(cwdA);
     mkdirSync(cwdB);
-    const codexHome = createIsolatedCodexHome(root);
-    const appServerEnvironment = appServerProcessEnvironment(root, codexHome, apiKey);
+    const appServerEnvironment = appServerProcessEnvironment(root, codexHome);
     const executorA = executorProcessEnvironment(root, "exec-a", cwdA);
     const executorB = executorProcessEnvironment(root, "exec-b", cwdB);
     initializeDisposableGitWorktree(cwdA, executorA.environment);
     initializeDisposableGitWorktree(cwdB, executorB.environment);
-    assert.equal(existsSync(join(codexHome, "auth.json")), false);
+    assert.equal(Object.hasOwn(appServerEnvironment, "CODEX_API_KEY"), false);
+    assert.equal(Object.hasOwn(appServerEnvironment, "OPENAI_API_KEY"), false);
     assert.equal(existsSync(join(executorA.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorB.codexHome, "auth.json")), false);
-    execA = await interruptible(
-      startExecServer(cwdA, executorA.environment, registerChild),
-    );
-    execB = await interruptible(
-      startExecServer(cwdB, executorB.environment, registerChild),
-    );
     ({ child: appServer, rpc } = await interruptible(
       startAppServer(
         root,
@@ -3250,6 +3640,16 @@ async function liveCompatibilityCheck() {
         noChildLaunchProfile,
       ),
     ));
+    await interruptible(verifyChatgptSubscriptionAccount(rpc));
+    await interruptible(
+      verifyPreThreadIsolation(rpc, codexHome, [cwdA, cwdB], noChildLaunchProfile),
+    );
+    execA = await interruptible(
+      startExecServer(cwdA, executorA.environment, registerChild),
+    );
+    execB = await interruptible(
+      startExecServer(cwdB, executorB.environment, registerChild),
+    );
 
     const models = await interruptible(rpc.request("model/list", {}));
     const model = models.data.find((candidate) => candidate.isDefault) ?? models.data[0];
@@ -3364,21 +3764,16 @@ async function liveCompatibilityCheck() {
           "command approval did not offer accept",
         );
       }
-      if (params.approvalId == null) {
-        assert.ok(
-          params.command?.includes(proofFileName) &&
-            params.command.includes("CODEX_API_KEY_VISIBLE") &&
-            params.command.includes("APP_SERVER_SENTINEL") &&
-            params.command.includes("CODEX_HOME=%s"),
-          "parent approval did not contain the expected evidence command",
-        );
-        assert.equal(
-          existsSync(join(cwdA, proofFileName)),
-          false,
-          "proof file existed before parent command approval",
-        );
-        taskACommandApprovals.push(params);
-      }
+      assert.ok(
+        recordsExactCommandAction(params, environmentEvidenceCommand),
+        "parent approval did not contain the exact expected command action",
+      );
+      assert.equal(
+        existsSync(join(cwdA, proofFileName)),
+        false,
+        "proof file existed before parent command approval",
+      );
+      taskACommandApprovals.push(params);
       return { decision: "accept" };
     });
     const firstTurnNotificationStart = rpc.notifications.length;
@@ -3524,9 +3919,24 @@ async function liveCompatibilityCheck() {
       secondStartedItems,
       "second turn",
     );
-    assert.equal(secondStartedCommand.command, backgroundEvidenceCommand);
+    const backgroundOutput = streamedCommandOutput(
+      secondTurnNotifications,
+      threadAId,
+      secondCompletedTurn.id,
+      secondStartedCommand.id,
+    );
+    assert.ok(
+      backgroundOutput == null
+        ? commandActionRanIn(secondStartedCommand, cwdA, backgroundEvidenceCommand)
+        : commandRanIn(
+          secondStartedCommand,
+          cwdA,
+          backgroundEvidenceCommand,
+          backgroundOutput,
+        ),
+      "second turn lacked the exact background command action",
+    );
     assert.equal(secondStartedCommand.status, "inProgress");
-    assert.equal(realpathSync(secondStartedCommand.cwd), realpathSync(cwdA));
     const secondTurnCompletedItems = secondTurnNotifications
       .filter(
         (notification) =>
@@ -3563,16 +3973,23 @@ async function liveCompatibilityCheck() {
       cwdA,
       "first replayed turn",
     );
-    const secondHistoryCommand = assertSingleCommand(
-      secondRead.thread.turns[1].items,
-      cwdA,
-      "second turn history",
-      backgroundEvidenceCommand,
-      "inProgress",
-      null,
-    );
     assert.equal(firstReplayedCommand.id, firstCompletedCommand.id);
-    assert.equal(secondHistoryCommand.id, secondStartedCommand.id);
+    const inProgressHistoryItems = secondRead.thread.turns[1].items.filter(
+      (item) => !passiveTurnItemTypes.has(item.type),
+    );
+    if (inProgressHistoryItems.length > 0) {
+      const secondHistoryCommand = assertSingleCommand(
+        secondRead.thread.turns[1].items,
+        cwdA,
+        "second turn history",
+        backgroundEvidenceCommand,
+        "inProgress",
+        null,
+        backgroundOutput,
+        true,
+      );
+      assert.equal(secondHistoryCommand.id, secondStartedCommand.id);
+    }
     assert.ok(
       secondRead.thread.turns.at(-1).items.some(
         (item) => item.type === "agentMessage" && item.text.trim(),
@@ -3589,6 +4006,7 @@ async function liveCompatibilityCheck() {
       typeof backgroundTerminal.processId === "string" && backgroundTerminal.processId.trim(),
       "background terminal omitted processId",
     );
+    assert.equal(backgroundTerminal.itemId, secondStartedCommand.id);
     assert.equal(backgroundTerminal.command, backgroundEvidenceCommand);
     assert.equal(realpathSync(backgroundTerminal.cwd), realpathSync(cwdA));
 
@@ -3689,6 +4107,7 @@ async function liveCompatibilityCheck() {
     ));
     assert.deepEqual(termination, { terminated: true });
     const terminatedItem = await interruptible(backgroundCompletion);
+    const terminatedOutput = terminatedItem.item.aggregatedOutput ?? backgroundOutput;
     const terminatedSecondCommand = assertSingleCommand(
       [terminatedItem.item],
       cwdA,
@@ -3696,14 +4115,16 @@ async function liveCompatibilityCheck() {
       backgroundEvidenceCommand,
       "failed",
       undefined,
+      terminatedOutput,
+      true,
     );
     assert.notEqual(terminatedSecondCommand.exitCode, 0);
-    assert.ok(
-      terminatedSecondCommand.aggregatedOutput?.includes(
-        "BYTEQUAY_CP1_BACKGROUND_READY=1",
-      ),
-      "terminated command omitted its pre-yield output",
-    );
+    if (terminatedOutput != null) {
+      assert.ok(
+        terminatedOutput.includes("BYTEQUAY_CP1_BACKGROUND_READY=1"),
+        "terminated command omitted its pre-yield output",
+      );
+    }
     const afterTermination = await interruptible(
       waitForNoBackgroundTerminals(rpc, threadAId),
     );
@@ -3737,6 +4158,8 @@ async function liveCompatibilityCheck() {
       backgroundEvidenceCommand,
       "failed",
       undefined,
+      terminatedOutput,
+      true,
     );
     assert.equal(terminatedHistoryCommand.id, terminatedSecondCommand.id);
     const settledTaskBRead = await interruptible(
@@ -3847,6 +4270,7 @@ async function liveCompatibilityCheck() {
     assert.equal(processGroupExists(oldAppServerPid), false);
     assert.equal(processGroupExists(oldExecAPid), false);
     assert.equal(processGroupExists(oldExecBPid), false);
+    removeGeneratedLiveConfig(codexHome);
 
     const replacementExecutorA = executorProcessEnvironment(root, "exec-a-restarted", cwdA);
     assert.equal(existsSync(join(replacementExecutorA.codexHome, "auth.json")), false);
@@ -3861,6 +4285,10 @@ async function liveCompatibilityCheck() {
         noChildLaunchProfile,
       ),
     ));
+    await interruptible(verifyChatgptSubscriptionAccount(rpc));
+    await interruptible(
+      verifyPreThreadIsolation(rpc, codexHome, [cwdA, cwdB], noChildLaunchProfile),
+    );
     await interruptible(rpc.request("environment/add", {
       environmentId: environmentA.environmentId,
       execServerUrl: execA.url,
@@ -3917,6 +4345,8 @@ async function liveCompatibilityCheck() {
       backgroundEvidenceCommand,
       "failed",
       undefined,
+      terminatedOutput,
+      true,
     );
     const recoveredTaskBCommand = assertSingleCommand(
       recoveredTaskBRead.thread.turns[0].items,
@@ -3959,17 +4389,12 @@ async function liveCompatibilityCheck() {
     assertRuntimeHealthy(rpc, [
       ["replacement environment A", execA],
     ]);
-    assert.equal(
-      existsSync(join(codexHome, "auth.json")),
-      false,
-      "App Server persisted the dedicated credential to auth.json",
-    );
     assert.equal(existsSync(join(executorA.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorB.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(replacementExecutorA.codexHome, "auth.json")), false);
 
     console.log(`PASS live initialize and model/list (${model.model})`);
-    console.log("PASS dedicated API-key auth and credential-free executor processes");
+    console.log("PASS ChatGPT subscription auth and credential-free executor environments");
     console.log("PASS empty MCP/hooks and disabled optional capabilities");
     console.log("PASS two root tasks route commands, events, and files without cross-talk");
     console.log("PASS command events, thread/read, resume, and task A's two turns");
@@ -3995,6 +4420,16 @@ async function liveCompatibilityCheck() {
       }
     }
     if (everyProcessGroupStopped) {
+      try {
+        if (codexHome && liveProfileRuntimeOwned) cleanLiveProfileRuntime(codexHome);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      try {
+        releaseLiveProfileLock(liveProfileLock);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
       try {
         rmSync(root, { recursive: true, force: true });
       } catch (error) {
@@ -4027,7 +4462,10 @@ async function liveChildrenCompatibilityCheck() {
   const cwd = join(root, "environment");
 
   let appServer;
+  let codexHome;
   let execServer;
+  let liveProfileLock;
+  let liveProfileRuntimeOwned = false;
   let rpc;
   let failure;
   let interruptedSignal;
@@ -4071,13 +4509,16 @@ async function liveChildrenCompatibilityCheck() {
   process.on("SIGINT", handleSigint);
   process.on("SIGTERM", handleSigterm);
   try {
-    const apiKey = requiredLiveApiKey();
+    codexHome = requiredLiveCodexHome(root);
+    liveProfileLock = acquireLiveProfileLock(codexHome);
+    assertLiveProfileReady(codexHome);
+    liveProfileRuntimeOwned = true;
     mkdirSync(cwd);
-    const codexHome = createIsolatedCodexHome(root);
-    const appServerEnvironment = appServerProcessEnvironment(root, codexHome, apiKey);
+    const appServerEnvironment = appServerProcessEnvironment(root, codexHome);
     const executor = executorProcessEnvironment(root, "exec", cwd);
     initializeDisposableGitWorktree(cwd, executor.environment);
-    assert.equal(existsSync(join(codexHome, "auth.json")), false);
+    assert.equal(Object.hasOwn(appServerEnvironment, "CODEX_API_KEY"), false);
+    assert.equal(Object.hasOwn(appServerEnvironment, "OPENAI_API_KEY"), false);
     assert.equal(existsSync(join(executor.codexHome, "auth.json")), false);
 
     ({ child: appServer, rpc } = await interruptible(
@@ -4088,6 +4529,7 @@ async function liveChildrenCompatibilityCheck() {
         noChildLaunchProfile,
       ),
     ));
+    await interruptible(verifyChatgptSubscriptionAccount(rpc));
     await interruptible(
       verifyPreThreadIsolation(rpc, codexHome, [cwd], noChildLaunchProfile),
     );
@@ -4113,6 +4555,7 @@ async function liveChildrenCompatibilityCheck() {
     await interruptible(stopRegisteredChild(appServer));
     appServer = undefined;
     rpc = undefined;
+    removeGeneratedLiveConfig(codexHome);
 
     execServer = await interruptible(
       startExecServer(cwd, executor.environment, registerChild),
@@ -4120,6 +4563,10 @@ async function liveChildrenCompatibilityCheck() {
     ({ child: appServer, rpc } = await interruptible(
       startAppServer(root, appServerEnvironment, registerChild, launchProfile),
     ));
+    await interruptible(verifyChatgptSubscriptionAccount(rpc));
+    await interruptible(
+      verifyPreThreadIsolation(rpc, codexHome, [cwd], launchProfile),
+    );
     const selectedModels = await interruptible(listAllModels(rpc));
     const selectedModel = selectedModels.find(
       (candidate) => candidate.id === model.id && candidate.model === model.model,
@@ -4142,10 +4589,6 @@ async function liveChildrenCompatibilityCheck() {
       ),
       "selected model default effort changed to an unadvertised value after restart",
     );
-    await interruptible(
-      verifyPreThreadIsolation(rpc, codexHome, [cwd], launchProfile),
-    );
-
     const environment = {
       environmentId: "bytequay-cp1-children",
       cwd,
@@ -4223,11 +4666,6 @@ async function liveChildrenCompatibilityCheck() {
       "child probe changed the disposable Git worktree",
     );
     assertRuntimeHealthy(rpc, [["child environment", execServer]]);
-    assert.equal(
-      existsSync(join(codexHome, "auth.json")),
-      false,
-      "child App Server persisted the dedicated credential to auth.json",
-    );
     assert.equal(existsSync(join(executor.codexHome, "auth.json")), false);
 
     console.log(
@@ -4256,6 +4694,16 @@ async function liveChildrenCompatibilityCheck() {
       }
     }
     if (everyProcessGroupStopped) {
+      try {
+        if (codexHome && liveProfileRuntimeOwned) cleanLiveProfileRuntime(codexHome);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      try {
+        releaseLiveProfileLock(liveProfileLock);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
       try {
         rmSync(root, { recursive: true, force: true });
       } catch (error) {
@@ -4296,6 +4744,9 @@ async function main() {
     "--live and --live-children are separate provider-cost gates",
   );
   staticCompatibilityCheck(flags.has("--update-bindings"));
+  checkSubscriptionAccountHelper();
+  checkLiveProfileLockHelper();
+  checkLiveProfileReadinessHelper();
   checkChildHistoryHelpers();
   checkTaskNotificationIsolation();
   for (const launchProfile of appServerLaunchProfiles) {

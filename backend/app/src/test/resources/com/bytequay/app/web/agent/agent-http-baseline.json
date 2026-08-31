@@ -1,0 +1,341 @@
+{
+  "createRequest": {
+    "laneId": "deterministic",
+    "worktree": "<worktree>",
+    "repository": "bytequay/agent-e2e",
+    "title": "Agent HTTP test"
+  },
+  "createResponse": {
+    "id": "<task-id>",
+    "title": "Agent HTTP test",
+    "laneId": "deterministic",
+    "repository": "bytequay/agent-e2e",
+    "worktree": "<worktree>",
+    "permissionPolicy": "AUTO",
+    "state": "READY",
+    "version": 0,
+    "createdAt": "<timestamp>",
+    "updatedAt": "<timestamp>",
+    "terminalAt": null,
+    "terminalReason": null,
+    "sessionReference": null,
+    "metrics": {
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "cost": null,
+      "costProvenance": "UNAVAILABLE",
+      "elapsed": "<duration>"
+    },
+    "summary": null,
+    "cleanupState": "RETAINED",
+    "deleteAfter": null,
+    "cleanupFailure": null
+  },
+  "turns": [
+    {
+      "idempotencyKey": "request-1",
+      "request": {
+        "message": "first"
+      },
+      "acceptedResponse": {
+        "id": "<turn-1>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-1",
+        "state": "RUNNING",
+        "version": 1,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": null,
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-1>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      },
+      "terminalResponse": {
+        "id": "<turn-1>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-1",
+        "state": "COMPLETED",
+        "version": 3,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": "<timestamp>",
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-1>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      }
+    },
+    {
+      "idempotencyKey": "request-1",
+      "request": {
+        "message": "ignored"
+      },
+      "acceptedResponse": {
+        "id": "<turn-1>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-1",
+        "state": "COMPLETED",
+        "version": 3,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": "<timestamp>",
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-1>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      },
+      "terminalResponse": {
+        "id": "<turn-1>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-1",
+        "state": "COMPLETED",
+        "version": 3,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": "<timestamp>",
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-1>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      }
+    },
+    {
+      "idempotencyKey": "request-2",
+      "request": {
+        "message": "second"
+      },
+      "acceptedResponse": {
+        "id": "<turn-2>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-2",
+        "state": "RUNNING",
+        "version": 1,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": null,
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-2>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      },
+      "terminalResponse": {
+        "id": "<turn-2>",
+        "taskId": "<task-id>",
+        "idempotencyKey": "request-2",
+        "state": "COMPLETED",
+        "version": 3,
+        "createdAt": "<timestamp>",
+        "startedAt": "<timestamp>",
+        "endedAt": "<timestamp>",
+        "cancellationRequestedAt": null,
+        "providerTurnReference": "deterministic-<turn-2>",
+        "model": null,
+        "terminalReason": null,
+        "metrics": {
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "cost": null,
+          "costProvenance": "UNAVAILABLE",
+          "elapsed": "<duration>"
+        }
+      }
+    }
+  ],
+  "replay": [
+    {
+      "schemaVersion": 1,
+      "sequence": 1,
+      "taskId": "<task-id>",
+      "turnId": "<turn-1>",
+      "type": "message",
+      "occurredAt": "<timestamp>",
+      "providerEventId": "message-<turn-1>",
+      "payload": {
+        "providerEventId": "message-<turn-1>",
+        "providerTimestamp": null,
+        "phase": "FINAL",
+        "text": "deterministic: first",
+        "parentToolUseId": null
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "sequence": 2,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "type": "message",
+      "occurredAt": "<timestamp>",
+      "providerEventId": "message-<turn-2>",
+      "payload": {
+        "providerEventId": "message-<turn-2>",
+        "providerTimestamp": null,
+        "phase": "FINAL",
+        "text": "deterministic: second",
+        "parentToolUseId": null
+      }
+    }
+  ],
+  "replayAfterFirst": [
+    {
+      "schemaVersion": 1,
+      "sequence": 2,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "type": "message",
+      "occurredAt": "<timestamp>",
+      "providerEventId": "message-<turn-2>",
+      "payload": {
+        "providerEventId": "message-<turn-2>",
+        "providerTimestamp": null,
+        "phase": "FINAL",
+        "text": "deterministic: second",
+        "parentToolUseId": null
+      }
+    }
+  ],
+  "sse": {
+    "schemaVersion": 1,
+    "sequence": 2,
+    "taskId": "<task-id>",
+    "turnId": "<turn-2>",
+    "type": "message",
+    "occurredAt": "<timestamp>",
+    "providerEventId": "message-<turn-2>",
+    "payload": {
+      "providerEventId": "message-<turn-2>",
+      "providerTimestamp": null,
+      "phase": "FINAL",
+      "text": "deterministic: second",
+      "parentToolUseId": null
+    }
+  },
+  "completionRequest": {
+    "notes": "ready for review"
+  },
+  "completionResponse": {
+    "taskId": "<task-id>",
+    "summary": {
+      "finalResponse": "deterministic: second",
+      "workspace": {
+        "worktree": "file://<worktree>/",
+        "repository": {
+          "owner": "bytequay",
+          "name": "agent-e2e"
+        },
+        "branch": "main",
+        "head": "<head>",
+        "dirty": false
+      },
+      "tests": [],
+      "metrics": {
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "cost": null,
+        "costProvenance": "UNAVAILABLE",
+        "elapsed": "<duration>"
+      },
+      "learnings": [],
+      "notes": "ready for review"
+    },
+    "completedAt": "<timestamp>",
+    "deleteAfter": "<timestamp>"
+  },
+  "finalTask": {
+    "id": "<task-id>",
+    "title": "Agent HTTP test",
+    "laneId": "deterministic",
+    "repository": "bytequay/agent-e2e",
+    "worktree": "<worktree>",
+    "permissionPolicy": "AUTO",
+    "state": "COMPLETED",
+    "version": 5,
+    "createdAt": "<timestamp>",
+    "updatedAt": "<timestamp>",
+    "terminalAt": "<timestamp>",
+    "terminalReason": null,
+    "sessionReference": {
+      "laneId": "deterministic",
+      "contractVersion": 1,
+      "providerValue": "<provider-session>"
+    },
+    "metrics": {
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "cost": null,
+      "costProvenance": "UNAVAILABLE",
+      "elapsed": "<duration>"
+    },
+    "summary": {
+      "finalResponse": "deterministic: second",
+      "workspace": {
+        "worktree": "file://<worktree>/",
+        "repository": {
+          "owner": "bytequay",
+          "name": "agent-e2e"
+        },
+        "branch": "main",
+        "head": "<head>",
+        "dirty": false
+      },
+      "tests": [],
+      "metrics": {
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "cost": null,
+        "costProvenance": "UNAVAILABLE",
+        "elapsed": "<duration>"
+      },
+      "learnings": [],
+      "notes": "ready for review"
+    },
+    "cleanupState": "RETAINED",
+    "deleteAfter": "<timestamp>",
+    "cleanupFailure": null
+  }
+}

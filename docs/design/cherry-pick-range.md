@@ -1,8 +1,10 @@
 # Cherry-pick Range Design
 
-> **Status: locked.** This is the approved range design. Implementation
-> progress is tracked in
-> [Cherry-pick Range Implementation Checklist](cherry-pick-range-impl-tmp.md).
+> **Status: locked range semantics; managed-worktree migration approved on
+> 2026-08-31 and pending.** Range ordering, conflict history, and accounting
+> remain unchanged. Worktree creation, inspection, and non-destructive cleanup
+> move to the shared
+> [Managed Worktree Service](worktree-service.md).
 
 This document defines the range preview, user confirmation, local execution,
 agent conflict resolution, recovery, and final verification. It is a bounded
@@ -18,7 +20,8 @@ feature; it does not restore the deleted generic development-flow system.
 4. Immediately before creating the worktree, the backend synchronizes the
    target again. If its SHA differs from the preview, start is rejected as
    stale and the user reviews a new preview.
-5. The backend creates a generated work branch directly at the synchronized,
+5. The backend creates the execution's agent task through `WorktreeService`,
+   which creates a generated work branch/worktree directly at the synchronized,
    frozen target SHA. There is nothing to rebase before the first cherry-pick
    because the generated branch has no unique commits.
 6. The backend applies one source commit at a time with
@@ -26,8 +29,9 @@ feature; it does not restore the deleted generic development-flow system.
 7. A clean commit is recorded immediately. A proven-empty commit is skipped.
    A conflict retains the source-marked target and its adjacent agent fixup as
    described in section 7.
-8. After every item has a result, the backend performs exact Git accounting and
-   stores `git range-diff` only for human review.
+8. After every item has a result, the backend performs exact Git accounting,
+   stores `git range-diff` only for human review, completes the agent task, and
+   removes the clean worktree while retaining the generated branch for delivery.
 
 There is no automatic rebase before or after range execution. A target move
 before start invalidates the preview. Rebasing an already-created branch is a
@@ -36,7 +40,7 @@ separate service and a separate user decision.
 ## 2. Fixed boundaries
 
 - One execution has one repository, source range, target branch, generated
-  work branch, and generated worktree.
+  work branch, and one task-owned generated worktree.
 - One source range contains at most 3,000 commits.
 - Source commits stay in oldest-first topological order.
 - Merge commits are rejected because no mainline parent was chosen.
@@ -56,6 +60,11 @@ separate service and a separate user decision.
 - A final `EMPTY_SKIPPED` item has no commit and no target SHA.
 - Commit titles, PR titles, patch similarity, and `range-diff` never cause an
   automatic skip.
+- All execution worktrees come from the shared service. The renderer supplies
+  `workspaceId`, never a repository path or worktree parent.
+- A successful execution retains its verified generated branch as the durable
+  local result and removes its worktree. Delivery pushes that branch from the
+  managed repository; CI Autofix creates a fresh worktree at the PR head.
 
 ## 3. Preview and target-presence detection
 
@@ -141,11 +150,16 @@ If step 6 fails, start returns a stale-preview error. It does not rebase or
 silently execute against the new target. The user must see the new conflict
 preview and confirm again.
 
-The work branch is then created directly at that SHA:
+The service generates the task branch and worktree directly at that SHA:
 
 ```text
-git worktree add -b <generatedWorkBranch> <worktree> <frozenTargetSha>
+WorktreeService.provision(
+    new ProvisionWorktreeCommand(taskId, workspaceId, repository, frozenTargetSha))
 ```
+
+The Git implementation performs the equivalent guarded `git worktree add -b`
+under the backend-owned workspace worktree root. The caller cannot choose the
+path or branch.
 
 ## 6. Durable ownership and results
 
@@ -375,7 +389,7 @@ Additional edge cases:
 | Agent creates no valid `F` | Retry the same item up to three turns |
 | Final `C/F` tree equals `H0` | Retain both and record the conflict as `APPLIED` |
 | Backend stops after creating `F` but before recording the pair | Reverify `C/F`, then record `C` and advance the execution tip to `F` once |
-| User cancels | Cancel the turn, abort an open cherry-pick, and remove only ByteQuay's generated branch/worktree |
+| User cancels | Cancel the turn; clean work may use normal cleanup with its generated branch retained, while dirty or open work is preserved for inspection |
 | Target moves after preview but before start | Reject stale preview before creating the worktree |
 | Target moves during execution | Finish against the frozen target; do not auto-rebase |
 
@@ -413,6 +427,18 @@ git range-diff sourceBase..sourceTip initialTarget..finalTarget
 This output helps a person see missing, extra, or changed patches. It is never
 parsed to decide completion because its matching is heuristic.
 
+After the review is stored, completion records the generated branch as the
+local result and calls `WorktreeService.cleanup(taskWorktree)`. Delivery
+later pushes that recorded branch from the managed repository, so it does not
+require a checked-out worktree. Cleanup failure is retryable and does not
+rewrite the already verified range result. Cancellation has no destructive
+cleanup mode: the shared service refuses dirty or open Git state, uses
+non-force removal, and always retains the generated branch.
+
+`WorkspaceBranchPusher` therefore accepts the workspace plus retained local
+branch/ref and verifies it through the managed repository. It no longer
+requires the removed worktree path or requires that branch to be checked out.
+
 ## 10. API contract
 
 ```text
@@ -441,13 +467,15 @@ fixup field because Git's required directly adjacent child is the authority.
 
 The renderer starts an execution only from the user's explicit confirmation.
 It sends the frozen preview SHAs, exact skipped source SHAs, selected conflict
-resolver, worktree parent, and one stable idempotency key. While the execution
+resolver, route `workspaceId`, and one stable idempotency key. It never sends a
+repository or worktree path. While the execution
 is `RUNNING`, it polls the durable `GET` response and displays the per-item
 results without deriving Git state itself.
 
-The renderer stores only the active execution ID and the selected local clone
-path so the progress screen and cancel action survive navigation or an app
-restart. `PAUSED` stops polling and shows the backend summary plus a bounded
+The renderer stores only the active execution ID; the route supplies the
+workspace ID, and the backend resolves every repository/worktree fact. This is
+enough for the progress screen and cancel action to survive navigation or an
+app restart. `PAUSED` stops polling and shows the backend summary plus a bounded
 user note field. Sending that note is an explicit retry action. Cancellation
 is also an explicit user action and is available while running or paused.
 `FINISHED` shows the final per-item accounting and allows a new range to be
@@ -462,12 +490,11 @@ public final class CherryPickExecutionService
 {
     /**
      * Revalidates the confirmed preview, synchronizes the target, creates the
-     * generated workspace, and returns the idempotent durable execution.
+     * agent task and managed worktree, and returns the idempotent durable execution.
      */
     public CherryPickExecution start(
             StartCherryPickExecutionCommand command,
-            Path repository,
-            Path worktreeParent);
+            String workspaceId);
 
     /** Returns the execution and its per-item durable results. */
     public CherryPickExecution get(CherryPickExecutionId executionId);
@@ -486,12 +513,17 @@ public final class CherryPickExecutionService
             CherryPickExecutionId executionId,
             String message);
 
-    /** Cancels future work and removes only the generated workspace. */
-    public CherryPickExecution cancel(
-            CherryPickExecutionId executionId,
-            Path repository);
+    /** Cancels future work and preserves the generated branch or dirty work. */
+    public CherryPickExecution cancel(CherryPickExecutionId executionId);
 }
 ```
+
+For start, `app` resolves the managed repository, worktree root, and exact
+frozen commit from `workspaceId` before invoking the shared service. For every
+later operation, including cancel, it resolves the workspace and worktree facts
+from the immutable `TaskWorktree` stored with the durable execution/task.
+The resulting canonical path remains an internal execution fact and is not
+returned to the renderer.
 
 Low-level Git support remains a concrete internal helper, not a public port:
 
@@ -562,4 +594,8 @@ Tests must prove:
     pause rather than guess;
 12. final accounting uses Git and the confirmed plan, never agent prose or
     `range-diff`; and
-13. no path writes to GitHub.
+13. no path writes to GitHub; and
+14. execution creation uses the shared managed-worktree service, successful
+    accounting removes the worktree while preserving the deliverable branch,
+    delivery pushes that branch without a checkout, and cancellation never
+    deletes dirty work or the generated branch.

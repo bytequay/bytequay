@@ -9,6 +9,10 @@ local branch, with agent-assisted conflict resolution. CI Autofix is its first
 caller. An explicit future branch-rebase action may also use it without
 changing the service boundary.
 
+Under the approved [Managed Worktree Service](worktree-service.md), rebase is a
+borrower: it receives the caller's verified `TaskWorktree` and never provisions,
+transfers, or cleans a worktree.
+
 The locked cherry-pick range flow does not invoke this service. It synchronizes
 and freezes the target immediately before creating the work branch. A moved
 target rejects the preview; a generated branch at that frozen SHA has no unique
@@ -26,10 +30,10 @@ Cherry-picking and rebasing look similar and are not the same operation:
 | Plan | confirmed by the user, immutable | derived from Git, not user-selected |
 | Skips | user-chosen, durable | none; a commit that becomes empty is dropped by Git |
 | Ordering authority | the confirmed plan | existing branch history |
-| Conflict history | temporary snapshot/fixup, immediately normalized to one commit or removed | agent stages while rebase stays open; program continues |
+| Conflict history | source-marked target `C` plus one adjacent `fixup!` commit `F`, or empty | agent stages while rebase stays open; program continues |
 
-They share exactly one thing: a conflict appears, an agent resolves it in a
-leased worktree, and the program decides from Git state whether the resolution
+They share exactly one thing: a conflict appears, an agent resolves it in its
+task-owned worktree, and the program decides from Git state whether the resolution
 is acceptable. That shared part is what this service owns.
 
 ### 1.1 How CI Autofix uses it
@@ -71,10 +75,10 @@ contract is in
 That covers the Git observation and sequencer mutations both services need,
 but it does not force them to use the same conflict history. Rebase hands the
 open conflict to an agent and lets the program continue the sequence after the
-resolution is staged. Cherry-pick temporarily commits the conflict snapshot,
-lets the agent append one fixup, then normalizes both into one final commit or
-removes them when empty. CI Autofix calls this rebase driver rather than
-duplicating sequencer and conflict recovery inside its attempt loop.
+resolution is staged. Cherry-pick retains the source-marked target and the
+agent's one adjacent fixup as its verified conflict pair, or records the item
+empty. CI Autofix calls this rebase driver rather than duplicating sequencer and
+conflict recovery inside its attempt loop.
 
 **Not shared: the plan layer or conflict-commit policy.** Their durable state
 and accepted history remain service-specific:
@@ -83,7 +87,7 @@ and accepted history remain service-specific:
 | --- | --- | --- |
 | who chooses the commit list | the user, through confirmed skips | nobody; it is whatever the branch holds |
 | durable per-commit result owed | yes, for per-item progress and final accounting | no |
-| conflict result | one normalized source-marked commit, or empty | one replayed commit produced by `rebase --continue` |
+| conflict result | source-marked target `C` plus adjacent fixup `F`, or empty | one replayed commit produced by `rebase --continue` |
 | what the service adds | plan, positions, `-x` reconciliation, accounting, range-diff | original tip, descendant fast path, abort-restores-tip |
 
 So cherry-pick keeps a plan with durable item results, and this service keeps
@@ -100,9 +104,9 @@ merging into either of these.
 - One rebase moves one local work branch onto one local base branch.
 - Both branches are local. The service never fetches, pushes, or contacts
   GitHub. Synchronizing the base branch happens before the service is called.
-- The work branch is checked out in a worktree already leased by the caller's
+- The work branch is checked out in the worktree already owned by the caller's
   live agent task; the base branch is not checked out anywhere. The rebase
-  service reuses that task and never tries to acquire a second lease.
+  service reuses that task worktree and never creates a second one.
 - The service never rebases onto a remote-tracking ref and never rebases a
   detached HEAD.
 - Git state decides every outcome. Agent response text is shown to the user and
@@ -151,12 +155,13 @@ actionJournal?           START, AGENT_TURN, CONTINUE, SKIP, or ABORT intent
 The caller owns the agent task lifecycle. The rebase stores its task ID so it
 can start a bounded conflict-resolution turn, but it does not create, complete,
 or release the task. This lets an explicit rebase action and CI Autofix use the
-same service without nested worktree leases.
+same service without nested worktrees.
 
 ## 5. Flow
 
-1. **Preconditions.** Worktree is leased, on the work branch, clean, with no
-   Git operation open. The base branch resolves locally. Record
+1. **Preconditions.** The caller's task is ready, and its `TaskWorktree` is
+   checked out on the work branch, clean, and has no Git operation open. The
+   base branch resolves locally. Record
    `originalWorkTip` and `baseSha`.
 2. **Fast path.** If the work branch is already a descendant of the base, record
    `FINISHED` without running anything. Git reports `Current branch <name> is up
@@ -206,7 +211,8 @@ same service without nested worktree leases.
 - Every action stores its intent before mutating Git and inspects Git
   afterwards. A restart re-inspects rather than repeating a command.
 - A pause leaves the rebase open. The worktree holds the conflict exactly as
-  the agent left it, and the user can inspect it directly.
+  the agent left it; ByteQuay exposes bounded diff and Git facts for inspection
+  while the backend-only path remains hidden.
 - Cancellation runs `git rebase --abort` and verifies that the work branch tip
   is back at `originalWorkTip`. This is the one place the service undoes work,
   and it is safe because a rebase in progress is the service's own operation,
@@ -261,8 +267,8 @@ public class BranchRebaseService
     /**
      * Starts or returns the rebase for an idempotent request.
      *
-     * @param command caller-owned task, work branch, base branch, leased
-     * worktree, and idempotency key
+     * @param command caller-owned task, work branch, base branch, and
+     * idempotency key; the service resolves the task worktree internally
      * @return the durable rebase
      */
     public BranchRebase start(StartBranchRebaseCommand command);
@@ -326,3 +332,5 @@ helper is the concrete `RebaseSequencerDriver` component.
 11. A program-owned continue cannot open an editor.
 12. If the agent runs continue, skip, abort, commit, or otherwise moves the
     sequence, the service pauses instead of accepting it.
+13. Rebase uses its caller's verified `TaskWorktree` and never creates or
+    cleans a nested worktree.

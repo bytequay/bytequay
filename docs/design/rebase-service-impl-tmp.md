@@ -9,7 +9,9 @@ is migrated to it.
 ## Fixed rules
 
 - [x] `BranchRebaseService` is the only transition owner.
-- [x] The caller owns one live agent task and its worktree lease.
+- [x] The caller owns one live agent task and its `TaskWorktree`; the approved
+  managed-worktree migration changes how that worktree is created, not the
+  rebase ownership rule.
 - [x] Git owns the replay todo; ByteQuay stores no duplicate per-commit cursor.
 - [x] The program alone runs rebase start, continue, skip, and abort.
 - [x] Agent prose never decides a state.

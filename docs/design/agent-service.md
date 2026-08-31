@@ -6,6 +6,8 @@ whole-system shape and Maven module boundaries are defined in
 [ByteQuay Architecture](architecture.md).
 The exact service and method sequence is defined in
 [Create-to-close lifecycle](#7-create-to-close-lifecycle).
+The shared provisioning and cleanup boundary is defined in
+[Managed Worktree Service](worktree-service.md).
 
 ## Current implementation and follow-up (2026-08-30)
 
@@ -25,12 +27,13 @@ agent subsystem as future work.
   startup self-update enabled and uses the user-managed installed CLI without
   treating any reported version text, including unparseable output, as a readiness
   gate. The detected version text is retained for status and
-  incompatibility diagnostics. This is not yet approval to ship the
-  experimental dependency.
+  incompatibility diagnostics. The product accepted the experimental
+  dependency for the planned first task release on 2026-08-31; compatibility
+  and release acceptance still must pass.
 - The official documentation currently marks the `app-server` command itself,
   not only WebSocket transport, as experimental and unsupported for production
-  workloads. The existing stdio integration therefore remains an explicit
-  release risk despite protocol compatibility tests.
+  workloads. The existing stdio integration therefore remains an explicit,
+  accepted release risk despite protocol compatibility tests.
 - The Claude lane is a separate `stream-json` adapter. Both adapters feed the
   ByteQuay-owned task, turn, approval, metrics, retention, and event services.
 - ByteQuay persists normalized user-visible events in the task JSONL log and
@@ -40,6 +43,10 @@ agent subsystem as future work.
 - One cherry-pick range owns one agent task. Its durable execution stores
   `agentTaskId` and the active `currentTurnId`, and every conflict-resolution
   attempt emits events correlated to those IDs.
+- The current `AgentWorkspaceService` only validates and leases a
+  caller-provided existing worktree, while cherry-pick creates its own through
+  a private helper and CI Autofix accepts a path. The approved follow-up
+  replaces those paths with one shared managed-worktree service.
 - Those logs currently stop at the backend boundary: the cherry-pick execution
   response omits both IDs, the Electron bridge has no task-event operation,
   and `ProgressView` renders a static resolving placeholder. Completed items
@@ -69,9 +76,10 @@ The follow-up therefore has these fixed boundaries:
 
 1. one long-lived App Server is shared by all live Codex tasks and routed by
    persisted root and child thread IDs;
-2. every interactive task is durably scoped to a ByteQuay workspace, and every
-   accepted input, resolved approval, and child relationship is
-   replayable from the task event sequence;
+2. every interactive task is durably scoped to a ByteQuay workspace and a
+   separate ByteQuay-provisioned worktree, and every accepted input, resolved
+   approval, and child relationship is replayable from the task event
+   sequence;
 3. the task owns defaults while each turn snapshots the model, reasoning
    effort, permission policy, and attachments actually submitted;
 4. ByteQuay owns the durable next-turn queue, while native Codex
@@ -103,10 +111,10 @@ not decide those workflow outcomes.
 ## 1. Decision summary
 
 ByteQuay has a new local agent subsystem rather than the deleted task-agent
-implementation. Every task is bound to one ByteQuay workspace, one validated
-Git worktree, and one immutable provider lane. The proposed frontend sends
-multiple turns to the same task; the selected driver resumes the provider
-session.
+implementation. Every task is bound to one ByteQuay workspace, one separately
+provisioned ByteQuay-owned Git worktree, and one immutable provider lane. The
+proposed frontend sends multiple turns to the same task; the selected driver
+resumes the provider session.
 
 The backend exposes user inputs plus provider-supported messages, readable
 reasoning summaries, plans, tool activity, commands, file changes, approvals,
@@ -145,16 +153,18 @@ no ByteQuay business MCP or dynamic tools and does not use
 require a separate later design. Claude's task-scoped permission callback is
 only an approval transport adapter, not a product tool.
 
-SQLite stores durable lifecycle facts, provider session references, per-turn
-metrics, task totals, cleanup state, and the final summary. Detailed active-task
+SQLite stores durable task/turn lifecycle facts, provider session references,
+per-turn metrics, task totals, runtime-retention state, and the final summary. Detailed active-task
 history is an append-only JSONL file with optional blobs. Terminal task logs
 remain available for seven days; cleanup deletes them only after the retention
 deadline.
 
 The first rich-task release is single-user, localhost-only, and permits one
 active turn per task. A small ByteQuay-owned FIFO may hold later inputs, but it
-never creates concurrent turns. Tasks accept only initially clean worktrees.
-Cost remains unavailable when the provider does not report a monetary amount.
+never creates concurrent turns. The shared worktree service creates every task
+worktree from an exact commit and verifies it clean before the task becomes
+ready. Cost remains unavailable when the provider does not report a monetary
+amount.
 
 ## 2. Domain model and invariants
 
@@ -169,6 +179,7 @@ Cost remains unavailable when the provider does not report a monetary amount.
 | `ApprovalId` | One pending permission decision |
 | `QueuedInputId` | One durable user request waiting to become a turn |
 | `InputDeliveryId` | Durable attempt to deliver a start or steer input to a provider |
+| `TaskWorktree` | Immutable ByteQuay-owned repository, path, branch, and start-commit facts for one verified task worktree |
 | `AttachmentRef` | Opaque reference to a bounded, task-owned input blob |
 | `AgentLaneId` | Stable driver ID such as `codex-cli` or `claude-cli` |
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
@@ -183,7 +194,6 @@ Cost remains unavailable when the provider does not report a monetary amount.
 | `AgentTask` | Durable workspace, task state, lane, worktree, defaults, timestamps, totals, and summary |
 | `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
-| `WorkspaceLease` | Durable exclusive ownership of a canonical worktree, mirrored in process for fast checks |
 
 ### 2.2 State
 
@@ -201,9 +211,9 @@ Turn: ACCEPTED -> RUNNING -> COMPLETED
       |             +-----> INTERRUPTED
       +-------------------> FAILED | CANCELLED | INTERRUPTED
 
-Cleanup: RETAINED -> DELETE_DUE -> DELETED
-                         |
-                         +--------> RETRY_PENDING -> DELETED
+Runtime cleanup: RETAINED -> DELETE_DUE -> DELETED
+                                 |
+                                 +--------> RETRY_PENDING -> DELETED
 
 Queued input: QUEUED -> STARTING -> STARTED
               PAUSED -> STARTING
@@ -222,9 +232,16 @@ Input delivery: ACCEPTED -> SENDING -> DELIVERED
 
 ```
 
+`cleanup action required` is a task projection used when a terminal task still
+has a dirty worktree. It is not a worktree lifecycle state. The shared service
+simply rejects cleanup until the worktree is clean and has no open Git
+operation.
+
 The implementation must enforce these invariants:
 
-- One task has exactly one workspace, one lane, and one canonical worktree.
+- One task has exactly one workspace, one lane, and one separately provisioned
+  canonical worktree. A task does not become `READY` until the generated
+  branch, path, repository, and exact starting commit are verified durably.
 - At most one nonterminal turn is `ACCEPTED` or `RUNNING` for a task.
 - Each accepted turn snapshots its effective model, reasoning effort,
   permission policy, and attachment references; later default changes do not
@@ -247,10 +264,10 @@ The implementation must enforce these invariants:
 - Provider delivery is never assumed from a timeout or lost connection.
   `UNKNOWN` steer/turn delivery and `UNCERTAIN` queue claims are not retried
   automatically because App Server supplies no input idempotency key.
-- A canonical worktree has at most one durable live task lease. SQLite is the
-  source of truth; the in-process registry is rebuilt from it before the agent
-  service reports ready after restart.
-- Within that lease, one durable worktree-mutation claim serializes turn
+- A canonical worktree and generated branch belong to exactly one task. The
+  task stores the immutable `TaskWorktree` returned by provisioning; there is
+  no separate allocation state or startup worktree reconciliation.
+- Within that worktree, one durable worktree-mutation claim serializes turn
   acceptance/queue claims and completion.
 - A turn's claim covers its root run and every known descendant. Root
   `turn/completed` does not release it or start queued work until all known
@@ -259,7 +276,7 @@ The implementation must enforce these invariants:
   background-terminal page is empty, and the provider quiescence barrier
   passes.
 - Provider execution uses the selected App Server sandbox and approval policy
-  inside the leased worktree. Provider control-plane traffic is a separate
+  inside the generated task worktree. Provider control-plane traffic is a separate
   trust boundary: ByteQuay selects the provider configuration, but the first
   release does not claim an OS-enforced endpoint allowlist for the App Server
   or Claude control process.
@@ -287,22 +304,26 @@ The implementation must enforce these invariants:
   the SQLite/file crash gap.
 - A provider session reference is stored before the first resumable turn is
   reported as accepted.
-- A worktree must be clean when its task lease is acquired.
+- A task worktree must be clean when provisioning completes. Normal completion
+  also requires it to be clean so cleanup can remove the directory while
+  preserving the generated result branch. The shared service never force-removes
+  dirty work or deletes the branch.
 - Runtime logs are retained until seven days after the task becomes terminal.
-- Cleanup failure changes cleanup state, never the terminal task state.
+- Cleanup failure leaves the worktree in place, is reported to the caller, and
+  never changes the terminal task state.
 - Missing cost is `unavailable`, never zero.
 - UI-only summaries, icons, expanded state, step counters, and live timer ticks
   are derived by the renderer and are never persisted as execution facts.
 
 A terminal turn does not by itself make its task terminal. After a
 `COMPLETED`, `FAILED`, `CANCELLED`, or `INTERRUPTED` turn, the task returns to
-`READY` only when its worktree lease, runtime files, and provider session
+`READY` only when its task worktree, runtime files, and provider session
 reference remain usable and the root/descendant execution tree is proven
 quiescent. Otherwise it stays `RECOVERING` with its turn claim held. This
 permits an explicit later retry on the same task without allowing an older
 process to keep mutating beneath it. Task
 `FAILED` is reserved for an unrecoverable task-level problem such as lost task
-resources, an invalid lease, or an unusable persisted session contract; it is
+resources, invalid persisted worktree facts, or an unusable persisted session contract; it is
 never inferred from assistant message text.
 
 ## 3. Core service interfaces
@@ -334,21 +355,21 @@ import java.util.List;
 public interface AgentTaskService
 {
     /**
-     * Creates a durable task for one clean, validated worktree and provider lane.
+     * Creates a durable task and its separate managed worktree.
      *
      * <p>The implementation validates the command and verifies that the lane
-     * is ready before acquiring a worktree lease, rejecting a dirty worktree,
-     * allocating task resources, persisting the task, and returning it. No
-     * provider turn is started. If creation fails after acquiring the lease, the
-     * implementation deletes newly allocated resources and releases the lease
-     * before propagating the failure.
+     * is ready before asking {@link WorktreeService} to provision a generated
+     * branch/worktree at the app-resolved exact commit. It then allocates task
+     * resources, persists the task, and returns it. No provider turn is
+     * started. If creation fails after provisioning, cleanup is attempted with
+     * that returned {@link TaskWorktree} before the failure is propagated.
      *
-     * @param command workspace, requested lane, app-resolved canonical
-     * worktree/repository identity, title, and default
-     * model/effort/permission settings
+     * @param command ByteQuay-generated task ID, workspace, exact starting
+     * commit, requested lane, repository identity, title, and default
+     * model/effort/permission settings; no filesystem path
      * @return the newly created task in {@code READY} state
-     * @throws InvalidAgentRequestException when the worktree or command is invalid
-     * @throws AgentConflictException when the worktree already has a live task
+     * @throws InvalidAgentRequestException when the workspace, commit, or command is invalid
+     * @throws AgentConflictException when the derived task path or branch conflicts
      * @throws AgentUnavailableException when the requested lane is unavailable
      */
     AgentTask create(CreateAgentTaskCommand command);
@@ -382,9 +403,11 @@ public interface AgentTaskService
      * execution is terminal, App Server reports no background terminal, and
      * every ByteQuay-owned provider process is proven quiescent. It records
      * the recovery incident, closes the provider session, marks the task
-     * {@code FAILED}, retains its transcript, and releases its mutation claim
-     * and workspace lease in the terminal transaction. It never cleans the
-     * worktree.
+     * {@code FAILED}, retains its transcript, and releases its
+     * worktree-mutation claim in the terminal transaction. If the verified
+     * worktree is clean, it may then call {@link WorktreeService#cleanup}. If it
+     * is dirty, the task records cleanup action required and leaves it in
+     * place; cleanup never silently discards it.
      *
      * @param command task ID, expected version, and user-visible recovery reason
      * @return terminal failed task
@@ -423,7 +446,7 @@ public interface AgentTurnService
      * Accepts one user message and starts a provider turn.
      *
      * <p>The implementation rejects terminal tasks and concurrent turns. A
-     * short unit of work reserves the idempotency key and worktree claim with
+     * short unit of work reserves the idempotency key and worktree-mutation claim with
      * an {@code ACCEPTED} turn plus the input-delivery row and user-message
      * event. Only after its outbox drains may the service open or resume the
      * provider session, capture a usage baseline, start the run, and return
@@ -438,7 +461,7 @@ public interface AgentTurnService
      * the turn {@code INTERRUPTED}. Neither case automatically resends input.
      * The task returns to {@code READY} only after the provider execution and
      * every known child are proven quiescent; until then it remains
-     * {@code RECOVERING} with the turn's worktree claim held.
+     * {@code RECOVERING} with the turn's worktree-mutation claim held.
      *
      * <p>Repeating the same idempotency key returns the previously accepted
      * turn. A different request while a turn is active fails with a conflict.
@@ -549,81 +572,47 @@ public interface AgentTurnService
 }
 ```
 
-### 3.3 AgentWorkspaceService
+### 3.3 WorktreeService
 
-`AgentWorkspaceService` validates worktree identity and prevents two live
-tasks from owning the same worktree across requests and backend restarts. A
-durable SQLite lease is the source of truth; an in-memory index is only a
-mirror.
+`WorktreeService` is the one synchronous filesystem boundary used by
+interactive tasks, cherry-pick, and CI Autofix. It creates an initially clean
+generated branch/worktree under the selected ByteQuay workspace, returns its
+immutable ownership facts, revalidates those facts on inspection and cleanup,
+and owns no workflow state. Branch Rebase borrows its caller's worktree.
+
+The exact contract and caller-specific usage are defined in
+[Managed Worktree Service](worktree-service.md). Its core surface is:
 
 ```java
 package com.bytequay.agent.core;
 
-import java.nio.file.Path;
-import java.util.List;
-
-public interface AgentWorkspaceService
+public interface WorktreeService
 {
-    /**
-     * Validates and exclusively leases a clean Git worktree for a task.
-     *
-     * <p>The path is canonicalized, checked for symlink escape, verified with
-     * Git, matched to the requested repository identity, and required to have
-     * no tracked or untracked changes before the lease is granted. The durable
-     * lease row has a unique canonical-worktree key and commits before this
-     * method returns.
-     *
-     * @param taskId owner of the lease
-     * @param requestedPath app-resolved workspace worktree or trusted internal
-     * workflow path; never a raw renderer value
-     * @param repository expected repository identity
-     * @return the canonical worktree and an idempotent release handle
-     * @throws InvalidAgentRequestException when the path is unsafe or not the expected worktree
-     * @throws AgentConflictException when another task owns the worktree
-     */
-    WorkspaceLease acquire(TaskId taskId, Path requestedPath, RepositoryIdentity repository);
+    TaskWorktree provision(ProvisionWorktreeCommand command);
 
-    /**
-     * Reconciles durable leases and rebuilds the process-local index at startup.
-     *
-     * <p>The operation runs before task creation or resume endpoints become
-     * ready. It removes only proven orphan rows with no task/provider process,
-     * cleans their task-owned allocation, restores missing rows for nonterminal
-     * tasks when uniqueness permits, and fails closed on duplicate or
-     * unverifiable ownership. Restoring an existing task does not repeat the
-     * initial clean-worktree requirement because retained agent edits are
-     * expected.
-     *
-     * @return reconciled durable leases
-     */
-    List<WorkspaceLease> recoverLeases();
+    WorktreeSnapshot inspect(TaskWorktree worktree);
 
-    /**
-     * Returns current Git facts without changing the worktree.
-     *
-     * @param worktree canonical leased worktree
-     * @return branch, HEAD, dirty state, and repository identity
-     * @throws InvalidAgentRequestException when the path is no longer a valid worktree
-     */
-    WorkspaceSnapshot inspect(Path worktree);
-
-    /**
-     * Releases a task's worktree lease.
-     *
-     * <p>The operation deletes the durable row and its in-memory mirror. It is
-     * idempotent, does not delete the worktree, and is legal only after the task
-     * is terminal, every provider-visible descendant/item/background terminal
-     * is quiescent, and every directly ByteQuay-owned process is stopped.
-     *
-     * @param taskId task whose lease should be released
-     */
-    void release(TaskId taskId);
+    void cleanup(TaskWorktree worktree);
 }
 ```
 
-The first release validates existing clean worktrees only. Creating or deleting
-Git worktrees is a separate product decision. Changes created by the running
-agent are expected after the initial clean-state check.
+The command carries a ByteQuay-generated task ID, trusted workspace ID, the
+physical selected-repository/origin identity, and exact starting commit. The
+service derives the managed repository, path, and generated branch; there is no
+caller-selected path or arbitrary branch. Repeating the exact request is
+idempotent when the existing worktree matches exactly. A half-finished or
+mismatched orphan is preserved and reported rather than adopted or deleted.
+
+`TaskWorktree` contains only task ID, workspace ID, physical repository,
+canonical worktree path, generated branch, and exact starting commit.
+`WorktreeSnapshot` contains that worktree, a required exact HEAD, the dirty
+flag, and the open-Git-operation flag.
+
+`inspect` and `cleanup` revalidate the supplied immutable worktree facts.
+Cleanup requires a clean worktree with no Git operation open, uses non-forced
+removal, removes only the worktree, and always retains the generated branch.
+The service has no allocation store, lifecycle, cleanup disposition, recovery
+API, or automatic startup reconciliation.
 
 ### 3.4 AgentResourceService
 
@@ -974,11 +963,14 @@ public interface AgentCompletionService
      * abandonment, and {@code COMPLETION} claim commit in one unit of work
      * against enqueue's task-version guard. It then closes the provider session,
      * collects the Git snapshot, durable turn/test facts, compact child index,
-     * task metrics, and an optional display-only final agent message, commits the summary,
-     * {@code COMPLETED} state, and deletion deadline in one transaction, and
-     * releases the worktree lease. Agent message text is never interpreted and
-     * its absence or format cannot prevent completion. The method does not
-     * delete retained runtime data.
+     * task metrics, and an optional display-only final agent message. It
+     * revalidates the task worktree, rejects dirty or open Git state, commits
+     * the summary, {@code COMPLETED} state, deletion deadline, and release of
+     * the matching {@code COMPLETION} mutation claim in one transaction, then
+     * synchronously removes the verified worktree while retaining its generated
+     * branch.
+     * Agent message text is never interpreted and its absence or format cannot
+     * prevent completion. The method does not delete retained runtime data.
      *
      * <p>A failure after the completion claim is acquired releases that claim in
      * the same transaction as a retryable {@code READY} or terminal
@@ -1396,7 +1388,7 @@ names its opaque environment owner.
 Markers contain no credentials, prompt
 text, or core-domain objects. A missing/incomplete marker for a
 launch intent that had reached `ATTEMPTING` is unverifiable: recovery keeps the
-durable claim and lease instead of assuming the launch never happened.
+durable claim and task worktree untouched instead of assuming the launch never happened.
 
 ### 5.2 ManagedProcess
 
@@ -1441,7 +1433,7 @@ public interface ManagedProcess
      *
      * <p>The supervisor tracks the owned process group/descendants. The result
      * distinguishes {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE}; root
-     * PID exit alone is never sufficient to release a worktree claim.
+     * PID exit alone is never sufficient to release a worktree-mutation claim.
      *
      * @return root exit code, full-tree termination proof, terminal reason,
      * timing, and truncation flags
@@ -1467,7 +1459,7 @@ public interface ManagedProcess
 
 `ProcessExit.treeTermination()` is `VERIFIED_STOPPED` only after every owned
 process-group/job member and recorded descendant is observed gone. Detached/background-child uncertainty returns
-`UNVERIFIABLE`; recovery keeps the task and durable lease blocked. The same
+`UNVERIFIABLE`; recovery keeps the task claim held and its worktree untouched. The same
 rule applies to normal cancellation, backend-startup recovery, and forced
 close. The shared App Server, each task-owned Codex exec-server, and each Claude
 process use this exact rule.
@@ -1491,7 +1483,7 @@ that URL never enters the renderer. The v0.151.0 reference listener is
 unauthenticated and accepts multiple local WebSocket clients. Binding an
 ephemeral loopback port prevents off-host exposure but is not authentication
 against another same-host process. ByteQuay records that as an explicit
-first-release trust boundary;
+first-release trust boundary, accepted for the planned release on 2026-08-31;
 stronger same-host protection requires an upstream authentication contract or
 a separately designed authenticated proxy, not an invented token field. `app` supplies
 an opaque environment-to-task resolver while all App Server and exec-server
@@ -1549,6 +1541,10 @@ known child. Cancellation first sends `turn/interrupt`, then uses
 `thread/backgroundTerminals/terminate` with a listed App Server `processId`.
 The turn remains `RECOVERING` while an observed item is nonterminal, a
 background-terminal page is non-empty, or history/list reconciliation fails.
+An in-progress yielded item may be absent from `thread/read`; live item events
+and the background-terminal page remain authoritative until it terminates.
+Terminal reconciliation must then find the same item and terminal state in
+history.
 
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the selected
@@ -1599,36 +1595,7 @@ and a typed blob reference, so raw prompts and tool output are not copied into
 SQLite. If the transaction rolls back, the unreferenced blob remains confined
 to that task and is removed by normal task cleanup.
 
-### 6.1 WorkspaceLeaseStore
-
-```java
-package com.bytequay.agent.core.store;
-
-import java.util.List;
-import java.util.Optional;
-
-public interface WorkspaceLeaseStore
-{
-    WorkspaceLease insert(WorkspaceLease lease);
-
-    Optional<WorkspaceLease> findByTask(TaskId taskId);
-
-    Optional<WorkspaceLease> findByCanonicalWorktree(String canonicalWorktree);
-
-    List<WorkspaceLease> listActive();
-
-    void delete(TaskId taskId);
-}
-```
-
-`canonicalWorktree` is unique. Acquisition inserts the durable row before a
-lease is returned; creation failure removes it. Startup cross-checks these rows
-against every nonterminal `agent_task` before accepting agent traffic. A lease
-with neither a task nor a verified owned provider process is an orphan and may
-be removed; duplicate, missing, or unverifiable ownership blocks the affected
-worktree rather than guessing.
-
-### 6.2 AgentTaskStore
+### 6.1 AgentTaskStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -1664,19 +1631,19 @@ public interface AgentTaskStore
     AgentTask update(AgentTask task);
 
     /**
-     * Claims the task worktree for exactly one mutating operation.
+     * Claims exactly one mutating operation inside the task worktree.
      *
      * <p>The conditional update succeeds only when the task version matches,
      * the task is in an allowed state, and no claim is held. It runs inside
      * {@link AgentUnitOfWork} with the owning turn or completion
      * mutation and its outbox event.
      *
-     * @param taskId task whose leased worktree is claimed
+     * @param taskId task whose generated worktree is claimed
      * @param expectedVersion optimistic task version
      * @param claim turn or completion owner
      * @return updated task containing the claim
      */
-    AgentTask claimWorktree(
+    AgentTask claimWorktreeMutation(
             TaskId taskId,
             long expectedVersion,
             WorktreeMutationClaim claim);
@@ -1686,9 +1653,9 @@ public interface AgentTaskStore
      *
      * @param taskId owning task
      * @param claim matching current claim
-     * @return updated task with no task-local worktree claim
+     * @return updated task with no task-local worktree-mutation claim
      */
-    AgentTask releaseWorktree(TaskId taskId, WorktreeMutationClaim claim);
+    AgentTask releaseWorktreeMutation(TaskId taskId, WorktreeMutationClaim claim);
 
     /**
      * Serializes queue insertion against task completion.
@@ -1717,7 +1684,7 @@ public interface AgentTaskStore
 }
 ```
 
-### 6.3 AgentTurnStore
+### 6.2 AgentTurnStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -1779,7 +1746,7 @@ public interface AgentTurnStore
 }
 ```
 
-### 6.4 ApprovalStore
+### 6.3 ApprovalStore
 
 Approval state is durable independently of an SSE connection. Resolution is
 an optimistic, idempotent state transition; the store preserves the tagged
@@ -1811,7 +1778,7 @@ resolution before completing the driver callback. Unsupported, expired,
 unmatched, terminal-turn, and provider-disconnect requests resolve fail closed
 and append the same terminal event as a user denial.
 
-### 6.5 InputDeliveryStore
+### 6.4 InputDeliveryStore
 
 App Server does not accept a client idempotency key for `turn/steer`, so
 ByteQuay tracks its own single send attempt without claiming exactly-once
@@ -1847,7 +1814,7 @@ changes `SENDING` to `FAILED`, while connection/process loss changes it to
 quiescence is proven; that creates a new key and warns that an `UNKNOWN` steer
 might already have arrived.
 
-### 6.6 QueuedInputStore
+### 6.5 QueuedInputStore
 
 The queue needs one small durable store; it is not reconstructed from provider
 history. The store preserves FIFO insertion order and state transitions. The
@@ -1915,7 +1882,7 @@ unit of work. SQLite serialization plus the task-version write guarantees that
 a concurrent enqueue either becomes visible before that check or fails after
 completion wins; it cannot create live work on a terminal task.
 
-### 6.7 AgentEventOutboxStore
+### 6.6 AgentEventOutboxStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -1942,7 +1909,7 @@ idempotent. If JSONL was flushed but the mark was not, retry finds the same
 `EventId` in `TaskLogStore` and records its existing sequence rather than
 appending a duplicate.
 
-### 6.8 TaskLogStore
+### 6.7 TaskLogStore
 
 ```java
 package com.bytequay.agent.core.store;
@@ -2008,15 +1975,15 @@ coordinates the narrower interfaces shown in the last column.
 
 | Step | Frontend action | Public service method | Required internal calls and result |
 | --- | --- | --- | --- |
-| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace-managed checkout/repository, then core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `AgentWorkspaceService.acquire(...)`, `AgentResourceService.allocate(...)`, and `AgentTaskStore.insert(...)`; a failed readiness probe creates no lease or runtime resource; success returns `READY` |
+| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace/repository and exact starting commit; core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `WorktreeService.provision(...)`, `AgentResourceService.allocate(...)`, and task publication; a failed readiness probe creates no worktree or runtime resource, and success returns `READY` only after `TaskWorktree` has been verified |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
-| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and turn claim as `ACCEPTED` with the input delivery and user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, starts the run, and records `RUNNING` plus delivered/unknown outcome. Failed readiness creates no turn or delivery |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the input delivery and user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, starts the run, and records `RUNNING` plus delivered/unknown outcome. Failed readiness creates no turn or delivery |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
-| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the turn claim, and insert terminal events. Only a quiescent success may atomically claim the worktree and FIFO head for the next turn |
+| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the worktree-mutation claim, and insert terminal events. Only a quiescent success may atomically claim that mutation boundary and the FIFO head for the next turn |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef` and creates one new `TurnId`; non-success leaves queued work paused |
-| 8. Fail recovery | `POST /agent/tasks/{taskId}/fail-recovery` after inspecting the incident | `AgentTaskService.failRecovering(FailRecoveringAgentTaskCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED`, releases the claim and lease, and leaves the worktree untouched |
-| 9. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn or live `QUEUED`/`PAUSED`/`STARTING` input; the direct Complete action abandons uncertain inputs, claims the worktree for completion, closes the session, collects turn/metric facts, commits the summary and `COMPLETED` state, and releases the worktree lease |
+| 8. Fail recovery | `POST /agent/tasks/{taskId}/fail-recovery` after inspecting the incident | `AgentTaskService.failRecovering(FailRecoveringAgentTaskCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work records task cleanup action required and remains untouched |
+| 9. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; the direct Complete action abandons uncertain inputs, claims the worktree-mutation boundary for completion, closes the session, collects Git/turn/metric facts, commits the summary, `COMPLETED`, and release of the matching claim, then synchronously removes the reverified worktree without force and retains its generated branch |
 | 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
 
 The base send path is shown end to end below. Calls below `AgentTaskService`,
@@ -2032,7 +1999,7 @@ sequenceDiagram
     participant Desktop as React + Electron main
     participant Web as HTTP/SSE controller
     participant Tasks as AgentTaskService
-    participant Workspace as AgentWorkspaceService
+    participant Worktree as WorktreeService
     participant Resources as AgentResourceService
     participant Drivers as AgentDriverRegistry
     participant Driver as AgentDriver
@@ -2059,8 +2026,8 @@ sequenceDiagram
     Drivers-->>Tasks: AgentDriver
     Tasks->>Driver: probe()
     Driver-->>Tasks: AgentProviderStatus
-    Tasks->>Workspace: acquire(taskId, worktree, repository)
-    Workspace-->>Tasks: WorkspaceLease
+    Tasks->>Worktree: provision(ProvisionWorktreeCommand)
+    Worktree-->>Tasks: TaskWorktree
     Tasks->>Resources: allocate(taskId)
     Resources-->>Tasks: TaskResources
     Tasks->>UoW: execute(create task + event)
@@ -2088,7 +2055,7 @@ sequenceDiagram
         Driver-->>Turns: AgentProviderStatus
         Turns->>Resources: writeBlob(boundedUserMessage)
         Turns->>UoW: execute(reserve accepted turn + claim)
-        UoW->>TaskStore: claimWorktree(TURN)
+        UoW->>TaskStore: claimWorktreeMutation(TURN)
         UoW->>TurnStore: insert(acceptedTurn)
         UoW->>Deliveries: insert(acceptedDelivery)
         UoW->>Outbox: insert(userMessageBlobRefEvent)
@@ -2155,7 +2122,7 @@ sequenceDiagram
         Turns->>UoW: execute(verify version + terminal state/event)
         UoW->>Metrics: finishTurn(turnId, terminalState)
         UoW->>TurnStore: update(terminalTurn)
-        UoW->>TaskStore: releaseWorktree(TURN)
+        UoW->>TaskStore: releaseWorktreeMutation(TURN)
         UoW->>Outbox: insert(turnTerminalEvent)
         Turns->>Events: drain(turnTerminalEventId)
         Turns-->>Web: terminal turn state and metrics
@@ -2166,18 +2133,18 @@ sequenceDiagram
     Web->>Completion: complete(CompleteAgentTaskCommand)
     Completion->>TurnStore: findActive(taskId)
     Completion->>UoW: execute(claim COMPLETION + event)
-    UoW->>TaskStore: claimWorktree(COMPLETION)
+    UoW->>TaskStore: claimWorktreeMutation(COMPLETION)
     UoW->>Outbox: insert(taskCompletingEvent)
     Completion->>Events: drain(taskCompletingEventId)
     Completion->>Session: close()
-    Completion->>Workspace: inspect(worktree)
+    Completion->>Worktree: inspect(task.worktree)
     Completion->>TurnStore: list(taskId)
     Completion->>Metrics: taskTotals(taskId)
     Completion->>UoW: execute(complete task + event)
-    UoW->>TaskStore: update(completedTaskWithSummaryAndDeleteAfter)
+    UoW->>TaskStore: update(completedTaskWithSummaryDeleteAfterAndNoClaim)
     UoW->>Outbox: insert(taskCompletedEvent)
     Completion->>Events: drain(taskCompletedEventId)
-    Completion->>Workspace: release(taskId)
+    Completion->>Worktree: cleanup(task.worktree)
     Completion-->>Web: TaskCompletion
     Web-->>Desktop: task closed; logs retained for seven days
     Desktop-->>User: Completed
@@ -2202,7 +2169,10 @@ The cancellation branch calls `AgentTurnService.cancel(TurnId)`,
 If creation fails after resource allocation,
 `AgentTaskService.create(CreateAgentTaskCommand)` calls
 `AgentResourceService.delete(TaskId)` and
-`AgentWorkspaceService.release(TaskId)` before returning the error.
+`WorktreeService.cleanup(taskWorktree)` before returning the error. Cleanup
+revalidates ownership and removes only a clean worktree without force. If it
+cannot finish, the path and branch are preserved and the failure is reported;
+startup does not retry or reconcile it automatically.
 
 ## 8. Provider implementations
 
@@ -2243,12 +2213,15 @@ The connection and task sequence is:
    apps, plugins, hooks, host skill discovery, web search, multi-agent, and the
    other unapproved optional capabilities, plus the minimal command
    environment. This is a baseline, not the production subagent profile. Before
-   CP1 completes or CP2 begins, the fixture must separately prove a
+   formal CP1 completion or CP2, the fixture had to separately prove a
    child-capable profile that enables only the reviewed multi-agent feature
    shape and repeats every isolation assertion. The separate
    `--live-children` fixture path performs that bounded root/child/grandchild
-   proof with a dedicated API key; its V1 profile sets and verifies
-   `agents.max_depth=2`, and only a passing run is evidence.
+   proof as an opt-in local real-model smoke test using a separate persistent
+   Codex profile signed in directly with ChatGPT; its V1 profile sets and
+   verifies `agents.max_depth=2`. That run passed; the technical proof is now
+   evidence and closed the CP1 child-recursion gate. Production adoption of
+   that child-capable profile remains CP4 work.
    Before creating a thread, call `config/read(includeLayers: true)` and require
    exactly one `sessionFlags` layer with the same effective feature and shell
    policy, an empty MCP-server map, and no inherited shell setters, exclusions,
@@ -2370,10 +2343,15 @@ thread/turn/item fields and the driver's registry; process-global account,
 configuration, and warning notifications remain process-scoped. A V1
 `collabAgentToolCall` registers an edge only for `tool: "spawnAgent"`, using
 each receiver thread as a direct child of the sender; a V2 `subAgentActivity`
-uses its canonical absolute logical `agentPath`. The driver begins routing/observing a
-newly known child before its discovery card is published. A selected model whose advertised
+uses its canonical absolute logical `agentPath`. App Server may retain both
+known item forms in one transcript. The selected model's advertised version is
+the only graph-discovery source; the other form is supplementary activity whose
+thread identities still must resolve inside that same graph. The driver begins
+routing/observing a newly known child before its discovery card is published.
+A selected model whose advertised
 `multiAgentVersion` is not implemented is unavailable rather than silently
-dropping child activity. `thread/read(includeTurns: true)` can backfill a known child after
+dropping child activity. `thread/read(includeTurns: true)` can backfill a known
+child after
 reconnect; backfilled items pass through the same normalizer and source-key
 deduplication before append. They are appended in provider history order
 inside explicit backfill-started/completed lifecycle markers; the task sequence
@@ -2463,17 +2441,35 @@ regenerates stable and experimental schemas, verifies their bundle hashes,
 required surface, and compact Java projection. An earlier recorded live slice
 proves two turns routed through two distinct executors without ambient fallback.
 The current repeatable live fixture extends that check to two independent root
-tasks and three turns, but requires a new dedicated-key pass before that is
-evidence. It never copies rotating ChatGPT credentials. It gives
-every Codex subprocess a minimal allowlisted environment and a temporary
-`CODEX_HOME`. The live path is configured to pass its dedicated API key only
-to App Server and to omit the key and `CODEX_HOME` from model-requested
-commands; the dedicated-key rerun must prove that behavior. A bounded
-Git-worktree action and API-key isolation, one representative live command
-approval, yielded-terminal termination, recursive children, restart
-recovery, fail-closed cross-task routing, and the written go/no-go result remain
-CP1 gates. The offline projection and codec tests already pin the modern
-approval methods,
+tasks and three turns. Both subscription-backed paths passed locally on
+2026-08-31 with `gpt-5.6-sol`; the recursive run used its advertised V2 graph
+while validating a supplementary V1 collaboration record. The default fixture
+remains offline, authentication-free, deterministic, and safe for CI. The `--live` and
+`--live-children` paths are explicit local real-model smoke gates and are not
+invoked by the normal test or CI command. Each requires
+`BYTEQUAY_CODEX_COMPAT_HOME` to point to a separate persistent Codex profile
+outside the repository that was signed in directly with ChatGPT. It must never
+use the ambient Codex profile or seed a profile by copying `auth.json`. App
+Server verifies through `account/read` that `requiresOpenaiAuth` is true and
+`account.type` is `chatgpt`; API-key fixture support is deferred. App Server
+receives that selected `CODEX_HOME` only for its own
+process and uses a temporary `CODEX_SQLITE_HOME` for database state. A
+profile-local exclusive lock prevents concurrent live gates from sharing the
+rotating login; it is acquired before mutable auth/runtime validation. The
+fixture rejects persistent Codex-home instruction files. Run-scoped rollout,
+writer-lock, shell-snapshot, and trust records that App Server places in the
+fixture-only profile are removed only after every owned process group stops;
+`auth.json` and the profile remain.
+
+Every task exec-server and model-requested tool process instead receives a
+minimal allowlisted, credential-free environment. Every exec-server has a
+separate empty `CODEX_HOME`; both live gates proved that model-requested
+commands receive no `CODEX_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME`, or App
+Server-only sentinel. A bounded Git-worktree action and credential isolation,
+one representative live command approval, yielded-terminal termination,
+recursive children, restart recovery, and fail-closed cross-task routing
+satisfy the CP1 technical evidence gates. The offline projection and codec
+tests already pin the modern approval methods,
 top-level fields, requiredness, command/file decision variants, and opaque
 permission payload/scope, and prove legacy approval methods fail closed; they
 do not prove the representative live callback. Richer product decision
@@ -2488,12 +2484,13 @@ null. The same keyless App Server run proves the no-child session flags and
 shell environment, empty MCP and hook configuration, and isolated
 bundled-system-skill origin before creating a thread. Synthetic poison cases
 exercise the rejection branches. This baseline is not the final subagent
-profile; production adoption waits for the separate CP1 child-capable proof and
-belongs to CP4. The fixture now contains an opt-in `--live-children` path that
-selects the model-advertised V1/V2 profile and validates recursive history,
-but it has not passed on this host without the required dedicated API key.
-CP1 exit requires dedicated-key passes from both the no-child `--live` path and
-the recursive `--live-children` path.
+profile; the separate CP1 child-capable proof passed, while production adoption
+belongs to CP4. The fixture's opt-in `--live-children` path selects the
+model-advertised V1/V2 profile, validates recursive history, and passed its
+subscription-backed local smoke run with the explicitly selected ChatGPT
+profile. CP0 and CP1 are complete: the approved static UI remains behind its
+development-only gate, and the current HTTP/SSE journey has a sanitized golden
+baseline. CP2 now owns the provider-neutral contract work.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for
@@ -2546,7 +2543,7 @@ claude
 `ProcessSupervisor` supplies this as an argv list without a shell. It writes the
 UTF-8 user message to stdin and then closes stdin; prompts are not placed in the
 process list or interpolated into a command string. The process working
-directory is the task's canonical leased worktree.
+directory is the task's canonical generated worktree.
 
 For a turn with text attachments, the driver canonicalizes each file and
 requires it to remain inside that task's runtime directory. It gives Claude the
@@ -2597,7 +2594,8 @@ events can follow the result.
 For Claude, the `result` object is the root terminal fact; the driver completes
 `RunningTurn.completion()` only after forwarded child/background-task terminal
 events and supervised process-tree exit. Forced cancellation also waits for
-that exit, so a background child cannot outlive the task's worktree claim.
+that exit, so a background child cannot outlive the task's
+worktree-mutation claim.
 
 The driver normalizes at least these message classes:
 
@@ -2628,7 +2626,7 @@ capability token stored in the owner-only config file. ByteQuay does not pass
 the token on the command line.
 
 Every policy runs `--permission-mode auto`: Claude approves its own work inside
-the leased worktree and escalates anything past the sandbox to the
+the generated task worktree and escalates anything past the sandbox to the
 permission-prompt tool. `AUTO` sends that escalation to the user. `CI_AUTOFIX`
 and `CHERRY_PICK` are unattended, so the broker answers instead, allowing an
 edit only when its path resolves inside the worktree.
@@ -2673,7 +2671,7 @@ grace period, and records the observed terminal result or process exit.
 | Structured checklist | Native `turn/plan/updated` steps/status | No guaranteed dedicated checklist; render provider messages/tool activity only |
 | Free-form Plan-mode text | `item/plan/delta` plus authoritative completed `plan` | Provider messages when available, not synthesized as a checklist |
 | Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
-| Incremental command output | Native `item/commandExecution/outputDelta` | Not guaranteed for Bash; terminal tool results are authoritative |
+| Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
 | Hook lifecycle | Synchronous `hook/started` and `hook/completed`; none for asynchronous hooks | Available with `--include-hook-events` |
 | Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | Parent-linked subagent messages with `--forward-subagent-text` |
 | Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
@@ -2784,14 +2782,20 @@ and a bounded user-visible reason. It maps only to
 `AgentTaskService.failRecovering(...)`, is enabled only for `RECOVERING`, and
 returns a conflict until provider-visible execution is terminal, background
 terminal lists are empty, and directly owned provider processes are stopped.
-Success records `FAILED`, releases the claim and lease, and leaves the worktree
-unchanged.
+Success records `FAILED`, releases the claim, and requests safe worktree
+cleanup. Dirty work remains untouched until the user or agent makes the
+generated branch clean; the shared service has no force-removal operation.
 
 The public task-creation DTO contains `workspaceId`, title, lane, and defaults,
-not a filesystem path. `app` resolves the workspace-managed checkout and
-repository, verifies the task belongs to that workspace, and only then builds
-the core command. This is distinct from trusted internal workflow callers,
-which already hold a validated worktree context.
+not a filesystem path. `app` resolves the managed repository and exact starting
+commit, verifies the task belongs to that workspace, and only then builds the
+core command. Trusted internal workflow callers such as cherry-pick and CI
+Autofix supply their own already-frozen commit, but they use the same
+`WorktreeService` and cannot submit an arbitrary path.
+
+Task and completion responses may expose the safe generated branch name and
+verified HEAD as local-result facts. They never expose its internal path or
+perform a merge/push action.
 
 Spring MVC controllers translate HTTP DTOs and errors only. SSE adapts the
 core `Flow.Publisher`; controllers do not parse provider events or manage
@@ -2807,16 +2811,10 @@ directly to App Server or localhost.
 
 ### 10.1 SQLite
 
-`agent_workspace_lease` stores task ID, canonical worktree, repository
-identity, acquisition time, and recovery status. Canonical worktree is unique.
-The row survives backend restart and is deleted only after terminal task
-closure and provider quiescence; the in-memory lease map is rebuilt from these
-rows.
-
 `agent_task` stores:
 
-- task ID, owning workspace ID, title, lane ID, repository identity, and
-  canonical worktree;
+- task ID, owning workspace ID, title, lane ID, repository identity, canonical
+  worktree, generated result branch, and exact starting commit;
 - default model, reasoning effort, and permission policy;
 - task state, optimistic version, timestamps, terminal reason, and optional
   worktree-mutation claim kind/owner/acquired time;
@@ -2825,7 +2823,8 @@ rows.
   provenance;
 - final summary, Git/test facts, a compact terminal child index (thread and
   parent IDs, label, final state, elapsed time, and result summary only),
-  cleanup state, and runtime deletion deadline.
+  cleanup state (including `ACTION_REQUIRED` for verified dirty terminal
+  work), and runtime deletion deadline.
 
 `agent_turn` stores:
 
@@ -2911,9 +2910,12 @@ work is empty:
 1. Close the provider session and unsubscribe its terminal root/child threads.
 2. Collect Git facts, tests, metrics, and an optional uninterpreted final
    response for display.
-3. Commit summary, totals, `COMPLETED`, and
-   `deleteAfter = completedAt + 7 days` in SQLite.
-4. Release the worktree lease.
+3. Commit summary, totals, `COMPLETED`,
+   `deleteAfter = completedAt + 7 days`, and release of the matching completion
+   mutation claim in SQLite.
+4. Revalidate and synchronously remove the clean worktree without force while
+   retaining its generated result branch. If removal fails, preserve and report
+   the worktree without creating a cleanup lifecycle state.
 5. Keep `events.jsonl`, blobs, and provider scratch data readable until the
    deletion deadline.
 6. At or after the deadline, invoke `AgentCompletionService.cleanup()` and
@@ -2941,12 +2943,11 @@ requires a separate explicit user action and design decision.
 
 ## 11. Recovery, security, and concurrency
 
-- Before agent endpoints report ready, startup drains the event outbox,
-  reconciles durable workspace leases against every nonterminal task, and
-  rebuilds the in-memory lease index. A missing row is restored only when
-  uniqueness is provable; duplicate/conflicting ownership or an unverifiable
-  old provider process blocks the affected worktree. ByteQuay does not assign
-  it to a new task.
+- Startup drains the event outbox and performs the separate provider-process
+  recovery described below, but it does not scan or reconcile worktrees. Each
+  later `provision`, `inspect`, or `cleanup` call revalidates its immutable
+  repository, path, branch, and commit facts. A half-finished or mismatched
+  orphan is preserved and reported rather than adopted or deleted.
 - Provider launches carry an owner marker with PID, executable, OS process-start
   token, and driver owner. Startup signals only a process whose identity still
   matches, then observes the entire directly owned process tree exit. If
@@ -2966,8 +2967,9 @@ requires a separate explicit user action and design decision.
 - A startup task left in `COMPLETING` has no unrecorded Git write to resume.
   After provider quiescence, one unit of work records completion interruption,
   returns it to `READY`, and releases the `COMPLETION` claim. If the final
-  `COMPLETED` transaction already committed, startup only finishes idempotent
-  provider/lease release. Crash fixtures cover both sides of those commits.
+  `COMPLETED` transaction already committed, startup finishes only provider
+  shutdown; it does not automatically inspect or remove the task worktree.
+  Crash fixtures cover both sides of the task transaction.
 - A pre-send `ACCEPTED` delivery is known unsent: startup records it `FAILED`,
   marks its turn `INTERRUPTED`, and pauses any queue claim. Explicit resume
   creates a new turn/delivery rather than leaving the old delivery unsettled.
@@ -2981,13 +2983,18 @@ requires a separate explicit user action and design decision.
   inputs stay intact, but no turn or queue head is implicitly restarted.
 - A repeated start request uses an idempotency key. Another concurrent request
   receives HTTP 409.
-- Queue claiming, turn/input-delivery insertion, the task-local worktree claim,
+- Queue claiming, turn/input-delivery insertion, the task-local
+  worktree-mutation claim,
   and their event outbox row are transactional. A successful terminal turn may
   claim the FIFO head once; every other terminal state requires a direct user
   resume action.
 - Turn start, a queue claim, and completion all acquire the same task-local
   worktree-mutation claim by optimistic compare-and-set; completion rejects a
   nonterminal claim.
+- Git worktree provisioning and cleanup are serialized per managed repository.
+  Normal cleanup refuses a dirty worktree or open sequencer and preserves the
+  generated branch. The shared service has no force-removal or branch-deletion
+  operation.
 - Provider readiness verifies the selected sandbox, workspace roots, approval
   flow, and ordinary built-in tool execution through the task environment.
 - A dropped SSE connection does not affect the provider run. Reconnect uses the
@@ -3040,7 +3047,7 @@ their provider-specific readiness checks behind the same SPI.
 Task creation and every later turn start perform a fresh readiness check before
 accepting a turn, acquiring a new task resource, or consuming a CI Autofix
 attempt. An authentication-required result returns an actionable typed error;
-it does not create a failed turn or leave a worktree lease behind.
+it does not create a failed turn or provision a worktree.
 
 If authentication expires during a running turn, ByteQuay records the turn's
 operational failure and pauses the owning workflow as authentication required.
@@ -3085,7 +3092,7 @@ details, but the primary message is **Claude sign-in required**.
 Before the release blocker can be closed, automated tests must demonstrate:
 
 1. A new installation with Claude CLI present but logged out is blocked before
-   task/turn creation, lease acquisition, and CI attempt consumption.
+   task/turn creation, worktree provisioning, and CI attempt consumption.
 2. Workspace settings renders the typed authentication-required state and its
    sign-in action without exposing credentials.
 3. Successful login plus readiness refresh enables task start without an app
@@ -3138,10 +3145,10 @@ until automated contract and integration tests prove:
    fixtures must show that yielded and background commands are listed and
    cleanable, and a detached writer that escapes those registries makes the
    Codex lane ineligible for release rather than creating a fictional receipt;
-11. restart reconstructs one durable lease per nonterminal canonical worktree,
-   fails closed on duplicate/unverifiable ownership, safely returns a pre-final
-   stale `COMPLETING` claim to `READY`, and finishes post-final workspace-lease
-   release at every crash point; launch crash fixtures cover every database
+11. restart safely returns a pre-final stale `COMPLETING` claim to `READY`
+   without automatically inspecting or removing its worktree; every explicit
+   worktree operation revalidates immutable ownership facts and preserves a
+   half-finished or mismatched orphan; launch crash fixtures cover every database
    phase/marker combination from `NOT_ATTEMPTED` through `RUNNING`, proving that
    `ATTEMPTING + PREPARED/GATED` is known unlaunched while
    `RELEASE_PENDING` is never misclassified as unsent;

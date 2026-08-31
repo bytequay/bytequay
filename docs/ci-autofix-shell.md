@@ -1,5 +1,10 @@
 # CI Autofix shell
 
+> **Current behavior:** the shell still submits the caller's checkout. The
+> approved managed-worktree migration in
+> [CI Autofix Service Design](design/ci-autofix-service.md) changes it to select
+> a saved ByteQuay workspace and lets the backend provision the task worktree.
+
 The CI Autofix shell starts or reattaches to a backend run for the current Git
 worktree, prints CI failure summaries and agent events, and waits until the run
 finishes or needs input.
@@ -40,3 +45,11 @@ The shell consumes only the existing CI Autofix and agent APIs. It prints
 normalized CI failure summaries and agent command/tool/output events. Raw
 GitHub Actions log blobs remain protected task files and are not exposed by a
 new HTTP endpoint.
+
+After the managed-worktree migration, the command requires a saved workspace
+selection (for example `--workspace <workspace-id>`). The repository argument
+remains a human-readable PR scope and must match that workspace, but the shell
+no longer inspects or submits its current directory, branch, repository path,
+or worktree. It displays the backend-generated local branch from safe task
+facts; the internal path remains hidden. Reattach resolves the same workspace
+from the durable run rather than from the shell's current checkout.

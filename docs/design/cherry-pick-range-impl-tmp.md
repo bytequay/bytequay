@@ -3,6 +3,12 @@
 Status: execution and progress UI complete; explicitly deferred work remains
 below.
 
+The checked boxes describe the current implementation. The approved
+managed-worktree migration replaces renderer/workflow path inputs and
+`CherryPickWorkspace` through the shared service; it is tracked in
+[Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) and does
+not reopen the range semantics below.
+
 Canonical behavior is locked in
 [Cherry-pick Range Design](cherry-pick-range.md). A box is checked only when
 the code and focused tests exist. The final gate was checked only after the

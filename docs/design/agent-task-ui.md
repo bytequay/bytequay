@@ -1,6 +1,6 @@
 # Agent Task UI Design
 
-This document proposes the rich, worktree-scoped agent task surface that
+This document defines the approved rich, worktree-scoped agent task surface that
 ByteQuay will build over the existing agent service. It defines the product
 interaction, frontend projection, Electron transport, and the additional
 service capabilities required by that UI. Provider lifecycle and storage
@@ -16,34 +16,44 @@ capability-driven ByteQuay contract.
 This is technically feasible, but it has an explicit product risk: the
 [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
 currently marks the `app-server` command as experimental and unsupported for
-production workloads. Shipping this surface therefore requires an explicit
-dependency decision, a fixed reference-schema fixture, and compatibility
-tests. That fixture does not gate the user-managed production CLI: Codex's
+production workloads. ByteQuay accepted that dependency and the stock
+exec-server's same-host trust boundary for the planned first release on
+2026-08-31. Shipping still requires the fixed reference-schema fixture and
+compatibility tests. That fixture does not gate the user-managed production CLI: Codex's
 startup self-update remains enabled and no reported version text, including
 unparseable output, makes the lane unavailable. ByteQuay uses documented stdio
 and does not adopt the experimental WebSocket transport.
 
+The approved first-release visual and state reference is the
+[Agent Task UI prototype](Agent%20Task%20UI.html), accepted in commit
+`84af81c73cea7ae2cf7a53681827f550c598b706` on 2026-08-31. Its 13 static
+fixture states define the intended layout, hierarchy, and principal
+interactions. This document remains authoritative for behavior, capability
+gates, persistence, security, and acceptance criteria. The prototype is not
+production code and does not claim backend or provider integration.
+
 ## 1. Decision summary
 
-This section describes the proposed target shape. The managed-checkout versus
-separate-task-worktree choice, the experimental App Server release risk, and
-the unauthenticated same-host executor boundary remain CP0 product decisions;
-declarative wording below does not mark them approved.
+This section describes the approved target shape. CP0 selected a separate
+ByteQuay-managed worktree per task and accepted the experimental App Server and
+unauthenticated same-host executor boundaries on 2026-08-31. Those decisions do
+not weaken the remaining compatibility, isolation, and release gates.
 
 - Workspace **Tasks** gains a separate agent-task list and detail screen. The
   existing cherry-pick task model and UI remain separate; there is no generic
   task hierarchy joining unrelated workflows.
 - One ByteQuay agent task durably owns one workspace, one immutable provider
-  lane, and one canonical worktree through a restart-safe exclusive lease. It
-  contains multiple turns in one resumable provider conversation.
+  lane, and one separately provisioned generated branch/worktree through the
+  shared [Managed Worktree Service](worktree-service.md). It contains multiple
+  turns in one resumable provider conversation.
 - ByteQuay runs one long-lived Codex App Server process and multiplexes root
   and child Codex threads by thread ID. It does not start one App Server per
   task.
 - ByteQuay launches one official `codex exec-server` per Codex task and selects
   it through App Server's experimental `environment/add` and per-thread
   `environments` fields. App Server still chooses and sequences tools; the
-  task-owned executor performs their process/filesystem work in the leased
-  worktree.
+  task-owned executor performs their process/filesystem work in the generated
+  task worktree.
 - The spike-selected v0.151.0 exec-server listens on an ephemeral loopback port but is
   unauthenticated and accepts multiple local clients. That avoids off-host
   exposure, not a hostile same-host process; the first release records this as
@@ -82,6 +92,8 @@ declarative wording below does not mark them approved.
   preserving task, root-thread, child-thread, turn, and item identity.
 - Display task and turn state, selected provider/model, elapsed time, token
   usage when available, and terminal errors.
+- After completion, display the retained generated branch name and HEAD as the
+  local result without exposing the backend worktree path.
 
 ### 2.2 Composer
 
@@ -112,7 +124,7 @@ duplicating the user's text.
 
 For Codex, **Auto** maps to App Server's generated on-request approval value
 (`approvalPolicy: "on-request"` in the v0.151 reference schema) plus a
-workspace-write sandbox rooted at the leased worktree. `thread/start` receives
+workspace-write sandbox rooted at the generated task worktree. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the
 active parent turn's effective sandbox and approval choices. The task executor
@@ -182,7 +194,7 @@ resurrect a resolved approval as pending.
   monotonic event sequence so replay and SSE need no second transport.
 
 A root `turn/completed` event may render its answer while descendants are still
-active, but it does not release the task's worktree claim. Send, queue start,
+active, but it does not release the task's worktree-mutation claim. Send, queue start,
 and Complete stay disabled until every known descendant is terminal and
 the driver recursively reads root/child history to a stable fixed point with no
 new descendants. The same barrier requires every observed command, tool,
@@ -248,14 +260,15 @@ The existing Tasks screen keeps cherry-pick executions and adds a separate
 generic task DTO. A **New agent task** action asks for title, provider, model,
 effort, and permission mode; the workspace is already fixed by the route. The
 HTTP request contains `workspaceId`, not a worktree path. `app` resolves and
-validates that workspace's managed checkout and repository before it calls
-`agent-core`.
+validates that workspace's managed repository and exact starting commit, then
+the shared service provisions a separate generated task worktree before
+`agent-core` reports the task ready.
 
 The dialog checks the same typed provider readiness returned by Workspace
 Settings before enabling **Create**. Authentication-required, missing,
 unsupported, and unavailable lanes are disabled with an actionable link to
 **Workspace Settings → Agent providers**. No task row, runtime directory, or
-worktree lease is created until a fresh backend readiness check succeeds; the
+worktree is created until a fresh backend readiness check succeeds; the
 backend repeats this gate so stale UI status cannot race task creation.
 For Codex, `unsupported` means an actual required protocol or capability failed,
 with the detected CLI version shown for diagnosis; no reported version text, including
@@ -305,10 +318,10 @@ mutation controls while ByteQuay terminates or reconciles the owned execution
 tree. It names any still-active child and offers **Stop and recover**; Retry is
 enabled only after the barrier passes. The card also names active execution
 items/background terminals or an unverifiable process receipt. The UI never
-releases the worktree claim
+releases the task's worktree-mutation claim
 merely because the root is marked interrupted. If provider-process ownership
-or exit cannot be proven, the task and durable workspace lease remain blocked
-with an actionable diagnostic. A last-resort **Stop shared Codex server** action
+or exit cannot be proven, the task remains blocked and its worktree stays
+untouched, with an actionable diagnostic. A last-resort **Stop shared Codex server** action
 requires confirmation and lists every other Codex task it will interrupt.
 
 **Complete** is enabled only while the task is idle and no live queued input is
@@ -316,8 +329,12 @@ requires confirmation and lists every other Codex task it will interrupt.
 `UNCERTAIN` delivery remains, confirmation explains that completion records it
 as abandoned and never retries it. Complete closes the provider session,
 retains the transcript for the configured period, and releases the exclusive
-worktree lease. The detail screen must not leave a READY task permanently
-holding that lease without a visible close action.
+worktree-mutation claim. It records Git facts, removes a verified clean worktree, and
+retains its generated branch as the local result. If the worktree is dirty or a
+Git operation remains open, Complete shows an actionable conflict rather than
+discarding files. The completed screen shows the retained branch and HEAD; it
+does not merge or push them automatically. The detail screen must not leave a READY task permanently
+holding that worktree without a visible close action.
 
 ## 3. System shape
 
@@ -331,14 +348,16 @@ flowchart LR
 
     subgraph SIDECAR["Spring sidecar"]
         WEB["app<br/>HTTP/SSE and composition"]
-        CORE["agent-core<br/>tasks · turns · approvals · queue<br/>worktree claim · event sequencing"]
+        CORE["agent-core<br/>tasks · turns · approvals · queue<br/>worktree contract · mutation claim · events"]
+        WORKTREE_SERVICE["app<br/>managed worktree operations"]
         SPI["agent-spi<br/>capabilities and normalized events"]
-        STORE["SQLite state/outbox<br/>+ task JSONL/blobs"]
-        WORKTREE["Leased task worktree"]
+        STORE["SQLite task state/outbox<br/>+ task JSONL/blobs"]
+        WORKTREE["Generated task worktree<br/>clean result branch"]
         WEB <--> CORE
+        CORE -->|"WorktreeService port"| WORKTREE_SERVICE
         CORE <--> SPI
         CORE <--> STORE
-        CORE --> WORKTREE
+        WORKTREE_SERVICE --> WORKTREE
     end
 
     subgraph CODEX["Codex lane"]
@@ -454,7 +473,9 @@ state:
 - owning workspace ID on every task and an explicit persisted user-message
   event for each accepted send/steer or first queued claim, with later delivery
   attempts linked rather than duplicating text;
-- durable workspace-lease and task-local worktree-claim/recovery state;
+- immutable task-worktree ownership facts;
+- task-local worktree-mutation claim, held while provider-process recovery is
+  unresolved;
 - task exec-server environment/launch identity plus directly owned
   provider process recovery state;
 - task defaults and per-turn snapshots for model, effort, and permission;
@@ -481,13 +502,14 @@ complete.
    inputs, and child relationships; reject incompatible required protocol
    changes with the detected running version.
 2. **Transport and replay** — add the SQLite/event-outbox unit of work, typed
-   durable workspace lease/provider-process recovery, Electron REST/SSE IPC,
-   React reducer, and task routes; prove crash-boundary idempotence, deep-link,
-   reload, and reconnect during a live turn.
+   provider-process recovery, Electron REST/SSE IPC, React reducer, and task
+   routes; prove crash-boundary idempotence, deep-link, reload, and reconnect
+   during a live turn.
 3. **Usable Codex task** — gate creation on typed provider readiness before
-   task/lease allocation; link unavailable lanes to Workspace Settings; add
+   task/worktree provisioning; link unavailable lanes to Workspace Settings; add
    per-task exec-server launch/`environment/add`/`environment/info`, disabled
-   inherited capabilities, sandbox probes, and the task-local worktree claim;
+   inherited capabilities, sandbox probes, and the task-local
+   worktree-mutation claim;
    then create/open/complete a task, select
    model/effort/Auto, send text, resolve approvals, view live logs and final
    output, cancel, and send a second turn to the same thread.
@@ -506,10 +528,10 @@ complete.
   exec-server environments and without event, approval, process, or filesystem
   cross-talk.
 - New/open/complete task routes survive deep-link, reload, back, and forward;
-  completion releases the workspace lease and task creation never trusts a
-  renderer-supplied worktree path.
+  completion removes the verified clean worktree while preserving its generated
+  result branch, and task creation never trusts a renderer-supplied path.
 - An unavailable or authentication-required provider cannot create a task,
-  runtime directory, or lease; the New task dialog links to the same actionable
+  runtime directory, or worktree; the New task dialog links to the same actionable
   Workspace Settings state, and a successful readiness refresh enables Create.
 - Renderer reload and SSE reconnect preserve a live run and neither lose nor
   duplicate completed items. After backend restart, the same transcript is
@@ -542,9 +564,10 @@ complete.
   discarding or completing an uncertain queue row visibly marks it abandoned,
   while consumed rows never block Complete. Concurrent enqueue and Complete
   cannot leave live queued work on a closed task.
-- Restart reconstructs the durable worktree lease before task creation is
-  enabled. A duplicate/unverifiable owner fails closed, so two tasks cannot
-  resume or start against the same checkout.
+- Every worktree operation revalidates the task's immutable repository, path,
+  branch, and commit facts. A half-finished or mismatched orphan is preserved
+  and reported rather than adopted or deleted; ByteQuay does not run automatic
+  worktree reconciliation at startup.
 - The Claude lane hides unsupported controls while retaining shared messages,
   tools, approvals, metrics, and nested activity that its current CLI exposes.
 - Codex task startup verifies that inherited MCP servers, apps/plugins,
@@ -563,7 +586,9 @@ complete.
 ## 9. First-release non-goals
 
 - Pixel-for-pixel reuse of Codex Desktop source or assets.
-- A generic abstraction combining agent, cherry-pick, CI, and rebase tasks.
+- A generic workflow abstraction combining agent, cherry-pick, CI, and rebase
+  state machines. Their shared managed-worktree service is an approved narrow
+  filesystem-operations boundary, not a generic task model.
 - Queue reordering, priorities, schedules, or cross-task dependencies.
 - Direct UI controls to steer or stop an individual subagent; users may ask
   the root agent to coordinate its children.

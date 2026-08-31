@@ -1,10 +1,12 @@
 # CI Autofix Service Design
 
-> **Status: backend implemented; program-owned target rebase implemented on
-> 2026-08-20.** The implementation follows the
+> **Status: backend implemented; managed-worktree migration approved on
+> 2026-08-31 and pending.** The current implementation follows the
 > locked scope, authority boundary, services, durable status model, and program
-> control facts approved on 2026-08-17. Verification evidence is recorded in
-> [Implementation status](#12-implementation-status).
+> control facts approved on 2026-08-17. Before the rich agent task surface,
+> CI Autofix will move from a supplied checkout to the shared
+> [Managed Worktree Service](worktree-service.md). Verification evidence for
+> the current flow is recorded in [Implementation status](#12-implementation-status).
 
 This document designs CI Autofix only. Review-comment triage is a different,
 read-only service and is not covered here.
@@ -18,6 +20,17 @@ Creating a direct cherry-pick delivery PR is one enable path: its confirmation
 discloses failed-job reruns, history rewrites, and exact-lease pushes. The run
 may start while checks are pending or before any failure exists; it consumes no
 fix attempt until an actionable failure appears.
+
+CI Autofix accepts a ByteQuay `workspaceId`, not a worktree path. After it
+verifies the pull request and exact remote head, it creates its agent task in a
+fresh ByteQuay-owned worktree at that commit. It never adopts the worktree that
+produced a cherry-pick delivery. Branch Rebase borrows the CI task worktree.
+The authorized PR `headRef` remains the remote push target; the generated local
+work branch comes from `WorktreeService.inspect(taskWorktree)`. Local validation
+and Branch Rebase use that generated branch and never assume it equals
+`headRef`.
+Push explicitly maps the verified local HEAD to
+`refs/heads/<authorized-headRef>` with the existing exact lease.
 
 The agent owns the local fix:
 
@@ -73,13 +86,27 @@ The initial limits are:
 - at most three failed-job reruns for an unchanged head;
 - an eight-hour authorization window;
 - GitHub Actions only; and
-- no GitHub comments, approvals, merges, branch deletion, or plain force push.
+- no GitHub comments, approvals, merges, remote branch deletion, or plain
+  force push.
 
 The agent may edit, commit, amend, squash, and reorder fixups only inside the
-leased worktree. During a program-owned target rebase it may edit and stage the
+generated task worktree. During a program-owned target rebase it may edit and stage the
 current conflict, but only the program may continue, skip, or abort. It never
 receives a GitHub credential or a GitHub write tool, and its runtime policy
 denies network writes. Only the program may push or rerun GitHub Actions.
+
+The run keeps its task worktree while `ACTIVE` or `PAUSED`. A dirty or
+uncertain agent result pauses and preserves it. Terminal settlement follows
+the shared non-destructive cleanup rule:
+
+| Terminal situation | Worktree action |
+| --- | --- |
+| Any quiescent terminal result with a clean local branch | Remove the worktree without force and retain the generated branch, including after a verified push |
+| Dirty, open-sequencer, or uncertain local state | Do not settle; pause and preserve the worktree |
+
+Cleanup failure is retryable from the task/run's persisted immutable worktree
+facts and does not change an already recorded terminal run result. The
+worktree service has no destructive discard or branch-deletion mode.
 
 ## 3. Services
 
@@ -101,11 +128,12 @@ public interface CiAutofixService
      * Starts CI Autofix after direct user consent.
      *
      * <p>Verifies the authenticated user is the PR author, the PR is open and
-     * same-repository, the selected worktree matches the PR head, and the
-     * commit/push and failed-job-rerun permissions are explicit. Creates one
-     * durable run and one existing agent task. Does not write to GitHub.
+     * same-repository, the workspace matches the PR repository, the exact PR
+     * head is available locally, and the commit/push and failed-job-rerun
+     * permissions are explicit. Creates one durable run, one managed task
+     * worktree, and one agent task. Does not write to GitHub.
      *
-     * @param command PR, worktree, lane, limits, consent, and idempotency key
+     * @param command workspace, PR, lane, limits, consent, and idempotency key
      * @return the created or existing run
      */
     CiAutofixRun start(StartCiAutofixCommand command);
@@ -130,7 +158,7 @@ public interface CiAutofixService
      * Sends one user instruction to a paused run's existing agent task.
      *
      * <p>Rechecks author, authorization, remote head, task readiness, and
-     * worktree lease before starting a turn. The message cannot expand the
+     * persisted task worktree before starting a turn. The message cannot expand the
      * stored GitHub-write scope.
      *
      * @param command run ID, bounded message, and idempotency key
@@ -142,10 +170,11 @@ public interface CiAutofixService
      * Cancels a run and any active agent turn.
      *
      * <p>Cancellation is idempotent. It never resets local history or writes
-     * to GitHub.
+     * to GitHub. A clean task settles with its local branch retained; dirty or
+     * uncertain local state pauses with its worktree preserved for inspection.
      *
      * @param runId run to cancel
-     * @return finished run
+     * @return finished clean run or paused run with preserved local work
      */
     CiAutofixRun cancel(CiAutofixRunId runId);
 
@@ -523,14 +552,17 @@ The operations are:
 ```text
 if FINISHED:
     return
-if PAUSED:
-    finish only when authorization expires; otherwise return
 if a push outcome is uncertain:
     reconcile the exact local and remote SHAs; never blind-retry
-if authorization expired:
-    finish AUTHORIZATION_EXPIRED
-if remote head differs from the expected head:
-    finish STALE_HEAD
+derive any requested terminal reason from cancellation, expired authorization,
+or a stale remote head
+if a terminal reason is requested:
+    cancel active provider execution and wait for proven quiescence
+    inspect the persisted task worktree and local Git
+    if dirty, open-sequencer, or uncertain: pause with that finish reason pending
+    otherwise: finish and remove the clean worktree while retaining its branch
+if PAUSED:
+    return
 if an agent turn is running:
     wait
 if the latest turn FAILED, CANCELLED, or INTERRUPTED:
@@ -547,14 +579,16 @@ if a completed turn has not been inspected:
     otherwise: pause with Git diagnostics
 if the watched head is green, including before any fix attempt:
     run checkFixupPositions once
-    if valid: record GREEN and complete the agent task
+    if valid: reconcile the exact remote head, record GREEN, complete the agent task,
+              and remove the clean worktree while retaining its branch
     otherwise: pause INVALID_FIXUP_POSITION
 if actionable failures exist and attempts remain:
     store logs, update CI memory best-effort, and start one fix turn with the memory tool
 if checks are still running:
     wait
 otherwise:
-    pause or finish from the current GitHub facts
+    pause or request terminal settlement from the current GitHub facts using
+    the same quiescence and clean-local-state gate above
 ```
 
 An actionable failed job may start a turn while unrelated jobs are still
@@ -596,8 +630,8 @@ text:
 | `CANCELLED` | Finish when run cancellation was requested; otherwise pause |
 
 A direct `sendMessage(...)` rechecks consent, task readiness, remote head, and
-the worktree lease before starting a recovery turn. It never resets partial
-work or retries automatically after restart.
+the persisted task worktree before starting a recovery turn. It never resets
+partial work or retries automatically after restart.
 
 ## 6. Final fixup-position check
 
@@ -705,8 +739,10 @@ These files use the agent task's existing seven-day retention policy.
 `ci_autofix_run` stores only run-level facts:
 
 - run ID and start idempotency key;
+- owning workspace ID;
 - repository, PR number, author, head ref, and base ref;
-- worktree, lane ID, and agent task ID;
+- lane ID and agent task ID; immutable worktree facts remain with the shared
+  task record;
 - `ACTIVE`, `PAUSED`, or `FINISHED`;
 - pause/finish reason and summary;
 - expected remote head and latest observed base SHA;
@@ -739,7 +775,7 @@ POST /api/ci-autofix/runs/{runId}/messages
 POST /api/ci-autofix/runs/{runId}/cancel
 ```
 
-The start request contains repository, PR number, worktree, agent lane,
+The start request contains `workspaceId`, repository, PR number, agent lane,
 `maxAttempts`, and explicit permission for failed-job reruns, local history
 rewrites, and exact-lease branch pushes. It requires an `Idempotency-Key`.
 
@@ -772,11 +808,14 @@ labeled display-only.
 1. Persist author consent, runs, attempts, and GitHub Actions logs.
 2. Add the atomic CI-memory rebuild and task-scoped `read_ci_memory` tool;
    verify task isolation, empty/recent reads, substring search, and size bounds.
-3. Start one agent task/turn with the fixup prompt and memory tool.
+3. Resolve the verified PR head in the named workspace, provision a fresh task
+   worktree through the shared service, and start one agent task/turn with the
+   fixup prompt and memory tool.
 4. Inspect the committed agent result and lease-push it.
 5. Monitor CI, handle bounded empty-result reruns, and repeat failed heads.
-6. Run the one final fixup-position check, record the local timeline event, and
-   complete the task when CI is green.
+6. Run the one final fixup-position check, record the local timeline event,
+   complete the task when CI is green, and remove its verified clean worktree
+   while retaining the generated branch.
 7. Synchronize the exact target SHA and gate initial/finished fix work through
    the program-owned Branch Rebase Service.
 
@@ -787,6 +826,11 @@ use agent response text to control the program.
 ## 12. Implementation status
 
 The backend implementation completed on 2026-08-18.
+
+This evidence covers the current supplied-worktree implementation. The approved
+managed-worktree migration must replace the public path, use a fresh CI task
+worktree, add provision/inspect/non-destructive-cleanup coverage, and rerun the
+same CI authorization and end-to-end gates before the rich agent task release.
 
 The program-owned target-rebase migration completed on 2026-08-20.
 `mvn verify` passed the full reactor in 1 minute 8 seconds with zero
@@ -841,8 +885,11 @@ One fast Spring test context uses the real:
 - agent task, turn, event, metric, completion, and resource services;
 - SQLite stores and restart projections;
 - task log files and `ci-memory.md`;
-- `GitAgentWorkspaceService`, `DefaultCiGitService`, a real worktree, and a
-  local bare Git remote; and
+- the current `GitAgentWorkspaceService`, `DefaultCiGitService`, a real
+  worktree, and a local bare Git remote; after the approved migration this
+  becomes the real stateless `ManagedWorktreeService`, while the task/run
+  persists its immutable `TaskWorktree` facts;
+  and
 - pull-request timeline storage.
 
 Only external nondeterminism is replaced:
@@ -869,10 +916,13 @@ flowchart LR
 ```
 
 The ordinary suite shares one context for speed and gives every scenario a
-unique repository, PR number, idempotency key, worktree, and bare remote. Tests
-run on one thread because the agent workspace lease is process-local. One
+unique repository, PR number, idempotency key, task worktree, and bare
+remote. The current supplied-worktree suite runs on one thread because its
+agent workspace lease is process-local. The managed-worktree migration removes
+that limitation and adds coverage for concurrent work in distinct task
+worktrees while keeping add/remove serialized per managed repository. One
 separate restart test closes and reopens a full application context against the
-same SQLite file, task runtime, worktree, and remote.
+same SQLite file, task runtime, persisted worktree facts, and remote.
 
 The restart test creates the schema in the first context and opens the second
 with Hibernate DDL disabled. SQLite reports Hibernate-generated integer IDs as
@@ -890,7 +940,7 @@ The test-only package is `com.bytequay.app.ci.e2e`.
 | `CiAutofixE2eHarness` | Creates isolated fixtures, makes HTTP requests, advances the real service, and exposes snapshots |
 | `E2eGitRepository` | Creates the authored commit range, local worktree, target branch, and local bare origin |
 | `ScriptedGitHubActionsClient` | Returns explicit snapshots/logs and keeps a rerun call ledger |
-| `ScriptedAgentDriver` | Emits real agent events/usage and applies scripted Git operations in the leased worktree |
+| `ScriptedAgentDriver` | Emits real agent events/usage and applies scripted Git operations in the task worktree |
 | `CiAutofixMonitorTestDriver` | Test-source bridge in `com.bytequay.app.ci` that invokes the package-private real monitor job |
 
 These helpers are package-private and may be used only by the two E2E test
@@ -957,6 +1007,7 @@ does not reproduce MCP or CLI protocols.
 | Journey | Required proof |
 | --- | --- |
 | Authorization guard | A non-author, fork, or missing consent is rejected through HTTP before task creation, rerun, or push |
+| Managed worktree boundary | Start accepts a workspace ID, provisions a fresh task worktree at the verified PR head, never reuses the cherry-pick checkout, and removes only a quiescent verified clean worktree without deleting its branch |
 | Early actionable failure | A failed compile job starts fixing while an unrelated slow job remains pending |
 | Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |
 | Target branch moved | The program synchronizes and rebases the exact target SHA; an agent only stages a stopped conflict resolution; the program continues and later lease-pushes the clean, linear, correctly positioned result |
@@ -965,7 +1016,7 @@ does not reproduce MCP or CLI protocols.
 | Invalid Git recovery | An invalid result pauses immediately with no push; a user HTTP message may start a repair turn on the same task; another invalid result remains paused |
 | Stale PR head | An external head update before push finishes `STALE_HEAD` and preserves the external commit |
 | User message | A paused run accepts an idempotent HTTP message on the same task and can continue to green |
-| Cancellation | Cancelling a blocked active turn prevents every later rerun and push |
+| Cancellation | Cancelling a blocked active turn prevents every later rerun and push, retains a clean local branch, and preserves dirty work without a destructive cleanup path |
 | Final position rejection | Green CI with misplaced fixups runs the final check once and pauses without an automatic turn; agent prose cannot override it |
 | Lost push and restart | A push reaches the bare remote but its result is lost; after full context restart the journal and remote head reconcile without another push or timeline event, and the run finishes green |
 

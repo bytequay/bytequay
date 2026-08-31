@@ -34,7 +34,7 @@ React UI
 ```
 
 The desktop must not reproduce the shell's temporary backend, database, or
-worktree lifecycle. CP2–CP4 still extend the existing production backend's
+worktree operations. CP2–CP4 still extend the existing production backend's
 contract, durability, isolation, and recovery before the live UI ships.
 Leaving a task screen unsubscribes that renderer only; it does not cancel or
 complete the backend task.
@@ -87,7 +87,8 @@ Missing for the reviewed rich-task design:
 - [ ] Canonical event IDs plus root/child/turn/item source identities.
 - [ ] Persisted user input and delivery state.
 - [ ] Atomic SQLite state plus event-outbox persistence.
-- [ ] Durable workspace leases, mutation claims, approvals, and recovery facts.
+- [ ] Immutable task-worktree ownership facts, mutation claims, approvals, and
+  provider recovery facts.
 - [ ] Model, effort, and permission defaults with per-turn snapshots.
 - [ ] An authenticated Electron task/event bridge.
 - [ ] React task routes, reducer, transcript, composer, and task controls.
@@ -101,8 +102,11 @@ These are scope rules, not claims that current code already enforces them:
   tool, commit tool, Git hook, or post-turn workflow. Existing workflow-specific
   adapters remain unchanged unless a checkpoint explicitly updates their
   shared agent contract.
-- There is no generic abstraction combining interactive agent, cherry-pick, CI
-  Autofix, and rebase tasks.
+- There is no generic workflow abstraction combining interactive agent,
+  cherry-pick, CI Autofix, and rebase state machines. They do share the approved
+  [Managed Worktree Service](worktree-service.md) because all three top-level
+  agent workflows need the same owned filesystem operations; Branch Rebase
+  borrows its caller's worktree.
 - There is no arbitrary executable/script provider. The shell is a reference
   client; production providers remain the Codex and Claude drivers.
 - There is no custom Code Mode host or undocumented App Server queue API.
@@ -124,7 +128,7 @@ These are scope rules, not claims that current code already enforces them:
 | Role | Owns |
 | --- | --- |
 | Runtime owner | App Server protocol and reference fixtures, Codex/Claude adapters, process supervision, task executor/environment, routing, and quiescence |
-| Service/storage owner | Task/turn/event/approval contracts, workspace boundary, SQLite state, outbox, leases, recovery, and HTTP/SSE DTOs |
+| Service/storage owner | Task/turn/event/approval contracts, managed-worktree boundary, SQLite task state, outbox, provider recovery, and HTTP/SSE DTOs |
 | Desktop owner | Electron REST/SSE client, preload API, React reducer, routes, task UI, accessibility, and plain CSS |
 | Product/release owner | Experimental dependency decision, same-host trust decision, capability policy, and release gate |
 
@@ -157,7 +161,7 @@ checkpoints 3 and 4 while the desktop owner builds checkpoints 5 and 6 from
 the same recorded event fixtures. Checkpoint 7 is the convergence gate; it
 must use the real runtime rather than fixtures.
 
-## [ ] CP0 — Freeze the baseline and release decisions
+## [x] CP0 — Freeze the baseline and release decisions
 
 **Owners:** product/release owner with runtime owner
 
@@ -168,36 +172,43 @@ must use the real runtime rather than fixtures.
 Purpose: preserve the working backend path and decide whether the proposed
 experimental dependency is acceptable before extending it.
 
-**Status (2026-08-30):** the engineering baseline is verified. The product
-decisions about experimental maturity, same-host trust, and checkout ownership
-remain open, so CP0 is not complete and CP2 must not start.
+**Status (2026-08-31): COMPLETE.** The engineering baseline is verified.
+Product accepted the experimental App Server dependency, the stock executor's
+same-host trust boundary, a separate ByteQuay-owned worktree per task, and a
+development-only UI gate through CP11. The canonical worktree contract and
+approved static UI prototype are recorded. The deterministic HTTP integration
+test now verifies a sanitized golden create -> two turns -> replay/SSE ->
+completion transcript.
 
 Implementation and decisions:
 
-- [ ] Explicitly approve or reject shipping a product surface over Codex App
+- [x] Accept shipping the planned first product surface over Codex App
   Server while the official documentation describes the command as
-  experimental and unsupported for production workloads.
-- [ ] Explicitly accept or reject the unauthenticated same-host boundary of the
-  reviewed stock task executor.
+  experimental and unsupported for production workloads. This decision was
+  recorded on 2026-08-31 and does not waive the compatibility release gate.
+- [x] Accept the unauthenticated same-host boundary of the reviewed stock task
+  executor for the planned first release. This decision was recorded on
+  2026-08-31 and does not describe the loopback listener as authenticated.
 - [x] Choose Codex CLI/App Server `0.151.0` for the compatibility spike;
   this exact version and its hashes are reference-only and do not gate the
   production CLI.
-- [ ] Decide whether an interactive task exclusively edits the existing managed
-  workspace checkout or receives a separately provisioned task worktree.
-- [ ] If it edits the managed checkout, define one workspace-wide mutation gate
-  used by workspace sync, cherry-pick, CI Autofix, rebase, and every other
-  ByteQuay-owned Git writer while the interactive lease is live; an agent-only
-  lease is insufficient. External Terminal/editor writes cannot be blocked, so
-  revalidate and fail closed when the checkout changes unexpectedly.
-- [ ] If it uses a separate worktree, update the canonical design before CP2;
-  this plan does not infer creation/deletion semantics.
+- [x] Give every repository-scoped agent task a separately provisioned
+  ByteQuay-owned worktree; no development agent edits the managed checkout.
+- [x] Record one shared synchronous create/inspect/cleanup contract for interactive
+  tasks, cherry-pick, and CI Autofix in
+  [Managed Worktree Service](worktree-service.md). Branch Rebase reuses its
+  caller's worktree. Cleanup is non-forcing, refuses dirty or open Git state,
+  removes only the verified worktree, and always retains its generated branch.
 - [x] Keep automatic Codex startup self-update enabled and use the
   user-managed installed CLI. The production probe records detected version text
   for diagnostics but never treats that output, including an unparseable
   string, as a readiness gate.
-- [ ] Keep the new task UI behind a development-only gate until CP11.
-- [ ] Capture sanitized request/event fixtures from the current task -> two
-  turns -> replay/SSE -> completion flow.
+- [x] Keep the new task UI behind a development-only gate until CP11. Commit
+  `84af81c73cea7ae2cf7a53681827f550c598b706` is the approved static visual and
+  state artifact; this approval does not enable a live route or provider.
+- [x] Capture a sanitized request/event fixture from the current task -> two
+  turns -> replay/SSE -> completion flow. `TestAgentHttpApi` compares the full
+  normalized journey with `agent-http-baseline.json`.
 - [x] Keep `TestAgentHttpApi` as the deterministic Spring HTTP integration
   regression test.
 - [x] Remove the stale non-interactive branch from `agent-e2e.sh` and its docs,
@@ -215,15 +226,17 @@ Exit gate:
   readiness/authentication limitation. On this development host, Claude CLI
   `2.1.251` reports `loggedIn: false`; run `claude auth login` before its real
   provider shell can pass.
-- [ ] The latest-CLI update policy, reference-fixture version,
-  experimental-risk decision,
-  same-host trust decision, checkout strategy, and (when applicable) shared
-  mutation-gate behavior are recorded in the canonical design.
+- [x] The latest-CLI update policy, reference-fixture version,
+  experimental-risk decision, same-host trust decision, separate-worktree
+  strategy, and shared worktree-service contract are recorded in the canonical
+  design.
 
 Primary files:
 
 - `scripts/agent-e2e.sh`
 - `docs/design/agent-e2e.md`
+- `docs/design/Agent Task UI.html`
+- `backend/app/src/test/resources/com/bytequay/app/web/agent/agent-http-baseline.json`
 - `backend/app/.../AgentCliUpdateJob.java`
 - `backend/agent-cli/.../CodexCliDriver.java`
 
@@ -232,7 +245,7 @@ The real Codex reference run used one temporary task and returned
 shell then stopped the backend and removed its temporary repository, database,
 runtime, and logs.
 
-## [ ] CP1 — Prove the v0.151.0 reference contract
+## [x] CP1 — Prove the v0.151.0 reference contract
 
 **Owner:** runtime owner
 
@@ -243,24 +256,24 @@ runtime, and logs.
 Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
-**Status (2026-08-31):** the checked-in schema and two-root live runtime gates
-are implemented, but CP1 is not complete: one representative live
-command approval, a bounded Git-worktree filesystem action, a non-empty
-background terminal with targeted termination, child recursion, disk-backed
-restart recovery, cross-task event/approval/command/filesystem isolation, a
-safe live rerun with a dedicated API key that proves key isolation, and the
-written go/no-go result remain open.
-The checked-in fixture now has a separate `--live-children` path for the
-recursive proof, but this host has no dedicated compatibility API key and has
-not run it. Adding the executable gate is progress; only a passing live run
-closes child recursion.
-The no-child `--live` path now keeps two root tasks on separate executors,
-completes task B while task A has a yielded command, verifies event, approval,
-command, terminal, and filesystem ownership, and reloads both histories after
-an App Server restart. Only a dedicated-key pass closes those gates.
+**Status (2026-08-31):** CP1's technical evidence is complete. The checked-in
+offline fixture and both explicit local subscription-backed live gates passed with
+`codex-cli 0.151.0` and `gpt-5.6-sol`. The no-child run proved one real command
+approval, bounded Git-worktree writes, a yielded background terminal with
+targeted termination, two-task event/approval/command/filesystem isolation,
+credential-free executor process environments, and disk-backed history
+recovery after an App Server restart. The recursive run proved the advertised V2 root/child/
+grandchild graph, including the observed supplementary V1 collaboration item,
+with clean worktree and terminal state.
 Production adoption of the shared isolation guards and a CP1-approved
 child-capable launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
+
+**Go/no-go (2026-08-31): GO.** The reviewed experimental App Server shape is
+technically sufficient for CP2 provider-neutral contract work, and CP0's
+product decisions and baseline evidence are complete. This is not
+production-release approval or a general same-user filesystem-confinement
+claim.
 
 **Progress (2026-08-31):** the offline gate now projects and codec-tests the
 v0.151.0 modern approval methods, top-level fields, requiredness, both command
@@ -278,11 +291,13 @@ list/terminate and `thread/resume` contracts and derives one compact committed
 projection manifest instead of committing 413 schemas or 820 generated
 TypeScript files. The normal fixture command verifies the manifest;
 `--update-bindings` regenerates it intentionally. This remains reference-only
-and never gates the production user-managed CLI. The safe live path is ready
-to prove one real parent-command approval, one bounded mutation per repository,
-a yielded command with targeted termination, and disk-backed history recovery
-through a fresh App Server. This host has no dedicated compatibility API key,
-so those live claims remain unchecked until that gate actually passes.
+and never gates the production user-managed CLI. The safe live path proved one
+real parent-command approval, one bounded mutation per repository, a yielded
+command with targeted termination, and disk-backed history recovery through a
+fresh App Server. Both live modes passed using an explicitly selected,
+fixture-only 0700 `CODEX_HOME` signed into ChatGPT directly with file-backed
+credential storage. They use the remote provider and are deliberately absent
+from default and CI execution. API-key support is deferred.
 
 The auth-free offline gate now also proves the proposed first-release
 exec-policy source and managed-requirements absence guards. It first validates
@@ -318,8 +333,8 @@ remain beneath the isolated `CODEX_HOME/skills/.system`; it rejects every host,
 repository, plugin-owned, or out-of-root skill without pinning names or count.
 Synthetic poison cases exercise those rejection branches. This proves profile
 selection and repairs evidence behind the existing capability-isolation
-checks; without a model turn it does not prove child creation or close any
-remaining live CP1 gate.
+checks; without a model turn it did not by itself close the then-open live
+child-recursion gate. The later subscription-backed run closed that gate.
 
 The offline schema gate now also pins the child-thread facts required by the
 later recursive live proof. Stable schema must expose subagent source kinds,
@@ -329,7 +344,7 @@ parent/session/status metadata, `thread/status/changed`, V1
 ancestor filters on `thread/list` must remain available only in the
 experimental schema. They are an optional discovery aid; the fixed-point
 history algorithm does not depend on them. This schema evidence adds no
-production child router and does not close the live recursion gate.
+production child router and did not by itself close the live recursion gate.
 
 The compact Java projection now preserves an optional model
 `multiAgentVersion`, V1 sender/receiver/agent-state identity and optional state
@@ -372,20 +387,20 @@ Implementation:
 - [x] Start one thread and turn selecting only that environment; run one
   built-in command in a temporary executor directory and observe typed
   command-start, command-completion-with-output, and final-agent-message events.
-- [ ] Repeat a bounded filesystem action inside a disposable Git worktree with
+- [x] Repeat a bounded filesystem action inside a disposable Git worktree with
   the proposed production sandbox shape.
 - [x] Project and codec-test the modern approval methods, top-level fields,
   requiredness, both command kinds, every command/file wire decision shape,
   and the opaque permission payload plus response scope from v0.151.0.
 - [x] Reject legacy `applyPatchApproval` and `execCommandApproval` server
   requests with a fail-closed JSON-RPC error.
-- [ ] Exercise one representative real command approval request and typed
+- [x] Exercise one representative real command approval request and typed
   `accept` response through the live App Server path. Exhaustive modern wire
   coverage remains an offline schema/codec gate; richer product decision
   matrices begin in CP2 only after ByteQuay defines its finite immutable safety
   ceiling.
 - [x] Exercise background-terminal list and clean with an empty result.
-- [ ] Exercise a non-empty yielded background terminal and targeted terminate.
+- [x] Exercise a non-empty yielded background terminal and targeted terminate.
 - [x] Inspect `model/list` effort choices, text input support, and advertised
   multi-agent protocol version, then run the advertised default effort.
 - [x] Exercise `thread/read(includeTurns: true)` with command history.
@@ -396,35 +411,53 @@ Implementation:
 - [x] Start separate credential-free no-child, V1-only, and V2-only launch
   profiles and repeat the pre-thread config, managed-policy, rule, skill, and
   hook isolation assertions for each one.
-- [x] Add a separate dedicated-key `--live-children` path that discovers the
-  model's V1/V2 profile under the no-child baseline, restarts with only that
-  feature, sets and verifies the V1 depth-two requirement when applicable, and
-  fail-closed checks a bounded root/child/grandchild history,
+- [x] Add a separate subscription-backed `--live-children` path that discovers
+  the model's V1/V2 profile under the no-child baseline, restarts with only
+  that feature, sets and verifies the V1 depth-two requirement when applicable,
+  and fail-closed checks a bounded root/child/grandchild history,
   markers, item types, approvals, worktree state, and background terminals.
-- [ ] Exercise recursive child discovery needed by the later quiescence
+- [x] Exercise recursive child discovery needed by the later quiescence
   barrier. Select only the child-capable profile advertised by the live model,
   then prove root, child, and grandchild history; profile selection alone
   cannot satisfy this item.
 - [x] Call `thread/resume` for the still-loaded root and complete a second turn.
-- [ ] Restart App Server and prove disk-backed thread recovery.
-- [ ] Run two task environments through one App Server and prove event,
+- [x] Restart App Server and prove disk-backed thread recovery.
+- [x] Run two task environments through one App Server and prove event,
   approval, command, and filesystem separation.
 - [x] Prove inherited MCP servers, lifecycle hooks, project config, and the
   caller's ambient user config are absent. The fixture requires exactly one
-  isolated App Server user layer under its temporary `CODEX_HOME`, calls
-  `config/read` for every temporary task cwd, accepts only isolated bundled
-  system skills, and runs MCP/skill/hook/config assertions before the first
-  model turn.
+  fixture-selected App Server user layer, calls `config/read` for every
+  temporary task cwd, accepts only isolated bundled system skills, and runs
+  MCP/skill/hook/config assertions before the first model turn. The offline
+  profile is temporary; a live profile is separate, persistent, and never the
+  normal `~/.codex`.
 - [x] Launch with apps/plugins and related optional features explicitly
   disabled, empty dynamic tools, and empty capability roots. The keyless gate
   proves the feature flags, web-search mode, empty MCP map, host-skill setting,
   and complete shell-environment policy are active session flags for the
   no-child, V1-only, and V2-only profiles. Exactly one multi-agent feature is
   enabled in each child-capable profile.
-- [x] Give every compatibility subprocess a separate credential-free
-  `CODEX_HOME` and minimal allowlisted process environment. Configure the
-  model-requested shell environment to omit `CODEX_HOME` and `CODEX_API_KEY`.
-  Never copy a rotating ChatGPT login into the fixture.
+- [x] Give every offline/default compatibility subprocess and every live task
+  executor a separate credential-free `CODEX_HOME` and minimal allowlisted
+  process environment. Only the live App Server receives the explicitly
+  selected profile. Configure every model-requested shell environment to omit
+  `CODEX_HOME`, `CODEX_API_KEY`, `OPENAI_API_KEY`, and the App Server-only
+  sentinel. Never copy `auth.json` or use the normal `~/.codex`.
+- [x] Require `BYTEQUAY_CODEX_COMPAT_HOME` for an explicit live invocation,
+  reject a missing, non-absolute, non-0700, default, ambient, repository-local, or
+  non-ChatGPT profile before App Server starts, reject linked credentials and
+  credentials that match or reuse the current ambient profile, reject stale
+  runtime/config state and persistent Codex-home instructions, and require App Server
+  `account/read` to report `requiresOpenaiAuth: true` and `chatgpt`.
+- [x] Hold an exclusive profile-local lock across each live gate. Keep database
+  state in a temporary `CODEX_SQLITE_HOME`, reuse database plus run-scoped
+  rollout state for the App Server restart/reload proof, then remove exact
+  runtime/config artifacts and release the lock without deleting `auth.json`
+  or the persistent authentication profile.
+- [x] Require the exact structured command action before returning the live
+  approval `accept`, and keep failure diagnostics free of raw command text and
+  output. This proves environment stripping, not same-user filesystem-read
+  confinement of the dedicated profile.
 - [x] Start App Server without credentials, inspect every returned config
   layer, reject a real rule-bearing isolated user source before any model turn,
   and accept a clean isolated home/workspace only after every returned system,
@@ -442,8 +475,10 @@ Exit gate:
 
 - [x] The checked-in offline compatibility fixture passes for the exact
   version.
-- [ ] The checked-in `--live` fixture passes with a dedicated API key.
-- [ ] The checked-in `--live-children` fixture passes with a dedicated API key.
+- [x] The checked-in `--live` fixture passes when invoked locally with the
+  explicitly selected ChatGPT-subscription profile.
+- [x] The checked-in `--live-children` fixture passes when invoked locally with
+  the explicitly selected ChatGPT-subscription profile.
 - [x] The reference compatibility fixture rejects a different version and
   rejects changed schema bundle hashes or required fields.
 - [x] The executable fixture proves no managed requirements apply before the
@@ -451,12 +486,13 @@ Exit gate:
 - [x] No tested command falls back to App Server's ambient/default executor;
   the exact recorded action expands both executor-specific `HOME` markers, an
   unset command-level `CODEX_HOME`, and an unset App Server-only sentinel.
-- [ ] The dedicated-key live run proves `CODEX_API_KEY` is absent from both
-  executor commands and is supplied only to the App Server process.
-- [ ] A yielded/background command remains observable and cleanable.
-- [ ] Multi-task routing contains no cross-task event or approval.
-- [ ] The checkpoint has a written go/no-go result. A no-go blocks CP2–CP11
-  until the canonical design changes.
+- [x] The subscription-backed live runs prove App Server `account/read`
+  reports `requiresOpenaiAuth: true` and `chatgpt`; executor tools have no
+  `CODEX_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME`, or App Server-only sentinel;
+  and restart recovery uses disposable SQLite plus run-scoped rollout state.
+- [x] A yielded/background command remains observable and cleanable.
+- [x] Multi-task routing contains no cross-task event or approval.
+- [x] The checkpoint has the written GO result above and CP0 is complete.
 
 Primary files:
 
@@ -469,7 +505,7 @@ Primary files:
 - `backend/agent-cli/.../codex/CodexCliDriver.java`
 - Codex protocol/driver compatibility fixtures
 
-## [ ] CP2 — Freeze the ByteQuay task and event contract
+## [ ] CP2 — Freeze the ByteQuay task, worktree, and event contract
 
 **Owners:** service/storage owner with runtime and desktop review
 
@@ -480,22 +516,46 @@ Primary files:
 Purpose: establish one safe, versioned, provider-neutral contract for JSONL,
 REST/SSE, Electron IPC, and React.
 
+**Progress (2026-09-01):** CP2 has started with the approved managed-worktree
+boundary. After review, `agent-core` owns only the synchronous
+`provision(command)`, `inspect(worktree)`, and `cleanup(worktree)` contract.
+`TaskWorktree` contains immutable ownership/path/branch/start-commit facts and
+`WorktreeSnapshot` contains the required HEAD plus dirty/open-operation facts.
+There is no allocation state machine, store, recovery API, cleanup disposition,
+or cleanup authority. There is intentionally no production or temporary
+implementation; CP3 owns the one application implementation. The focused
+contract suite and the full backend verification pass; the latter covers 519
+tests with no failures or errors.
+
 Implementation:
 
 - [ ] Add `workspaceId` to interactive `AgentTask` and SQLite task rows.
 - [ ] Add the smallest durable interactive-surface discriminator needed to keep
   workspace task lists from including cherry-pick, CI Autofix, or rebase agent
   tasks. Do not turn it into a generic workflow hierarchy.
-- [ ] Change public task creation to accept `workspaceId`, title, lane, and task
-  defaults; remove public renderer-selected worktree and repository fields.
-- [ ] Resolve the CP0-approved managed-checkout or task-worktree strategy and
-  repository inside `app` using existing workspace services.
+- [ ] Freeze the replacement task-creation request as `workspaceId`, title,
+  lane, and task defaults, with no renderer-selected worktree or repository
+  fields. Do not switch the production route until CP3 supplies the durable
+  worktree implementation.
+- [x] Add and freeze the CP0-approved `WorktreeService` contract and values in
+  `agent-core`, including synchronous provision/inspect/cleanup, deterministic
+  immutable ownership facts, and failure semantics. CP3 owns its one
+  production implementation and activation; do not add a temporary adapter.
+- [x] Define its repository identity as the physical workspace selected
+  repository/`origin`; cherry-pick and CI keep logical monitored/upstream
+  identities in their own workflow records.
+- [ ] Freeze the creation order: readiness first, then exact-commit resolution,
+  verified worktree provisioning, task resources, and finally task publication
+  as `READY`.
 - [ ] List interactive tasks by `workspaceId` and reject a route/task workspace
   mismatch.
 - [ ] Keep legacy/internal workflow tasks readable without silently listing
   unknown-workspace tasks as interactive tasks.
 - [ ] Add task defaults and per-turn snapshots for model, effort, permission,
   effective sandbox/runtime policy, and attachment references.
+- [ ] For CI Autofix, freeze distinct remote-head and generated-local-branch
+  facts. Local validation and rebase use the generated branch returned by the
+  task's `TaskWorktree`; push still targets the authorized remote head ref.
 - [ ] Reuse the existing model catalog; do not create a second registry.
 - [ ] Expand backend readiness to typed states: ready, authentication required,
   CLI missing, unsupported, degraded, and temporarily unavailable, with
@@ -506,7 +566,6 @@ Implementation:
 - [ ] Apply that readiness allocation gate only to lanes enabled for the
   current checkpoint. Interactive Claude creation stays backend-disabled until
   CP11 supplies its exact authentication preflight and parity contract.
-- [ ] Probe before task resource/lease allocation and before each accepted turn.
 - [ ] Define explicit `AgentEventPayload` variants in `agent-core`; stop using a
   serialized `ProviderAgentEvent` as the public/persisted shape.
 - [ ] Add `schemaVersion`, globally unique `eventId`, task sequence, task/turn
@@ -547,8 +606,12 @@ Exit gate:
 
 - [ ] TypeScript models the fixture as a discriminated union without `any` or
   provider-payload inspection.
-- [ ] No public interactive agent request can submit a worktree, repository, or
-  attachment filesystem path.
+- [ ] The frozen replacement interactive request schema cannot submit a
+  worktree, repository, or attachment filesystem path; CP3 activation removes
+  those fields from the production route.
+- [ ] The frozen replacement cherry-pick and CI Autofix request schemas resolve
+  worktree roots from `workspaceId`; CI never receives or adopts a cherry-pick
+  worktree. CP3 activates those schemas.
 - [ ] Workspace-scoped list/read behavior is covered by HTTP tests.
 - [ ] Logged-out or incompatible providers allocate no task row, runtime
   directory, or worktree ownership.
@@ -567,7 +630,7 @@ Primary files:
 - `backend/app/.../web/agent/AgentController.java`
 - `backend/app/.../web/agent/AgentHttpModels.java`
 
-## [ ] CP3 — Make mutation, replay, and approval state crash-safe
+## [ ] CP3 — Implement worktrees and make replay crash-safe
 
 **Owner:** service/storage owner
 
@@ -575,8 +638,8 @@ Primary files:
 
 **Visible UI:** no
 
-Purpose: make the event stream an authoritative reconstruction source rather
-than a best-effort activity log.
+Purpose: implement the synchronous worktree boundary and make the event stream
+an authoritative reconstruction source rather than a best-effort activity log.
 
 Implementation:
 
@@ -603,18 +666,62 @@ Implementation:
   resolution/expiry before resuming the provider callback.
 - [ ] Deny pending approvals durably on timeout, cancellation, terminal turn,
   or provider loss.
-- [ ] Add a durable workspace-lease table with unique canonical worktree.
-- [ ] If CP0 selected the managed checkout, make workspace sync, cherry-pick,
-  CI Autofix, rebase, and every other ByteQuay Git writer acquire/check the same
-  durable workspace ownership before mutation. Detect/revalidate external
-  changes and fail closed; do not claim to fence unrelated user processes.
+- [ ] Persist the immutable `TaskWorktree` ownership/path/branch/start-commit
+  facts with the owning task; do not add an allocation table or lifecycle.
+- [ ] Implement the one production `ManagedWorktreeService` in `app` with
+  `WorkspacePaths` and direct argv-based Git commands. Do not add a new module,
+  temporary implementation, allocation store, or recovery scanner.
+- [ ] Make `inspect(worktree)` revalidate the exact managed repository, path,
+  generated branch, and required HEAD before returning dirty/open-operation
+  facts.
+- [ ] Make `cleanup(worktree)` revalidate those facts, refuse dirty or open Git
+  state, use non-forced removal, remove only the worktree, and always retain the
+  generated branch.
+- [ ] Activate workspace-owned interactive task creation: probe readiness,
+  resolve the exact start commit, provision and verify the worktree, allocate
+  task resources, then publish the task as `READY`. If provisioning reports a
+  half-finished or mismatched orphan, preserve it and return an actionable
+  diagnostic; do not adopt or delete it automatically.
+- [ ] Re-probe readiness before every accepted turn; a failed probe creates no
+  turn or delivery and leaves the ready worktree unchanged.
+- [ ] Replace `AgentWorkspaceService` and cherry-pick's private
+  `CherryPickWorkspace` creation/removal with the shared service.
+- [ ] Keep cherry-pick and CI cancellation non-destructive: dirty or uncertain
+  work remains in place, and the shared worktree service exposes no force or
+  branch-delete operation.
+- [ ] Change CI Autofix to accept `workspaceId`, provision a fresh worktree at
+  the verified PR head, and stop adopting the cherry-pick worktree. Branch
+  Rebase continues to borrow the CI task's `TaskWorktree`.
+- [ ] Change completed cherry-pick delivery to push the retained verified branch
+  from the managed repository so the worktree can be removed at range
+  completion.
+- [ ] Update `WorkspaceBranchPusher`, `ManagedWorkspaceGit`, and
+  `DefaultWorkspacePullRequestService` to verify and push that retained local
+  ref without requiring a live checked-out worktree.
+- [ ] Remove both remaining CI path-adoption entry points: pull-request delivery
+  starts CI from `workspaceId`, and `scripts/ci-autofix` selects a managed
+  workspace instead of submitting its current checkout. Update the shell docs
+  and tests with that contract.
+- [ ] Update CI local-branch validation and Branch Rebase calls to use the
+  generated branch from the task's `TaskWorktree` and Git facts from
+  `WorktreeService.inspect(worktree)`, while exact-lease
+  push continues to target the authorized remote PR branch.
+- [ ] Serialize worktree add/remove per managed repository while allowing
+  distinct ready worktrees to run concurrently.
 - [ ] Add one task-local worktree mutation claim acquired by turn start, later
   queue claims, or completion. Recovery preserves and reconciles the existing
   claim; it does not invent a separate recovery-claim kind.
-- [ ] Rebuild the in-memory lease index from SQLite before accepting agent
-  traffic.
-- [ ] Put unverifiable ownership/delivery in a typed `RECOVERING` state instead
-  of releasing the lease or claiming success.
+- [ ] Serialize workspace unwatch against worktree provisioning so no
+  task worktree can be provisioned after removal begins; add service/controller
+  race coverage rather than relying on a query-only busy check.
+- [ ] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
+  workspace fixture before activating the new public request.
+- [ ] Keep provider delivery/process uncertainty in the existing typed
+  `RECOVERING` task state. A worktree ownership mismatch is instead an
+  operation error: preserve the path and report it without creating another
+  worktree state.
+- [ ] Keep a dirty terminal worktree in place with task cleanup
+  `ACTION_REQUIRED`; cleanup must reject it without removing or modifying it.
 - [ ] Keep provider, Git, JSONL, and SSE calls outside SQLite transactions.
 
 Exit gate:
@@ -624,11 +731,19 @@ Exit gate:
 - [ ] Replay always contains the accepted user input before provider output.
 - [ ] Reconnect from the last sequence loses and duplicates no event.
 - [ ] A resolved/expired approval never reappears as pending after reload.
-- [ ] Two live tasks cannot own the same canonical worktree across restart.
+- [ ] Two live tasks derive distinct canonical worktree paths and branches.
+- [ ] Provisioning tests prove success returns only a fully verified worktree;
+  a half-finished or mismatched orphan is preserved and reported.
+- [ ] Cleanup tests prove ownership mismatch, dirty state, or an open Git
+  operation fails without removal; clean cleanup uses no force, removes only
+  the verified worktree, and retains the generated branch.
+- [ ] Completed cherry-pick delivery works from the retained branch after its
+  worktree is gone, and CI Autofix uses a fresh worktree at the verified PR
+  head.
 - [ ] Concurrent Send and Complete yield exactly one mutation claim.
-- [ ] Startup serves no agent mutation endpoint before outbox/lease recovery
-  finishes, and no task/event read or SSE stream exposes partially recovered
-  state.
+- [ ] Startup serves no agent mutation endpoint before event-outbox and owned
+  provider-process recovery finishes, and no task/event read or SSE stream
+  exposes partially recovered task state. There is no worktree startup scan.
 - [ ] Backend verification plus shared workflow regression suites pass.
 
 Primary files:
@@ -639,7 +754,17 @@ Primary files:
 - `backend/agent-core/.../DefaultAgentApprovalService.java`
 - `backend/agent-core/.../FileTaskLogStore.java`
 - `backend/persistence-sqlite/...`
+- `backend/app/.../workspace/ManagedWorktreeService.java`
+- `backend/app/.../workspace/WorkspaceBranchPusher.java`
+- `backend/app/.../workspace/ManagedWorkspaceGit.java`
+- `backend/app/.../workspace/DefaultWorkspacePullRequestService.java`
+- `backend/app/.../workspace/DefaultWorkspaceRepositoryService.java`
+- `backend/app/.../cherrypick/CherryPickExecutionService.java`
+- `backend/app/.../ci/DefaultCiAutofixService.java`
 - `backend/app/.../AgentMaintenanceJob.java`
+- `scripts/agent-e2e.sh`
+- `scripts/ci-autofix`
+- `docs/ci-autofix-shell.md`
 
 ## [ ] CP4 — Integrate task isolation and quiescent recovery
 
@@ -689,7 +814,7 @@ Implementation:
   empty.
 - [ ] Treat root answer/turn completion as necessary but not sufficient for
   quiescence.
-- [ ] Retain the mutation claim and lease while a child, item, background
+- [ ] Retain the mutation claim and task worktree while a child, item, background
   terminal, unknown delivery, or owned process is active or unverifiable.
 - [ ] Add a guarded fail-recovery operation that never edits or cleans the
   worktree.
@@ -716,7 +841,7 @@ Exit gate:
 - [ ] Cancellation lists/cleans background terminals and reaches the same
   quiescence barrier.
 - [ ] Backend restart either proves the old owned process tree stopped or leaves
-  the task visibly recovering with its lease held.
+  the task visibly recovering with its mutation claim held.
 - [ ] Missing/corrupt process receipts fail closed.
 - [ ] If a compatibility fixture can leave a writer outside both ByteQuay's
   directly owned process proof and App Server item/background-terminal
@@ -795,6 +920,10 @@ Purpose: produce the first reviewable task-screen shape from the frozen CP2
 fixture while CP3/CP4 finish. This checkpoint proves renderer behavior only;
 it does not claim a usable live agent task.
 
+CP6 implements the approved `Agent Task UI.html` visual and state artifact
+against fixture data. [Agent Task UI Design](agent-task-ui.md) remains the
+behavioral contract.
+
 Implementation:
 
 - [ ] Add `#/workspaces/{workspaceId}/tasks/agent/{taskId}` to the existing hash
@@ -869,8 +998,8 @@ complete vertical slice.
 
 Implementation:
 
-- [ ] Gate task creation on fresh typed provider readiness before task/resource/
-  lease allocation.
+- [ ] Gate task creation on fresh typed provider readiness before task resources
+  or worktree provisioning.
 - [ ] Promote the existing cherry-pick-specific provider-status IPC into one
   shared typed agent-provider readiness operation; update its existing consumer
   instead of maintaining two status paths.
@@ -896,12 +1025,13 @@ Implementation:
 - [ ] Keep mutation controls disabled during recovery or unproven quiescence.
 - [ ] Render a **Recovering agent execution** card with bounded diagnostics.
   **Stop execution** invokes normal turn cancellation/reconciliation while work
-  may still be active; it does not release the claim or lease.
+  may still be active; it does not release the claim or clean the task worktree.
 - [ ] After every provider-visible item/background terminal is terminal and all
   directly owned processes are verified stopped, expose **Mark task failed**.
   It calls `POST /agent/tasks/{taskId}/fail-recovery`, marks the whole task
-  `FAILED`, releases claim/lease, retains history, and leaves the worktree
-  untouched. The backend rejects it before that barrier.
+  `FAILED`, releases the claim, retains history, and requests safe worktree
+  cleanup. Dirty work remains until it is committed or explicitly discarded.
+  The backend rejects the action before that barrier.
 - [ ] Add supervised `GET /agent/runtime/codex/stop-impact` and
   `POST /agent/runtime/codex/stop` operations plus typed Electron/preload
   methods. The first returns the runtime generation and complete affected-task
@@ -909,7 +1039,7 @@ Implementation:
   stale confirmation.
 - [ ] The confirmed **Stop shared Codex server** action marks every affected
   live Codex turn `INTERRUPTED`, durably denies pending approvals, pauses queued
-  work, retains claims/leases, and blocks replacement until the old process
+  work, retains mutation claims and task worktrees, and blocks replacement until the old process
   tree is verified stopped. Resumption is an explicit later user action; the
   renderer never kills a process directly.
 - [ ] After the recovery barrier, re-enable the composer. A **Retry** shortcut
@@ -920,8 +1050,9 @@ Implementation:
   and activity disclosure; support keyboard operation, restore focus after an
   approval action, and announce only bounded state changes rather than every
   streamed token.
-- [ ] Complete only while idle/quiescent; close the provider session, stop the
-  task executor, retain history, and release the durable workspace lease.
+- [ ] Complete only while idle/quiescent and the generated branch is clean;
+  close the provider session, stop the task executor, retain history, remove
+  the worktree, and preserve the generated result branch.
 - [ ] Adapt the shell reference client to the workspace-safe contract through a
   temporary test workspace; do not preserve a raw-path public API for it.
 - [ ] Replace the CP6 mock-bridge implementation with the real bridge for the
@@ -940,7 +1071,8 @@ End-to-end acceptance:
 - [ ] Resolve an approval, reload, and verify it stays resolved.
 - [ ] Send a second message and verify the same root thread is resumed.
 - [ ] Cancel a running turn and reach the quiescence/recovery outcome.
-- [ ] Complete the idle task and prove its lease is released.
+- [ ] Complete the idle task and prove its worktree is removed while its clean
+  generated result branch remains.
 - [ ] Run two tasks concurrently without event/approval/filesystem cross-talk.
 - [ ] The packaged desktop, not only unit fixtures, passes this journey.
 
@@ -1154,38 +1286,39 @@ Release checks:
 
 ## 7. Review gates
 
-Approve only CP0/CP1 as a compatibility investigation first. After CP1 records
-a go result, answer the remaining questions and approve CP2–CP11. A CP1 no-go
-returns the design for revision rather than starting service or UI work.
+CP0 and CP1 are complete, and CP2 contract work has started. The later
+unchecked questions below are decisions for their corresponding UI or release
+checkpoint rather than reasons to reopen the compatibility spike.
 
-- [ ] Is the CP1 per-task environment design supported by the v0.151.0
-  reference protocol and the latest installed CLI, especially
-  `environment/add`?
+- [x] The CP1 per-task environment design, including `environment/add`, is
+  supported by the v0.151.0 reference fixture and passed the local
+  subscription-backed live gates.
 - [x] Use the user-managed Codex CLI, keep startup self-update enabled, and do
   not disable task start because of any reported version text, including
   unparseable output. Include the detected text when an actual protocol operation
   fails.
-- [ ] Is the experimental App Server dependency acceptable for the intended
-  release audience?
-- [ ] Is the unauthenticated loopback task-executor boundary acceptable on the
-  same host?
+- [x] Is the experimental App Server dependency acceptable for the intended
+  release audience? Accepted for the planned first release on 2026-08-31,
+  subject to the compatibility and release gates.
+- [x] Is the unauthenticated loopback task-executor boundary acceptable on the
+  same host? Accepted for the planned first release on 2026-08-31 and still
+  documented as a trust boundary, not authentication.
 - [ ] Is CP7 the right first usable real-runtime milestone, with images, rich
   folding, subagents, queueing, and Claude parity deliberately following it?
-- [ ] Has CP0 explicitly selected managed checkout plus a workspace-wide
-  mutation gate, or a separately designed task worktree, before CP2 begins?
+- [x] Has CP0 selected and canonically designed one separate managed worktree
+  per task, shared across interactive, cherry-pick, and CI Autofix workflows?
 - [ ] Is seven-day detailed runtime retention still the desired product policy?
 
-## 8. First implementation action after compatibility-spike approval
+## 8. Next implementation action
 
-Do not begin by writing React components. Begin with CP0 and CP1:
+Do not begin by writing React components. CP0 and CP1 are complete, and CP2 has
+started with the managed-worktree contract and values. Next:
 
-1. preserve latest-user-CLI production behavior and isolate the exact
-   v0.151.0 rule to the reference fixture;
-2. repair the stale shell baseline;
-3. generate the exact experimental schema;
-4. prove or reject the per-task environment and quiescence assumptions; and
-5. only after the go decision, freeze the CP2 ByteQuay event fixture so runtime
-   and desktop work can proceed in parallel.
+1. freeze the remaining CP2 task, turn, readiness, and event contract;
+2. implement synchronous worktree provisioning/inspection/cleanup and migrate
+   interactive task, cherry-pick, and CI Autofix creation to that one service in
+   CP3; and
+3. let desktop fixture work start only after that shared contract is frozen.
 
-This ordering avoids rebuilding the existing agent service while also avoiding
-a UI whose production runtime contract later proves unavailable.
+This ordering preserves the existing provider path while avoiding a UI or
+workflow migration built on caller-provided checkout paths.

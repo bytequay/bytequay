@@ -1,5 +1,12 @@
 # Agent Shell End-to-End Test
 
+> **Current behavior:** the script still submits a temporary caller-created
+> worktree. CP3 in
+> [Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) converts
+> it to create a temporary managed workspace and submit only its workspace ID;
+> the backend then provisions and cleans the task worktree through the shared
+> [Managed Worktree Service](worktree-service.md).
+
 The agent shell exercises the complete backend path with either the Codex or
 Claude CLI provider. The shell sends task, turn, approval, event, and status
 requests only to the temporary Spring Boot backend. The backend owns the
@@ -111,3 +118,11 @@ Exiting the test shell does not call
 `POST /agent/tasks/{taskId}/complete`. Its exit trap removes the isolated test
 environment immediately, so shell shutdown does not exercise completion
 summaries or seven-day retention cleanup.
+
+After the managed-worktree migration, the fixture still owns and removes its
+outer temporary application-data root, but it no longer creates or submits the
+agent worktree itself. It provisions a saved workspace through backend APIs,
+creates the task with `workspaceId`, verifies the generated branch from safe
+task facts, and requests normal completion when the branch is clean so the
+shared cleanup path is exercised. A dirty completion conflict is printed and
+must never be converted into an implicit forced delete.

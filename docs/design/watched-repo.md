@@ -251,12 +251,17 @@ ByteQuay owns repositories created by this flow. A representative layout is:
 
 ```text
 <ByteQuay application data>/workspaces/<workspace-id>/repository
-<ByteQuay application data>/workspaces/<workspace-id>/worktrees/<execution-id>
+<ByteQuay application data>/workspaces/<workspace-id>/worktrees/<task-id>
 ```
 
-The renderer never chooses or submits these paths. All Git and cherry-pick requests carry a
-workspace ID. The backend resolves the path and verifies that it remains inside the ByteQuay
-workspace root before invoking Git.
+The renderer never chooses or submits these paths. All Git and agent-backed
+workflow requests carry a workspace ID. The backend resolves the path and
+verifies that it remains inside the ByteQuay workspace root before invoking
+Git. Interactive tasks, cherry-pick, and CI Autofix share the
+[Managed Worktree Service](worktree-service.md); each task receives a distinct
+generated branch/worktree, and its owning task or workflow persists the
+immutable returned worktree facts. The service has no separate allocation
+state machine or allocation table.
 
 An existing mismatched directory must never be deleted or recloned automatically. Mark the
 workspace failed and require a safe repair action. Existing local-checkout workspaces can be a
@@ -381,9 +386,12 @@ public interface WorkspaceRepositoryService
     /**
      * Stops watching and removes a workspace from ByteQuay.
      *
-     * <p>The first version refuses removal while a cherry-pick execution is active.
-     * Managed repository and worktree directories are removed only after ownership
-     * and path checks succeed.</p>
+     * <p>Removal is refused while an interactive, cherry-pick, or CI Autofix
+     * task still references a worktree, or while the managed worktree root is
+     * non-empty. Unwatch and worktree provisioning are serialized for that
+     * workspace so a new worktree cannot appear after removal begins. Managed
+     * repository and worktree directories are removed only after ownership and
+     * path checks succeed.</p>
      *
      * @param workspaceId ByteQuay workspace ID
      * @throws WorkspaceBusyException if active work still references the workspace
@@ -847,7 +855,8 @@ sequenceDiagram
 - Repository renames are reconciled by stable GitHub ID and update displayed coordinates/remotes
   only through an explicit, validated sync path.
 - Deleted or inaccessible repositories remain visible with a recoverable/authentication state.
-- Unwatch is blocked while an active execution depends on the workspace.
+- Unwatch is blocked while a task/workflow references a worktree or the managed
+  worktree root is non-empty.
 
 ## Security and write policy
 

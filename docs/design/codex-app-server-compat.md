@@ -29,6 +29,31 @@ experimental, then removes the temporary schemas. These offline Codex
 subprocesses use a minimal allowlisted environment and an empty temporary
 `CODEX_HOME`; API-key variables from the caller are not inherited.
 
+The offline path also starts App Server without credentials and calls
+`config/read(includeLayers: true)` before any thread or model turn. As an
+adversarial control, it creates an isolated-user `.rules` file whose `allow`
+decision is first validated with the
+[documented `codex execpolicy check` command](https://learn.chatgpt.com/docs/agent-configuration/rules);
+the App Server layer scan must expose the active isolated user layer and reject
+that source. After the poison file is removed, a clean workspace passes only
+after the fixture checks the `rules/` directory beside every returned system,
+user, or project policy-bearing config source and finds no `.rules` file.
+`packagedDefaults` and `legacyManagedConfigTomlFromFile` layers are not
+exec-policy sources. The behavioral poison control exercises the isolated user
+source without claiming every source type is present. The live isolation path
+calls `config/read` for every temporary task cwd. This matters because v0.151
+App Server has no public `--ignore-rules` option and no effective rule-inventory
+RPC. Production must reproduce this conservative readiness guard rather than
+claiming a per-thread config override disables rules.
+
+The same keyless App Server probe calls `configRequirements/read`, pins the
+response shape, requires an explicit null `requirements` field, and fails for
+an omitted or non-null value. Because command-rule contents are not inspectable
+through the current App Server responses, the first release treats any
+missing `requirements` field, non-null value, request failure, or undecodable
+response as unavailable. The response must contain exactly that one top-level
+key; an unknown sibling policy field also fails closed.
+
 Regenerate the committed projection only when intentionally updating the exact
 reference contract:
 
@@ -125,16 +150,22 @@ process group before cleanup. If group termination cannot be confirmed, the
 fixture reports the cleanup failure and retains its temporary tree for
 diagnosis. The fixture does not archive or delete user task history.
 
-## Evidence and remaining credential gate
+## Evidence and remaining gates
 
-The offline gate passes with `codex-cli 0.151.0`. A complete two-turn behavior
-slice also passed on 2026-08-30 with ChatGPT authentication and the advertised
-default model `gpt-5.6-sol`:
+The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
 
 ```text
 PASS compact Java projection matches the exact generated schema
 PASS exact Codex version 0.151.0
 PASS generated stable and experimental schema (codex app-server generate-json-schema --experimental --out <temporary-directory>)
+PASS ByteQuay rejects rule-bearing App Server sources and accepts clean isolation
+```
+
+Separately, a complete two-turn behavior slice passed on 2026-08-30 with
+ChatGPT authentication and the advertised default model `gpt-5.6-sol`. Its
+live-specific evidence was:
+
+```text
 PASS live initialize and model/list (gpt-5.6-sol)
 PASS removed temporary login and auth-free executor environments
 PASS empty MCP/hooks and disabled optional capabilities
@@ -154,12 +185,14 @@ This is a **GO candidate for the tested CP1 reference slice**: the pinned
 binary supplies the environment registration and task/history primitives
 required to begin a client integration. It is not final product approval. A
 dedicated-key execution of the newly configured yielded-terminal, targeted
-termination, restart-recovery checks, one representative real approval, the
-full modern live approval matrix, recursive child discovery, and cross-task
-event/approval/filesystem isolation, the fail-closed isolated exec allow-rule
-proof, and the written go/no-go result remain separate CP1 evidence. Offline
+termination, bounded Git-worktree filesystem action, restart-recovery checks,
+one representative real approval, the full modern live approval matrix,
+recursive child discovery, cross-task event/approval/command/filesystem
+isolation, API-key isolation, and the written go/no-go result remain separate
+CP1 evidence. Offline
 approval codec coverage does not close either live gate. Production adoption
-of the isolated launch profile belongs to CP4. The safe live path is now also
+of the isolated launch profile, config-source guard, and managed-requirements
+absence gate belongs to CP4. The safe live path is now also
 configured to exercise one typed parent-command approval and one bounded
 Git-worktree mutation per repository without adding a model turn. It uses the
 second turn for the yielded-terminal proof and reuses the same durable thread

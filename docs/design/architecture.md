@@ -393,6 +393,22 @@ The detailed backend contract is in
   Server, task exec-server, and Claude processes use durable launch
   intents/markers; normal per-turn quiescence uses typed item history and App
   Server's background-terminal APIs.
+- Before a Codex turn, the driver reads App Server's effective config layers
+  for every task cwd, requires the isolated user layer, rejects project config,
+  and rejects every `.rules` file beside a returned system, user, or project
+  policy-bearing source. `packagedDefaults` and
+  `legacyManagedConfigTomlFromFile` layers are not exec-policy sources. It also
+  requires `configRequirements/read` to report no applicable managed
+  requirements. A
+  missing `requirements` field, non-null value, request failure, or undecodable
+  response fails closed. This security-specific response must contain exactly
+  that one top-level key; an unknown sibling policy field also fails closed.
+  The exact v0.151 executable gate proves the isolated keyless value is
+  explicitly null; supporting a broader shape later requires new executable
+  evidence.
+  These are the first-release guards against inherited exec-policy allow rules;
+  App Server v0.151 has no public per-thread rule-disable or effective-rule
+  inventory.
 - There is one Codex App Server process per ByteQuay backend runtime, not per
   task. Its loss interrupts live Codex turns; stored thread IDs remain
   resumable after restart and explicit retry. A replacement starts only after

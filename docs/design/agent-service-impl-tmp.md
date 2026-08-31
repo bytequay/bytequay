@@ -105,7 +105,10 @@ These are scope rules, not claims that current code already enforces them:
 - There is no custom Code Mode host or undocumented App Server queue API.
 - First-release interactive Codex tasks must prove that inherited MCP servers,
   apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle hooks are
-  absent or disabled in CP1/CP4.
+  absent or disabled in CP1/CP4. They must also prove that no managed
+  requirements apply; a missing field, non-null value, request failure, or
+  undecodable response fails closed until a narrower contract has exact
+  executable evidence.
 - The renderer receives no raw provider JSON, backend log stream, credential,
   or hidden reasoning.
 - The UI does not copy Codex Desktop assets or promise pixel parity.
@@ -237,12 +240,15 @@ runtime, and logs.
 Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
-**Status (2026-08-30):** the checked-in schema gate and live two-turn runtime
+**Status (2026-08-31):** the checked-in schema gate and live two-turn runtime
 slice are a GO candidate. CP1 is not complete: representative and exhaustive
-live approval behavior, a non-empty background terminal, child recursion,
-cross-task isolation, a fail-closed isolated exec allow rule, a safe live rerun
-with a dedicated API key, and the written go/no-go result remain open.
-Production adoption of the isolated launch profile belongs to CP4. See
+live approval behavior, a bounded Git-worktree filesystem action, a non-empty
+background terminal with targeted termination, child recursion, disk-backed
+restart recovery, cross-task event/approval/command/filesystem isolation, a
+safe live rerun with a dedicated API key that proves key isolation, and the
+written go/no-go result remain open.
+Production adoption of the isolated launch profile and both readiness guards
+belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
 **Progress (2026-08-31):** the offline gate now projects and codec-tests the
@@ -252,8 +258,11 @@ with its response scope. Legacy `applyPatchApproval` and
 `execCommandApproval` requests are deliberately unsupported and fail closed.
 The current runtime bridge still handles only command/file one-time
 `accept`/`decline` and fails closed for unrepresented scope or stale decisions;
-preserving every offered decision in the provider-neutral contract and UI
-begins in CP2. The gate also checks the background-terminal
+preserving every product-permitted decision offered by the provider in the
+provider-neutral contract and UI begins in CP2. That set is the intersection of
+the provider's legal choices and ByteQuay's immutable safety ceiling; an empty
+set fails closed, and `acceptWithExecpolicyAmendment` is never product-permitted
+in the first release. The gate also checks the background-terminal
 list/terminate and `thread/resume` contracts and derives one compact committed
 projection manifest instead of committing 413 schemas or 820 generated
 TypeScript files. The normal fixture command verifies the manifest;
@@ -263,6 +272,26 @@ to prove one real parent-command approval, one bounded mutation per repository,
 a yielded command with targeted termination, and disk-backed history recovery
 through a fresh App Server. This host has no dedicated compatibility API key,
 so those live claims remain unchecked until that gate actually passes.
+
+The auth-free offline gate now also proves the proposed first-release
+exec-policy source and managed-requirements absence guards. It first validates
+that a poison isolated-user `.rules` file is a real `allow` rule with the
+documented `codex execpolicy check` command.
+`config/read(includeLayers: true)` exposes that active isolated user layer, and
+the guard rejects it before any thread or model turn. After the poison file is
+removed, the clean workspace passes only after the guard checks the `rules/`
+directory beside every returned system, user, or project policy-bearing source
+and finds no `.rules` file. `packagedDefaults` and
+`legacyManagedConfigTomlFromFile` layers are not exec-policy sources. The
+behavioral poison control exercises the isolated user source without claiming
+every source type is present. The live isolation path calls `config/read` for
+every temporary task cwd. The exact App Server has no public `--ignore-rules`
+option or rule-inventory RPC, so CP4 must adopt this conservative source
+inspection; a per-thread config override cannot disable rules. The same keyless
+App Server call pins the
+`configRequirements/read` response shape, requires its
+`requirements` field to be present and null, and fails for an omitted or
+non-null value.
 
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
@@ -317,17 +346,27 @@ Implementation:
 - [ ] Restart App Server and prove disk-backed thread recovery.
 - [ ] Run two task environments through one App Server and prove event,
   approval, command, and filesystem separation.
-- [x] Prove inherited MCP servers, lifecycle hooks, and project/user config are
-  absent. The fixture uses an isolated App Server `CODEX_HOME` and runtime
-  MCP/hook/config assertions before the first model turn.
+- [x] Prove inherited MCP servers, lifecycle hooks, project config, and the
+  caller's ambient user config are absent. The fixture requires exactly one
+  isolated App Server user layer under its temporary `CODEX_HOME`, calls
+  `config/read` for every temporary task cwd, and runs MCP/hook/config
+  assertions before the first model turn.
 - [x] Launch with apps/plugins and related optional features explicitly
   disabled, empty dynamic tools, and empty capability roots.
 - [x] Give every compatibility subprocess a separate credential-free
   `CODEX_HOME` and minimal allowlisted process environment. Configure the
   model-requested shell environment to omit `CODEX_HOME` and `CODEX_API_KEY`.
   Never copy a rotating ChatGPT login into the fixture.
-- [ ] Prove the proposed isolated exec allow-rule shape is fail closed in the
-  compatibility fixture; CP4 adopts the proven shape in production.
+- [x] Start App Server without credentials, inspect every returned config
+  layer, reject a real rule-bearing isolated user source before any model turn,
+  and accept a clean isolated home/workspace only after every returned system,
+  user, or project policy-bearing source's `rules/` directory contains no
+  `.rules` file.
+- [x] Call `configRequirements/read` without credentials and prove that the
+  isolated launch has no applicable managed requirements. A missing
+  `requirements` field, non-null value, request failure, or undecodable response
+  must make the lane unavailable. The response must contain exactly that one
+  top-level key; an unknown sibling policy field also fails closed.
 - [x] Make a reference-fixture version, generated-bundle hash, or required
   method/field mismatch an actionable fixture failure.
 
@@ -338,6 +377,8 @@ Exit gate:
 - [ ] The checked-in live fixture passes with a dedicated API key.
 - [x] The reference compatibility fixture rejects a different version and
   rejects changed schema bundle hashes or required fields.
+- [x] The executable fixture proves no managed requirements apply before the
+  source guard is considered complete.
 - [x] No tested command falls back to App Server's ambient/default executor;
   the exact recorded action expands both executor-specific `HOME` markers, an
   unset command-level `CODEX_HOME`, and an unset App Server-only sentinel.
@@ -413,8 +454,9 @@ Implementation:
   CP8 exists, public interactive turns reject attachments; after CP8 they
   accept only opaque task-owned attachment references. Trusted internal
   workflow attachments remain an internal command boundary.
-- [ ] Add typed approval request/resolution/expiry variants and their offered
-  decisions.
+- [ ] Add typed approval request/resolution/expiry variants and the
+  product-permitted subset of their provider-offered decisions. An empty subset
+  fails closed.
 - [ ] Preserve completed items as authoritative replacements for deltas sharing
   the same source/item identity.
 - [ ] Keep Codex wire DTOs, the compact generated reference projection, and raw
@@ -560,8 +602,10 @@ Implementation:
 - [ ] Select exactly that task's environment for thread and turn start.
 - [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior.
-- [ ] Adopt the CP1-proven isolated subprocess environment and fail-closed exec
-  allow-rule shape in the production runtime path.
+- [ ] Adopt the CP1-proven isolated subprocess environment, pre-turn
+  config-layer rule-source guard, and managed-requirements absence gate in the
+  production runtime path. Do not claim a per-thread override disables
+  exec-policy rules; v0.151 exposes none.
 - [ ] Verify inherited capabilities remain disabled after start and resume.
 - [ ] Route root and child events/approvals by provider thread and turn identity
   without cross-task fallback.
@@ -700,8 +744,9 @@ Implementation:
   lifecycle, and errors.
 - [ ] Render plan, command/output, file, tool, approval, and usage fixtures as
   simple typed rows so the preview loses no information the shell prints.
-- [ ] Render offered approval decisions; do not reduce the contract to a
-  generic boolean.
+- [ ] Render only the product-permitted subset of provider-offered approval
+  decisions; do not reduce the contract to a generic boolean, and fail closed
+  when that subset is empty.
 - [ ] Anchor a text composer with Send, Cancel, connection state, and idle-only
   Complete.
 - [ ] Have preview controls emit the exact typed bridge commands and one stable

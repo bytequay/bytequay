@@ -146,20 +146,22 @@ differs from accumulated deltas.
 ### 2.4 Approvals
 
 An approval card identifies the source task, child agent when applicable,
-turn, item, request kind, reason, and available decisions. Command cards show
-the command and working directory; network and filesystem cards show the
-requested destination or scope rather than pretending every request is a
-shell command.
+turn, item, request kind, reason, and product-permitted available decisions.
+Command cards show the command and working directory; network and filesystem
+cards show the requested destination or scope rather than pretending every
+request is a shell command.
 
-The card renders only decisions offered for that request kind. Command/file
-requests may offer one-time or session-scoped choices; permission requests
-show the grantable subset. The renderer sends a tagged response, not a generic
-boolean. When a command request omits its optional `availableDecisions`, the
-driver supplies the legal command defaults defined by its protocol mapping;
-file requests use their protocol-defined fixed decisions, and permission
-requests use only the grantable subset. The UI therefore never turns a valid
-request into an empty card. Unsupported tool-input or elicitation requests fail
-closed.
+The card renders only the product-permitted subset of decisions offered for
+that request kind. Command/file requests may offer one-time or session-scoped
+choices; permission requests show the grantable subset. The renderer sends a
+tagged response, not a generic boolean. When a command request omits its
+optional `availableDecisions`, the driver supplies the legal command defaults
+defined by its protocol mapping and then intersects them with ByteQuay's
+immutable safety ceiling; file and permission requests use the same ceiling.
+The first release never permits a decision that persists an exec-policy allow
+rule. If the intersection is empty, the request fails closed instead of
+producing an actionable card. Unsupported tool-input or elicitation requests
+also fail closed.
 
 The backend persists pending and resolved state before publishing it. A
 renderer disconnect does not approve anything, and timeout or terminal turn
@@ -279,7 +281,7 @@ The detail screen keeps the composer anchored while the transcript scrolls:
 │ assistant text                                                    │
 │ plan card: pending / in progress / completed                      │
 │ ▸ folded activity summary (commands · files · web · tools)        │
-│ approval card: request details          available decisions      │
+│ approval card: request details          permitted decisions      │
 │ subagents card: Active (2) · Done (3)          Open agent         │
 │ final answer + usage/timing                                       │
 ├───────────────────────────────────────────────────────────────────┤

@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -365,6 +366,8 @@ const experimentalMethods = [
 
 const stableMethods = [
   "model/list",
+  "config/read",
+  "configRequirements/read",
   "thread/start",
   "turn/start",
   "thread/read",
@@ -411,6 +414,16 @@ const passiveTurnItemTypes = new Set([
 
 const proofFileName = "bytequay-cp1-proof.txt";
 const proofFileContents = "bytequay-cp1-proof\n";
+const execPolicyAllowedCommand = ["/usr/bin/git", "status", "--short"];
+const execPolicyRule = `prefix_rule(
+    pattern = ["/usr/bin/git", "status", "--short"],
+    decision = "allow",
+    justification = "Read-only ByteQuay compatibility probe",
+    match = [
+        "/usr/bin/git status --short",
+    ],
+)
+`;
 const environmentEvidenceCommand =
   `printf 'bytequay-cp1-proof\\n' > ${proofFileName}; ` +
   'if [ -z "${CODEX_API_KEY+x}" ]; then key_state=absent; ' +
@@ -572,6 +585,57 @@ function checkSchema(directory, experimental) {
     threadResume.properties.environments,
     undefined,
     "thread/resume unexpectedly gained an environments field",
+  );
+
+  const configReadParams = readJson(join(directory, "v2", "ConfigReadParams.json"));
+  requireExactObjectShape(configReadParams, ["cwd", "includeLayers"], []);
+  const configReadResponse = readJson(join(directory, "v2", "ConfigReadResponse.json"));
+  requireExactObjectShape(configReadResponse, ["config", "layers", "origins"], [
+    "config",
+    "origins",
+  ]);
+  requireExactObjectShape(
+    configReadResponse.definitions.ConfigLayer,
+    ["config", "disabledReason", "name", "version"],
+    ["config", "name", "version"],
+  );
+  const configLayerShapes = new Map(
+    configReadResponse.definitions.ConfigLayerSource.oneOf.map((shape) => [
+      shape.properties.type.enum[0],
+      shape,
+    ]),
+  );
+  assert.deepEqual([...configLayerShapes.keys()].sort(), [
+    "enterpriseManaged",
+    "legacyManagedConfigTomlFromFile",
+    "legacyManagedConfigTomlFromMdm",
+    "mdm",
+    "packagedDefaults",
+    "project",
+    "sessionFlags",
+    "system",
+    "user",
+  ]);
+  for (const [type, fields] of [
+    ["packagedDefaults", ["file", "type"]],
+    ["system", ["file", "type"]],
+    ["user", ["file", "profile", "type"]],
+    ["project", ["dotCodexFolder", "type"]],
+    ["legacyManagedConfigTomlFromFile", ["file", "type"]],
+    ["mdm", ["domain", "key", "type"]],
+    ["enterpriseManaged", ["id", "name", "type"]],
+    ["sessionFlags", ["type"]],
+    ["legacyManagedConfigTomlFromMdm", ["type"]],
+  ]) {
+    const shape = configLayerShapes.get(type);
+    assert.ok(shape, `ConfigLayerSource lacks ${type}`);
+    const required = fields.filter((field) => field !== "profile");
+    requireExactObjectShape(shape, fields, required);
+  }
+  requireExactObjectShape(
+    readJson(join(directory, "v2", "ConfigRequirementsReadResponse.json")),
+    ["requirements"],
+    [],
   );
 
   if (!experimental) return;
@@ -1186,7 +1250,6 @@ function staticCompatibilityCheck(updateBindings) {
       `codex-cli ${contract.version}`,
       `expected codex-cli ${contract.version}, got ${versionOutput}`,
     );
-
     run("codex", [
       "app-server",
       "generate-json-schema",
@@ -1519,6 +1582,214 @@ async function startAppServer(cwd, environment, registerChild) {
   return { child, rpc };
 }
 
+function configLayerFolder(name) {
+  assert.ok(name && typeof name === "object", "config layer lacks a source");
+  switch (name.type) {
+    case "system":
+    case "user":
+      assert.equal(typeof name.file, "string", `${name.type} config layer lacks its file`);
+      return dirname(name.file);
+    case "project":
+      assert.equal(
+        typeof name.dotCodexFolder,
+        "string",
+        "project config layer lacks its .codex folder",
+      );
+      return name.dotCodexFolder;
+    case "packagedDefaults":
+    case "legacyManagedConfigTomlFromFile":
+    case "mdm":
+    case "enterpriseManaged":
+    case "sessionFlags":
+    case "legacyManagedConfigTomlFromMdm":
+      return null;
+    default:
+      assert.fail(`unsupported config layer source ${name.type}`);
+  }
+}
+
+function assertNoAmbientExecPolicyRules(config, codexHome) {
+  assert.ok(Array.isArray(config.layers), "config/read omitted requested layer details");
+  let userLayers = 0;
+  for (const layer of config.layers) {
+    const folder = configLayerFolder(layer.name);
+    if (layer.name.type === "user") {
+      userLayers++;
+      assert.equal(
+        realpathSync(folder),
+        realpathSync(codexHome),
+        `App Server loaded user config ${layer.name.file}`,
+      );
+    }
+    if (folder) {
+      const rulesDirectory = join(folder, "rules");
+      let entries;
+      try {
+        entries = readdirSync(rulesDirectory, { withFileTypes: true });
+      }
+      catch (error) {
+        if (error?.code !== "ENOENT") {
+          throw error;
+        }
+        entries = [];
+      }
+      const rules = entries
+        .filter((entry) => entry.name.endsWith(".rules"))
+        .map((entry) => join(rulesDirectory, entry.name));
+      assert.deepEqual(
+        rules,
+        [],
+        `App Server config source contains exec-policy rules: ${rules.join(", ")}`,
+      );
+    }
+    if (layer.name.type === "project") {
+      assert.fail(`App Server loaded project config ${layer.name.dotCodexFolder}`);
+    }
+  }
+  assert.equal(userLayers, 1, "config/read did not report exactly one isolated user layer");
+}
+
+function assertNoManagedRequirements(response) {
+  assert.ok(
+    response && Object.hasOwn(response, "requirements"),
+    "configRequirements/read omitted requirements",
+  );
+  assert.deepEqual(
+    Object.keys(response),
+    ["requirements"],
+    "configRequirements/read returned an unknown managed-policy field",
+  );
+  assert.equal(
+    response.requirements,
+    null,
+    "App Server loaded opaque managed requirements",
+  );
+}
+
+async function checkAppServerConfigSourceIsolation() {
+  const root = mkdtempSync(join(tmpdir(), "bytequay-codex-config-"));
+  let child;
+  let failure;
+  let interruptedSignal;
+  const signalErrors = [];
+  const handleSignal = (signal) => {
+    const firstSignal = !interruptedSignal;
+    interruptedSignal ??= signal;
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+    try {
+      signalProcessGroup(child?.pid, firstSignal ? "SIGTERM" : "SIGKILL");
+    } catch (error) {
+      signalErrors.push(error);
+    }
+  };
+  const handleSigint = () => handleSignal("SIGINT");
+  const handleSigterm = () => handleSignal("SIGTERM");
+  process.on("SIGINT", handleSigint);
+  process.on("SIGTERM", handleSigterm);
+  try {
+    const codexHome = join(root, "codex-home");
+    const temporaryDirectory = join(root, "tmp");
+    const cleanWorkspace = join(root, "clean-workspace");
+    const poisonedRulesDirectory = join(codexHome, "rules");
+    const poisonedRule = join(poisonedRulesDirectory, "poison.rules");
+    mkdirSync(codexHome, { mode: 0o700 });
+    mkdirSync(temporaryDirectory, { mode: 0o700 });
+    mkdirSync(cleanWorkspace, { mode: 0o700 });
+    mkdirSync(poisonedRulesDirectory, { mode: 0o700 });
+    writeFileSync(poisonedRule, execPolicyRule);
+    const environment = {
+      ...minimalProcessEnvironment(root, temporaryDirectory),
+      CODEX_HOME: codexHome,
+      CODEX_SQLITE_HOME: codexHome,
+    };
+    const poisonDecision = JSON.parse(run("codex", [
+      "execpolicy",
+      "check",
+      "--rules",
+      poisonedRule,
+      "--",
+      ...execPolicyAllowedCommand,
+    ], { cwd: cleanWorkspace, env: environment }));
+    assert.equal(poisonDecision.decision, "allow", "poison rule is not an allow rule");
+    assert.equal(poisonDecision.matchedRules?.length, 1, "poison rule did not match once");
+    assert.doesNotMatch(
+      run("codex", ["app-server", "--help"], { cwd: cleanWorkspace, env: environment }),
+      /--ignore-rules\b/,
+      "the reference App Server gained an exec-policy isolation option; re-review the gate",
+    );
+    const started = await startAppServer(cleanWorkspace, environment, (startedChild) => {
+      child = startedChild;
+      if (interruptedSignal) {
+        try {
+          signalProcessGroup(child.pid, "SIGKILL");
+        } catch (error) {
+          signalErrors.push(error);
+        }
+      }
+    });
+    ({ child } = started);
+    const [poisonedConfig, requirements] = await Promise.all([
+      started.rpc.request("config/read", { cwd: cleanWorkspace, includeLayers: true }),
+      started.rpc.request("configRequirements/read", null),
+    ]);
+    assertNoManagedRequirements(requirements);
+    const userLayer = poisonedConfig.layers?.find((layer) => layer.name.type === "user");
+    assert.ok(userLayer, "config/read omitted the rule-bearing user layer");
+    assert.equal(userLayer.disabledReason ?? null, null, "the rule-bearing user layer is disabled");
+    assert.throws(
+      () => assertNoAmbientExecPolicyRules(poisonedConfig, codexHome),
+      /config source contains exec-policy rules/,
+      "rule-bearing user config passed the App Server source gate",
+    );
+    rmSync(poisonedRule);
+    const cleanConfig = await started.rpc.request("config/read", {
+      cwd: cleanWorkspace,
+      includeLayers: true,
+    });
+    assertNoAmbientExecPolicyRules(cleanConfig, codexHome);
+  } catch (error) {
+    failure = error;
+  } finally {
+    const cleanupErrors = [];
+    try {
+      if (child?.stdin.writable) child.stdin.end();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    let childStopped = true;
+    try {
+      await stopProcess(child);
+    } catch (error) {
+      childStopped = false;
+      cleanupErrors.push(error);
+    }
+    if (childStopped) {
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    } else {
+      cleanupErrors.push(new Error(`retained ${root} because the process group did not stop`));
+    }
+    if (interruptedSignal) {
+      cleanupErrors.push(new Error(`received ${interruptedSignal}`), ...signalErrors);
+    }
+    process.off("SIGINT", handleSigint);
+    process.off("SIGTERM", handleSigterm);
+    if (cleanupErrors.length > 0) {
+      failure = new AggregateError(
+        failure ? [failure, ...cleanupErrors] : cleanupErrors,
+        interruptedSignal
+          ? "App Server source-isolation check interrupted"
+          : "App Server source-isolation check cleanup failed",
+      );
+    }
+  }
+  if (failure) throw failure;
+  console.log("PASS ByteQuay rejects rule-bearing App Server sources and accepts clean isolation");
+}
+
 function assertRuntimeHealthy(rpc, execServers) {
   assert.ifError(rpc.failure);
   assert.ok(processGroupExists(rpc.child.pid), "App Server exited before PASS");
@@ -1668,14 +1939,16 @@ function appServerArguments() {
 }
 
 async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
-  const [mcpStatus, hooks, config] = await Promise.all([
+  const [mcpStatus, hooks, configs, requirements] = await Promise.all([
     rpc.request("mcpServerStatus/list", {
       threadId,
       limit: 100,
       detail: "toolsAndAuthOnly",
     }),
     rpc.request("hooks/list", { cwds }),
-    rpc.request("config/read", { cwd: cwds[0], includeLayers: true }),
+    Promise.all(cwds.map((cwd) =>
+      rpc.request("config/read", { cwd, includeLayers: true }))),
+    rpc.request("configRequirements/read", null),
   ]);
   assert.deepEqual(mcpStatus.data, [], "isolated thread inherited MCP servers");
   assert.ok(
@@ -1685,22 +1958,14 @@ async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
           entry.hooks.length === 0 &&
           entry.errors.length === 0 &&
           entry.warnings.length === 0,
-      ),
+    ),
     "isolated thread inherited lifecycle hooks",
   );
-  assert.equal(config.config.web_search, "disabled", "web search was not disabled");
-  for (const layer of config.layers ?? []) {
-    if (layer.name.type === "project") {
-      assert.fail(`temporary environment loaded project config ${layer.name.dotCodexFolder}`);
-    }
-    if (layer.name.type === "user") {
-      assert.equal(
-        realpathSync(dirname(layer.name.file)),
-        realpathSync(codexHome),
-        `temporary environment loaded user config ${layer.name.file}`,
-      );
-    }
+  for (const config of configs) {
+    assert.equal(config.config.web_search, "disabled", "web search was not disabled");
+    assertNoAmbientExecPolicyRules(config, codexHome);
   }
+  assertNoManagedRequirements(requirements);
 }
 
 function commandRanIn(command, cwd, expectedCommand) {
@@ -2388,6 +2653,7 @@ async function main() {
     );
   }
   staticCompatibilityCheck(flags.has("--update-bindings"));
+  await checkAppServerConfigSourceIsolation();
   if (flags.has("--live")) await liveCompatibilityCheck();
 }
 

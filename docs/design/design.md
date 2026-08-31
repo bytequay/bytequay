@@ -126,3 +126,19 @@ can be reported and fixed. The stock
 exec-server's unauthenticated loopback listener is also an explicit same-host
 trust decision: an ephemeral port is not treated as authentication. The first
 release does not add the separate, process-wide `--code-mode-host` dependency.
+
+The same release gate must reject ambient exec-policy allow rules before a
+turn starts. The v0.151 App Server exposes neither `--ignore-rules` nor an
+effective-rule inventory, so a per-thread override is not a valid design.
+ByteQuay instead isolates `CODEX_HOME`, reads the effective config layers,
+rejects project config, and conservatively rejects any `.rules` file beside a
+returned system, user, or project policy-bearing source for every task cwd.
+`packagedDefaults` and `legacyManagedConfigTomlFromFile` layers are not
+exec-policy sources. ByteQuay separately requires
+`configRequirements/read` to report no applicable managed requirements. A
+missing `requirements` field, non-null value, request failure, or undecodable
+response fails closed. This security-specific response must contain exactly
+that one top-level key; an unknown sibling policy field also fails closed. The
+exact v0.151 executable gate proves that the isolated keyless value is
+explicitly null; supporting a broader shape later requires new executable
+evidence.

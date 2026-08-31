@@ -122,8 +122,21 @@ separate execution process/worktree boundary without reimplementing Codex's
 process/filesystem protocol. It is distinct from the experimental process-wide
 `--code-mode-host`, which is not a task router and remains unset. Ambient MCP
 servers, apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle
-hooks are disabled for the first release and verified absent before the first
-turn.
+hooks must be absent for the first release and are verified before the first
+turn. The exact v0.151 App Server cannot disable or inventory `.rules` through
+a public option or RPC. ByteQuay therefore uses an isolated `CODEX_HOME`,
+calls `config/read(includeLayers: true)` for every task cwd, rejects project
+config, and rejects any `.rules` file beside each returned system, user, or
+project policy-bearing config source.
+Managed command-rule contents are not inspectable through that response, so
+the first release also requires `configRequirements/read` to report no
+applicable requirements. The v0.151 compatibility gate pins that response
+shape and proves the keyless isolated launch returns an explicit null
+`requirements` field. A missing field, non-null value, request failure, or
+undecodable response makes the lane unavailable. This security-specific RPC
+must contain exactly that one top-level key; an unknown sibling policy field
+also fails closed. Supporting a broader shape later requires new exact
+executable evidence.
 
 Phase one observes App Server's native command, file, web, and other built-in
 tool execution through the selected task environment. The Codex lane registers
@@ -164,7 +177,7 @@ Cost remains unavailable when the provider does not report a monetary amount.
 | `AgentTurnSettings` | Effective model, effort, permission, sandbox, and runtime snapshot |
 | `AgentInputDelivery` | Durable start/steer send attempt and known or uncertain outcome |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
-| `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and available decisions |
+| `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
 | `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
 | `AgentTurnResult` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
 | `AgentTask` | Durable workspace, task state, lane, worktree, defaults, timestamps, totals, and summary |
@@ -253,6 +266,13 @@ The implementation must enforce these invariants:
 - The first Codex release exposes no inherited MCP server, connected app,
   plugin, dynamic tool, exec-policy allow rule, or lifecycle hook. A capability
   that cannot be disabled makes the lane unavailable before a turn is accepted.
+  Exec-policy readiness is source-based: every task cwd is checked, each
+  returned system, user, or project policy-bearing config source is scanned for
+  `.rules`, any project layer is rejected, and an unknown layer shape fails
+  closed. `packagedDefaults` and `legacyManagedConfigTomlFromFile` layers are
+  not exec-policy sources. This is not described as a per-thread rule override.
+  Separately, `configRequirements/read` must prove there are no applicable
+  managed requirements; non-null or uninspectable requirements fail closed.
 - Definite terminal operations release their matching claim in the same unit
   of work as their terminal state. An unknown provider delivery, orphaned
   process, or active descendant retains the claim and puts the task in
@@ -779,18 +799,26 @@ variants, and opaque permission payload/scope, while legacy
 `applyPatchApproval` and `execCommandApproval` requests fail closed. The
 current bridge handles command and file-change requests only and maps its
 one-time provider-neutral allow/deny result to `accept`/`decline`. Preserving
-all offered decisions and rendering them in the UI remain deferred. Until
-then, it fails closed for non-command kinds, undisplayable commands,
+and rendering every product-permitted decision offered by the provider remain
+deferred. The product-permitted set is the intersection of the provider's
+legal offered decisions and ByteQuay's immutable safety ceiling; an empty set
+fails closed instead of producing an actionable approval. Until then, the
+bridge fails closed for non-command kinds, undisplayable commands,
 additional/network permissions, file-change grant roots, scoped or unoffered
 decisions, and decisions returned after cancellation or turn replacement.
+`acceptWithExecpolicyAmendment` remains reference-codec coverage only: the
+first release does not offer or persist it because that would create an allow
+rule and violate the zero-inherited/generated-allow-rule boundary.
 
 `ApprovalRequest` is a tagged union for command execution, file change, and
 scoped-permission requests. Each variant carries its provider request ID,
 source thread/turn/item, human-readable details, and the decisions the driver
-can legally map for that request. If a Codex command request omits its optional
-`availableDecisions`, the driver fills its known legal command
-defaults; file requests use their protocol-defined fixed decisions, and
-permission requests expose only their grantable subset. `ApprovalResponse` is
+can legally map and ByteQuay permits for that request. If a Codex command
+request omits its optional `availableDecisions`, the driver fills its known
+legal command defaults and then applies the safety ceiling; file requests use
+their protocol-defined fixed decisions subject to the same ceiling, and
+permission requests expose only their grantable subset. An empty result fails
+closed. `ApprovalResponse` is
 a matching tagged union: command/file responses can distinguish one-time,
 session-scoped, deny, and cancel choices when legal; permission responses carry
 only the approved subset. The target Codex driver converts these values with
@@ -840,7 +868,7 @@ public interface AgentApprovalService
      * completing the provider callback.
      *
      * @param command approval ID, expected state, and response variant matching
-     * the stored request kind and offered decisions
+     * the stored request kind and product-permitted offered decisions
      * @return the recorded typed resolution
      * @throws ApprovalNotFoundException when no such approval is pending
      * @throws AgentConflictException when a different decision was already recorded
@@ -1751,7 +1779,8 @@ public interface AgentTurnStore
 
 Approval state is durable independently of an SSE connection. Resolution is
 an optimistic, idempotent state transition; the store preserves the tagged
-request, available decisions, typed response, source IDs, and timestamps.
+request, product-permitted available decisions, typed response, source IDs, and
+timestamps.
 
 ```java
 package com.bytequay.agent.core.store;
@@ -2207,10 +2236,23 @@ The connection and task sequence is:
    version allowlist. A required incompatible shape fails the affected operation
    and includes the detected Codex version in its diagnostic.
 3. Build a per-thread config override that sets `features.plugins = false`,
-   disables apps, every effective standalone MCP server, every ambient
-   exec-policy allow rule, and every lifecycle hook, supplies no dynamic tools
-   or capability roots, and cannot be widened by project/user config. If a
-   managed requirement cannot be narrowed, task creation fails closed.
+   disables apps, every effective standalone MCP server, and every lifecycle
+   hook, supplies no dynamic tools or capability roots, and cannot be widened
+   by project/user config. Separately call `config/read(includeLayers: true)`
+   for every task cwd before accepting a turn, require the isolated user layer,
+   reject every project layer, and scan the `rules/` directory beside each
+   returned system, user, or project policy-bearing config source.
+   `packagedDefaults` and `legacyManagedConfigTomlFromFile` layers are not
+   exec-policy sources. Any `.rules` file, unreadable source, or unknown layer
+   shape makes the lane unavailable. This source guard is required because
+   v0.151 App Server has no public
+   `--ignore-rules` or rule-inventory API. Also call
+   `configRequirements/read` and require no applicable requirements. A
+   missing `requirements` field, non-null value, request failure, or undecodable
+   response makes the lane unavailable. This security-specific response must
+   contain exactly that one top-level key; an unknown sibling policy field also
+   fails closed. Supporting a broader shape later requires new exact executable
+   evidence.
 4. Prepare and launch the matching official `codex exec-server` through
    `TaskExecServerManager`, capture its emitted `ws://127.0.0.1:<port>` URL,
    call experimental `environment/add` with that URL and the task's unique
@@ -2329,9 +2371,10 @@ pages `thread/backgroundTerminals/list` for every root/child until all pages
 are empty. This combined fixed point closes missed-live-notification,
 nested-grandchild, root-answer-before-command-exit, and visible
 yielded-terminal gaps. It does not claim to detect an OS process that escaped
-App Server's own registries. All Codex lifecycle hooks are disabled for first-release
-tasks; if documented configuration or managed requirements cannot exclude one,
-task start fails. A read/list error, active descendant/item/process/background
+App Server's own registries. All Codex lifecycle hooks are disabled for
+first-release tasks; any effective hook makes task start fail. Independently,
+any applicable or uninspectable managed requirements fail readiness. A
+read/list error, active descendant/item/process/background
 terminal, or unstable closure keeps the task
 `RECOVERING`. If transport is lost before that proof, it retains the turn claim
 and stops the shared App Server process only as a last-resort recovery action,
@@ -2403,14 +2446,22 @@ repeatable live fixture never copies rotating ChatGPT credentials. It gives
 every Codex subprocess a minimal allowlisted environment and a temporary
 `CODEX_HOME`. The live path is configured to pass its dedicated API key only
 to App Server and to omit the key and `CODEX_HOME` from model-requested
-commands; the dedicated-key rerun must prove that behavior. Exhaustive
-live approval behavior, yielded-terminal termination, recursive children,
-restart recovery, and fail-closed cross-task routing remain CP1 gates. The
+commands; the dedicated-key rerun must prove that behavior. A bounded
+Git-worktree action and API-key isolation, representative and exhaustive live
+approval behavior, yielded-terminal termination, recursive children, restart
+recovery, fail-closed cross-task routing, and the written go/no-go result remain
+CP1 gates. The
 offline projection and codec tests already pin the modern approval methods,
 top-level fields, requiredness, command/file decision variants, and opaque
 permission payload/scope, and prove legacy approval methods fail closed; they
-do not prove the live bridge. Production adoption of the CP1-proven isolated
-launch profile belongs to CP4.
+do not prove the live bridge. The auth-free offline gate also validates a real
+isolated-user `allow` rule, observes its active user layer through App Server,
+proves the ByteQuay source guard rejects it, and accepts a clean isolated
+workspace only after every tested task cwd has each returned system, user, or
+project policy-bearing config folder free of `.rules`. It separately pins
+`configRequirements/read` and proves its `requirements` field is present and
+null. Production adoption of both guards and the isolated launch profile
+belongs to CP4.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for
@@ -2765,7 +2816,8 @@ and user-message outbox row commit atomically.
 unique ByteQuay idempotency key, state, timestamps, and redacted failure. It
 does not claim provider exactly-once delivery.
 
-`agent_approval` stores the tagged request, source IDs, available decisions,
+`agent_approval` stores the tagged request, source IDs, product-permitted
+available decisions,
 state, typed response, and request/resolution timestamps.
 
 `agent_process_launch` begins when `prepare(...)` returns and stores the launch

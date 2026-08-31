@@ -81,6 +81,12 @@ public class RepoController
         return repos.getUserProfile();
     }
 
+    @GetMapping("/profile/{login}")
+    public UserProfile getProfile(@PathVariable String login)
+    {
+        return repos.getUserProfile(login);
+    }
+
     @GetMapping("/contribution-graph")
     public ContributionCalendar getContributionGraph(@RequestParam("login") String login)
     {

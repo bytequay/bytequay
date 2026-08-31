@@ -92,6 +92,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamRepositoryId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),
+  getGitHubUserProfile: login => ipcRenderer.invoke('repos:user-profile', login),
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),
   getUserCommitsOnDate: (login, date) => ipcRenderer.invoke('repos:contribution-day', login, date),
   getRepoPull: (owner, repo, number) => ipcRenderer.invoke('repos:pull', owner, repo, number),

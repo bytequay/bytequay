@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from '../Avatar';
+import UserAvatar from '../UserAvatar';
 import type {
   Bridge,
   PullReactionContent,
@@ -621,7 +622,7 @@ function ReviewGroup({ activities, pr, workspaceId, onRefresh }: {
     <section className="pr-review-group">
       <div className="pr-review-group__summary">
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
-        <Avatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} />
+        <UserAvatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} />
         <strong>{actor}</strong>
         {review.payload.actorBot && <span className="pr-bot-badge">Bot</span>}
         <span>reviewed</span>
@@ -782,7 +783,7 @@ function ThreadComment({ comment, fallbackUrl, pr, onRefresh, onQuote }: {
   return (
     <div className="pr-thread-comment">
       <div className="pr-thread-comment__author">
-        <Avatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} />
+        <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} />
         <strong>{comment.actor ?? 'github'}</strong>
         {comment.actorBot && <span className="pr-bot">Bot</span>}
         <time>{relativeTime(comment.timestamp)}</time>
@@ -845,7 +846,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
         <span className="pr-label-event__marker" aria-hidden="true"><TagIcon /></span>
         <div className="pr-label-event__content">
           <span className="pr-label-event__actor">
-            <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
+            <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
             <strong>{actor}</strong>
             {payload.actorBot && <span className="pr-bot">Bot</span>}
           </span>
@@ -864,7 +865,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
   }
   return (
     <div className="pr-event">
-      <Avatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
+      <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
       <div>
         <strong>{actor}</strong>{payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
         <span>{eventText(activity, activities)}</span>
@@ -924,7 +925,7 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, re
 }) {
   return (
     <header className="pr-card__header">
-      <Avatar login={actor} avatarUrl={avatarUrl} size={22} />
+      <UserAvatar login={actor} avatarUrl={avatarUrl} size={22} />
       <strong>{actor}</strong>
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}

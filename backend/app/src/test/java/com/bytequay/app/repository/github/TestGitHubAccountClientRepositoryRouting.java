@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -27,6 +28,39 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubAccountClientRepositoryRouting
 {
+    @Test
+    void fetchesAnotherUsersPublicProfile()
+    {
+        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
+        GitHubAccountClient client = new GitHubAccountClient(
+                apiBuilder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/users/octocat"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "login": "octocat",
+                          "name": "The Octocat",
+                          "avatar_url": "https://avatars.test/octocat",
+                          "html_url": "https://github.com/octocat",
+                          "public_repos": 8,
+                          "followers": 42,
+                          "following": 3,
+                          "bio": "GitHub mascot",
+                          "location": "San Francisco",
+                          "company": "GitHub"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        UserProfile profile = client.fetchUserProfile("pat", "octocat");
+
+        assertThat(profile.login()).isEqualTo("octocat");
+        assertThat(profile.name()).isEqualTo("The Octocat");
+        assertThat(profile.followers()).isEqualTo(42);
+        server.verify();
+    }
+
     @Test
     void stableIdReadUsesCanonicalSourceAndPermissionSummary()
     {

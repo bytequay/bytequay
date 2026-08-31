@@ -934,6 +934,8 @@ function registerIpc(): void {
       method: 'DELETE',
     }));
   ipcMain.handle('repos:profile', () => backendJson(`${BACKEND_BASE}/api/profile`));
+  ipcMain.handle('repos:user-profile', (_event, login: string) =>
+    backendJson(`${BACKEND_BASE}/api/profile/${encodeURIComponent(login)}`));
   ipcMain.handle('repos:contribution', (_event, login: string) => {
     const url = new URL(`${BACKEND_BASE}/api/contribution-graph`);
     url.searchParams.set('login', login);

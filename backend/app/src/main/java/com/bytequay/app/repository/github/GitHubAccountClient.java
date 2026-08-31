@@ -82,6 +82,24 @@ public class GitHubAccountClient
                 });
     }
 
+    public UserProfile fetchUserProfile(String pat, String login) {
+        return translating(
+                () -> {
+                    GitHubUserProfileResponse response =
+                            gitHubRestClient
+                                    .get()
+                                    .uri("/users/{login}", login)
+                                    .header("Authorization", authorization(pat))
+                                    .retrieve()
+                                    .body(GitHubUserProfileResponse.class);
+                    if (response == null) {
+                        throw new ResponseStatusException(
+                                HttpStatusCode.valueOf(502), "Empty response from GitHub /users/{login}");
+                    }
+                    return toUserProfile(response);
+                });
+    }
+
     private static UserProfile toUserProfile(GitHubUserProfileResponse response) {
         return new UserProfile(
                 response.login(),

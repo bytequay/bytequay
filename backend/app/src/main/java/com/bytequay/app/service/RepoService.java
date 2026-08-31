@@ -99,6 +99,12 @@ public class RepoService
         return credentialService.resolveGitHubCredential().profile();
     }
 
+    public UserProfile getUserProfile(String login)
+    {
+        requireNotBlank(login, "login must not be blank");
+        return accounts.fetchUserProfile(credentialService.resolveGitHubToken(), login);
+    }
+
     public PullRequest getRepoPullRequest(String owner, String repo, int number)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();

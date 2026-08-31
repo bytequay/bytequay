@@ -899,6 +899,7 @@ export type Bridge = {
   ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
+  getGitHubUserProfile: (login: string) => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;

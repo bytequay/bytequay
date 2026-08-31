@@ -370,6 +370,7 @@ const stableMethods = [
   "configRequirements/read",
   "hooks/list",
   "skills/list",
+  "thread/list",
   "thread/start",
   "turn/start",
   "thread/read",
@@ -541,6 +542,185 @@ function requireDecisionPayload(schema, definition, decision, fields) {
   const payload = variant.properties[decision];
   requireExactObjectShape(payload, fields, fields);
   return payload;
+}
+
+function requireEnumMembers(schema, values) {
+  const members = new Set(schema.enum ?? []);
+  for (const value of values) {
+    assert.ok(members.has(value), `${schema.title ?? "enum"} lacks ${value}`);
+  }
+}
+
+function checkChildThreadItems(schema) {
+  const threadItems = schema.definitions.ThreadItem.oneOf;
+  const collabItem = threadItems.find(
+    (item) => item.properties?.type?.enum?.includes("collabAgentToolCall"),
+  );
+  assert.ok(collabItem, `${schema.title} lacks collabAgentToolCall`);
+  requireProperties(collabItem, [
+    "agentsStates",
+    "id",
+    "receiverThreadIds",
+    "senderThreadId",
+    "status",
+    "tool",
+    "type",
+  ]);
+  requireFields(collabItem, [
+    "agentsStates",
+    "id",
+    "receiverThreadIds",
+    "senderThreadId",
+    "status",
+    "tool",
+    "type",
+  ]);
+  requireProperties(schema.definitions.CollabAgentState, ["message", "status"]);
+  requireFields(schema.definitions.CollabAgentState, ["status"]);
+  requireEnumMembers(schema.definitions.CollabAgentTool, ["spawnAgent"]);
+  requireEnumMembers(schema.definitions.CollabAgentToolCallStatus, [
+    "inProgress",
+    "completed",
+    "failed",
+    "interrupted",
+  ]);
+  requireEnumMembers(schema.definitions.CollabAgentStatus, [
+    "pendingInit",
+    "running",
+    "interrupted",
+    "completed",
+    "errored",
+    "shutdown",
+    "notFound",
+  ]);
+
+  const subAgentItem = threadItems.find(
+    (item) => item.properties?.type?.enum?.includes("subAgentActivity"),
+  );
+  assert.ok(subAgentItem, `${schema.title} lacks subAgentActivity`);
+  requireProperties(subAgentItem, ["agentPath", "agentThreadId", "id", "kind", "type"]);
+  requireFields(subAgentItem, ["agentPath", "agentThreadId", "id", "kind", "type"]);
+  requireEnumMembers(schema.definitions.SubAgentActivityKind, [
+    "started",
+    "interacted",
+    "interrupted",
+    "completed",
+  ]);
+}
+
+function checkChildThreadContract(directory, experimental) {
+  const notificationMethods = requestMethods(
+    readJson(join(directory, "ServerNotification.json")),
+  );
+  for (const method of ["thread/started", "thread/status/changed"]) {
+    assert.ok(notificationMethods.has(method), `generated schema lacks ${method}`);
+  }
+
+  const threadListParams = readJson(join(directory, "v2", "ThreadListParams.json"));
+  requireProperties(threadListParams, ["cursor", "limit", "sourceKinds"]);
+  assert.equal(
+    Boolean(threadListParams.properties.parentThreadId),
+    experimental,
+    "thread/list parentThreadId experimental gating changed",
+  );
+  assert.equal(
+    Boolean(threadListParams.properties.ancestorThreadId),
+    experimental,
+    "thread/list ancestorThreadId experimental gating changed",
+  );
+  if (experimental) {
+    for (const name of ["parentThreadId", "ancestorThreadId"]) {
+      const types = new Set([threadListParams.properties[name].type].flat());
+      assert.ok(types.has("string"), `thread/list ${name} is not a string`);
+      assert.ok(types.has("null"), `thread/list ${name} is not nullable`);
+    }
+  }
+  requireEnumMembers(threadListParams.definitions.ThreadSourceKind, [
+    "subAgent",
+    "subAgentReview",
+    "subAgentCompact",
+    "subAgentThreadSpawn",
+    "subAgentOther",
+  ]);
+
+  const threadListResponse = readJson(
+    join(directory, "v2", "ThreadListResponse.json"),
+  );
+  requireProperties(threadListResponse, ["data", "nextCursor"]);
+  requireFields(threadListResponse, ["data"]);
+  const thread = threadListResponse.definitions.Thread;
+  requireProperties(thread, ["id", "parentThreadId", "sessionId", "source", "status", "turns"]);
+  requireFields(thread, ["id", "sessionId", "source", "status", "turns"]);
+  const statusTypes = new Set(
+    threadListResponse.definitions.ThreadStatus.oneOf.flatMap(
+      (variant) => variant.properties.type.enum,
+    ),
+  );
+  for (const status of ["notLoaded", "idle", "systemError", "active"]) {
+    assert.ok(statusTypes.has(status), `ThreadStatus lacks ${status}`);
+  }
+  const activeStatus = threadListResponse.definitions.ThreadStatus.oneOf.find(
+    (variant) => variant.properties.type.enum.includes("active"),
+  );
+  assert.ok(activeStatus, "ThreadStatus lacks active");
+  requireFields(activeStatus, ["activeFlags", "type"]);
+  requireEnumMembers(threadListResponse.definitions.ThreadActiveFlag, [
+    "waitingOnApproval",
+    "waitingOnUserInput",
+  ]);
+
+  const statusChanged = readJson(
+    join(directory, "v2", "ThreadStatusChangedNotification.json"),
+  );
+  requireProperties(statusChanged, ["status", "threadId"]);
+  requireFields(statusChanged, ["status", "threadId"]);
+
+  const threadStarted = readJson(
+    join(directory, "v2", "ThreadStartedNotification.json"),
+  );
+  requireProperties(threadStarted, ["thread"]);
+  requireFields(threadStarted, ["thread"]);
+  requireProperties(threadStarted.definitions.Thread, [
+    "id",
+    "parentThreadId",
+    "sessionId",
+    "status",
+  ]);
+  requireFields(threadStarted.definitions.Thread, ["id", "sessionId", "status"]);
+
+  const itemStarted = readJson(
+    join(directory, "v2", "ItemStartedNotification.json"),
+  );
+  requireProperties(itemStarted, ["item", "startedAtMs", "threadId", "turnId"]);
+  requireFields(itemStarted, ["item", "startedAtMs", "threadId", "turnId"]);
+  const itemCompleted = readJson(
+    join(directory, "v2", "ItemCompletedNotification.json"),
+  );
+  requireProperties(itemCompleted, ["completedAtMs", "item", "threadId", "turnId"]);
+  requireFields(itemCompleted, ["completedAtMs", "item", "threadId", "turnId"]);
+  checkChildThreadItems(itemStarted);
+  checkChildThreadItems(itemCompleted);
+
+  const threadReadResponse = readJson(
+    join(directory, "v2", "ThreadReadResponse.json"),
+  );
+  requireProperties(threadReadResponse.definitions.Thread, [
+    "id",
+    "parentThreadId",
+    "sessionId",
+    "status",
+    "turns",
+  ]);
+  requireFields(threadReadResponse.definitions.Thread, ["id", "sessionId", "status", "turns"]);
+  requireProperties(threadReadResponse.definitions.Turn, ["id", "items", "status"]);
+  requireFields(threadReadResponse.definitions.Turn, ["id", "items", "status"]);
+  requireEnumMembers(threadReadResponse.definitions.TurnStatus, [
+    "completed",
+    "interrupted",
+    "failed",
+    "inProgress",
+  ]);
+  checkChildThreadItems(threadReadResponse);
 }
 
 function checkSchema(directory, experimental) {
@@ -923,6 +1103,7 @@ function checkSchema(directory, experimental) {
     threadResponse.definitions.CommandExecutionStatus.enum,
     ["inProgress", "completed", "failed", "declined"],
   );
+  checkChildThreadContract(directory, experimental);
 }
 
 function bundleDefinition(bundle, definition) {
@@ -1346,7 +1527,9 @@ function staticCompatibilityCheck(updateBindings) {
   }
 
   console.log(`PASS exact Codex version ${contract.version}`);
-  console.log(`PASS generated stable and experimental schema (${contract.schemaCommand})`);
+  console.log(
+    `PASS generated stable and experimental schema, including child-thread contract (${contract.schemaCommand})`,
+  );
 }
 
 class JsonRpcProcess {

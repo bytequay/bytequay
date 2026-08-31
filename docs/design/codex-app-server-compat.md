@@ -105,6 +105,19 @@ stale or post-cancellation decisions; preserving the full choice set in
 ByteQuay's provider-neutral contract and UI is deferred to CP2 and later
 checkpoints.
 
+The offline schema gate also checks the minimum child-thread contract before
+ByteQuay implements child routing. Stable schema must retain the subagent
+source kinds, thread parent/session/status metadata,
+`thread/status/changed`, V1 `collabAgentToolCall` sender, receiver, and agent
+state fields, and V2 `subAgentActivity` thread, logical path, and lifecycle
+fields. The `thread/list` method and source filtering are stable, but its
+direct-parent and ancestor filters must appear only in the experimental
+schema. Those filters may accelerate reconciliation; the canonical recursive
+history closure does not rely on them. These checks are schema evidence only:
+they neither enable multi-agent features nor add production child routing.
+Thread status is load/activity state, and list responses contain no turn
+history, so neither can prove that a child is terminal.
+
 Run the live gate only with a dedicated API key that may make two model turns:
 
 ```text
@@ -186,7 +199,7 @@ The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
 ```text
 PASS compact Java projection matches the exact generated schema
 PASS exact Codex version 0.151.0
-PASS generated stable and experimental schema (codex app-server generate-json-schema --experimental --out <temporary-directory>)
+PASS generated stable and experimental schema, including child-thread contract (codex app-server generate-json-schema --experimental --out <temporary-directory>)
 PASS App Server no-child baseline and config-source isolation
 ```
 

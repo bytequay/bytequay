@@ -305,6 +305,16 @@ or out-of-root skill without pinning names or count. Synthetic poison cases
 exercise those rejection branches. This repairs evidence behind the existing
 capability-isolation checks; it closes none of the remaining live CP1 gates.
 
+The offline schema gate now also pins the child-thread facts required by the
+later recursive live proof. Stable schema must expose subagent source kinds,
+parent/session/status metadata, `thread/status/changed`, V1
+`collabAgentToolCall` sender/receiver/state fields, and V2
+`subAgentActivity` identity/path/lifecycle fields. The direct-parent and
+ancestor filters on `thread/list` must remain available only in the
+experimental schema. They are an optional discovery aid; the fixed-point
+history algorithm does not depend on them. This schema evidence adds no
+production child router and does not close the live recursion gate.
+
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
 `environment/info`, background-terminal APIs, steering, and streamed events.
@@ -353,6 +363,8 @@ Implementation:
 - [x] Inspect `model/list` effort choices, text input support, and advertised
   multi-agent protocol version, then run the advertised default effort.
 - [x] Exercise `thread/read(includeTurns: true)` with command history.
+- [x] Pin the stable V1/V2 child item, child status, source-kind, and parent
+  metadata schema plus the experimental-only parent/ancestor list filters.
 - [ ] Exercise recursive child discovery needed by the later quiescence
   barrier. Use a separate child-capable profile that enables only the reviewed
   multi-agent feature shape and repeat every capability-isolation assertion;

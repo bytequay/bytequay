@@ -769,6 +769,97 @@
           "required": true,
           "nullable": false,
           "sample": "inProgress"
+        },
+        {
+          "javaName": "senderThreadId",
+          "wireName": "senderThreadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "receiverThreadIds",
+          "wireName": "receiverThreadIds",
+          "required": true,
+          "nullable": false,
+          "sample": [
+            "child-thread"
+          ]
+        },
+        {
+          "javaName": "agentsStates",
+          "wireName": "agentsStates",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "child-thread": {
+              "status": "running"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "CollabAgentState",
+      "mode": "decode",
+      "sources": [
+        "v2#CollabAgentState"
+      ],
+      "components": [
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "pendingInit"
+        },
+        {
+          "javaName": "message",
+          "wireName": "message",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "SubAgentActivityItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=subAgentActivity]"
+      ],
+      "context": {
+        "type": "subAgentActivity"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "agentThreadId",
+          "wireName": "agentThreadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "agentPath",
+          "wireName": "agentPath",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "kind",
+          "wireName": "kind",
+          "required": true,
+          "nullable": false,
+          "sample": "started"
         }
       ]
     },
@@ -868,6 +959,13 @@
           "required": false,
           "nullable": true,
           "sample": 1
+        },
+        {
+          "javaName": "items",
+          "wireName": "items",
+          "required": true,
+          "nullable": false,
+          "sample": []
         }
       ]
     },
@@ -1558,6 +1656,101 @@
       ]
     },
     {
+      "javaType": "ThreadReadParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadReadParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "includeTurns",
+          "wireName": "includeTurns",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadReadResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadReadResponse"
+      ],
+      "components": [
+        {
+          "javaName": "thread",
+          "wireName": "thread",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cliVersion": "value",
+            "createdAt": 1,
+            "cwd": "value",
+            "ephemeral": false,
+            "id": "value",
+            "modelProvider": "value",
+            "preview": "value",
+            "projectId": "value",
+            "sessionId": "value",
+            "source": {
+              "custom": "value"
+            },
+            "status": {
+              "activeFlags": [],
+              "type": "active"
+            },
+            "turns": [],
+            "updatedAt": 1
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "HistoryThread",
+      "mode": "decode",
+      "sources": [
+        "v2#Thread"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "sessionId",
+          "wireName": "sessionId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "parentThreadId",
+          "wireName": "parentThreadId",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "turns",
+          "wireName": "turns",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
       "javaType": "TurnStartResponse",
       "mode": "decode",
       "sources": [
@@ -1648,6 +1841,13 @@
           "required": true,
           "nullable": false,
           "sample": []
+        },
+        {
+          "javaName": "multiAgentVersion",
+          "wireName": "multiAgentVersion",
+          "required": false,
+          "nullable": true,
+          "sample": "disabled"
         }
       ]
     },
@@ -2037,6 +2237,44 @@
       "wireValues": [
         "commentary",
         "final_answer"
+      ]
+    },
+    {
+      "javaType": "CollabAgentStatus",
+      "sources": [
+        "v2#CollabAgentStatus"
+      ],
+      "wireValues": [
+        "completed",
+        "errored",
+        "interrupted",
+        "notFound",
+        "pendingInit",
+        "running",
+        "shutdown"
+      ]
+    },
+    {
+      "javaType": "SubAgentActivityKind",
+      "sources": [
+        "v2#SubAgentActivityKind"
+      ],
+      "wireValues": [
+        "completed",
+        "interacted",
+        "interrupted",
+        "started"
+      ]
+    },
+    {
+      "javaType": "MultiAgentVersion",
+      "sources": [
+        "v2#MultiAgentVersion"
+      ],
+      "wireValues": [
+        "disabled",
+        "v1",
+        "v2"
       ]
     }
   ]

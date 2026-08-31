@@ -135,6 +135,7 @@ final class CodexEventMapper
                     eventId,
                     timestamp,
                     started));
+            case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };
     }

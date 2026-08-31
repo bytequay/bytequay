@@ -318,10 +318,11 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "mcpToolCall", value = McpToolCallItem.class),
             @JsonSubTypes.Type(name = "dynamicToolCall", value = DynamicToolCallItem.class),
             @JsonSubTypes.Type(name = "collabAgentToolCall", value = CollabAgentToolCallItem.class),
+            @JsonSubTypes.Type(name = "subAgentActivity", value = SubAgentActivityItem.class),
     })
     sealed interface ThreadItem
             permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
-            DynamicToolCallItem, CollabAgentToolCallItem, UnknownThreadItem
+            DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, UnknownThreadItem
     {
         String id();
     }
@@ -414,7 +415,13 @@ final class CodexProtocol
         }
     }
 
-    record CollabAgentToolCallItem(String id, String tool, ActivityStatus status)
+    record CollabAgentToolCallItem(
+            String id,
+            String tool,
+            ActivityStatus status,
+            String senderThreadId,
+            List<String> receiverThreadIds,
+            Map<String, CollabAgentState> agentsStates)
             implements ThreadItem
     {
         CollabAgentToolCallItem
@@ -422,6 +429,36 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");
+            checkIdentifier(senderThreadId, "senderThreadId");
+            receiverThreadIds = ImmutableList.copyOf(receiverThreadIds);
+            receiverThreadIds.forEach(threadId -> checkIdentifier(threadId, "receiverThreadId"));
+            agentsStates = ImmutableMap.copyOf(agentsStates);
+            agentsStates.keySet().forEach(threadId -> checkIdentifier(threadId, "agentThreadId"));
+        }
+    }
+
+    record CollabAgentState(CollabAgentStatus status, Optional<String> message)
+    {
+        CollabAgentState
+        {
+            requireNonNull(status, "status is null");
+            requireNonNull(message, "message is null");
+        }
+    }
+
+    record SubAgentActivityItem(
+            String id,
+            String agentThreadId,
+            String agentPath,
+            SubAgentActivityKind kind)
+            implements ThreadItem
+    {
+        SubAgentActivityItem
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(agentThreadId, "agentThreadId");
+            checkIdentifier(agentPath, "agentPath");
+            requireNonNull(kind, "kind is null");
         }
     }
 
@@ -438,7 +475,8 @@ final class CodexProtocol
             String id,
             TurnStatus status,
             Optional<TurnError> error,
-            Optional<Long> durationMs)
+            Optional<Long> durationMs,
+            List<ThreadItem> items)
     {
         Turn
         {
@@ -447,6 +485,7 @@ final class CodexProtocol
             requireNonNull(error, "error is null");
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
+            items = ImmutableList.copyOf(items);
         }
     }
 
@@ -520,6 +559,40 @@ final class CodexProtocol
         DECLINED,
         @JsonProperty("interrupted")
         INTERRUPTED,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    enum CollabAgentStatus
+    {
+        @JsonProperty("pendingInit")
+        PENDING_INIT,
+        @JsonProperty("running")
+        RUNNING,
+        @JsonProperty("interrupted")
+        INTERRUPTED,
+        @JsonProperty("completed")
+        COMPLETED,
+        @JsonProperty("errored")
+        ERRORED,
+        @JsonProperty("shutdown")
+        SHUTDOWN,
+        @JsonProperty("notFound")
+        NOT_FOUND,
+        @JsonEnumDefaultValue
+        UNKNOWN,
+    }
+
+    enum SubAgentActivityKind
+    {
+        @JsonProperty("started")
+        STARTED,
+        @JsonProperty("interacted")
+        INTERACTED,
+        @JsonProperty("interrupted")
+        INTERRUPTED,
+        @JsonProperty("completed")
+        COMPLETED,
         @JsonEnumDefaultValue
         UNKNOWN,
     }
@@ -847,6 +920,42 @@ final class CodexProtocol
         }
     }
 
+    record ThreadReadParams(
+            String threadId,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<Boolean> includeTurns)
+    {
+        ThreadReadParams
+        {
+            checkIdentifier(threadId, "threadId");
+            requireNonNull(includeTurns, "includeTurns is null");
+        }
+    }
+
+    record ThreadReadResponse(HistoryThread thread)
+    {
+        ThreadReadResponse
+        {
+            requireNonNull(thread, "thread is null");
+        }
+    }
+
+    record HistoryThread(
+            String id,
+            String sessionId,
+            Optional<String> parentThreadId,
+            List<Turn> turns)
+    {
+        HistoryThread
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(sessionId, "sessionId");
+            requireNonNull(parentThreadId, "parentThreadId is null");
+            parentThreadId.ifPresent(parent -> checkIdentifier(parent, "parentThreadId"));
+            turns = ImmutableList.copyOf(turns);
+        }
+    }
+
     record TextInput(String type, String text)
     {
         TextInput
@@ -941,7 +1050,8 @@ final class CodexProtocol
             Boolean hidden,
             Boolean isDefault,
             String defaultReasoningEffort,
-            List<ReasoningEffortOption> supportedReasoningEfforts)
+            List<ReasoningEffortOption> supportedReasoningEfforts,
+            Optional<MultiAgentVersion> multiAgentVersion)
     {
         ModelEntry
         {
@@ -953,7 +1063,20 @@ final class CodexProtocol
             requireNonNull(defaultReasoningEffort, "defaultReasoningEffort is null");
             supportedReasoningEfforts = ImmutableList.copyOf(
                     requireNonNull(supportedReasoningEfforts, "supportedReasoningEfforts is null"));
+            requireNonNull(multiAgentVersion, "multiAgentVersion is null");
         }
+    }
+
+    enum MultiAgentVersion
+    {
+        @JsonProperty("disabled")
+        DISABLED,
+        @JsonProperty("v1")
+        V1,
+        @JsonProperty("v2")
+        V2,
+        @JsonEnumDefaultValue
+        UNKNOWN,
     }
 
     record ReasoningEffortOption(String reasoningEffort)

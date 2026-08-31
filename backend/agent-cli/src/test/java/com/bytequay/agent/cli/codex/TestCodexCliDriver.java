@@ -533,7 +533,7 @@ class TestCodexCliDriver
                 case "turn/start" -> {
                     activeTurn = "turn-" + turns.incrementAndGet();
                     respond(id, "{\"turn\":{\"id\":\"" + activeTurn
-                            + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null}}");
+                            + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");
                 }
                 case "turn/interrupt" -> {
                     String interruptedTurn = activeTurn;
@@ -543,7 +543,7 @@ class TestCodexCliDriver
                         completionGate.join();
                         emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                                 + "\"turn\":{\"id\":\"" + interruptedTurn
-                                + "\",\"status\":\"interrupted\",\"error\":null,\"durationMs\":1}}}");
+                                + "\",\"status\":\"interrupted\",\"error\":null,\"durationMs\":1,\"items\":[]}}}");
                     });
                 }
                 default -> {
@@ -577,14 +577,14 @@ class TestCodexCliDriver
                     + "\"cachedInputTokens\":30,\"outputTokens\":20}}}}");
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
-                    + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2}}}");
+                    + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2,\"items\":[]}}}");
         }
 
         private void failTurn()
         {
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
-                    + "\",\"status\":\"failed\",\"error\":{\"message\":\"provider failed\"},\"durationMs\":2}}}");
+                    + "\",\"status\":\"failed\",\"error\":{\"message\":\"provider failed\"},\"durationMs\":2,\"items\":[]}}}");
         }
 
         private void disconnect()

@@ -176,6 +176,16 @@ class TestCodexProtocolReferenceBindings
         assertThat(encoded.has("scope")).isFalse();
     }
 
+    @Test
+    void omitsAbsentThreadReadOption()
+            throws Exception
+    {
+        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.ThreadReadParams(
+                "thread-1",
+                Optional.empty())));
+        assertThat(encoded.has("includeTurns")).isFalse();
+    }
+
     private void verifyDecodeBinding(JsonNode binding, Class<?> type, RecordComponent[] actualComponents)
     {
         String description = description(binding);

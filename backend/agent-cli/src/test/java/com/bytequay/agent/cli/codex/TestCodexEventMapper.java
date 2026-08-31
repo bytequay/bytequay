@@ -76,7 +76,8 @@ class TestCodexEventMapper
 
         ProviderAgentEvent.Lifecycle completed = only("""
                 {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
-                "id":"turn-1","status":"completed","error":null,"durationMs":14575}},
+                "id":"turn-1","status":"completed","error":null,"durationMs":14575,
+                "items":[]}},
                 "emittedAtMs":1786884871461}
                 """, ProviderAgentEvent.Lifecycle.class);
         assertThat(completed.phase()).isEqualTo(ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED);

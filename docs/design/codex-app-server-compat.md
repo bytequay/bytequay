@@ -118,6 +118,15 @@ they neither enable multi-agent features nor add production child routing.
 Thread status is load/activity state, and list responses contain no turn
 history, so neither can prove that a child is terminal.
 
+The compact Java projection retains the optional model multi-agent version,
+the required V1 sender/receiver/state identity and optional state message, the
+required V2 thread/path lifecycle identity, and recursive `thread/read`
+parent/session/turn/item history. It accepts omitted optional capability
+fields, additive object fields, and future enum members through `UNKNOWN`.
+This does not subscribe to child threads, build a graph, or publish V2
+activity; those runtime behaviors remain behind the live child-capable proof
+and later integration checkpoints.
+
 Run the live gate only with a dedicated API key that may make two model turns:
 
 ```text

@@ -52,6 +52,9 @@ complete the backend task.
   complete.
 - Each checkpoint must leave its affected modules buildable and must include
   the smallest automated check that would fail if its contract regressed.
+- Java checkpoint changes pass collection arguments directly to Guava
+  immutable `copyOf` operations without a redundant `requireNonNull` wrapper,
+  following the project-wide rule in `CONTRIBUTING.md`.
 
 ## 3. Current baseline
 
@@ -315,6 +318,15 @@ experimental schema. They are an optional discovery aid; the fixed-point
 history algorithm does not depend on them. This schema evidence adds no
 production child router and does not close the live recursion gate.
 
+The compact Java projection now preserves an optional model
+`multiAgentVersion`, V1 sender/receiver/agent-state identity and optional state
+message, V2 agent thread, logical path, and lifecycle kind, plus the
+parent/session/turn/item history
+needed by recursive reconciliation. Optional capability fields remain absent
+when omitted, additive fields remain ignorable, and future enum values decode
+as `UNKNOWN`. This is codec evidence only: V2 activity is not yet routed into
+provider-neutral events, and no child subscription or graph exists.
+
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
 `environment/info`, background-terminal APIs, steering, and streamed events.
@@ -365,6 +377,8 @@ Implementation:
 - [x] Exercise `thread/read(includeTurns: true)` with command history.
 - [x] Pin the stable V1/V2 child item, child status, source-kind, and parent
   metadata schema plus the experimental-only parent/ancestor list filters.
+- [x] Project and codec-test model multi-agent capability, V1/V2 child
+  identity, and recursive thread/turn/item history without enabling routing.
 - [ ] Exercise recursive child discovery needed by the later quiescence
   barrier. Use a separate child-capable profile that enables only the reviewed
   multi-agent feature shape and repeat every capability-isolation assertion;

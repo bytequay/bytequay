@@ -78,7 +78,10 @@ Keep public collection signatures on JDK interfaces, but use Guava immutable
 implementations for values and defensive copies. Do not use JDK
 `List.of/copyOf`, `Set.of/copyOf`, or `Map.of/copyOf` in new production code,
 tests, or HTTP request bodies; use the corresponding `ImmutableList`,
-`ImmutableSet`, or `ImmutableMap` factory.
+`ImmutableSet`, or `ImmutableMap` factory. Pass collection arguments directly
+to `ImmutableList.copyOf`, `ImmutableSet.copyOf`, and `ImmutableMap.copyOf`;
+do not wrap them in `requireNonNull`, because the immutable-copy operation
+already rejects null collections and elements.
 
 Keep independently useful records as top-level types. Nest a record in a
 service, client, or controller only when it is private implementation data or

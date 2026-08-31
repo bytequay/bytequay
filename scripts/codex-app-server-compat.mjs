@@ -150,7 +150,27 @@ const referenceRecordBindings = [
   ], [component("id"), component("tool"), component("status")]),
   recordBinding("CollabAgentToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "collabAgentToolCall"),
-  ], [component("id"), component("tool"), component("status")]),
+  ], [
+    component("id"),
+    component("tool"),
+    component("status"),
+    component("senderThreadId"),
+    component("receiverThreadIds", "receiverThreadIds", ["child-thread"]),
+    component("agentsStates", "agentsStates", {
+      "child-thread": { status: "running" },
+    }),
+  ]),
+  recordBinding("CollabAgentState", "decode", [
+    schemaSource("v2", "CollabAgentState"),
+  ], [component("status"), component("message")]),
+  recordBinding("SubAgentActivityItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "subAgentActivity"),
+  ], [
+    component("id"),
+    component("agentThreadId"),
+    component("agentPath"),
+    component("kind"),
+  ]),
   recordBinding("FileUpdateChange", "decode", [schemaSource("v2", "FileUpdateChange")], [
     component("path"),
     component("kind"),
@@ -164,6 +184,7 @@ const referenceRecordBindings = [
     component("status"),
     component("error"),
     component("durationMs"),
+    component("items"),
   ]),
   recordBinding("TurnError", "decode", [schemaSource("v2", "TurnError")], [
     component("message"),
@@ -269,6 +290,18 @@ const referenceRecordBindings = [
   recordBinding("TurnThread", "decode", [schemaSource("v2", "Thread")], [
     component("id"),
   ]),
+  recordBinding("ThreadReadParams", "encode", [
+    schemaSource("v2", "ThreadReadParams"),
+  ], [component("threadId"), component("includeTurns")]),
+  recordBinding("ThreadReadResponse", "decode", [
+    schemaSource("v2", "ThreadReadResponse"),
+  ], [component("thread")]),
+  recordBinding("HistoryThread", "decode", [schemaSource("v2", "Thread")], [
+    component("id"),
+    component("sessionId"),
+    component("parentThreadId"),
+    component("turns"),
+  ]),
   recordBinding("TurnStartResponse", "decode", [
     schemaSource("v2", "TurnStartResponse"),
   ], [component("turn")]),
@@ -283,6 +316,7 @@ const referenceRecordBindings = [
     component("isDefault"),
     component("defaultReasoningEffort"),
     component("supportedReasoningEfforts"),
+    component("multiAgentVersion"),
   ]),
   recordBinding("ReasoningEffortOption", "decode", [
     schemaSource("v2", "ReasoningEffortOption"),
@@ -354,6 +388,18 @@ const referenceEnumBindings = [
   },
   { javaType: "PlanStepStatus", sources: [schemaSource("v2", "TurnPlanStepStatus")] },
   { javaType: "MessagePhase", sources: [schemaSource("v2", "MessagePhase")] },
+  {
+    javaType: "CollabAgentStatus",
+    sources: [schemaSource("v2", "CollabAgentStatus")],
+  },
+  {
+    javaType: "SubAgentActivityKind",
+    sources: [schemaSource("v2", "SubAgentActivityKind")],
+  },
+  {
+    javaType: "MultiAgentVersion",
+    sources: [schemaSource("v2", "MultiAgentVersion")],
+  },
 ];
 
 const experimentalMethods = [

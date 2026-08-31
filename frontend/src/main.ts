@@ -33,6 +33,12 @@ import {
   waitForBackendReady,
 } from './backendProcess';
 
+// The app can outlive the terminal that launched it; a closed logging pipe
+// must not crash the main process when Electron reports an IPC rejection.
+const ignoreOutputError = (): void => undefined;
+process.stdout.on('error', ignoreOutputError);
+process.stderr.on('error', ignoreOutputError);
+
 app.setName('ByteQuay');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 

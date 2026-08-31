@@ -393,6 +393,19 @@ The detailed backend contract is in
   Server, task exec-server, and Claude processes use durable launch
   intents/markers; normal per-turn quiescence uses typed item history and App
   Server's background-terminal APIs.
+- The current executable proof starts the shared Codex App Server with an
+  explicit no-child isolation baseline. Before creating a thread, ByteQuay must
+  verify through
+  `config/read` that the effective session flags disable every unapproved
+  optional feature and web search, expose no MCP server, and apply the minimal
+  shell environment without inherited setters, exclusions, or filters.
+  `hooks/list` must be empty. `skills/list` may contain only bundled system
+  skills canonically beneath the isolated `CODEX_HOME/skills/.system`, never a
+  repository, user, admin, plugin-owned, or out-of-root skill. Because that
+  baseline disables multi-agent, CP1 must separately prove the child-capable
+  production profile and repeat these checks before CP1 completes or CP2
+  begins. Skill discovery and the origin/error guard repeat immediately before
+  every turn so an earlier workspace-write turn cannot introduce a later skill.
 - Before a Codex turn, the driver reads App Server's effective config layers
   for every task cwd, requires the isolated user layer, rejects project config,
   and rejects every `.rules` file beside a returned system, user, or project

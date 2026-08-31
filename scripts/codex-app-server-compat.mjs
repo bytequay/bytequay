@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -368,6 +368,8 @@ const stableMethods = [
   "model/list",
   "config/read",
   "configRequirements/read",
+  "hooks/list",
+  "skills/list",
   "thread/start",
   "turn/start",
   "thread/read",
@@ -402,6 +404,16 @@ const disabledFeatures = [
   "tool_call_mcp_elicitation",
   "tool_suggest",
   "workspace_dependencies",
+];
+
+const shellEnvironmentIncludeOnly = [
+  "HOME",
+  "LANG",
+  "LOGNAME",
+  "PATH",
+  "SHELL",
+  "TMPDIR",
+  "USER",
 ];
 
 const passiveTurnItemTypes = new Set([
@@ -638,6 +650,50 @@ function checkSchema(directory, experimental) {
     [],
   );
 
+  const skillsListParams = readJson(join(directory, "v2", "SkillsListParams.json"));
+  requireProperties(skillsListParams, ["cwds", "forceReload"]);
+  const skillsListResponse = readJson(join(directory, "v2", "SkillsListResponse.json"));
+  requireProperties(skillsListResponse, ["data"]);
+  requireFields(skillsListResponse, ["data"]);
+  requireProperties(skillsListResponse.definitions.SkillsListEntry, [
+    "cwd",
+    "errors",
+    "skills",
+  ]);
+  requireFields(skillsListResponse.definitions.SkillsListEntry, [
+    "cwd",
+    "errors",
+    "skills",
+  ]);
+  requireProperties(skillsListResponse.definitions.SkillMetadata, [
+    "name",
+    "path",
+    "pluginId",
+    "scope",
+  ]);
+  requireFields(skillsListResponse.definitions.SkillMetadata, ["name", "path", "scope"]);
+  assert.ok(
+    skillsListResponse.definitions.SkillScope.enum.includes("system"),
+    "skill scopes lack system",
+  );
+
+  const hooksListParams = readJson(join(directory, "v2", "HooksListParams.json"));
+  requireProperties(hooksListParams, ["cwds"]);
+  const hooksListResponse = readJson(join(directory, "v2", "HooksListResponse.json"));
+  requireProperties(hooksListResponse, ["data"]);
+  requireFields(hooksListResponse, ["data"]);
+  requireProperties(hooksListResponse.definitions.HooksListEntry, [
+    "cwd",
+    "errors",
+    "hooks",
+    "warnings",
+  ]);
+  requireFields(hooksListResponse.definitions.HooksListEntry, [
+    "cwd",
+    "errors",
+    "hooks",
+    "warnings",
+  ]);
   if (!experimental) return;
 
   const commandApprovalParams = readJson(
@@ -1666,6 +1722,206 @@ function assertNoManagedRequirements(response) {
   );
 }
 
+function entriesByCwd(response, cwds, method) {
+  assert.ok(Array.isArray(response?.data), `${method} omitted its data array`);
+  assert.equal(
+    response.data.length,
+    cwds.length,
+    `${method} returned an unexpected number of cwd entries`,
+  );
+  const canonicalCwds = cwds.map((cwd) => realpathSync(cwd));
+  const requested = new Set(canonicalCwds);
+  assert.equal(requested.size, cwds.length, `${method} received duplicate cwd values`);
+  const entries = new Map();
+  for (const entry of response.data) {
+    assert.equal(typeof entry.cwd, "string", `${method} returned an entry without cwd`);
+    const cwd = realpathSync(entry.cwd);
+    assert.ok(requested.has(cwd), `${method} returned unrequested cwd ${entry.cwd}`);
+    assert.ok(!entries.has(cwd), `${method} returned duplicate cwd ${entry.cwd}`);
+    entries.set(cwd, entry);
+  }
+  return canonicalCwds.map((cwd) => entries.get(cwd));
+}
+
+function assertNoAmbientHooks(response, cwds) {
+  for (const entry of entriesByCwd(response, cwds, "hooks/list")) {
+    assert.deepEqual(entry.hooks, [], `lifecycle hooks discovered for ${entry.cwd}`);
+    assert.deepEqual(entry.errors, [], `hook discovery failed for ${entry.cwd}`);
+    assert.deepEqual(entry.warnings, [], `hook discovery warned for ${entry.cwd}`);
+  }
+}
+
+function assertCapabilityGuardsRejectPoison(cwd, codexHome) {
+  const inRootDirectory = join(
+    codexHome,
+    "skills",
+    ".system",
+    "bytequay-poison-control",
+  );
+  const inRootPath = join(inRootDirectory, "SKILL.md");
+  const outOfRootPath = join(cwd, "bytequay-poison-skill.md");
+  mkdirSync(inRootDirectory, { recursive: true, mode: 0o700 });
+  writeFileSync(inRootPath, "poison control\n");
+  writeFileSync(outOfRootPath, "poison control\n");
+  const skillsResponse = (skill, errors = []) => ({
+    data: [{ cwd, errors, skills: skill ? [skill] : [] }],
+  });
+  const systemSkill = {
+    name: "bytequay-poison-control",
+    path: inRootPath,
+    pluginId: null,
+    scope: "system",
+  };
+  assert.throws(
+    () => assertOnlyBundledSystemSkills(
+      skillsResponse({ ...systemSkill, scope: "repo" }),
+      [cwd],
+      codexHome,
+    ),
+    /non-system skill/,
+    "repository skill passed the skill-origin guard",
+  );
+  assert.throws(
+    () => assertOnlyBundledSystemSkills(
+      skillsResponse({ ...systemSkill, pluginId: "poison-plugin" }),
+      [cwd],
+      codexHome,
+    ),
+    /plugin skill/,
+    "plugin skill passed the skill-origin guard",
+  );
+  assert.throws(
+    () => assertOnlyBundledSystemSkills(
+      skillsResponse({ ...systemSkill, path: outOfRootPath }),
+      [cwd],
+      codexHome,
+    ),
+    /escaped the isolated system-skill root/,
+    "out-of-root skill passed the skill-origin guard",
+  );
+  assert.throws(
+    () => assertOnlyBundledSystemSkills(
+      skillsResponse(null, [{ message: "poison", path: outOfRootPath }]),
+      [cwd],
+      codexHome,
+    ),
+    /skill discovery failed/,
+    "skill discovery error passed the skill-origin guard",
+  );
+  assert.throws(
+    () => assertNoAmbientHooks({
+      data: [{ cwd, errors: [], hooks: [{}], warnings: [] }],
+    }, [cwd]),
+    /lifecycle hooks discovered/,
+    "discovered hook passed the hook guard",
+  );
+}
+
+function assertOnlyBundledSystemSkills(response, cwds, codexHome) {
+  const isolatedHome = realpathSync(codexHome);
+  let systemSkillsRoot;
+  for (const entry of entriesByCwd(response, cwds, "skills/list")) {
+    assert.deepEqual(entry.errors, [], `skill discovery failed for ${entry.cwd}`);
+    assert.ok(Array.isArray(entry.skills), `skills/list omitted skills for ${entry.cwd}`);
+    for (const skill of entry.skills) {
+      assert.equal(skill.scope, "system", `non-system skill ${skill.name} was discovered`);
+      assert.equal(skill.pluginId ?? null, null, `plugin skill ${skill.name} was discovered`);
+      assert.equal(typeof skill.path, "string", `skill ${skill.name} omitted its path`);
+      if (!systemSkillsRoot) {
+        systemSkillsRoot = realpathSync(join(codexHome, "skills", ".system"));
+        assertPathWithin(
+          isolatedHome,
+          systemSkillsRoot,
+          "system-skill root escaped the isolated Codex home",
+        );
+      }
+      const skillPath = realpathSync(skill.path);
+      assertPathWithin(
+        systemSkillsRoot,
+        skillPath,
+        `skill ${skill.name} escaped the isolated system-skill root`,
+      );
+    }
+  }
+}
+
+function assertPathWithin(root, candidate, message) {
+  const pathWithinRoot = relative(root, candidate);
+  assert.ok(
+    pathWithinRoot !== "" &&
+      pathWithinRoot !== ".." &&
+      !pathWithinRoot.startsWith(`..${sep}`) &&
+      !isAbsolute(pathWithinRoot),
+    message,
+  );
+}
+
+function assertBaselineLaunchPolicy(response) {
+  const config = response?.config;
+  assert.ok(config && typeof config === "object", "config/read omitted effective config");
+  assert.equal(config.web_search, "disabled", "web search was not disabled");
+  assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
+  assert.equal(
+    config.features?.skip_host_skill_discovery,
+    true,
+    "host skill discovery was not disabled",
+  );
+  for (const feature of disabledFeatures) {
+    assert.equal(config.features?.[feature], false, `feature ${feature} was not disabled`);
+  }
+  assert.deepEqual(
+    config.shell_environment_policy,
+    {
+      inherit: "core",
+      ignore_default_excludes: false,
+      exclude: null,
+      set: null,
+      include_only: shellEnvironmentIncludeOnly,
+      filters: null,
+      experimental_use_profile: false,
+    },
+    "effective shell environment policy changed",
+  );
+  const sessionFlagLayers = response.layers?.filter(
+    (layer) => layer.name.type === "sessionFlags",
+  );
+  assert.equal(
+    sessionFlagLayers?.length,
+    1,
+    "config/read did not report exactly one session-flags layer",
+  );
+  const sessionFlagLayer = sessionFlagLayers[0];
+  assert.equal(
+    sessionFlagLayer.disabledReason ?? null,
+    null,
+    "the session-flags layer is disabled",
+  );
+  const sessionFlags = sessionFlagLayer.config;
+  assert.equal(sessionFlags.web_search, "disabled", "session flags omitted web-search policy");
+  assert.equal(
+    sessionFlags.features?.skip_host_skill_discovery,
+    true,
+    "session flags omitted host-skill isolation",
+  );
+  for (const feature of disabledFeatures) {
+    assert.equal(
+      sessionFlags.features?.[feature],
+      false,
+      `session flags omitted disabled feature ${feature}`,
+    );
+  }
+  assert.deepEqual(
+    sessionFlags.shell_environment_policy,
+    {
+      inherit: "core",
+      ignore_default_excludes: false,
+      include_only: shellEnvironmentIncludeOnly,
+      experimental_use_profile: false,
+    },
+    "session flags omitted the shell environment policy",
+  );
+}
+
 async function checkAppServerConfigSourceIsolation() {
   const root = mkdtempSync(join(tmpdir(), "bytequay-codex-config-"));
   let child;
@@ -1742,10 +1998,21 @@ async function checkAppServerConfigSourceIsolation() {
       "rule-bearing user config passed the App Server source gate",
     );
     rmSync(poisonedRule);
-    const cleanConfig = await started.rpc.request("config/read", {
-      cwd: cleanWorkspace,
-      includeLayers: true,
-    });
+    const [cleanConfig, skills, hooks] = await Promise.all([
+      started.rpc.request("config/read", {
+        cwd: cleanWorkspace,
+        includeLayers: true,
+      }),
+      started.rpc.request("skills/list", {
+        cwds: [cleanWorkspace],
+        forceReload: true,
+      }),
+      started.rpc.request("hooks/list", { cwds: [cleanWorkspace] }),
+    ]);
+    assertBaselineLaunchPolicy(cleanConfig);
+    assertOnlyBundledSystemSkills(skills, [cleanWorkspace], codexHome);
+    assertNoAmbientHooks(hooks, [cleanWorkspace]);
+    assertCapabilityGuardsRejectPoison(cleanWorkspace, codexHome);
     assertNoAmbientExecPolicyRules(cleanConfig, codexHome);
   } catch (error) {
     failure = error;
@@ -1787,7 +2054,9 @@ async function checkAppServerConfigSourceIsolation() {
     }
   }
   if (failure) throw failure;
-  console.log("PASS ByteQuay rejects rule-bearing App Server sources and accepts clean isolation");
+  console.log(
+    "PASS App Server no-child baseline and config-source isolation",
+  );
 }
 
 function assertRuntimeHealthy(rpc, execServers) {
@@ -1930,7 +2199,7 @@ function appServerArguments() {
     "-c",
     "shell_environment_policy.ignore_default_excludes=false",
     "-c",
-    'shell_environment_policy.include_only=["HOME","LANG","LOGNAME","PATH","SHELL","TMPDIR","USER"]',
+    `shell_environment_policy.include_only=${JSON.stringify(shellEnvironmentIncludeOnly)}`,
     "-c",
     "shell_environment_policy.experimental_use_profile=false",
   ];
@@ -1939,30 +2208,23 @@ function appServerArguments() {
 }
 
 async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
-  const [mcpStatus, hooks, configs, requirements] = await Promise.all([
+  const [mcpStatus, hooks, skills, configs, requirements] = await Promise.all([
     rpc.request("mcpServerStatus/list", {
       threadId,
       limit: 100,
       detail: "toolsAndAuthOnly",
     }),
     rpc.request("hooks/list", { cwds }),
+    rpc.request("skills/list", { cwds, forceReload: true }),
     Promise.all(cwds.map((cwd) =>
       rpc.request("config/read", { cwd, includeLayers: true }))),
     rpc.request("configRequirements/read", null),
   ]);
   assert.deepEqual(mcpStatus.data, [], "isolated thread inherited MCP servers");
-  assert.ok(
-    hooks.data.length === cwds.length &&
-      hooks.data.every(
-        (entry) =>
-          entry.hooks.length === 0 &&
-          entry.errors.length === 0 &&
-          entry.warnings.length === 0,
-    ),
-    "isolated thread inherited lifecycle hooks",
-  );
+  assertNoAmbientHooks(hooks, cwds);
+  assertOnlyBundledSystemSkills(skills, cwds, codexHome);
   for (const config of configs) {
-    assert.equal(config.config.web_search, "disabled", "web search was not disabled");
+    assertBaselineLaunchPolicy(config);
     assertNoAmbientExecPolicyRules(config, codexHome);
   }
   assertNoManagedRequirements(requirements);
@@ -2316,6 +2578,9 @@ async function liveCompatibilityCheck() {
       excludeTurns: false,
     }));
     assert.equal(resumed.thread.id, threadId);
+    await interruptible(
+      verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
+    );
 
     const secondTurnNotificationStart = rpc.notifications.length;
     const secondCompletedTurn = await interruptible(completeTurn(rpc, {

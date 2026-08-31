@@ -54,6 +54,28 @@ missing `requirements` field, non-null value, request failure, or undecodable
 response as unavailable. The response must contain exactly that one top-level
 key; an unknown sibling policy field also fails closed.
 
+Before any thread exists, that probe also calls `config/read`, `skills/list`,
+and `hooks/list` for the no-child isolation baseline. It requires exactly one
+active `sessionFlags` layer containing every configured feature disable,
+disabled web search, host-skill-discovery disable, and the minimal
+shell-environment policy. The same values must appear in the effective config,
+with an empty MCP-server map and no inherited shell environment setters,
+exclusions, or filters. Hook discovery must return one clean, empty result for
+the requested canonical cwd.
+
+`skip_host_skill_discovery` does not make the v0.151 skill catalog empty. App
+Server materializes its bundled system skills beneath the isolated
+`CODEX_HOME/skills/.system`. The probe permits only those canonical paths with
+`scope: "system"` and no plugin owner; any repository, user, admin, plugin, or
+out-of-root skill, or any discovery error, fails the gate. It deliberately does
+not pin the bundled skill names or count.
+
+Synthetic poison responses prove the guards reject a repository skill, a
+plugin-owned system skill, a canonical path outside the isolated system-skill
+root, a skill-discovery error, and any discovered lifecycle hook. These are
+guard-unit controls; the real App Server response remains the positive runtime
+control.
+
 Regenerate the committed projection only when intentionally updating the exact
 reference contract:
 
@@ -98,9 +120,16 @@ different, empty `CODEX_HOME` and a minimal allowlisted process environment.
 The App Server's shell policy passes only core command variables and omits
 `CODEX_API_KEY` and `CODEX_HOME`. A sentinel present only in the App Server
 process must also be absent from each command. The fixture disables apps,
-plugins, host skills, hooks, web search, multi-agent, and related optional
-tools. Before the first turn it verifies that the task sees no MCP servers,
-hooks, project config, or user config outside the temporary App Server home.
+plugins, host skill discovery, hooks, web search, multi-agent, and related
+optional tools. Before each turn and again after restart, it repeats the
+effective launch-policy, skill-origin, hook, config-source, and managed-policy
+checks for every task cwd, then verifies that the thread sees no MCP servers.
+
+This live path is intentionally a no-child isolation baseline. It cannot close
+the recursive-child gate while both multi-agent features are disabled. CP1
+must add a separate child-capable profile that enables only the reviewed
+multi-agent feature shape and repeats every isolation check before that profile
+can become the production candidate.
 
 It initializes with `experimentalApi`, reads the model catalog, registers and
 handshakes two temporary working directories, and starts one durable fixture
@@ -158,7 +187,7 @@ The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
 PASS compact Java projection matches the exact generated schema
 PASS exact Codex version 0.151.0
 PASS generated stable and experimental schema (codex app-server generate-json-schema --experimental --out <temporary-directory>)
-PASS ByteQuay rejects rule-bearing App Server sources and accepts clean isolation
+PASS App Server no-child baseline and config-source isolation
 ```
 
 Separately, a complete two-turn behavior slice passed on 2026-08-30 with
@@ -191,8 +220,8 @@ recursive child discovery, cross-task event/approval/command/filesystem
 isolation, API-key isolation, and the written go/no-go result remain separate
 CP1 evidence. Offline
 approval codec coverage does not close either live gate. Production adoption
-of the isolated launch profile, config-source guard, and managed-requirements
-absence gate belongs to CP4. The safe live path is now also
+of the executable guards and a separately proven child-capable launch profile
+belongs to CP4. The safe no-child live path is now also
 configured to exercise one typed parent-command approval and one bounded
 Git-worktree mutation per repository without adding a model turn. It uses the
 second turn for the yielded-terminal proof and reuses the same durable thread

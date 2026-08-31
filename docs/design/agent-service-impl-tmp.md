@@ -247,8 +247,8 @@ background terminal with targeted termination, child recursion, disk-backed
 restart recovery, cross-task event/approval/command/filesystem isolation, a
 safe live rerun with a dedicated API key that proves key isolation, and the
 written go/no-go result remain open.
-Production adoption of the isolated launch profile and both readiness guards
-belongs to CP4. See
+Production adoption of the shared isolation guards and a CP1-approved
+child-capable launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
 **Progress (2026-08-31):** the offline gate now projects and codec-tests the
@@ -292,6 +292,18 @@ App Server call pins the
 `configRequirements/read` response shape, requires its
 `requirements` field to be present and null, and fails for an omitted or
 non-null value.
+
+The same pre-thread gate now proves the configured no-child isolation baseline
+is effective, not merely present in command arguments. `config/read` must
+report one active `sessionFlags` layer and matching effective values for every
+disabled optional feature, disabled web search, empty MCP configuration,
+host-skill-discovery disable, and the minimal shell environment. `hooks/list`
+must be empty and error-free for the requested cwd. `skills/list` may return
+only bundled system skills whose canonical paths remain beneath the isolated
+`CODEX_HOME/skills/.system`; it rejects every host, repository, plugin-owned,
+or out-of-root skill without pinning names or count. Synthetic poison cases
+exercise those rejection branches. This repairs evidence behind the existing
+capability-isolation checks; it closes none of the remaining live CP1 gates.
 
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
@@ -341,7 +353,10 @@ Implementation:
 - [x] Inspect `model/list` effort choices, text input support, and advertised
   multi-agent protocol version, then run the advertised default effort.
 - [x] Exercise `thread/read(includeTurns: true)` with command history.
-- [ ] Exercise recursive child discovery needed by the later quiescence barrier.
+- [ ] Exercise recursive child discovery needed by the later quiescence
+  barrier. Use a separate child-capable profile that enables only the reviewed
+  multi-agent feature shape and repeat every capability-isolation assertion;
+  the no-child baseline cannot satisfy this item.
 - [x] Call `thread/resume` for the still-loaded root and complete a second turn.
 - [ ] Restart App Server and prove disk-backed thread recovery.
 - [ ] Run two task environments through one App Server and prove event,
@@ -349,10 +364,14 @@ Implementation:
 - [x] Prove inherited MCP servers, lifecycle hooks, project config, and the
   caller's ambient user config are absent. The fixture requires exactly one
   isolated App Server user layer under its temporary `CODEX_HOME`, calls
-  `config/read` for every temporary task cwd, and runs MCP/hook/config
-  assertions before the first model turn.
+  `config/read` for every temporary task cwd, accepts only isolated bundled
+  system skills, and runs MCP/skill/hook/config assertions before the first
+  model turn.
 - [x] Launch with apps/plugins and related optional features explicitly
-  disabled, empty dynamic tools, and empty capability roots.
+  disabled, empty dynamic tools, and empty capability roots. The keyless gate
+  proves the feature flags, web-search mode, empty MCP map, host-skill setting,
+  and complete shell-environment policy are active session flags for the
+  no-child baseline.
 - [x] Give every compatibility subprocess a separate credential-free
   `CODEX_HOME` and minimal allowlisted process environment. Configure the
   model-requested shell environment to omit `CODEX_HOME` and `CODEX_API_KEY`.
@@ -603,10 +622,13 @@ Implementation:
 - [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior.
 - [ ] Adopt the CP1-proven isolated subprocess environment, pre-turn
-  config-layer rule-source guard, and managed-requirements absence gate in the
-  production runtime path. Do not claim a per-thread override disables
-  exec-policy rules; v0.151 exposes none.
+  child-capable launch profile plus the skill-origin, hook, config-layer
+  rule-source, and managed-requirements guards in the production runtime path.
+  Do not claim a per-thread override disables exec-policy rules; v0.151 exposes
+  none.
 - [ ] Verify inherited capabilities remain disabled after start and resume.
+  Force skill discovery and repeat the origin/error guard immediately before
+  every `turn/start`, including the first turn after resume/restart.
 - [ ] Route root and child events/approvals by provider thread and turn identity
   without cross-task fallback.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and

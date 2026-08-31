@@ -2235,11 +2235,24 @@ The connection and task sequence is:
    `multiAgentVersion`. Production accepts the running catalog without a
    version allowlist. A required incompatible shape fails the affected operation
    and includes the detected Codex version in its diagnostic.
-3. Build a per-thread config override that sets `features.plugins = false`,
-   disables apps, every effective standalone MCP server, and every lifecycle
-   hook, supplies no dynamic tools or capability roots, and cannot be widened
-   by project/user config. Separately call `config/read(includeLayers: true)`
-   for every task cwd before accepting a turn, require the isolated user layer,
+3. Begin with the CP1 no-child isolation profile: explicit session flags disable
+   apps, plugins, hooks, host skill discovery, web search, multi-agent, and the
+   other unapproved optional capabilities, plus the minimal command
+   environment. This is a baseline, not the production subagent profile. Before
+   CP1 completes or CP2 begins, the fixture must separately prove a
+   child-capable profile that enables only the reviewed multi-agent feature
+   shape and repeats every isolation assertion.
+   Before creating a thread, call `config/read(includeLayers: true)` and require
+   exactly one `sessionFlags` layer with the same effective feature and shell
+   policy, an empty MCP-server map, and no inherited shell setters, exclusions,
+   or filters. `hooks/list` must be empty and error-free. `skills/list` may
+   return only bundled system skills canonically beneath the isolated
+   `CODEX_HOME/skills/.system`, with no plugin owner; names and count are not a
+   contract. Use `forceReload: true` and repeat the same origin/error guard
+   immediately before every `turn/start`, including the first turn after resume
+   or restart. Build a matching per-thread config override that
+   supplies no dynamic tools or capability roots and cannot be widened by
+   project/user config. For every task cwd, require the isolated user layer,
    reject every project layer, and scan the `rules/` directory beside each
    returned system, user, or project policy-bearing config source.
    `packagedDefaults` and `legacyManagedConfigTomlFromFile` layers are not
@@ -2460,7 +2473,11 @@ proves the ByteQuay source guard rejects it, and accepts a clean isolated
 workspace only after every tested task cwd has each returned system, user, or
 project policy-bearing config folder free of `.rules`. It separately pins
 `configRequirements/read` and proves its `requirements` field is present and
-null. Production adoption of both guards and the isolated launch profile
+null. The same keyless App Server run proves the no-child session flags and
+shell environment, empty MCP and hook configuration, and isolated
+bundled-system-skill origin before creating a thread. Synthetic poison cases
+exercise the rejection branches. This baseline is not the final subagent
+profile; production adoption waits for the separate CP1 child-capable proof and
 belongs to CP4.
 
 That exact fixture and its projection are reference-only and never form a

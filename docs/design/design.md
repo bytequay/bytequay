@@ -141,4 +141,8 @@ response fails closed. This security-specific response must contain exactly
 that one top-level key; an unknown sibling policy field also fails closed. The
 exact v0.151 executable gate proves that the isolated keyless value is
 explicitly null; supporting a broader shape later requires new executable
-evidence.
+evidence. That gate also verifies the effective no-child isolation baseline,
+empty hook and MCP configuration, and permits only bundled system skills rooted
+in the isolated `CODEX_HOME`. Because the baseline disables multi-agent, CP1
+must separately prove a child-capable profile with the same readiness checks
+before CP1 completes or CP2 begins.

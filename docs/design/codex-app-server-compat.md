@@ -32,7 +32,7 @@ BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
   node scripts/codex-app-server-compat.mjs --live
 ```
 
-The live gate starts one App Server and two version-matched loopback
+The live gate initially starts one App Server and two version-matched loopback
 `exec-server` processes, each rooted in a clean disposable Git repository. It
 passes the dedicated key only to the App Server as
 `CODEX_API_KEY`; no credential is copied to disk. Each executor receives a
@@ -51,6 +51,13 @@ thread in the isolated App Server home. Turn one selects executor A with the
 command item, and requires exactly one parent approval for the intended command
 before writing one bounded untracked proof file. The still-running App Server
 then receives `thread/resume`, and turn two selects executor B with no approval.
+Turn two writes its bounded proof file, emits an environment marker, and yields
+a tracked `/bin/sleep` process while the root turn completes. The fixture lists
+exactly that background terminal, correlates its process, item, command, and
+working-directory identities, terminates the listed process ID, observes the
+command item become failed with its pre-yield output intact, and verifies that
+the background list is empty before and after an idempotent clean.
+
 For both turns, the fixture verifies that the recorded shell action expands the
 environment variables and that the proof file is the only Git mutation in the
 selected repository. Before turn two, executor B's repository must not contain
@@ -64,16 +71,26 @@ Server's ambient process and verifies the tested shell environment policy.
 Every unexpected App Server request fails the fixture. A short command is not
 required to emit a separate output-delta notification.
 
+After both turns and background cleanup, the fixture stops and verifies the old
+App Server and executor process groups. It starts a fresh App Server with the
+same isolated App Server home and a fresh executor B, re-registers environment
+B, resumes and reads the durable thread without resending user input, and
+requires the same two turn IDs and command item IDs. No provider work may start
+during this recovery check. When the dedicated-key gate passes, this will prove
+the narrow persisted-history recovery shape; production ownership and crash
+recovery remain later checkpoints.
+
 Turn one uses `approvalPolicy: "untrusted"`; turn two uses
 `approvalPolicy: "never"`. Both use a workspace-write shell sandbox restricted
 to the selected temporary environment root with shell network disabled. App
-Server still uses provider network traffic for the two model turns. The
-durable thread exists only inside the temporary `CODEX_HOME`; after the App
-Server and both executor process groups have stopped, that home and the two
-environments are removed. Signal handling terminates every registered process
-group before cleanup. If group termination cannot be confirmed, the fixture
-reports the cleanup failure and retains its temporary tree for diagnosis. The
-fixture does not archive or delete user task history.
+Server still uses provider network traffic for the two model turns. The durable
+thread exists only inside the temporary App Server `CODEX_HOME`; each executor,
+including the replacement executor, has a separate empty home. After every
+registered App Server and executor process group has stopped, those homes and
+the two environments are removed. Signal handling terminates every registered
+process group before cleanup. If group termination cannot be confirmed, the
+fixture reports the cleanup failure and retains its temporary tree for
+diagnosis. The fixture does not archive or delete user task history.
 
 ## Evidence and remaining credential gate
 
@@ -102,16 +119,19 @@ the unsafe credential technique.
 This is a **GO candidate for the tested CP1 reference slice**: the pinned
 binary supplies the environment registration and task/history primitives
 required to begin a client integration. It is not final product approval. A
-non-empty yielded background terminal and targeted termination, every approval
-shape/decision, recursive child discovery, cross-task
+dedicated-key execution of the newly configured yielded-terminal, targeted
+termination, and restart-recovery checks, every approval shape/decision,
+recursive child discovery, cross-task
 event/approval/filesystem isolation, and production adoption of the isolated
 launch profile remain separate CP1
 evidence. The safe live path is now also configured to exercise one typed
 parent-command approval and one bounded Git-worktree mutation per repository
-without adding a model turn. It keeps its API key out of executor process
+without adding a model turn. It uses the second turn for the yielded-terminal
+proof and reuses the same durable thread for restart recovery. It keeps its API
+key out of executor process
 environments and records an exact command that checks that the key,
 `CODEX_HOME`, and App Server sentinel are absent. The dedicated-key rerun must
 prove these added behaviors. The fixture does not claim same-user filesystem read
-confinement outside the executor sandbox or restart-based thread recovery.
+confinement outside the executor sandbox or production crash recovery.
 Product decisions about relying on an experimental unsupported-for-production
 command and the same-host executor trust boundary also remain unresolved.

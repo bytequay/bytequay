@@ -89,6 +89,13 @@ const environmentEvidenceCommand =
 const environmentEvidencePrompt =
   `Use the shell exactly once to run this exact command: ${environmentEvidenceCommand}. ` +
   "Then reply with that exact output. Do not read files or use any other tool.";
+const backgroundEvidenceCommand =
+  `${environmentEvidenceCommand}; ` +
+  "printf 'BYTEQUAY_CP1_BACKGROUND_READY=1\\n'; exec /bin/sleep 300";
+const backgroundEvidencePrompt =
+  `Use the shell exactly once to run this exact command: ${backgroundEvidenceCommand}. ` +
+  "Set yield_time_ms to 250. When it yields a running process, immediately reply exactly " +
+  "bytequay-background-yielded. Do not call write_stdin or use another tool.";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -282,15 +289,60 @@ function checkSchema(directory, experimental) {
   const backgroundList = readJson(
     join(directory, "v2", "ThreadBackgroundTerminalsListResponse.json"),
   );
+  requireProperties(backgroundList, ["data", "nextCursor"]);
+  requireFields(backgroundList, ["data"]);
   requireProperties(backgroundList.definitions.ThreadBackgroundTerminal, [
     "processId",
     "itemId",
     "command",
     "cwd",
   ]);
+  requireFields(backgroundList.definitions.ThreadBackgroundTerminal, [
+    "processId",
+    "itemId",
+    "command",
+    "cwd",
+  ]);
+
+  const backgroundListParams = readJson(
+    join(directory, "v2", "ThreadBackgroundTerminalsListParams.json"),
+  );
+  requireProperties(backgroundListParams, ["threadId", "cursor", "limit"]);
+  requireFields(backgroundListParams, ["threadId"]);
+
+  const backgroundTerminateParams = readJson(
+    join(directory, "v2", "ThreadBackgroundTerminalsTerminateParams.json"),
+  );
+  requireProperties(backgroundTerminateParams, ["threadId", "processId"]);
+  requireFields(backgroundTerminateParams, ["threadId", "processId"]);
+  const backgroundTerminateResponse = readJson(
+    join(directory, "v2", "ThreadBackgroundTerminalsTerminateResponse.json"),
+  );
+  requireProperties(backgroundTerminateResponse, ["terminated"]);
+  requireFields(backgroundTerminateResponse, ["terminated"]);
 
   const threadResponse = readJson(join(directory, "v2", "ThreadReadResponse.json"));
   requireProperties(threadResponse.definitions.Thread, ["parentThreadId", "turns"]);
+  const commandItem = threadResponse.definitions.ThreadItem.oneOf.find(
+    (item) => item.properties?.type?.enum?.includes("commandExecution"),
+  );
+  assert.ok(commandItem, "ThreadItem lacks commandExecution");
+  requireProperties(commandItem, [
+    "aggregatedOutput",
+    "command",
+    "commandActions",
+    "cwd",
+    "exitCode",
+    "id",
+    "processId",
+    "status",
+    "type",
+  ]);
+  requireFields(commandItem, ["command", "commandActions", "cwd", "id", "status", "type"]);
+  assert.deepEqual(
+    threadResponse.definitions.CommandExecutionStatus.enum,
+    ["inProgress", "completed", "failed", "declined"],
+  );
 }
 
 function staticCompatibilityCheck() {
@@ -628,6 +680,23 @@ function startExecServer(cwd, environment, registerChild) {
   });
 }
 
+async function startAppServer(cwd, environment, registerChild) {
+  const child = spawn("codex", appServerArguments(), {
+    cwd,
+    detached: true,
+    env: environment,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  registerChild(child);
+  const rpc = new JsonRpcProcess(child);
+  await rpc.request("initialize", {
+    clientInfo: { name: "bytequay-cp1-compat", version: "1" },
+    capabilities: { experimentalApi: true, requestAttestation: false },
+  });
+  rpc.notify("initialized");
+  return { child, rpc };
+}
+
 function assertRuntimeHealthy(rpc, execServers) {
   assert.ifError(rpc.failure);
   assert.ok(processGroupExists(rpc.child.pid), "App Server exited before PASS");
@@ -656,6 +725,19 @@ async function completeTurn(rpc, params) {
   return completed.turn;
 }
 
+async function waitForNoBackgroundTerminals(rpc, threadId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const response = await rpc.request("thread/backgroundTerminals/list", {
+      threadId,
+      limit: 100,
+    });
+    if (response.data.length === 0) return response;
+    assert.ok(Date.now() < deadline, `background terminals remained after ${timeoutMs} ms`);
+    await delay(50);
+  }
+}
+
 function createIsolatedCodexHome(root) {
   const isolatedHome = join(root, "codex-home");
   mkdirSync(isolatedHome, { mode: 0o700 });
@@ -663,13 +745,10 @@ function createIsolatedCodexHome(root) {
 }
 
 function requiredLiveApiKey() {
-  const apiKey = [
-    process.env.BYTEQUAY_CODEX_COMPAT_API_KEY,
-    process.env.CODEX_API_KEY,
-  ].find((candidate) => candidate?.trim());
+  const apiKey = process.env.BYTEQUAY_CODEX_COMPAT_API_KEY;
   assert.ok(
-    apiKey,
-    "live gate requires BYTEQUAY_CODEX_COMPAT_API_KEY or CODEX_API_KEY; " +
+    apiKey?.trim(),
+    "live gate requires BYTEQUAY_CODEX_COMPAT_API_KEY; " +
       "it never copies rotating ChatGPT credentials",
   );
   return apiKey.trim();
@@ -802,7 +881,7 @@ async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
   }
 }
 
-function commandRanIn(command, cwd) {
+function commandRanIn(command, cwd, expectedCommand) {
   const apiKeyVisibility = command.aggregatedOutput
     ?.match(/^CODEX_API_KEY_VISIBLE=(.+)$/m)?.[1].trim();
   const appServerSentinel = command.aggregatedOutput
@@ -811,12 +890,11 @@ function commandRanIn(command, cwd) {
   const home = command.aggregatedOutput?.match(/^HOME=(.+)$/m)?.[1].trim();
   const workingDirectory = command.aggregatedOutput?.match(/^PWD=(.+)$/m)?.[1].trim();
   const exactCommandRecorded = command.commandActions?.some(
-    (action) => action.command === environmentEvidenceCommand,
+    (action) => action.command === expectedCommand,
   );
-  return command.command === environmentEvidenceCommand &&
+  return command.command === expectedCommand &&
     exactCommandRecorded &&
     realpathSync(command.cwd) === realpathSync(cwd) &&
-    command.exitCode === 0 &&
     apiKeyVisibility === "absent" &&
     appServerSentinel === "<unset>" &&
     codexHome === "<unset>" &&
@@ -839,7 +917,14 @@ function commandItemDiagnostics(items) {
   );
 }
 
-function assertSingleCommand(items, cwd, label) {
+function assertSingleCommand(
+  items,
+  cwd,
+  label,
+  expectedCommand = environmentEvidenceCommand,
+  expectedStatus = "completed",
+  expectedExitCode = 0,
+) {
   const activeItems = items.filter((item) => !passiveTurnItemTypes.has(item.type));
   assert.equal(
     activeItems.length,
@@ -849,9 +934,15 @@ function assertSingleCommand(items, cwd, label) {
   assert.equal(activeItems[0].type, "commandExecution", `${label} did not use the shell`);
   assert.ok(activeItems[0].id, `${label} command had no item id`);
   assert.ok(
-    commandRanIn(activeItems[0], cwd),
+    commandRanIn(activeItems[0], cwd, expectedCommand),
     `${label} lacked environment evidence: ${commandItemDiagnostics(activeItems)}`,
   );
+  assert.equal(activeItems[0].status, expectedStatus, `${label} had unexpected status`);
+  if (expectedExitCode === null) {
+    assert.ok(activeItems[0].exitCode == null, `${label} exited before it was terminated`);
+  } else if (expectedExitCode !== undefined) {
+    assert.equal(activeItems[0].exitCode, expectedExitCode, `${label} had unexpected exit code`);
+  }
   return activeItems[0];
 }
 
@@ -879,6 +970,7 @@ async function liveCompatibilityCheck() {
   let appServer;
   let execA;
   let execB;
+  let rpc;
   let failure;
   let interruptedSignal;
   let rejectInterruption;
@@ -898,6 +990,10 @@ async function liveCompatibilityCheck() {
         signalErrors.push(error);
       }
     }
+  };
+  const stopRegisteredChild = async (child) => {
+    await stopProcess(child);
+    children.delete(child);
   };
   const handleSignal = (signal) => {
     const firstSignal = !interruptedSignal;
@@ -935,20 +1031,9 @@ async function liveCompatibilityCheck() {
     execB = await interruptible(
       startExecServer(cwdB, executorB.environment, registerChild),
     );
-    appServer = spawn("codex", appServerArguments(), {
-      cwd: root,
-      detached: true,
-      env: appServerEnvironment,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    registerChild(appServer);
-    const rpc = new JsonRpcProcess(appServer);
-
-    await interruptible(rpc.request("initialize", {
-      clientInfo: { name: "bytequay-cp1-compat", version: "1" },
-      capabilities: { experimentalApi: true, requestAttestation: false },
-    }));
-    rpc.notify("initialized");
+    ({ child: appServer, rpc } = await interruptible(
+      startAppServer(root, appServerEnvironment, registerChild),
+    ));
 
     const models = await interruptible(rpc.request("model/list", {}));
     const model = models.data.find((candidate) => candidate.isDefault) ?? models.data[0];
@@ -1039,7 +1124,7 @@ async function liveCompatibilityCheck() {
           params.command?.includes(proofFileName) &&
             params.command.includes("CODEX_API_KEY_VISIBLE") &&
             params.command.includes("APP_SERVER_SENTINEL") &&
-            params.command.includes("COMMAND_CODEX_HOME"),
+            params.command.includes("CODEX_HOME=%s"),
           "parent approval did not contain the expected evidence command",
         );
         assert.equal(
@@ -1151,7 +1236,7 @@ async function liveCompatibilityCheck() {
       input: [
         {
           type: "text",
-          text: environmentEvidencePrompt,
+          text: backgroundEvidencePrompt,
           text_elements: [],
         },
       ],
@@ -1182,6 +1267,9 @@ async function liveCompatibilityCheck() {
       secondStartedItems,
       "second turn",
     );
+    assert.equal(secondStartedCommand.command, backgroundEvidenceCommand);
+    assert.equal(secondStartedCommand.status, "inProgress");
+    assert.equal(realpathSync(secondStartedCommand.cwd), realpathSync(cwdB));
     const secondTurnCompletedItems = secondTurnNotifications
       .filter(
         (notification) =>
@@ -1189,12 +1277,11 @@ async function liveCompatibilityCheck() {
           notification.params.threadId === threadId,
       )
       .map((notification) => notification.params.item);
-    const secondCompletedCommand = assertSingleCommand(
-      secondTurnCompletedItems,
-      cwdB,
-      "second turn completion",
+    assert.deepEqual(
+      secondTurnCompletedItems.filter((item) => !passiveTurnItemTypes.has(item.type)),
+      [],
+      "yielded command completed before targeted termination",
     );
-    assert.equal(secondCompletedCommand.id, secondStartedCommand.id);
     assertProofFile(cwdB, executorB.environment);
     assertProofFile(cwdA, executorA.environment);
     assert.ok(
@@ -1202,7 +1289,8 @@ async function liveCompatibilityCheck() {
         (notification) =>
           notification.method === "item/completed" &&
           notification.params.threadId === threadId &&
-          notification.params.item?.type === "agentMessage",
+          notification.params.item?.type === "agentMessage" &&
+          notification.params.item.text.trim(),
       ),
       "executor B final agent message was not streamed",
     );
@@ -1223,9 +1311,12 @@ async function liveCompatibilityCheck() {
       secondRead.thread.turns[1].items,
       cwdB,
       "second turn history",
+      backgroundEvidenceCommand,
+      "inProgress",
+      null,
     );
     assert.equal(firstReplayedCommand.id, firstCompletedCommand.id);
-    assert.equal(secondHistoryCommand.id, secondCompletedCommand.id);
+    assert.equal(secondHistoryCommand.id, secondStartedCommand.id);
     assert.ok(
       secondRead.thread.turns.at(-1).items.some(
         (item) => item.type === "agentMessage" && item.text.trim(),
@@ -1245,28 +1336,163 @@ async function liveCompatibilityCheck() {
       threadId,
       limit: 100,
     }));
-    for (const terminal of beforeCleanup.data) {
-      await interruptible(rpc.request("thread/backgroundTerminals/terminate", {
-        threadId,
-        processId: terminal.processId,
-      }));
-    }
+    assert.equal(beforeCleanup.nextCursor ?? null, null);
+    assert.equal(beforeCleanup.data.length, 1, "yielded command was not listed exactly once");
+    const backgroundTerminal = beforeCleanup.data[0];
+    assert.equal(backgroundTerminal.itemId, secondStartedCommand.id);
+    assert.ok(
+      typeof backgroundTerminal.processId === "string" && backgroundTerminal.processId.trim(),
+      "background terminal omitted processId",
+    );
+    assert.equal(backgroundTerminal.command, backgroundEvidenceCommand);
+    assert.equal(realpathSync(backgroundTerminal.cwd), realpathSync(cwdB));
+    const backgroundCompletion = rpc.waitFor(
+      "item/completed",
+      (notification) =>
+        notification.threadId === threadId &&
+        notification.turnId === secondCompletedTurn.id &&
+        notification.item?.id === secondStartedCommand.id,
+    );
+    const termination = await interruptible(rpc.request(
+      "thread/backgroundTerminals/terminate",
+      { threadId, processId: backgroundTerminal.processId },
+    ));
+    assert.deepEqual(termination, { terminated: true });
+    const terminatedItem = await interruptible(backgroundCompletion);
+    const terminatedSecondCommand = assertSingleCommand(
+      [terminatedItem.item],
+      cwdB,
+      "targeted background termination",
+      backgroundEvidenceCommand,
+      "failed",
+      undefined,
+    );
+    assert.notEqual(terminatedSecondCommand.exitCode, 0);
+    assert.ok(
+      terminatedSecondCommand.aggregatedOutput?.includes(
+        "BYTEQUAY_CP1_BACKGROUND_READY=1",
+      ),
+      "terminated command omitted its pre-yield output",
+    );
+    const afterTermination = await interruptible(
+      waitForNoBackgroundTerminals(rpc, threadId),
+    );
+    assert.equal(afterTermination.nextCursor ?? null, null);
     await interruptible(rpc.request("thread/backgroundTerminals/clean", { threadId }));
     const afterCleanup = await interruptible(rpc.request("thread/backgroundTerminals/list", {
       threadId,
       limit: 100,
     }));
     assert.deepEqual(afterCleanup.data, []);
-    assert.equal(
-      beforeCleanup.data.length,
-      0,
-      "the foreground-only fixture unexpectedly yielded a background terminal",
+    const terminatedRead = await interruptible(
+      rpc.request("thread/read", { threadId, includeTurns: true }),
     );
+    const terminatedHistoryCommand = assertSingleCommand(
+      terminatedRead.thread.turns[1].items,
+      cwdB,
+      "terminated second turn history",
+      backgroundEvidenceCommand,
+      "failed",
+      undefined,
+    );
+    assert.equal(terminatedHistoryCommand.id, terminatedSecondCommand.id);
 
-    await interruptible(delay(0));
     assertRuntimeHealthy(rpc, [
       ["environment A", execA],
       ["environment B", execB],
+    ]);
+    const oldAppServerPid = appServer.pid;
+    const oldExecAPid = execA.child.pid;
+    const oldExecBPid = execB.child.pid;
+    await interruptible(stopRegisteredChild(appServer));
+    await interruptible(Promise.all([
+      stopRegisteredChild(execA.child),
+      stopRegisteredChild(execB.child),
+    ]));
+    assert.equal(processGroupExists(oldAppServerPid), false);
+    assert.equal(processGroupExists(oldExecAPid), false);
+    assert.equal(processGroupExists(oldExecBPid), false);
+
+    const replacementExecutorB = executorProcessEnvironment(root, "exec-b-restarted", cwdB);
+    assert.equal(existsSync(join(replacementExecutorB.codexHome, "auth.json")), false);
+    execB = await interruptible(
+      startExecServer(cwdB, replacementExecutorB.environment, registerChild),
+    );
+    ({ child: appServer, rpc } = await interruptible(
+      startAppServer(root, appServerEnvironment, registerChild),
+    ));
+    await interruptible(rpc.request("environment/add", {
+      environmentId: environmentB.environmentId,
+      execServerUrl: execB.url,
+      connectTimeoutMs: 10_000,
+    }));
+    const replacementInfoB = await interruptible(rpc.request("environment/info", {
+      environmentId: environmentB.environmentId,
+    }));
+    assert.equal(canonicalPath(replacementInfoB.cwd), realpathSync(cwdB));
+    assert.ok(replacementInfoB.shell.name && replacementInfoB.shell.path);
+
+    const restartNotificationStart = rpc.notifications.length;
+    const recovered = await interruptible(rpc.request("thread/resume", {
+      threadId,
+      cwd: cwdB,
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
+      excludeTurns: false,
+    }));
+    assert.equal(recovered.thread.id, threadId);
+    await interruptible(
+      verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
+    );
+    const recoveredRead = await interruptible(
+      rpc.request("thread/read", { threadId, includeTurns: true }),
+    );
+    assert.equal(recoveredRead.thread.id, threadId);
+    assert.equal(recoveredRead.thread.turns.length, 2);
+    assert.equal(recoveredRead.thread.turns[0].id, firstCompletedTurn.id);
+    assert.equal(recoveredRead.thread.turns[1].id, secondCompletedTurn.id);
+    const recoveredFirstCommand = assertSingleCommand(
+      recoveredRead.thread.turns[0].items,
+      cwdA,
+      "recovered first turn",
+    );
+    const recoveredSecondCommand = assertSingleCommand(
+      recoveredRead.thread.turns[1].items,
+      cwdB,
+      "recovered second turn",
+      backgroundEvidenceCommand,
+      "failed",
+      undefined,
+    );
+    assert.equal(recoveredFirstCommand.id, firstCompletedCommand.id);
+    assert.equal(recoveredSecondCommand.id, terminatedSecondCommand.id);
+    const recoveredBackground = await interruptible(
+      rpc.request("thread/backgroundTerminals/list", { threadId, limit: 100 }),
+    );
+    assert.deepEqual(recoveredBackground.data, []);
+    assertProofFile(cwdA, executorA.environment);
+    assertProofFile(cwdB, replacementExecutorB.environment);
+
+    await interruptible(delay(100));
+    const settledRecoveredRead = await interruptible(
+      rpc.request("thread/read", { threadId, includeTurns: true }),
+    );
+    assert.deepEqual(
+      settledRecoveredRead.thread.turns.map((turn) => turn.id),
+      [firstCompletedTurn.id, secondCompletedTurn.id],
+      "App Server restart changed durable history without a new turn",
+    );
+    assert.ok(
+      !rpc.notifications.slice(restartNotificationStart).some(
+        (notification) =>
+          notification.method === "turn/started" ||
+          notification.method === "item/started",
+      ),
+      "App Server restart started provider work without a new turn",
+    );
+    assertRuntimeHealthy(rpc, [
+      ["replacement environment B", execB],
     ]);
     assert.equal(
       existsSync(join(codexHome, "auth.json")),
@@ -1275,13 +1501,15 @@ async function liveCompatibilityCheck() {
     );
     assert.equal(existsSync(join(executorA.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorB.codexHome, "auth.json")), false);
+    assert.equal(existsSync(join(replacementExecutorB.codexHome, "auth.json")), false);
 
     console.log(`PASS live initialize and model/list (${model.model})`);
     console.log("PASS dedicated API-key auth and credential-free executor processes");
     console.log("PASS empty MCP/hooks and disabled optional capabilities");
     console.log("PASS environment A and B command routing without ambient fallback");
     console.log("PASS command events, thread/read, resume, and two turns");
-    console.log("PASS empty background-terminal list and cleanup");
+    console.log("PASS yielded background-terminal list, targeted termination, and cleanup");
+    console.log("PASS App Server restart and disk-backed thread recovery without resend");
   } catch (error) {
     failure = error;
   } finally {
